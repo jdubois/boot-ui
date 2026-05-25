@@ -12,6 +12,7 @@ Thumbs.db
 .project
 .settings/
 .factorypath
+.jdtls-workspace/
 nbproject/
 nb-configuration.xml
 
