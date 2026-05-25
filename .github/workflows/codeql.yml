@@ -21,7 +21,7 @@ jobs:
       matrix:
         language: ['java-kotlin', 'javascript-typescript']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up JDK 25
         if: matrix.language == 'java-kotlin'
