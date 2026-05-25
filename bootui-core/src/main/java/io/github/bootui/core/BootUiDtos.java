@@ -140,4 +140,44 @@ public final class BootUiDtos {
 
     public record StartupReport(List<StartupStepDto> steps) {
     }
+
+    /** Summary of one Spring Data repository discovered in the context. */
+    public record RepositoryDto(
+            String beanName,
+            String repositoryInterface,
+            String domainType,
+            String idType,
+            String storeModule,
+            String customImplementation,
+            int queryMethodCount,
+            int fragmentCount) {
+    }
+
+    /** Detail view of a Spring Data repository, including its query methods. */
+    public record RepositoryDetailDto(
+            String beanName,
+            String repositoryInterface,
+            String domainType,
+            String idType,
+            String storeModule,
+            String customImplementation,
+            List<RepositoryMethodDto> methods,
+            List<String> fragments) {
+    }
+
+    /** One query method on a Spring Data repository. */
+    public record RepositoryMethodDto(
+            String name,
+            String signature,
+            String origin,
+            String query,
+            boolean nativeQuery,
+            String namedQuery) {
+    }
+
+    public record RepositoriesReport(
+            boolean springDataPresent,
+            int total,
+            List<RepositoryDto> repositories) {
+    }
 }
