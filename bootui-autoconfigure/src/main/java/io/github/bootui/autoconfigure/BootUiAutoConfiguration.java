@@ -6,6 +6,7 @@ import io.github.bootui.autoconfigure.web.BeansController;
 import io.github.bootui.autoconfigure.web.BootUiIndexController;
 import io.github.bootui.autoconfigure.web.ConditionsController;
 import io.github.bootui.autoconfigure.web.ConfigController;
+import io.github.bootui.autoconfigure.web.DataController;
 import io.github.bootui.autoconfigure.web.HealthController;
 import io.github.bootui.autoconfigure.web.LoggersController;
 import io.github.bootui.autoconfigure.web.MappingsController;
@@ -47,6 +48,7 @@ import org.springframework.core.env.Environment;
         HealthController.class,
         LoggersController.class,
         StartupController.class,
+        DataController.class,
         BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {

@@ -398,6 +398,51 @@ Acceptance criteria:
 - Unknown services are represented generically.
 - Works even when Docker is not installed.
 
+### 5.10 Spring Data Explorer
+
+Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they expose?"
+
+Data sources:
+
+- Spring Data `Repositories` bean and `RepositoryFactoryInformation` beans discovered in the application context.
+- Each repository's `RepositoryInformation` (domain type, ID type, repository interface, custom implementation class, query methods, fragment methods).
+- Optional Spring Data JPA / Hibernate metamodel when present, for managed entities and `@NamedQuery` declarations.
+- Optional link to the related `DataSource` health contributor surfaced in §5.6.
+
+Features:
+
+- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, Redis, R2DBC, Cassandra, Neo4j, generic).
+- For each repository, show:
+  - Repository interface name and package.
+  - Domain (entity) type and ID type.
+  - Whether the repository is a user-declared interface, a fragment, or auto-generated.
+  - Custom implementation class, if any.
+  - Method list with origin badge (CRUD, derived-query, `@Query`, fragment, default-method).
+  - For `@Query`-annotated methods: the declared query string, native flag, and named-query reference if any.
+  - For derived queries: the parsed property path / predicate, when available.
+- Filter by store module, by domain type, and by free-text on method or query content.
+- JPA-specific detail when Hibernate is on the classpath:
+  - Managed entities with table name and primary key.
+  - `@NamedQuery` and `@NamedNativeQuery` declarations.
+- Cross-link each repository to:
+  - The corresponding bean in the Beans Explorer (§5.2).
+  - The relevant `spring.datasource.*`, `spring.jpa.*`, `spring.data.*` properties in the Config Explorer (§5.4).
+  - The health contributor for its datastore in the Health Dashboard (§5.6).
+
+Out of scope for v0.1:
+
+- Executing repository methods or arbitrary queries from the UI (would break the read-only, fail-closed safety stance).
+- Schema migration controls (Flyway/Liquibase) — possible future panel.
+- Editing or generating repository code.
+
+Acceptance criteria:
+
+- When Spring Data is not on the classpath, the panel is hidden from the navigation and the API endpoint is not registered.
+- When Spring Data is present but no repositories are detected, the panel shows a clear empty state.
+- Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
+- No repository method is invoked as a side effect of opening the panel.
+- The detail view exposes enough information to answer "which repository owns this entity?" and "where is the SQL for this method?" without reading the codebase.
+
 ## 6. Technical architecture
 
 ### 6.1 Proposed repository layout
@@ -538,6 +583,8 @@ Initial endpoints:
 | `/bootui/api/loggers/{name}` | POST | Change logger level |
 | `/bootui/api/startup` | GET | Startup timeline |
 | `/bootui/api/services` | GET | Local service connections |
+| `/bootui/api/data/repositories` | GET | Detected Spring Data repositories (summary) |
+| `/bootui/api/data/repositories/{name}` | GET | Spring Data repository detail with query methods |
 
 ### 6.5 Configuration properties
 
@@ -602,6 +649,7 @@ Top-level tabs:
 - Loggers.
 - Startup.
 - Services.
+- Data.
 
 ### 7.2 UI principles
 
