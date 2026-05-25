@@ -288,13 +288,48 @@ Potential features:
 - Better WebFlux support.
 - Services panel for Docker Compose and Testcontainers.
 - Link from UI to source files when possible.
+- Spring Security panel (read-only). See section 4.1 below.
+
+### 4.1 Spring Security panel (v0.2 / v0.3)
+
+Goal: answer "why am I getting 401/403?" without leaving the browser. Strictly
+read-only, fail-closed when Spring Security is not on the classpath.
+
+Scope:
+
+- List of `SecurityFilterChain` beans with order, request matcher, and the
+  effective ordered list of filters.
+- Per-request "explain" tool: enter an HTTP method and path, show which chain
+  matches and the resulting filter pipeline.
+- Summary of CSRF, CORS, and session-management configuration per chain.
+- Active `AuthenticationProvider`s and the type of `UserDetailsService` in use
+  (type names only, never credentials).
+- In dev, surface the auto-generated user name from
+  `UserDetailsServiceAutoConfiguration` but never its password.
+
+Non-goals for v0.x:
+
+- No "test login as user X" or impersonation.
+- No mutation of security configuration at runtime.
+- No display of client secrets, JWT signing keys, or in-memory passwords.
+
+Implementation notes:
+
+- New `bootui-autoconfigure` module slice gated by
+  `@ConditionalOnClass(SecurityFilterChain.class)` and
+  `ObjectProvider<List<SecurityFilterChain>>`; absent classpath ⇒ panel hidden.
+- DTOs in `BootUiDtos` to insulate the UI from Spring Security internals,
+  which change between minor versions.
+- Every string surfaced to the browser routed through `SecretMasker` and
+  honoring `bootui.expose-values`.
+- Pairs with the existing Mappings panel: link each mapping to its matching
+  chain.
 
 ## 5. v1.0 scope
 
 Potential features:
 
 - Extension SPI.
-- Spring Security panel.
 - Spring Data panel.
 - Spring Batch panel.
 - Spring Cloud panel.
