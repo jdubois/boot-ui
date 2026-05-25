@@ -1,0 +1,80 @@
+# BootUI sample app — Playwright end-to-end tests
+
+This module hosts a full integration test suite that drives the **BootUI
+console** served by `bootui-sample-app` using a real Chromium browser. It
+validates every BootUI screen from the perspective of a developer using the
+console against a running Spring Boot application.
+
+## What is covered
+
+Each Playwright spec file targets one of the BootUI views (or a cross-cutting
+flow) exposed by the sample app:
+
+| Spec                       | Verifies                                                                                |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| `app-shell.spec.js`        | Top navbar, sidebar links, deep-linking, navigation between every section              |
+| `overview.spec.js`         | Application / Runtime / Activation cards, refresh button                               |
+| `beans.spec.js`            | Bean list rendering, name filter, classification filter                                |
+| `conditions.spec.js`       | Positive / negative auto-config tabs, filtering                                        |
+| `config.spec.js`           | Property search, add an override (`sample.greeting`), confirm + delete it              |
+| `mappings.spec.js`         | HTTP mappings include the sample app routes, filter narrows the list                   |
+| `health.spec.js`           | Health tree renders with an overall status badge                                       |
+| `loggers.spec.js`          | Logger search, change `io.github.bootui.sample` to `WARN`, reset                       |
+| `data.spec.js`             | `ProductRepository` is listed, detail panel shows `searchByName`                       |
+| `startup.spec.js`          | Startup timeline displays step rows                                                    |
+| `scheduled.spec.js`        | Scheduled tasks view renders (empty-state allowed)                                     |
+| `http-probe.spec.js`       | Probe `/api/sample/hello` and assert the JSON response is shown                        |
+| `log-tail.spec.js`         | Log Tail connects, streams new events, pause / resume / clear controls work           |
+| `profile-diff.spec.js`     | Profile sources & properties render with filtering                                     |
+| `security.spec.js`         | Filter chains list `/admin/**`, explain endpoint returns a match                       |
+| `memory.spec.js`           | Heap / non-heap cards render, JVM options copy button                                  |
+| `sample-api.spec.js`       | Sample REST API (`/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
+
+## Prerequisites
+
+* Node.js 20+
+* Java 25 and Maven (used to build & run the sample app)
+* The BootUI parent build must be installed locally so the sample app can
+  resolve its modules:
+
+  ```bash
+  cd ..               # back to the repository root
+  mvn -DskipTests install
+  ```
+
+## Install
+
+```bash
+cd bootui-sample-app/e2e
+npm install
+npx playwright install --with-deps chromium
+```
+
+## Run
+
+```bash
+# Lets Playwright start the sample app for you (via mvn spring-boot:run)
+npm test
+```
+
+If you prefer to start the sample app yourself, run it on port 8080 and then
+launch the tests — Playwright will reuse the running server:
+
+```bash
+# terminal 1
+cd ..
+mvn spring-boot:run
+# terminal 2
+cd bootui-sample-app/e2e
+npm test
+```
+
+## Configuration
+
+* `BOOTUI_BASE_URL` — override the base URL (default `http://localhost:8080`).
+* `BOOTUI_SAMPLE_PORT` — override the port used to build the default base URL.
+
+## Artefacts
+
+Playwright writes HTML reports to `playwright-report/` and traces / screenshots
+/ videos for failed tests under `test-results/`. Both folders are git-ignored.

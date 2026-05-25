@@ -1,0 +1,32 @@
+// @ts-check
+import { test, expect } from './fixtures.js'
+
+test.describe('Security view', () => {
+
+  test('lists filter chains including the /admin chain', async ({ openView, page }) => {
+    await openView('security', 'Spring Security')
+
+    const chains = page.locator('.accordion-item')
+    await expect.poll(async () => chains.count()).toBeGreaterThan(0)
+
+    const adminChain = chains.filter({ hasText: '/admin/**' }).first()
+    await expect(adminChain).toBeVisible()
+
+    // Authentication card mentions our in-memory users.
+    await expect(page.locator('main')).toContainText('UserDetailsService')
+    await expect(page.locator('main')).toContainText('InMemoryUserDetailsManager')
+  })
+
+  test('explain endpoint matches GET /admin against the admin chain', async ({ openView, page }) => {
+    await openView('security', 'Spring Security')
+
+    await page.locator('select.form-select').selectOption('GET')
+    await page.getByPlaceholder('/api/example').fill('/admin')
+    await page.getByRole('button', { name: /^Explain/ }).click()
+
+    const result = page.locator('.card', { hasText: /Request matcher|Filters/ }).first()
+    await expect(result).toBeVisible()
+    await expect(result).toContainText('/admin/**')
+    await expect(result).toContainText('BasicAuthenticationFilter')
+  })
+})
