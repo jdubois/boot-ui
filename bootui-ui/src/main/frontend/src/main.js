@@ -18,6 +18,7 @@ import HttpProbe from './views/HttpProbe.vue'
 import LogTail from './views/LogTail.vue'
 import ProfileDiff from './views/ProfileDiff.vue'
 import Security from './views/Security.vue'
+import Memory from './views/Memory.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -36,7 +37,8 @@ const router = createRouter({
     { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe' } },
     { path: '/log-tail', name: 'log-tail', component: LogTail, meta: { icon: 'bi-terminal', title: 'Log Tail' } },
     { path: '/profiles', name: 'profiles', component: ProfileDiff, meta: { icon: 'bi-layers', title: 'Profile Diff' } },
-    { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security' } }
+    { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security' } },
+    { path: '/memory', name: 'memory', component: Memory, meta: { icon: 'bi-memory', title: 'Memory' } }
   ]
 })
 

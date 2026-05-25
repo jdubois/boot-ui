@@ -278,4 +278,22 @@ public final class BootUiDtos {
             List<SecurityFilterChainDto> chains,
             SecurityAuthDto auth) {
     }
+
+    /** A single JVM memory pool (heap, non-heap, or GC pool). */
+    public record MemoryPoolDto(
+            String name,
+            long usedBytes,
+            long committedBytes,
+            long maxBytes,
+            int usedPercent) {
+    }
+
+    /** Snapshot of JVM memory metrics. */
+    public record MemoryReport(
+            MemoryPoolDto heap,
+            MemoryPoolDto nonHeap,
+            List<MemoryPoolDto> pools,
+            List<String> jvmInputArguments,
+            String suggestedJvmOptions) {
+    }
 }
