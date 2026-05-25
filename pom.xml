@@ -29,6 +29,7 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.0.6</spring-boot.version>
         <frontend-maven-plugin.version>2.0.0</frontend-maven-plugin.version>
+        <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
         <node.version>v24.16.0</node.version>
         <npm.version>11.15.0</npm.version>
     </properties>
@@ -81,6 +82,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.5</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${maven-resources-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
