@@ -2,6 +2,8 @@ package io.github.bootui.autoconfigure.web;
 
 import io.github.bootui.autoconfigure.BootUiProperties;
 import io.github.bootui.core.BootUiDtos.SecurityAuthDto;
+import io.github.bootui.core.BootUiDtos.SecurityEndpointDto;
+import io.github.bootui.core.BootUiDtos.SecurityEndpointsReport;
 import io.github.bootui.core.BootUiDtos.SecurityExplainDto;
 import io.github.bootui.core.BootUiDtos.SecurityFilterChainDto;
 import io.github.bootui.core.BootUiDtos.SecurityReport;
