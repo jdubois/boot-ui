@@ -2,9 +2,9 @@
 
 ## 1. Strategy
 
-Build BootUI as a **Spring Boot 4 Starter** first, not as a standalone application or platform. The first release should prove the core value: adding one starter dependency to a Spring Boot 4 application gives a safe local UI that explains the running app.
+Build BootUI as a **Spring Boot 4 starter** first, not as a standalone application or platform. The first release should prove the core value: adding one starter dependency to a Spring Boot 4 application gives a safe local UI that explains the running app.
 
-The MVP should prioritize:
+The MVP prioritizes:
 
 1. Safety.
 2. Easy installation.
@@ -12,242 +12,136 @@ The MVP should prioritize:
 4. A polished but simple UI.
 5. Testable architecture.
 
-## 2. Milestones
+## 2. Current implementation state
 
-### Milestone 0: Project foundation
+The project is past the original skeleton phase. The repository currently includes:
 
-Goal: create the repository structure and build system.
-
-Deliverables:
-
-- Maven multi-module project.
-- Java 25 configuration.
-- Spring Boot 4.x baseline.
-- Root README.
-- License.
-- `.gitignore`, `.editorconfig`, `.gitattributes`.
-- CI workflow.
-- Basic module skeleton:
+- Maven multi-module structure:
   - `bootui-core`
   - `bootui-autoconfigure`
   - `bootui-spring-boot-starter`
   - `bootui-ui`
   - `bootui-sample-app`
+- Java 25 and Spring Boot 4.x baseline.
+- CI workflows and project metadata.
+- Core BootUI runtime:
+  - activation properties and activation condition
+  - servlet auto-configuration registered through Spring Boot auto-configuration imports
+  - localhost-only safety filter
+  - startup banner
+  - `/bootui` UI forwarding
+  - `/bootui/api/**` controllers for overview, beans, conditions, config, mappings, health, loggers, and startup
+  - config override property source, environment post-processor, file store, and runtime service
+  - secret masking helper
+- Vue 3 UI shell:
+  - Overview
+  - Beans
+  - Conditions
+  - Configuration
+  - Mappings
+  - Health
+  - Loggers
+- Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 
-Validation:
+## 3. Milestone status
 
-```bash
-./mvnw clean verify
-```
+| Milestone | Status | Notes |
+|---|---|---|
+| 0. Project foundation | Done | Multi-module build, Java/Spring baseline, sample app, docs, and CI exist. |
+| 1. Auto-configuration and safety | Implemented, needs broader tests | Activation, auto-configuration, localhost filter, banner, and overview API exist. |
+| 2. Static UI shell | Implemented, needs smoke validation | Vue shell, Maven frontend build, classpath packaging, and core routes exist. |
+| 3. Actuator bridge | Implemented, needs coverage hardening | Stable BootUI DTO endpoints exist for the MVP panels; missing-Actuator behavior needs explicit tests. |
+| 4. Beans and Conditions panels | Implemented, needs product validation | API and UI panels exist; sample-app usefulness and edge cases should be checked. |
+| 5. Config, Mappings, Health, and Loggers | Implemented, needs coverage hardening | Runtime config overrides, secret masking, mappings, health, and logger controls exist; mutation and masking tests need expansion. |
+| 6. Documentation and release hardening | Not complete | Installation, activation, safety, troubleshooting, release notes, and sample walkthrough need to be finished. |
 
-Exit criteria:
+## 4. What still needs to be done
 
-- Empty modules compile.
-- Sample app starts.
-- CI passes.
+### 4.1 Expand backend tests
 
-### Milestone 1: Auto-configuration and safety
+Add or broaden tests for:
 
-Goal: BootUI can enable itself safely in local development and stay disabled elsewhere.
+1. `BootUiProperties` binding and defaults.
+2. Activation rules:
+   - `dev` and `local` profiles.
+   - devtools-based activation.
+   - explicit enable/disable values.
+   - disabled production profiles.
+   - fail-closed behavior when activation is ambiguous.
+3. Localhost-only protection:
+   - loopback access.
+   - non-local rejection.
+   - opt-out behavior through `bootui.allow-non-localhost=true`.
+   - forwarded-header behavior if BootUI supports it.
+4. Controller mappings and DTO serialization for every `/bootui/api/**` endpoint.
+5. Missing or unavailable Actuator endpoints returning stable empty DTOs.
+6. Config override create, update, delete, persistence, display masking, and restart-warning messages.
+7. Logger level mutation and clearing.
+8. Secret masking for all browser-visible property names and values.
 
-Deliverables:
+### 4.2 Finish UI and product parity checks
 
-- `BootUiProperties`.
-- `BootUiAutoConfiguration`.
-- Activation conditions:
-  - devtools present.
-  - `dev` or `local` profile.
-  - explicit `bootui.enabled=true`.
-- Production safety:
-  - disabled for `prod` profile by default.
-  - localhost-only request filter.
-  - clear startup logs.
-- Startup banner line with BootUI URL.
-- `/bootui/api/overview` endpoint.
+Validate every v0.1 panel against the sample app:
 
-Tests:
+1. Overview.
+2. Beans.
+3. Conditions.
+4. Configuration.
+5. Mappings.
+6. Health.
+7. Loggers.
 
-- Properties binding tests.
-- Auto-configuration condition tests.
-- Localhost filter tests.
-- Production profile disabled test.
+Also decide whether the existing startup API should get a visible Startup route in v0.1 or remain a later enhancement. The original plan mentioned Startup and Services in the navigation shell, but the current v0.1 acceptance criteria only require Overview, Beans, Conditions, Config, Mappings, Health, and Loggers.
 
-Exit criteria:
+### 4.3 Refresh user-facing documentation
 
-- Adding the starter to the Spring Boot 4 sample app exposes `/bootui/api/overview` locally.
-- Non-local access is rejected by default.
-- `prod` profile disables BootUI.
+Before the first alpha, document:
 
-### Milestone 2: Static UI shell
+1. Installation.
+2. Activation rules.
+3. Configuration properties.
+4. Safety model and localhost-only behavior.
+5. Secret masking behavior.
+6. Runtime configuration override behavior and restart caveats.
+7. Actuator requirements and degraded behavior when endpoints are unavailable.
+8. Troubleshooting.
+9. Sample app walkthrough.
+10. Release notes.
 
-Goal: the browser UI loads and calls the overview API.
+Reconcile the specification with the implementation where behavior has become more precise, especially:
 
-Deliverables:
+- `bootui.enabled` value semantics.
+- Startup panel scope.
+- Services panel scope.
+- Maven Central publishing scope for `0.1.0-alpha.1`.
 
-- Vue 3 + TypeScript + Vite frontend.
-- Bootstrap 5.3 styling.
-- Static Vue assets built automatically by Maven into `bootui-ui`.
-- Compiled Vue assets packaged into the BootUI Java artifact.
-- Assets served by `bootui-autoconfigure`.
-- Navigation shell:
-  - Overview.
-  - Beans.
-  - Conditions.
-  - Config.
-  - Mappings.
-  - Health.
-  - Loggers.
-  - Startup.
-  - Services.
-- Empty states and error states.
+### 4.4 Validate release readiness
 
-Tests:
-
-- UI build test.
-- Root Maven build packages the Vue UI without manual npm commands.
-- Asset serving integration test.
-- Browser smoke test if practical.
-
-Exit criteria:
-
-- `/bootui` loads in the sample app.
-- Overview panel displays real app/runtime data.
-- `./mvnw clean package` produces artifacts that include the compiled Vue UI.
-
-### Milestone 3: Actuator bridge
-
-Goal: BootUI has a stable internal API over Actuator data.
-
-Deliverables:
-
-- Actuator availability detection.
-- Internal endpoint access layer.
-- Normalized error model.
-- Endpoints:
-  - `/bootui/api/beans`
-  - `/bootui/api/conditions`
-  - `/bootui/api/config`
-  - `/bootui/api/mappings`
-  - `/bootui/api/health`
-  - `/bootui/api/loggers`
-- Graceful unavailable responses.
-
-Tests:
-
-- Endpoint mapping tests.
-- Missing Actuator tests.
-- Hidden endpoint tests.
-- Serialization tests.
-
-Exit criteria:
-
-- BootUI UI can render real data from all MVP panels.
-- Missing Actuator endpoints show actionable messages.
-
-### Milestone 4: Beans and Conditions panels
-
-Goal: deliver the first high-value explainability experience.
-
-Deliverables:
-
-- Beans Explorer:
-  - list.
-  - search.
-  - filters.
-  - detail drawer.
-  - dependencies.
-- Conditions Explorer:
-  - positive/negative matches.
-  - group by auto-configuration class.
-  - search.
-  - human-readable summaries for common condition types.
-  - raw details disclosure.
-
-Tests:
-
-- DTO normalization tests.
-- UI component tests.
-- Sample app assertions.
-
-Exit criteria:
-
-- Developer can find a bean and inspect dependencies.
-- Developer can determine why a common auto-configuration matched or did not match.
-
-### Milestone 5: Config, Mappings, Health, and Loggers
-
-Goal: complete the v0.1 feature set.
-
-Deliverables:
-
-- Configuration Properties Explorer:
-  - list/search Spring Boot configuration properties.
-  - effective values.
-  - property source.
-  - metadata description where available.
-  - secret masking.
-  - local runtime property overrides.
-  - create/update/remove property overrides.
-  - clear labels for runtime-only, non-persistent changes.
-- Mappings Browser:
-  - method/path/handler.
-  - search/filter.
-- Health Dashboard:
-  - tree rendering.
-  - status badges.
-- Logger Controls:
-  - list/search loggers.
-  - set runtime log level.
-  - clear runtime log level.
-
-Tests:
-
-- Secret masking tests.
-- Configuration property override tests.
-- Logger mutation tests.
-- Health tree tests.
-- Mappings normalization tests.
-
-Exit criteria:
-
-- All v0.1 panels are useful in the sample app.
-- Secret-like config values are masked everywhere.
-- Developers can list and locally modify Spring Boot configuration properties through runtime overrides.
-
-### Milestone 6: Documentation and release hardening
-
-Goal: prepare the first usable alpha release.
-
-Deliverables:
-
-- Installation documentation.
-- Configuration reference.
-- Security model documentation.
-- Troubleshooting guide.
-- Screenshots/GIFs.
-- Sample app walkthrough.
-- Release notes.
-- Maven Central publishing setup, if publishing is desired.
-
-Validation:
+Run the CI-equivalent build:
 
 ```bash
-./mvnw clean verify
+mvn -B -ntp clean install
 ```
 
-Manual validation:
+Run the sample app:
 
-- Start sample app.
-- Open BootUI.
-- Confirm all panels load.
-- Confirm production profile disables BootUI.
-- Confirm secret values remain masked.
+```bash
+cd bootui-sample-app
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
+```
 
-Exit criteria:
+Manual smoke checks:
 
-- `0.1.0-alpha.1` can be tagged or published.
+1. Open `http://localhost:8080/bootui`.
+2. Confirm all v0.1 panels load.
+3. Confirm `/bootui/api/overview` and the other v0.1 API endpoints return stable DTOs.
+4. Confirm secret-like values remain masked.
+5. Confirm `prod` and `production` profiles disable BootUI unless explicitly forced on.
+6. Confirm non-local requests are rejected by default.
+7. Confirm generated frontend assets are packaged in the UI artifact.
+8. Confirm no generated build output or secrets are accidentally committed.
 
-## 3. v0.1 scope
+## 5. v0.1 scope
 
 Included:
 
@@ -256,11 +150,11 @@ Included:
 - Overview panel.
 - Beans Explorer.
 - Conditions Explorer.
-- Config Explainer.
+- Configuration Explorer.
 - Mappings Browser.
 - Health Dashboard.
 - Logger Controls.
-- Static UI shell.
+- Static UI shell packaged into a Java artifact.
 - Sample app.
 - Documentation.
 - Spring Boot 4 target only.
@@ -270,14 +164,15 @@ Excluded:
 - Multi-service orchestration.
 - Request history.
 - Distributed tracing.
-- Startup timeline, unless easy after Actuator bridge.
-- Docker Compose/Testcontainers Services panel, unless easy after core panels.
+- Startup timeline, unless explicitly promoted into v0.1.
+- Docker Compose/Testcontainers Services panel, unless explicitly promoted into v0.1.
 - Extension SPI.
 - CLI.
 - Gradle plugin.
 - Hosted features.
+- Spring Boot 3.x compatibility.
 
-## 4. v0.2 scope
+## 6. v0.2 candidates
 
 Potential features:
 
@@ -289,7 +184,7 @@ Potential features:
 - Services panel for Docker Compose and Testcontainers.
 - Link from UI to source files when possible.
 
-## 5. v1.0 scope
+## 7. v1.0 candidates
 
 Potential features:
 
@@ -300,11 +195,11 @@ Potential features:
 - Spring Cloud panel.
 - CLI attach mode.
 - Gradle-first documentation.
-- Spring Boot 3.5 compatibility if needed.
+- Spring Boot 3.5 compatibility if adoption requires it.
 
-## 6. Technical decisions
+## 8. Technical decisions
 
-### 6.1 Java and Spring Boot
+### 8.1 Java and Spring Boot
 
 Use Java 25 and Spring Boot 4.x for the initial codebase.
 
@@ -322,7 +217,7 @@ Mitigation:
 
 - Keep abstractions clean enough to add a Boot 3.5 compatibility branch later.
 
-### 6.2 Build tool
+### 8.2 Build tool
 
 Use Maven.
 
@@ -331,27 +226,25 @@ Reason:
 - Spring Boot library publishing and multi-module builds are straightforward.
 - The project can add Gradle examples later.
 
-### 6.3 Frontend
+### 8.3 Frontend
 
-Use Vue 3 + TypeScript + Vite.
+Use Vue 3 and Vite for the UI. The current implementation is plain JavaScript rather than TypeScript.
 
 Reason:
 
 - Fast development.
 - Small enough for this UI.
 - Good component model for data-heavy panels.
-- Matches the local Spring Boot skill defaults.
-- Provides a maintainable component model for the BootUI panels.
-- Is the committed UI choice for BootUI.
+- Matches the local Spring Boot developer-console use case.
 
-Packaging requirement:
+Packaging requirements:
 
 - The Vue build must be wired into Maven.
 - A root Maven build must run the frontend build automatically.
 - Built assets must be included in the BootUI Java artifact and served from the classpath.
 - Users of `bootui-spring-boot-starter` must not need Node.js, npm, or a separate frontend build in their own applications.
 
-### 6.4 Data access
+### 8.4 Data access
 
 Use BootUI internal DTOs rather than binding the frontend directly to raw Actuator JSON.
 
@@ -361,9 +254,9 @@ Reason:
 - Allows better explanations and safety masking.
 - Allows reduced functionality when some endpoints are unavailable.
 
-### 6.5 Actuator integration
+### 8.5 Actuator integration
 
-Prefer internal endpoint invokers where practical; fall back to web endpoint behavior only when needed.
+Prefer internal endpoint invokers where practical.
 
 Reason:
 
@@ -371,117 +264,42 @@ Reason:
 - Reduces security friction.
 - Keeps BootUI local and internal.
 
-## 7. Work breakdown
+## 9. Suggested next steps
 
-### Foundation tasks
+1. Add backend tests for activation and localhost-only safety.
+2. Add missing-Actuator and stable DTO serialization tests for all BootUI API endpoints.
+3. Add config override and logger mutation tests.
+4. Run full build and sample app smoke checks.
+5. Complete installation, activation, safety, troubleshooting, and sample walkthrough documentation.
+6. Decide whether publishing to Maven Central is required for `0.1.0-alpha.1`.
+7. Prepare release notes and tag the first alpha only after CI and manual smoke checks pass.
 
-1. Create Maven parent project.
-2. Add wrapper.
-3. Add common dotfiles.
-4. Add modules.
-5. Add CI.
-6. Add sample app.
-
-### Backend tasks
-
-1. Implement `BootUiProperties`.
-2. Implement activation conditions.
-3. Implement local request filter.
-4. Implement overview endpoint.
-5. Implement Actuator bridge.
-6. Implement DTO mappers.
-7. Implement secret masking.
-8. Implement logger mutation endpoint.
-
-### Frontend tasks
-
-1. Create Vue app.
-2. Configure Vite build into Java resources.
-3. Wire the Vue build into Maven so `./mvnw clean package` packages the UI automatically.
-4. Build layout and navigation.
-5. Implement API client.
-6. Implement Overview panel.
-7. Implement Beans panel.
-8. Implement Conditions panel.
-9. Implement Config panel.
-10. Implement Mappings panel.
-11. Implement Health panel.
-12. Implement Loggers panel.
-
-### Documentation tasks
-
-1. Installation guide.
-2. Configuration reference.
-3. Safety model.
-4. Troubleshooting.
-5. Sample app walkthrough.
-6. Contribution guide.
-
-## 8. Suggested initial issue list
-
-1. Create Maven multi-module skeleton.
-2. Add BootUI docs and initial README.
-3. Add sample Spring Boot app.
-4. Add `bootui-core` module.
-5. Add `bootui-autoconfigure` module.
-6. Add `bootui-spring-boot-starter` module.
-7. Implement `BootUiProperties`.
-8. Implement dev-only activation.
-9. Implement localhost-only filter.
-10. Implement `/bootui/api/overview`.
-11. Serve placeholder `/bootui` page.
-12. Create Vue UI shell.
-13. Wire Vue build into Maven packaging.
-14. Bundle compiled Vue assets into starter.
-15. Implement Actuator bridge.
-16. Implement Beans API.
-17. Implement Conditions API.
-18. Implement Config API with masking.
-19. Implement Mappings API.
-20. Implement Health API.
-21. Implement Loggers API and update operation.
-22. Build Overview UI.
-23. Build Beans UI.
-24. Build Conditions UI.
-25. Build Config UI.
-26. Build Mappings UI.
-27. Build Health UI.
-28. Build Loggers UI.
-29. Add integration tests with sample app.
-30. Write installation docs.
-31. Prepare `0.1.0-alpha.1`.
-
-## 9. Validation checklist
+## 10. Validation checklist
 
 Before considering v0.1 complete:
 
-- `./mvnw clean verify` passes.
-- `./mvnw clean package` builds and packages the Vue UI automatically.
-- UI build passes.
-- Sample app starts.
+- `mvn -B -ntp clean install` passes.
+- The UI build is executed automatically by Maven.
+- Sample app starts with the `dev` profile.
 - `/bootui` loads.
 - `/bootui/api/overview` returns data.
 - Beans panel works.
 - Conditions panel works.
-- Config panel works and masks secrets.
+- Configuration panel works and masks secrets.
 - Mappings panel works.
 - Health panel works.
 - Logger changes work.
-- BootUI is disabled with `prod` profile.
+- BootUI is disabled with `prod` and `production` profiles.
 - Non-local requests are rejected by default.
 - Documentation matches actual behavior.
 
-## 10. Risks
+## 11. Risks
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Accidentally exposing sensitive data | High | Localhost-only, dev-only, secret masking, production fail-closed |
-| Actuator endpoints unavailable | Medium | Internal bridge, graceful empty states, clear setup guidance |
-| Duplicating Spring Boot Admin | Medium | Stay focused on embedded local single-app DX |
-| Frontend bundle too large | Medium | Lazy load panels, avoid heavy charting early |
-| Boot 4 adoption slower than expected | Medium | Keep compatibility seams for Boot 3.5 |
-| Scope creep | High | Keep v0.1 to explainability panels only |
-
-## 11. Immediate next step
-
-Create the actual Maven multi-module project skeleton for BootUI, then implement Milestone 1 before investing heavily in the frontend.
+| Accidentally exposing sensitive data | High | Localhost-only, dev-only activation, secret masking, production fail-closed defaults. |
+| Actuator endpoints unavailable | Medium | Internal bridge, stable empty DTOs, graceful UI states, setup guidance. |
+| Duplicating Spring Boot Admin | Medium | Stay focused on embedded local single-app developer experience. |
+| Frontend bundle too large | Medium | Avoid heavy dependencies and lazy-load later panels if needed. |
+| Boot 4 adoption slower than expected | Medium | Keep compatibility seams for a later Boot 3.5 branch. |
+| Scope creep | High | Keep v0.1 to the explainability panels and local runtime controls. |
