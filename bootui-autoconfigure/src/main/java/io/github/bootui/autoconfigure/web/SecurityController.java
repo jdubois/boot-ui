@@ -23,27 +23,43 @@ import jakarta.servlet.http.HttpUpgradeHandler;
 import jakarta.servlet.http.MappingMatch;
 import jakarta.servlet.http.Part;
 import java.io.BufferedReader;
+import java.lang.reflect.Method;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.core.env.Environment;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.authorization.AuthorizationResult;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
 /**
  * Exposes Spring Security filter chain configuration for the BootUI developer console.
@@ -59,17 +75,20 @@ public class SecurityController {
     private final ObjectProvider<FilterChainProxy> filterChainProxyProvider;
     private final ObjectProvider<AuthenticationProvider> authenticationProviderProvider;
     private final ObjectProvider<UserDetailsService> userDetailsServiceProvider;
+    private final ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider;
     private final Environment environment;
     private final BootUiProperties properties;
 
     public SecurityController(ObjectProvider<FilterChainProxy> filterChainProxyProvider,
                               ObjectProvider<AuthenticationProvider> authenticationProviderProvider,
                               ObjectProvider<UserDetailsService> userDetailsServiceProvider,
+                              ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider,
                               Environment environment,
                               BootUiProperties properties) {
         this.filterChainProxyProvider = filterChainProxyProvider;
         this.authenticationProviderProvider = authenticationProviderProvider;
         this.userDetailsServiceProvider = userDetailsServiceProvider;
+        this.handlerMappingProvider = handlerMappingProvider;
         this.environment = environment;
         this.properties = properties;
     }
@@ -126,6 +145,258 @@ public class SecurityController {
             }
         }
         return new SecurityExplainDto(false, request.isBestEffort(), null, "No chain matched", List.of());
+    }
+
+    /**
+     * Lists all HTTP endpoints together with the Spring Security authorization rule
+     * applied to each one.
+     *
+     * <p>For every {@code RequestMappingInfo} known to the application's
+     * {@link RequestMappingInfoHandlerMapping handler mappings}, the matching
+     * {@link SecurityFilterChain} is located and its {@link AuthorizationFilter}
+     * is inspected to derive the rule (permit/deny/authenticated/role/authority).
+     * Resolution is best-effort: matchers depending on headers, cookies, or
+     * session state may not be evaluated accurately, in which case
+     * {@code bestEffort} is set on the endpoint entry.</p>
+     */
+    @GetMapping("/endpoints")
+    public SecurityEndpointsReport endpoints() {
+        FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
+        boolean springSecurityPresent = proxy != null;
+        List<RequestMappingInfoHandlerMapping> handlerMappings = handlerMappingProvider.stream()
+                .collect(Collectors.toList());
+        if (handlerMappings.isEmpty()) {
+            return new SecurityEndpointsReport(springSecurityPresent, false, 0, List.of());
+        }
+
+        List<SecurityFilterChain> chains = springSecurityPresent ? proxy.getFilterChains() : List.of();
+        List<SecurityEndpointDto> endpoints = new ArrayList<>();
+        for (RequestMappingInfoHandlerMapping mapping : handlerMappings) {
+            Map<RequestMappingInfo, HandlerMethod> methods;
+            try {
+                methods = mapping.getHandlerMethods();
+            } catch (Exception ex) {
+                continue;
+            }
+            for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : methods.entrySet()) {
+                endpoints.addAll(describeEndpoint(entry.getKey(), entry.getValue(), chains));
+            }
+        }
+
+        endpoints.sort(Comparator.comparing(SecurityEndpointDto::pattern)
+                .thenComparing(SecurityEndpointDto::method));
+        return new SecurityEndpointsReport(springSecurityPresent, true, endpoints.size(), endpoints);
+    }
+
+    private List<SecurityEndpointDto> describeEndpoint(RequestMappingInfo info,
+                                                       HandlerMethod handlerMethod,
+                                                       List<SecurityFilterChain> chains) {
+        Set<String> patterns = extractPatterns(info);
+        Set<String> methods = info.getMethodsCondition().getMethods().stream()
+                .map(Enum::name)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (methods.isEmpty()) {
+            methods.add("ANY");
+        }
+        String handler = handlerMethod.getBeanType().getSimpleName() + "#" + handlerMethod.getMethod().getName();
+
+        List<SecurityEndpointDto> result = new ArrayList<>();
+        for (String pattern : patterns) {
+            for (String method : methods) {
+                result.add(resolveEndpoint(method, pattern, handler, chains));
+            }
+        }
+        return result;
+    }
+
+    private Set<String> extractPatterns(RequestMappingInfo info) {
+        Set<String> patterns = new LinkedHashSet<>();
+        if (info.getPathPatternsCondition() != null) {
+            info.getPathPatternsCondition().getPatterns()
+                    .forEach(p -> patterns.add(p.getPatternString()));
+        }
+        if (patterns.isEmpty()) {
+            patterns.add("/**");
+        }
+        return patterns;
+    }
+
+    private SecurityEndpointDto resolveEndpoint(String method, String pattern, String handler,
+                                                List<SecurityFilterChain> chains) {
+        if (chains.isEmpty()) {
+            return new SecurityEndpointDto(method, pattern, handler, false, "unsecured",
+                    List.of(), null, null, "No Spring Security filter chains configured", false);
+        }
+        ExplainRequest request = new ExplainRequest(method, pattern);
+        for (int i = 0; i < chains.size(); i++) {
+            SecurityFilterChain chain = chains.get(i);
+            boolean matches;
+            try {
+                matches = chain.matches(request);
+            } catch (Exception ex) {
+                return new SecurityEndpointDto(method, pattern, handler, true, "unknown",
+                        List.of(), i, matcherDescription(chain),
+                        "Chain matcher threw " + ex.getClass().getSimpleName(), true);
+            }
+            if (matches) {
+                AuthorizationFilter authFilter = findAuthorizationFilter(chain);
+                if (authFilter == null) {
+                    return new SecurityEndpointDto(method, pattern, handler, true, "unknown",
+                            List.of(), i, matcherDescription(chain),
+                            "Chain has no AuthorizationFilter", request.isBestEffort());
+                }
+                return classifyRule(method, pattern, handler, i, chain, authFilter, request);
+            }
+        }
+        return new SecurityEndpointDto(method, pattern, handler, false, "unsecured",
+                List.of(), null, null, "No Spring Security filter chain matched", request.isBestEffort());
+    }
+
+    private AuthorizationFilter findAuthorizationFilter(SecurityFilterChain chain) {
+        for (jakarta.servlet.Filter filter : chain.getFilters()) {
+            if (filter instanceof AuthorizationFilter af) {
+                return af;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Simulates an authorization decision against {@code authFilter}'s
+     * {@link AuthorizationManager} using synthetic authentications to classify the
+     * rule that applies to this endpoint. The manager itself is also inspected via
+     * its {@link Object#toString() toString()} when it is a well-known type, so role
+     * and authority names can be reported.
+     */
+    @SuppressWarnings("unchecked")
+    private SecurityEndpointDto classifyRule(String method, String pattern, String handler,
+                                             int chainIndex, SecurityFilterChain chain,
+                                             AuthorizationFilter authFilter, ExplainRequest request) {
+        AuthorizationManager<HttpServletRequest> manager =
+                (AuthorizationManager<HttpServletRequest>) authFilter.getAuthorizationManager();
+
+        boolean anonymousGranted = simulate(manager, anonymousAuth(), request);
+        if (anonymousGranted) {
+            return new SecurityEndpointDto(method, pattern, handler, true, "permitAll",
+                    List.of(), chainIndex, matcherDescription(chain), null, request.isBestEffort());
+        }
+
+        boolean authenticatedGranted = simulate(manager, authenticatedAuth(List.of()), request);
+        if (authenticatedGranted) {
+            return new SecurityEndpointDto(method, pattern, handler, true, "authenticated",
+                    List.of(), chainIndex, matcherDescription(chain), null, request.isBestEffort());
+        }
+
+        // Try to extract role/authority names from the AuthorizationManager's toString().
+        // Both AuthorityAuthorizationManager and AuthoritiesAuthorizationManager expose
+        // their required authorities through toString() in Spring Security 7.x.
+        AuthoritySpec spec = extractAuthorities(manager);
+        if (spec != null && !spec.authorities.isEmpty()) {
+            boolean roleGranted = simulate(manager, authenticatedAuth(spec.authorities), request);
+            if (roleGranted) {
+                List<String> exposed = new ArrayList<>(spec.authorities.size());
+                String rule = spec.allRolePrefixed ? "hasRole" : "hasAuthority";
+                for (String authority : spec.authorities) {
+                    exposed.add(spec.allRolePrefixed && authority.startsWith("ROLE_")
+                            ? authority.substring("ROLE_".length()) : authority);
+                }
+                return new SecurityEndpointDto(method, pattern, handler, true, rule,
+                        exposed, chainIndex, matcherDescription(chain), null, request.isBestEffort());
+            }
+        }
+
+        // No synthetic principal could obtain access — most likely denyAll, or a custom manager.
+        boolean superGranted = simulate(manager, authenticatedAuth(List.of("ROLE_ADMIN", "ROLE_USER", "SCOPE_ADMIN")), request);
+        String rule = superGranted ? "custom" : "denyAll";
+        return new SecurityEndpointDto(method, pattern, handler, true, rule,
+                List.of(), chainIndex, matcherDescription(chain),
+                "Managed by " + manager.getClass().getSimpleName(), request.isBestEffort());
+    }
+
+    private boolean simulate(AuthorizationManager<HttpServletRequest> manager,
+                             Authentication authentication, HttpServletRequest request) {
+        try {
+            AuthorizationResult result = manager.authorize(() -> authentication, request);
+            return result != null && result.isGranted();
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private Authentication anonymousAuth() {
+        return new AnonymousAuthenticationToken("bootui-explain", "anonymousUser",
+                List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS")));
+    }
+
+    private Authentication authenticatedAuth(List<String> authorities) {
+        List<SimpleGrantedAuthority> granted = authorities.stream()
+                .map(SimpleGrantedAuthority::new)
+                .collect(Collectors.toList());
+        return UsernamePasswordAuthenticationToken.authenticated("bootui-explain", "n/a", granted);
+    }
+
+    private static final Pattern AUTHORITIES_LIST = Pattern.compile("authorities=\\[([^\\]]*)\\]");
+
+    private AuthoritySpec extractAuthorities(AuthorizationManager<?> manager) {
+        // Try a public getter first, in case future versions expose one.
+        for (String getterName : new String[] {"getAuthorities"}) {
+            try {
+                Method m = manager.getClass().getMethod(getterName);
+                Object value = m.invoke(manager);
+                List<String> names = readAuthorityNames(value);
+                if (names != null && !names.isEmpty()) {
+                    return new AuthoritySpec(names, names.stream().allMatch(n -> n.startsWith("ROLE_")));
+                }
+            } catch (ReflectiveOperationException ignored) {
+                // fall through
+            }
+        }
+        // Parse toString() for AuthorityAuthorizationManager/AuthoritiesAuthorizationManager.
+        String descriptor = String.valueOf(manager);
+        Matcher m = AUTHORITIES_LIST.matcher(descriptor);
+        if (m.find()) {
+            String[] tokens = m.group(1).split(",");
+            List<String> names = new ArrayList<>();
+            for (String token : tokens) {
+                String trimmed = token.trim();
+                if (!trimmed.isEmpty()) {
+                    names.add(trimmed);
+                }
+            }
+            if (!names.isEmpty()) {
+                return new AuthoritySpec(names, names.stream().allMatch(n -> n.startsWith("ROLE_")));
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> readAuthorityNames(Object value) {
+        if (!(value instanceof Collection<?> coll)) {
+            return null;
+        }
+        List<String> names = new ArrayList<>(coll.size());
+        for (Object element : coll) {
+            if (element == null) {
+                continue;
+            }
+            // Could be GrantedAuthority or String.
+            try {
+                Method m = element.getClass().getMethod("getAuthority");
+                Object authority = m.invoke(element);
+                if (authority != null) {
+                    names.add(authority.toString());
+                    continue;
+                }
+            } catch (ReflectiveOperationException ignored) {
+                // not a GrantedAuthority; treat as plain string
+            }
+            names.add(element.toString());
+        }
+        return names;
+    }
+
+    private record AuthoritySpec(List<String> authorities, boolean allRolePrefixed) {
     }
 
     private SecurityFilterChainDto toChainDto(int order, SecurityFilterChain chain) {
