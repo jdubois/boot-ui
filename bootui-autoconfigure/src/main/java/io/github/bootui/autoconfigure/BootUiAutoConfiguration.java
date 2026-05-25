@@ -12,6 +12,7 @@ import io.github.bootui.autoconfigure.web.HttpProbeController;
 import io.github.bootui.autoconfigure.web.LoggersController;
 import io.github.bootui.autoconfigure.web.LogTailController;
 import io.github.bootui.autoconfigure.web.MappingsController;
+import io.github.bootui.autoconfigure.web.MemoryController;
 import io.github.bootui.autoconfigure.web.OverviewController;
 import io.github.bootui.autoconfigure.web.ProfileController;
 import io.github.bootui.autoconfigure.web.ScheduledController;
@@ -59,6 +60,7 @@ import org.springframework.core.env.Environment;
         LogTailController.class,
         ProfileController.class,
         SecurityController.class,
+        MemoryController.class,
         BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {
