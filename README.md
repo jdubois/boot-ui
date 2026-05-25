@@ -6,61 +6,31 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0.x-6db33f?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Java](https://img.shields.io/badge/Java-25-orange?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/25/)
 
-BootUI is a **Spring Boot 4 Starter** that adds a local developer console to Spring Boot 4 applications.
+BootUI is a **Spring Boot 4 starter** that adds a local-first web console to your app.
 
-It is not a standalone application. Developers add the BootUI starter to an existing Spring Boot 4 app, run the app locally, and open a browser-based workbench for understanding beans, auto-configuration, effective configuration, profiles, mappings, health, loggers, startup performance, and local service connections. BootUI must also let developers list and modify the application's Spring Boot configuration properties during local development.
+It is designed for local development (not production) and helps you quickly inspect:
 
-## Product thesis
+- application overview and active profiles
+- beans and auto-configuration conditions
+- effective configuration values
+- HTTP mappings
+- health contributors
+- logger levels
+- startup timeline and scheduled tasks
 
-Spring Boot already exposes the data developers need through Actuator, DevTools, configuration metadata, Docker Compose support, and Testcontainers integration. BootUI turns those scattered primitives into a cohesive local-first developer experience.
+## Screenshot
 
-## Target platform
+![BootUI overview](https://github.com/user-attachments/assets/065013d1-73df-46a0-914c-0a5c88127995)
 
-- Spring Boot 4.x applications.
-- Java 25.
-- Maven first.
-- Servlet web applications first, with WebFlux support later.
+## Setup (use in your own Spring Boot app)
 
-Spring Boot 3.x compatibility is out of scope for the first version unless later validation shows it is required for adoption.
+### 1) Prerequisites
 
-## MVP goal
+- Java 25
+- Spring Boot 4.x application
+- Maven
 
-A developer should be able to add the `bootui-spring-boot-starter` dependency to a Spring Boot 4 app, run it locally, open BootUI, and answer these questions in under five minutes:
-
-1. Which beans exist, and where did they come from?
-2. Why was an auto-configuration applied or skipped?
-3. Which property value is active, from which source/profile, and can I safely override it locally?
-4. Which HTTP endpoints does this app expose?
-5. Which health contributor or local service is failing?
-6. What made startup slow?
-7. Can I change a logger level without restarting?
-
-## Initial repository contents
-
-- `docs/SPECIFICATION.md`: full product and technical specification.
-- `docs/PLAN.md`: phased implementation plan and milestones.
-
-## Proposed distribution
-
-BootUI should ship as:
-
-- `bootui-spring-boot-starter`: development-only starter for app projects.
-- `bootui-autoconfigure`: Spring Boot auto-configuration.
-- `bootui-ui`: Vue.js browser UI, automatically built and packaged into the starter during the Maven build.
-- `bootui-sample-app`: sample app used for demos and integration tests.
-
-## Guiding principles
-
-- Local development only by default.
-- No production exposure by accident.
-- No account, cloud service, or telemetry in the open-source core.
-- Reuse Spring Boot Actuator and metadata instead of inventing new data sources.
-- Work with any IDE.
-- Prefer readable explanations over raw endpoint dumps.
-
-## Quick start
-
-Add the starter to a Spring Boot 4 application:
+### 2) Add the starter dependency
 
 ```xml
 <dependency>
@@ -70,30 +40,55 @@ Add the starter to a Spring Boot 4 application:
 </dependency>
 ```
 
-Run the app with the `dev` profile (or with `spring-boot-devtools` on the classpath):
+### 3) Run your app in development mode
 
 ```bash
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Then open <http://localhost:8080/bootui>.
+### 4) Open BootUI
 
-## Build from source
+Visit: <http://localhost:8080/bootui>
+
+## Setup (run this repository locally)
+
+### 1) Prerequisites
+
+- Java 25
+- Node.js 24+ (used by the `bootui-ui` module)
+- Maven
+
+### 2) Build everything
 
 ```bash
 mvn clean install
 ```
 
-Then run the bundled sample app:
+### 3) Run the sample app
 
 ```bash
 cd bootui-sample-app
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow,
-[SECURITY.md](SECURITY.md) for the threat model, and
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations.
+### 4) Open BootUI
+
+Visit: <http://localhost:8080/bootui>
+
+## Repository modules
+
+- `bootui-spring-boot-starter`: dependency to add to your app
+- `bootui-autoconfigure`: Spring Boot auto-configuration
+- `bootui-ui`: Vue.js frontend
+- `bootui-core`: shared DTOs and core helpers
+- `bootui-sample-app`: demo/integration sample app
+
+## More docs
+
+- [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow
+- [SECURITY.md](SECURITY.md): threat model and security policy
+- [docs/SPECIFICATION.md](docs/SPECIFICATION.md): full product/technical specification
+- [docs/PLAN.md](docs/PLAN.md): implementation roadmap
 
 ## License
 
