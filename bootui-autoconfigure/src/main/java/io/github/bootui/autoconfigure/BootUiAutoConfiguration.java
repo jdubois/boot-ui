@@ -1,12 +1,15 @@
 package io.github.bootui.autoconfigure;
 
 import io.github.bootui.autoconfigure.config.ConfigOverrideService;
+import io.github.bootui.autoconfigure.database.DataSourceRecordingBeanPostProcessor;
+import io.github.bootui.autoconfigure.database.SqlRecorder;
 import io.github.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.bootui.autoconfigure.web.BeansController;
 import io.github.bootui.autoconfigure.web.BootUiIndexController;
 import io.github.bootui.autoconfigure.web.ConditionsController;
 import io.github.bootui.autoconfigure.web.ConfigController;
 import io.github.bootui.autoconfigure.web.DataController;
+import io.github.bootui.autoconfigure.web.DatabaseController;
 import io.github.bootui.autoconfigure.web.HealthController;
 import io.github.bootui.autoconfigure.web.HttpProbeController;
 import io.github.bootui.autoconfigure.web.LoggersController;
@@ -61,6 +64,7 @@ import org.springframework.core.env.Environment;
         ProfileController.class,
         SecurityController.class,
         MemoryController.class,
+        DatabaseController.class,
         BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {
@@ -86,6 +90,27 @@ public class BootUiAutoConfiguration {
     @Bean
     public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties) {
         return new LocalhostOnlyFilter(properties);
+    }
+
+    /**
+     * Ring buffer used by the BootUI Database panel to surface recent SQL
+     * requests. The capacity is intentionally small to stay friendly with
+     * local-only development sessions.
+     */
+    @Bean
+    @ConditionalOnClass(javax.sql.DataSource.class)
+    public SqlRecorder bootUiSqlRecorder() {
+        return new SqlRecorder(200);
+    }
+
+    /**
+     * Wraps every {@code DataSource} bean with a recording proxy so executed
+     * SQL statements are captured in the {@link SqlRecorder}.
+     */
+    @Bean
+    @ConditionalOnClass(javax.sql.DataSource.class)
+    public DataSourceRecordingBeanPostProcessor bootUiDataSourceRecordingBeanPostProcessor(SqlRecorder recorder) {
+        return new DataSourceRecordingBeanPostProcessor(recorder);
     }
 
     @Bean

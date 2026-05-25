@@ -12,6 +12,7 @@ import Mappings from './views/Mappings.vue'
 import Health from './views/Health.vue'
 import Loggers from './views/Loggers.vue'
 import Data from './views/Data.vue'
+import Database from './views/Database.vue'
 import Startup from './views/Startup.vue'
 import Scheduled from './views/Scheduled.vue'
 import HttpProbe from './views/HttpProbe.vue'
@@ -32,6 +33,7 @@ const router = createRouter({
     { path: '/health', name: 'health', component: Health, meta: { icon: 'bi-heart-pulse', title: 'Health' } },
     { path: '/loggers', name: 'loggers', component: Loggers, meta: { icon: 'bi-journal-text', title: 'Loggers' } },
     { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data', experimental: true } },
+    { path: '/database', name: 'database', component: Database, meta: { icon: 'bi-hdd-stack', title: 'Database', experimental: true } },
     { path: '/startup', name: 'startup', component: Startup, meta: { icon: 'bi-bar-chart-steps', title: 'Startup Timeline', experimental: true } },
     { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks', experimental: true } },
     { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe', experimental: true } },

@@ -17,6 +17,7 @@ It is designed for local development (not production) and helps you quickly insp
 - health contributors
 - logger levels
 - startup timeline and scheduled tasks
+- database connection pool and recent SQL requests
 
 ## Screenshot
 

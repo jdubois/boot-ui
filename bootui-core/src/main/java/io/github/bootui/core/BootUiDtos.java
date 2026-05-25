@@ -335,4 +335,54 @@ public final class BootUiDtos {
             List<String> jvmInputArguments,
             String suggestedJvmOptions) {
     }
+
+    /** Metadata for a single {@code javax.sql.DataSource} bean. */
+    public record DataSourceInfoDto(
+            String beanName,
+            String dataSourceClass,
+            String poolName,
+            String jdbcUrl,
+            String driverClassName,
+            String username,
+            String catalog,
+            String schema) {
+    }
+
+    /** Live statistics for a single connection pool (HikariCP today). */
+    public record ConnectionPoolDto(
+            String beanName,
+            String poolType,
+            String poolName,
+            Integer activeConnections,
+            Integer idleConnections,
+            Integer totalConnections,
+            Integer threadsAwaitingConnection,
+            Integer maximumPoolSize,
+            Integer minimumIdle,
+            Long connectionTimeoutMs,
+            Long idleTimeoutMs,
+            Long maxLifetimeMs) {
+    }
+
+    /** A single SQL request captured by the BootUI JDBC interceptor. */
+    public record SqlRequestDto(
+            long timestamp,
+            String dataSource,
+            String sql,
+            String statementType,
+            long durationMicros,
+            boolean success,
+            String error,
+            Integer affectedRows) {
+    }
+
+    /** Top-level database analysis report. */
+    public record DatabaseReport(
+            boolean dataSourcePresent,
+            List<DataSourceInfoDto> dataSources,
+            List<ConnectionPoolDto> pools,
+            int recordedSqlRequests,
+            int maxSqlRequests,
+            List<SqlRequestDto> recentSql) {
+    }
 }
