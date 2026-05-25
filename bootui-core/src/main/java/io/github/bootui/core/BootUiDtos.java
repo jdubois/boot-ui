@@ -180,4 +180,44 @@ public final class BootUiDtos {
             int total,
             List<RepositoryDto> repositories) {
     }
+
+    /** One Spring Security filter chain. */
+    public record SecurityFilterChainDto(
+            int order,
+            String requestMatcher,
+            String requestMatcherType,
+            List<String> filters,
+            boolean csrfEnabled,
+            boolean corsEnabled,
+            boolean sessionManagementPresent) {
+    }
+
+    /** Authentication and user-details summary. */
+    public record SecurityAuthDto(
+            List<String> authenticationProviderTypes,
+            List<String> userDetailsServiceTypes,
+            String configuredUsername) {
+    }
+
+    /**
+     * Result of the best-effort chain-matching explain.
+     *
+     * <p>{@code bestEffort} is {@code true} when the matching was performed
+     * with limited request state and may be inaccurate for header- or
+     * session-based matchers.</p>
+     */
+    public record SecurityExplainDto(
+            boolean matched,
+            boolean bestEffort,
+            Integer chainIndex,
+            String matcherDescription,
+            List<String> filters) {
+    }
+
+    /** Top-level Spring Security report. */
+    public record SecurityReport(
+            boolean springSecurityPresent,
+            List<SecurityFilterChainDto> chains,
+            SecurityAuthDto auth) {
+    }
 }
