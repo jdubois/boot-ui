@@ -18,6 +18,17 @@ const newNameInput = ref(null)
 const editInput = ref(null)
 const banner = ref(null)
 
+const propertySuggestions = computed(() => data.value?.propertySuggestions || [])
+
+const suggestionByName = computed(() => {
+  const byName = new Map()
+  propertySuggestions.value.forEach(s => byName.set(s.name, s))
+  return byName
+})
+
+const selectedNewSuggestion = computed(() =>
+  suggestionByName.value.get((newRowName.value || '').trim()) || null)
+
 async function load() {
   loading.value = true
   try {
@@ -39,7 +50,9 @@ const filtered = computed(() => {
     if (filter.value) {
       const f = filter.value.toLowerCase()
       return p.name.toLowerCase().includes(f) ||
-             String(p.value ?? '').toLowerCase().includes(f)
+             String(p.value ?? '').toLowerCase().includes(f) ||
+             String(p.description ?? '').toLowerCase().includes(f) ||
+             String(p.defaultValue ?? '').toLowerCase().includes(f)
     }
     return true
   })
@@ -76,6 +89,34 @@ function startCreate() {
 function cancelCreate() {
   newRow.value = null
   newRowError.value = null
+}
+
+function hasDefaultValue(suggestion) {
+  return suggestion && suggestion.defaultValue !== null && suggestion.defaultValue !== undefined
+}
+
+function formatDefaultValue(value) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function suggestionLabel(suggestion) {
+  const parts = []
+  if (hasDefaultValue(suggestion)) parts.push('default: ' + formatDefaultValue(suggestion.defaultValue))
+  if (suggestion.type) parts.push(suggestion.type)
+  if (suggestion.description) parts.push(suggestion.description)
+  return parts.join(' - ')
+}
+
+function useSelectedDefault() {
+  if (hasDefaultValue(selectedNewSuggestion.value)) {
+    newRowValue.value = formatDefaultValue(selectedNewSuggestion.value.defaultValue)
+  }
+}
+
+function metadataFor(name) {
+  return suggestionByName.value.get(name)
 }
 
 async function saveCreate() {
@@ -171,6 +212,7 @@ onMounted(load)
         Click <span class="badge bg-primary"><i class="bi bi-pencil"></i> Edit</span>
         on any row to set a runtime override, or use
         <strong>Add override</strong> to add a new property.
+        The new-property picker includes known Spring Boot configuration keys and their defaults.
         Overrides are persisted to
         <code>.bootui/application-bootui.properties</code> and take precedence over all other property sources.
         <span class="text-muted">
@@ -220,10 +262,11 @@ onMounted(load)
       <table class="table table-sm align-middle">
         <thead class="table-light">
           <tr>
-            <th style="width:35%">Property</th>
-            <th style="width:35%">Value</th>
-            <th style="width:15%">Source</th>
-            <th style="width:15%" class="text-end">Actions</th>
+            <th style="width:30%">Property</th>
+            <th style="width:25%">Value</th>
+            <th style="width:20%">Default</th>
+            <th style="width:13%">Source</th>
+            <th style="width:12%" class="text-end">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -232,19 +275,52 @@ onMounted(load)
             <td>
               <input ref="newNameInput" class="form-control form-control-sm font-monospace"
                      v-model="newRowName"
-                     placeholder="my.property.name"
+                     list="bootPropertySuggestions"
+                     placeholder="spring.application.name"
                      @keyup.enter="saveCreate"
                      @keyup.esc="cancelCreate" />
+              <datalist id="bootPropertySuggestions">
+                <option v-for="s in propertySuggestions"
+                        :key="s.name"
+                        :value="s.name"
+                        :label="suggestionLabel(s)"></option>
+              </datalist>
+              <div v-if="selectedNewSuggestion" class="small text-muted mt-1">
+                <div v-if="selectedNewSuggestion.description">{{ selectedNewSuggestion.description }}</div>
+                <div>
+                  <span v-if="selectedNewSuggestion.type">Type: <code>{{ selectedNewSuggestion.type }}</code></span>
+                  <span v-if="selectedNewSuggestion.type && hasDefaultValue(selectedNewSuggestion)" class="mx-1">·</span>
+                  <span v-if="hasDefaultValue(selectedNewSuggestion)">
+                    Default: <code>{{ formatDefaultValue(selectedNewSuggestion.defaultValue) }}</code>
+                  </span>
+                </div>
+              </div>
               <div v-if="newRowError" class="text-danger small mt-1">
                 <i class="bi bi-exclamation-circle"></i> {{ newRowError }}
               </div>
             </td>
             <td>
-              <input class="form-control form-control-sm font-monospace"
-                     v-model="newRowValue"
-                     placeholder="new value"
-                     @keyup.enter="saveCreate"
-                     @keyup.esc="cancelCreate" />
+              <div class="input-group input-group-sm">
+                <input class="form-control font-monospace"
+                       v-model="newRowValue"
+                       :placeholder="hasDefaultValue(selectedNewSuggestion)
+                         ? 'default: ' + formatDefaultValue(selectedNewSuggestion.defaultValue)
+                         : 'new value'"
+                       @keyup.enter="saveCreate"
+                       @keyup.esc="cancelCreate" />
+                <button v-if="hasDefaultValue(selectedNewSuggestion)"
+                        class="btn btn-outline-secondary"
+                        type="button"
+                        @click="useSelectedDefault">
+                  Use default
+                </button>
+              </div>
+            </td>
+            <td>
+              <code v-if="hasDefaultValue(selectedNewSuggestion)" class="text-body">
+                {{ formatDefaultValue(selectedNewSuggestion.defaultValue) }}
+              </code>
+              <span v-else class="text-muted">—</span>
             </td>
             <td><span class="badge bg-warning text-dark">new override</span></td>
             <td class="text-end">
@@ -263,6 +339,7 @@ onMounted(load)
             <td class="align-top pt-2">
               <code class="text-body">{{ p.name }}</code>
               <span v-if="p.override" class="badge bg-warning text-dark ms-2">override</span>
+              <div v-if="p.description" class="small text-muted mt-1">{{ p.description }}</div>
             </td>
             <td>
               <template v-if="editingName === p.name">
@@ -275,6 +352,15 @@ onMounted(load)
                 <code v-if="!p.masked" class="text-body">{{ p.value }}</code>
                 <span v-else class="text-muted"><i class="bi bi-lock-fill"></i> masked</span>
               </template>
+            </td>
+            <td class="align-top pt-2">
+              <code v-if="p.defaultValue !== null && p.defaultValue !== undefined" class="text-body">
+                {{ formatDefaultValue(p.defaultValue) }}
+              </code>
+              <span v-else-if="metadataFor(p.name)?.type" class="text-muted small">
+                {{ metadataFor(p.name).type }}
+              </span>
+              <span v-else class="text-muted">—</span>
             </td>
             <td class="align-top pt-2"><small class="text-muted">{{ p.source }}</small></td>
             <td class="text-end align-top pt-1">
@@ -299,7 +385,7 @@ onMounted(load)
           </tr>
 
           <tr v-if="!loading && filtered.length === 0 && !newRow">
-            <td colspan="4" class="text-center text-muted py-4">
+            <td colspan="5" class="text-center text-muted py-4">
               No properties match your filters.
             </td>
           </tr>

@@ -151,6 +151,8 @@ Included:
 - Beans Explorer.
 - Conditions Explorer.
 - Configuration Explorer.
+  - metadata descriptions and defaults where available.
+  - known Spring Boot property suggestions when creating overrides.
 - Mappings Browser.
 - Health Dashboard.
 - Logger Controls.
