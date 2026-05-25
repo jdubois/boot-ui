@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "bootstrap": "5.3.3",
-    "bootstrap-icons": "1.11.3",
+    "bootstrap": "5.3.8",
+    "bootstrap-icons": "1.13.1",
     "vue": "3.5.34",
     "vue-router": "5.0.7"
   },
