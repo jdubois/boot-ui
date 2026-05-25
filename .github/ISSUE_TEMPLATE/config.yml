@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: BootUI Discussions
+    url: https://github.com/jdubois/boot-ui/discussions
+    about: Ask a question, share an idea, or discuss usage.
+  - name: Security vulnerability
+    url: https://github.com/jdubois/boot-ui/security/advisories/new
+    about: Report a security issue privately.

@@ -1,0 +1,38 @@
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "org.springframework:*"
+      maven-plugins:
+        patterns:
+          - "org.apache.maven.plugins:*"
+          - "com.github.eirslett:frontend-maven-plugin"
+
+  - package-ecosystem: npm
+    directory: /bootui-ui/src/main/frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      vue:
+        patterns:
+          - "vue"
+          - "vue-router"
+          - "@vitejs/*"
+          - "vite"
+      bootstrap:
+        patterns:
+          - "bootstrap"
+          - "bootstrap-icons"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

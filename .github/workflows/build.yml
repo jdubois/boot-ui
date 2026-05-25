@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['25']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Set up Node.js (used by the bootui-ui module)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build all modules
+        run: mvn -B -ntp clean install
+
+      - name: Upload sample-app jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootui-sample-app
+          path: bootui-sample-app/target/*.jar
+          if-no-files-found: warn
+          retention-days: 7

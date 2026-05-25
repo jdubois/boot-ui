@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+nbproject/
+nb-configuration.xml
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+
+# Node / Vue
+node/
+node_modules/
+dist/
+.npm/
+.eslintcache
+
+# BootUI runtime persistence (local developer overrides)
+.bootui/
+
+# Local env
+.env
+*.env.local

@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a bug in BootUI
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! Please fill in the
+        information below so we can reproduce and fix the issue quickly.
+  - type: input
+    id: bootui-version
+    attributes:
+      label: BootUI version
+      placeholder: "0.1.0-SNAPSHOT"
+    validations:
+      required: true
+  - type: input
+    id: spring-boot-version
+    attributes:
+      label: Spring Boot version
+      placeholder: "4.0.6"
+    validations:
+      required: true
+  - type: input
+    id: java-version
+    attributes:
+      label: Java version
+      placeholder: "25"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the behaviour you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal repro. A pom.xml snippet and the active profiles are usually enough.
+      placeholder: |
+        1. Add `bootui-spring-boot-starter` to a Spring Boot 4 project
+        2. Run with `--spring.profiles.active=dev`
+        3. Open http://localhost:8080/bootui
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack traces
+      render: shell
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues before opening this report.
+          required: true
