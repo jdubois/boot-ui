@@ -16,6 +16,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -72,6 +73,18 @@ class BootUiSampleApplicationIntegrationTests {
 
     private ResponseEntity<Map> postMap(String path, Object body) {
         return client().post().uri(path).body(body).retrieve().toEntity(Map.class);
+    }
+
+    private ResponseEntity<String> getString(String path) {
+        return client().get().uri(path).retrieve().toEntity(String.class);
+    }
+
+    private ResponseEntity<String> getStringWithBasicAuth(String path, String username, String password) {
+        return client().get()
+                .uri(path)
+                .headers(headers -> headers.setBasicAuth(username, password))
+                .retrieve()
+                .toEntity(String.class);
     }
 
     @Test
@@ -204,6 +217,93 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(body).isNotNull();
         // Mappings controller returns the raw ApplicationMappingsDescriptor.
         assertThat(body.containsKey("contexts")).isTrue();
+    }
+
+    @Test
+    void sampleAppEndpointsRemainPublicButAdminRequiresPassword() {
+        ResponseEntity<String> hello = getString("/api/sample/hello");
+        assertThat(hello.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(hello.getBody()).contains("Hello, BootUI!");
+
+        ResponseEntity<String> adminWithoutCredentials = getString("/admin");
+        assertThat(adminWithoutCredentials.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> adminWithDeveloperCredentials = getStringWithBasicAuth("/admin", "developer", "developer");
+        assertThat(adminWithDeveloperCredentials.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        ResponseEntity<String> adminWithAdminCredentials = getStringWithBasicAuth("/admin", "admin", "admin");
+        assertThat(adminWithAdminCredentials.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(adminWithAdminCredentials.getBody()).isEqualTo("BootUI sample admin");
+    }
+
+    @Test
+    void dataEndpointFindsSampleJpaRepository() {
+        ResponseEntity<Map> response = getMap("/bootui/api/data/repositories");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("springDataPresent")).isEqualTo(true);
+        assertThat(((Number) body.get("total")).intValue()).isGreaterThan(0);
+        assertThat((Iterable<?>) body.get("repositories"))
+                .anySatisfy(repository -> {
+                    Map<?, ?> dto = (Map<?, ?>) repository;
+                    assertThat(dto.get("repositoryInterface")).isEqualTo(ProductRepository.class.getName());
+                    assertThat(dto.get("domainType")).isEqualTo(Product.class.getName());
+                    assertThat(dto.get("storeModule")).isEqualTo("JPA");
+                    assertThat(((Number) dto.get("queryMethodCount")).intValue()).isGreaterThan(0);
+                });
+    }
+
+    @Test
+    void dataRepositoryDetailIncludesAnnotatedQueryMethod() {
+        ResponseEntity<Map> response = getMap("/bootui/api/data/repositories/" + ProductRepository.class.getName());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat((Iterable<?>) body.get("methods"))
+                .anySatisfy(method -> {
+                    Map<?, ?> dto = (Map<?, ?>) method;
+                    assertThat(dto.get("name")).isEqualTo("searchByName");
+                    assertThat(dto.get("origin")).isEqualTo("ANNOTATED");
+                    assertThat((String) dto.get("query")).contains("select p from Product p");
+                });
+    }
+
+    @Test
+    void securityEndpointFindsSampleFilterChains() {
+        ResponseEntity<Map> response = getMap("/bootui/api/security");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("springSecurityPresent")).isEqualTo(true);
+        assertThat((Iterable<?>) body.get("chains"))
+                .anySatisfy(chain -> {
+                    Map<?, ?> dto = (Map<?, ?>) chain;
+                    assertThat(dto.get("requestMatcher")).asString().contains("/admin/**");
+                    assertThat((Iterable<?>) dto.get("filters"))
+                            .anySatisfy(filter -> assertThat(filter).isEqualTo("BasicAuthenticationFilter"));
+                });
+
+        Map<?, ?> auth = (Map<?, ?>) body.get("auth");
+        assertThat(auth).isNotNull();
+        assertThat((Iterable<?>) auth.get("userDetailsServiceTypes"))
+                .anySatisfy(type -> assertThat(type).isEqualTo(InMemoryUserDetailsManager.class.getName()));
+    }
+
+    @Test
+    void securityExplainMatchesAdminRequest() {
+        ResponseEntity<Map> response = getMap("/bootui/api/security/explain?method=GET&path=/admin");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("matched")).isEqualTo(true);
+        assertThat(body.get("matcherDescription")).asString().contains("/admin/**");
+        assertThat((Iterable<?>) body.get("filters"))
+                .anySatisfy(filter -> assertThat(filter).isEqualTo("BasicAuthenticationFilter"));
     }
 
     @Test
