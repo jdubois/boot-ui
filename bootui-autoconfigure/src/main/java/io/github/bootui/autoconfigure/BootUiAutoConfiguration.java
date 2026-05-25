@@ -11,6 +11,7 @@ import io.github.bootui.autoconfigure.web.HealthController;
 import io.github.bootui.autoconfigure.web.LoggersController;
 import io.github.bootui.autoconfigure.web.MappingsController;
 import io.github.bootui.autoconfigure.web.OverviewController;
+import io.github.bootui.autoconfigure.web.SecurityController;
 import io.github.bootui.autoconfigure.web.StartupController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,7 @@ import org.springframework.core.env.Environment;
         LoggersController.class,
         StartupController.class,
         DataController.class,
+        SecurityController.class,
         BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {

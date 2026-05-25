@@ -12,6 +12,7 @@ import Mappings from './views/Mappings.vue'
 import Health from './views/Health.vue'
 import Loggers from './views/Loggers.vue'
 import Data from './views/Data.vue'
+import Security from './views/Security.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -24,7 +25,8 @@ const router = createRouter({
     { path: '/mappings', name: 'mappings', component: Mappings, meta: { icon: 'bi-signpost-2', title: 'Mappings' } },
     { path: '/health', name: 'health', component: Health, meta: { icon: 'bi-heart-pulse', title: 'Health' } },
     { path: '/loggers', name: 'loggers', component: Loggers, meta: { icon: 'bi-journal-text', title: 'Loggers' } },
-    { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } }
+    { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
+    { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security' } }
   ]
 })
 
