@@ -235,6 +235,7 @@ Features:
 - Show active profiles.
 - Show known default where metadata is available.
 - Show description from configuration metadata where available.
+- Suggest known Spring Boot configuration keys when creating an override.
 - Group by prefix:
   - `spring.*`
   - `server.*`

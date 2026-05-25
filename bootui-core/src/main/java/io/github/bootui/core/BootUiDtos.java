@@ -81,10 +81,19 @@ public final class BootUiDtos {
             Object defaultValue) {
     }
 
+    /** A known configuration property that can be used for new overrides. */
+    public record ConfigPropertySuggestionDto(
+            String name,
+            String type,
+            String description,
+            Object defaultValue) {
+    }
+
     public record ConfigReport(
             List<String> activeProfiles,
             List<String> sources,
-            List<ConfigPropertyDto> properties) {
+            List<ConfigPropertyDto> properties,
+            List<ConfigPropertySuggestionDto> propertySuggestions) {
     }
 
     /** Request to add/update a runtime property override. */

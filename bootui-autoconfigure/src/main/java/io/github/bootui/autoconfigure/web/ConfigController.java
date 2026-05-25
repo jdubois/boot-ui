@@ -7,6 +7,7 @@ import io.github.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.bootui.core.BootUiDtos.ConfigOverrideRequest;
 import io.github.bootui.core.BootUiDtos.ConfigOverrideResult;
 import io.github.bootui.core.BootUiDtos.ConfigPropertyDto;
+import io.github.bootui.core.BootUiDtos.ConfigPropertySuggestionDto;
 import io.github.bootui.core.BootUiDtos.ConfigReport;
 import io.github.bootui.core.SecretMasker;
 import java.util.ArrayList;
@@ -36,14 +37,24 @@ public class ConfigController {
 
     private final BootUiProperties properties;
 
+    private final ConfigMetadataCatalog metadataCatalog;
+
     private final SecretMasker masker = new SecretMasker();
 
     public ConfigController(ConfigurableEnvironment environment,
                             ConfigOverrideService overrideService,
                             BootUiProperties properties) {
+        this(environment, overrideService, properties, new ConfigMetadataCatalog(ConfigController.class.getClassLoader()));
+    }
+
+    ConfigController(ConfigurableEnvironment environment,
+                     ConfigOverrideService overrideService,
+                     BootUiProperties properties,
+                     ConfigMetadataCatalog metadataCatalog) {
         this.environment = environment;
         this.overrideService = overrideService;
         this.properties = properties;
+        this.metadataCatalog = metadataCatalog;
     }
 
     @GetMapping
@@ -70,7 +81,8 @@ public class ConfigController {
         return new ConfigReport(
                 Arrays.asList(environment.getActiveProfiles()),
                 sources,
-                sorted);
+                sorted,
+                metadataCatalog.suggestions());
     }
 
     @PostMapping("/overrides")
@@ -88,6 +100,7 @@ public class ConfigController {
 
     private ConfigPropertyDto toDto(String name, Object value, String sourceName) {
         boolean isOverride = BootUiOverridesPropertySource.NAME.equals(sourceName);
+        ConfigPropertySuggestionDto metadata = metadataCatalog.get(name);
         Object displayValue = value;
         boolean masked = false;
         if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
@@ -103,7 +116,7 @@ public class ConfigController {
                 null,
                 masked,
                 isOverride,
-                null,
-                null);
+                metadata == null ? null : metadata.description(),
+                metadata == null ? null : metadata.defaultValue());
     }
 }
