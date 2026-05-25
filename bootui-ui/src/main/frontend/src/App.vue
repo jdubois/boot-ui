@@ -44,9 +44,16 @@ onMounted(loadOverview)
             <li v-for="r in routes" :key="r.name" class="nav-item">
               <router-link
                 :to="r.path"
-                class="nav-link"
+                class="nav-link d-flex align-items-center"
                 :class="{ active: route.name === r.name }">
-                <i :class="['bi', r.meta.icon, 'me-2']"></i>{{ r.meta.title }}
+                <i :class="['bi', r.meta.icon, 'me-2']"></i>
+                <span>{{ r.meta.title }}</span>
+                <span
+                  v-if="r.meta.experimental"
+                  class="badge bg-warning text-dark ms-auto"
+                  title="Experimental panel: behavior and APIs may change before the first stable release.">
+                  Experimental
+                </span>
               </router-link>
             </li>
           </ul>
@@ -58,6 +65,14 @@ onMounted(loadOverview)
 
         <main class="col-md-10 py-3">
           <div v-if="error" class="alert alert-danger">{{ error }}</div>
+          <div v-if="route.meta && route.meta.experimental" class="alert alert-warning d-flex align-items-start">
+            <i class="bi bi-exclamation-triangle-fill me-2 mt-1"></i>
+            <div>
+              <strong>Experimental panel.</strong>
+              This panel is not yet part of the supported BootUI surface.
+              Its behavior, data shape, and HTTP API may change or be removed before the first stable release.
+            </div>
+          </div>
           <router-view />
         </main>
       </div>
