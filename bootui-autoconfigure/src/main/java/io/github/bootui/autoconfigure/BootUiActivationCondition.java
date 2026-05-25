@@ -25,16 +25,16 @@ import org.springframework.util.ClassUtils;
  *     <li>An active profile is present in {@code bootui.disabled-profiles}</li>
  * </ul>
  */
-class BootUiActivationCondition implements Condition {
+public class BootUiActivationCondition implements Condition {
 
-    static final String DEVTOOLS_CLASS = "org.springframework.boot.devtools.restart.RestartScope";
+    public static final String DEVTOOLS_CLASS = "org.springframework.boot.devtools.restart.RestartScope";
 
     @Override
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
         return resolve(context.getEnvironment(), context.getClassLoader()).enabled();
     }
 
-    static BootUiActivation resolve(Environment environment, ClassLoader classLoader) {
+    public static BootUiActivation resolve(Environment environment, ClassLoader classLoader) {
         String mode = environment.getProperty("bootui.enabled", "AUTO").toUpperCase();
         List<String> warnings = new ArrayList<>();
         Collection<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());
