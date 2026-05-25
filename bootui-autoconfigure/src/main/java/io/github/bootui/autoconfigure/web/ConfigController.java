@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.PropertySource;
@@ -41,6 +42,7 @@ public class ConfigController {
 
     private final SecretMasker masker = new SecretMasker();
 
+    @Autowired
     public ConfigController(ConfigurableEnvironment environment,
                             ConfigOverrideService overrideService,
                             BootUiProperties properties) {
