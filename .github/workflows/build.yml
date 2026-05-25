@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload sample-app jar
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bootui-sample-app
           path: bootui-sample-app/target/*.jar
