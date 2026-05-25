@@ -21,10 +21,23 @@ jobs:
       matrix:
         language: ['java-kotlin', 'javascript-typescript']
     steps:
-      - uses: actions/checkout@v6
+      - name: Check code scanning availability
+        id: code-scanning
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?per_page=1" >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Code scanning is not enabled or unavailable for this repository; skipping CodeQL analysis."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.code-scanning.outputs.enabled == 'true'
 
       - name: Set up JDK 25
-        if: matrix.language == 'java-kotlin'
+        if: steps.code-scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -32,21 +45,23 @@ jobs:
           cache: maven
 
       - name: Set up Node.js
-        if: matrix.language == 'java-kotlin'
+        if: steps.code-scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         uses: actions/setup-node@v6
         with:
           node-version: '24'
 
       - name: Initialize CodeQL
+        if: steps.code-scanning.outputs.enabled == 'true'
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
 
       - name: Build (Java)
-        if: matrix.language == 'java-kotlin'
+        if: steps.code-scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         run: mvn -B -ntp -DskipTests package
 
       - name: Perform CodeQL Analysis
+        if: steps.code-scanning.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
