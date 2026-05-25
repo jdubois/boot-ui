@@ -307,6 +307,30 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void securityEndpointsListsControllerMappingsWithRules() {
+        ResponseEntity<Map> response = getMap("/bootui/api/security/endpoints");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("springSecurityPresent")).isEqualTo(true);
+        assertThat(body.get("handlerMappingAvailable")).isEqualTo(true);
+        Iterable<?> endpoints = (Iterable<?>) body.get("endpoints");
+        assertThat(endpoints).isNotNull();
+
+        // BootUI's own API endpoints should resolve as permitAll on the /bootui/** chain.
+        assertThat(endpoints).anySatisfy(item -> {
+            Map<?, ?> dto = (Map<?, ?>) item;
+            if (!"/bootui/api/security".equals(dto.get("pattern"))) {
+                return;
+            }
+            assertThat(dto.get("secured")).isEqualTo(true);
+            assertThat(dto.get("rule")).isEqualTo("permitAll");
+            assertThat(dto.get("chainIndex")).isEqualTo(0);
+        });
+    }
+
+    @Test
     void bootUiSpaIndexIsServed() {
         ResponseEntity<String> response = client().get().uri("/bootui/")
                 .retrieve()
