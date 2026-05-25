@@ -66,6 +66,15 @@ onMounted(load)
           </ul>
         </div>
 
+        <div v-if="data.openApiUrl" class="card mt-3">
+          <div class="card-header"><i class="bi bi-file-earmark-code me-1"></i>API Docs</div>
+          <div class="card-body">
+            <a :href="data.openApiUrl" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Open Swagger UI
+            </a>
+          </div>
+        </div>
+
         <div class="card mt-3">
           <div class="card-header">Activation</div>
           <div class="card-body">

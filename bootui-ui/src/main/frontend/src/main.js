@@ -12,6 +12,11 @@ import Mappings from './views/Mappings.vue'
 import Health from './views/Health.vue'
 import Loggers from './views/Loggers.vue'
 import Data from './views/Data.vue'
+import Startup from './views/Startup.vue'
+import Scheduled from './views/Scheduled.vue'
+import HttpProbe from './views/HttpProbe.vue'
+import LogTail from './views/LogTail.vue'
+import ProfileDiff from './views/ProfileDiff.vue'
 import Security from './views/Security.vue'
 
 const router = createRouter({
@@ -26,6 +31,11 @@ const router = createRouter({
     { path: '/health', name: 'health', component: Health, meta: { icon: 'bi-heart-pulse', title: 'Health' } },
     { path: '/loggers', name: 'loggers', component: Loggers, meta: { icon: 'bi-journal-text', title: 'Loggers' } },
     { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
+    { path: '/startup', name: 'startup', component: Startup, meta: { icon: 'bi-bar-chart-steps', title: 'Startup Timeline' } },
+    { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },
+    { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe' } },
+    { path: '/log-tail', name: 'log-tail', component: LogTail, meta: { icon: 'bi-terminal', title: 'Log Tail' } },
+    { path: '/profiles', name: 'profiles', component: ProfileDiff, meta: { icon: 'bi-layers', title: 'Profile Diff' } },
     { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security' } }
   ]
 })

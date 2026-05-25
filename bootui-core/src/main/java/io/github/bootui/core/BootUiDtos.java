@@ -1,6 +1,7 @@
 package io.github.bootui.core;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Lightweight DTOs returned by the BootUI internal API.
@@ -27,7 +28,8 @@ public final class BootUiDtos {
             Integer managementPort,
             String contextPath,
             Long startupTimeMillis,
-            ActivationStatus activation) {
+            ActivationStatus activation,
+            String openApiUrl) {
     }
 
     /** Reason why BootUI activated, plus current safety settings. */
@@ -110,6 +112,24 @@ public final class BootUiDtos {
     public record MappingsReport(int total, List<MappingDto> mappings) {
     }
 
+    /** Request from the browser to probe a local HTTP endpoint. */
+    public record HttpProbeRequest(
+            String method,
+            String path,
+            String body,
+            Map<String, String> headers) {
+    }
+
+    /** Result of an HTTP probe. */
+    public record HttpProbeResponse(
+            int status,
+            String statusText,
+            Map<String, String> headers,
+            String body,
+            long durationMs,
+            String error) {
+    }
+
     /** Health node, possibly nested. */
     public record HealthNodeDto(
             String name,
@@ -127,6 +147,10 @@ public final class BootUiDtos {
     public record LoggersReport(List<String> availableLevels, List<LoggerDto> loggers) {
     }
 
+    /** A single log line for the live log tail. */
+    public record LogLineDto(long timestamp, String level, String logger, String message, String thread) {
+    }
+
     public record StartupStepDto(
             long id,
             Long parentId,
@@ -139,6 +163,18 @@ public final class BootUiDtos {
     }
 
     public record StartupReport(List<StartupStepDto> steps) {
+    }
+
+    /** Summary of a @Scheduled task registered in the application context. */
+    public record ScheduledTaskDto(
+            String runnable,
+            String triggerType,
+            String expression,
+            Long initialDelayMs,
+            String timeUnit) {
+    }
+
+    public record ScheduledReport(boolean schedulingPresent, int total, List<ScheduledTaskDto> tasks) {
     }
 
     /** Summary of one Spring Data repository discovered in the context. */
@@ -179,6 +215,19 @@ public final class BootUiDtos {
             boolean springDataPresent,
             int total,
             List<RepositoryDto> repositories) {
+    }
+
+    /** Properties contributed by a single profile-specific property source. */
+    public record ProfileSourceDto(
+            String sourceName,
+            String profile,
+            List<ConfigPropertyDto> properties) {
+    }
+
+    /** Profile-aware view of the active configuration. */
+    public record ProfilesReport(
+            List<String> activeProfiles,
+            List<ProfileSourceDto> profileSources) {
     }
 
     /** One Spring Security filter chain. */

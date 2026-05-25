@@ -56,7 +56,22 @@ public class OverviewController {
                         activation.enabled(),
                         properties.isLocalhostOnly() && !properties.isAllowNonLocalhost(),
                         activation.reason(),
-                        activation.warnings() == null ? List.of() : activation.warnings()));
+                        activation.warnings() == null ? List.of() : activation.warnings()),
+                detectOpenApiUrl());
+    }
+
+    private String detectOpenApiUrl() {
+        try {
+            Class.forName("org.springdoc.core.utils.SpringDocUtils");
+            return environment.getProperty("springdoc.swagger-ui.path", "/swagger-ui/index.html");
+        } catch (ClassNotFoundException e) {
+            try {
+                Class.forName("org.springdoc.webmvc.ui.SwaggerWelcomeWebMvc");
+                return environment.getProperty("springdoc.swagger-ui.path", "/swagger-ui/index.html");
+            } catch (ClassNotFoundException ex) {
+                return null;
+            }
+        }
     }
 
     private String detectWebType() {
