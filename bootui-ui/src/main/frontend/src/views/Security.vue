@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 const report = ref(null)
 const error = ref(null)
@@ -9,6 +9,11 @@ const explainMethod = ref('GET')
 const explainPath = ref('/')
 const explainResult = ref(null)
 const explainLoading = ref(false)
+
+const endpoints = ref(null)
+const endpointsError = ref(null)
+const endpointsLoading = ref(false)
+const endpointFilter = ref('')
 
 async function load() {
   try {
@@ -24,6 +29,20 @@ async function load() {
     }
   } catch (e) {
     error.value = e.message
+  }
+}
+
+async function loadEndpoints() {
+  endpointsLoading.value = true
+  endpointsError.value = null
+  try {
+    const res = await fetch('api/security/endpoints')
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    endpoints.value = await res.json()
+  } catch (e) {
+    endpointsError.value = e.message
+  } finally {
+    endpointsLoading.value = false
   }
 }
 
@@ -55,13 +74,53 @@ const filterBadgeClass = name => {
   return 'bg-light text-dark border'
 }
 
+const ruleBadgeClass = rule => {
+  switch (rule) {
+    case 'permitAll': return 'bg-success'
+    case 'authenticated': return 'bg-primary'
+    case 'hasRole':
+    case 'hasAuthority': return 'bg-warning text-dark'
+    case 'denyAll': return 'bg-danger'
+    case 'unsecured': return 'bg-secondary'
+    case 'custom':
+    case 'unknown':
+    default: return 'bg-dark'
+  }
+}
+
+const methodBadgeClass = method => {
+  switch (method) {
+    case 'GET': return 'bg-info text-dark'
+    case 'POST': return 'bg-success'
+    case 'PUT':
+    case 'PATCH': return 'bg-warning text-dark'
+    case 'DELETE': return 'bg-danger'
+    default: return 'bg-light text-dark border'
+  }
+}
+
 const shortName = name => {
   if (!name) return ''
   const i = name.lastIndexOf('.')
   return i < 0 ? name : name.substring(i + 1)
 }
 
-onMounted(load)
+const filteredEndpoints = computed(() => {
+  if (!endpoints.value || !endpoints.value.endpoints) return []
+  const needle = endpointFilter.value.trim().toLowerCase()
+  if (!needle) return endpoints.value.endpoints
+  return endpoints.value.endpoints.filter(e =>
+    (e.pattern || '').toLowerCase().includes(needle)
+    || (e.method || '').toLowerCase().includes(needle)
+    || (e.handler || '').toLowerCase().includes(needle)
+    || (e.rule || '').toLowerCase().includes(needle)
+  )
+})
+
+onMounted(() => {
+  load()
+  loadEndpoints()
+})
 </script>
 
 <template>
@@ -167,6 +226,75 @@ onMounted(load)
           application context. These may be configured internally by a parent context.
         </div>
       </div>
+
+      <!-- Endpoints -->
+      <h5 class="mt-4 mb-2">
+        Endpoints
+        <span v-if="endpoints" class="badge bg-secondary">{{ endpoints.total }}</span>
+        <button class="btn btn-sm btn-outline-secondary ms-2" @click="loadEndpoints" :disabled="endpointsLoading">
+          <span v-if="endpointsLoading" class="spinner-border spinner-border-sm me-1"></span>
+          Reload
+        </button>
+      </h5>
+      <p class="text-muted small">
+        Per-endpoint authorization rule resolved by matching each Spring MVC mapping against the
+        configured filter chains. Resolution is best-effort: header- or session-based matchers may
+        not be evaluated accurately.
+      </p>
+
+      <div v-if="endpointsError" class="alert alert-danger small">{{ endpointsError }}</div>
+      <div v-else-if="endpoints && !endpoints.handlerMappingAvailable" class="alert alert-secondary small">
+        No <code>RequestMappingHandlerMapping</code> bean is available — endpoints cannot be
+        listed for this application.
+      </div>
+      <template v-else-if="endpoints">
+        <input
+          class="form-control form-control-sm mb-2"
+          v-model="endpointFilter"
+          placeholder="Filter by pattern, method, handler, or rule…" />
+
+        <div class="table-responsive">
+          <table class="table table-sm table-hover small align-middle">
+            <thead>
+              <tr>
+                <th style="width:5rem">Method</th>
+                <th>Pattern</th>
+                <th>Handler</th>
+                <th>Chain</th>
+                <th>Rule</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(ep, idx) in filteredEndpoints" :key="idx">
+                <td>
+                  <span class="badge" :class="methodBadgeClass(ep.method)">{{ ep.method }}</span>
+                </td>
+                <td><code>{{ ep.pattern }}</code></td>
+                <td class="text-muted">{{ ep.handler }}</td>
+                <td>
+                  <span v-if="ep.chainIndex != null" class="badge bg-light text-dark border">#{{ ep.chainIndex }}</span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td>
+                  <span class="badge me-1" :class="ruleBadgeClass(ep.rule)">{{ ep.rule }}</span>
+                  <span
+                    v-for="role in (ep.roles || [])"
+                    :key="role"
+                    class="badge bg-light text-dark border me-1">{{ role }}</span>
+                  <span v-if="ep.bestEffort" class="badge bg-warning text-dark ms-1" title="Best effort: header- or session-based matchers may not be accurate">
+                    <i class="bi bi-exclamation-triangle"></i>
+                  </span>
+                  <div v-if="ep.description" class="text-muted small">{{ ep.description }}</div>
+                </td>
+              </tr>
+              <tr v-if="filteredEndpoints.length === 0">
+                <td colspan="5" class="text-muted text-center">No endpoints match the filter.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <div v-else class="text-muted small">Loading endpoints…</div>
 
       <!-- Explain tool -->
       <h5 class="mt-4 mb-2">Explain a request</h5>
