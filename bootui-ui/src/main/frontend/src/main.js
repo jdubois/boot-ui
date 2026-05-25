@@ -30,13 +30,13 @@ const router = createRouter({
     { path: '/mappings', name: 'mappings', component: Mappings, meta: { icon: 'bi-signpost-2', title: 'Mappings' } },
     { path: '/health', name: 'health', component: Health, meta: { icon: 'bi-heart-pulse', title: 'Health' } },
     { path: '/loggers', name: 'loggers', component: Loggers, meta: { icon: 'bi-journal-text', title: 'Loggers' } },
-    { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
-    { path: '/startup', name: 'startup', component: Startup, meta: { icon: 'bi-bar-chart-steps', title: 'Startup Timeline' } },
-    { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },
-    { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe' } },
-    { path: '/log-tail', name: 'log-tail', component: LogTail, meta: { icon: 'bi-terminal', title: 'Log Tail' } },
-    { path: '/profiles', name: 'profiles', component: ProfileDiff, meta: { icon: 'bi-layers', title: 'Profile Diff' } },
-    { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security' } }
+    { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data', experimental: true } },
+    { path: '/startup', name: 'startup', component: Startup, meta: { icon: 'bi-bar-chart-steps', title: 'Startup Timeline', experimental: true } },
+    { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks', experimental: true } },
+    { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe', experimental: true } },
+    { path: '/log-tail', name: 'log-tail', component: LogTail, meta: { icon: 'bi-terminal', title: 'Log Tail', experimental: true } },
+    { path: '/profiles', name: 'profiles', component: ProfileDiff, meta: { icon: 'bi-layers', title: 'Profile Diff', experimental: true } },
+    { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security', experimental: true } }
   ]
 })
 
