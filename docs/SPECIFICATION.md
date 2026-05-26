@@ -342,6 +342,31 @@ Acceptance criteria:
 - Runtime level changes work when Actuator supports them.
 - UI clearly states changes are runtime-only and not persisted.
 
+### 5.7.1 DevTools Controls
+
+Purpose: answer "Can I trigger local LiveReload or restart this app from the console?"
+
+Data sources:
+
+- Spring Boot DevTools restart APIs when present and initialized.
+- Spring Boot DevTools LiveReload server when present.
+
+Features:
+
+- Show whether DevTools restart is available.
+- Show whether LiveReload is available and which port it uses when reported.
+- Trigger a LiveReload notification for connected browsers.
+- Restart the local application through DevTools after explicit confirmation.
+- Poll for the application to return after a restart is scheduled.
+- Explain unavailable states instead of hiding the panel.
+
+Acceptance criteria:
+
+- DevTools is optional; BootUI must still start when DevTools is absent.
+- Restart actions require explicit confirmation and are intended for local development only.
+- Restart scheduling returns an API response before DevTools tears down the running context.
+- LiveReload is clearly described as a notification to connected browser tooling, not a forced BootUI page reload.
+
 ### 5.8 Startup Timeline
 
 Purpose: answer "What made startup slow?"

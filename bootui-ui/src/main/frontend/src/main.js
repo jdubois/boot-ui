@@ -19,6 +19,7 @@ import LogTail from './views/LogTail.vue'
 import ProfileDiff from './views/ProfileDiff.vue'
 import Security from './views/Security.vue'
 import Memory from './views/Memory.vue'
+import DevTools from './views/DevTools.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -28,6 +29,7 @@ const router = createRouter({
     { path: '/health', name: 'health', component: Health, meta: { icon: 'bi-heart-pulse', title: 'Health' } },
     { path: '/startup', name: 'startup', component: Startup, meta: { icon: 'bi-bar-chart-steps', title: 'Startup Timeline' } },
     { path: '/memory', name: 'memory', component: Memory, meta: { icon: 'bi-memory', title: 'Memory' } },
+    { path: '/devtools', name: 'devtools', component: DevTools, meta: { icon: 'bi-lightning-charge', title: 'DevTools' } },
     { path: '/conditions', name: 'conditions', component: Conditions, meta: { icon: 'bi-check2-circle', title: 'Conditions' } },
     { path: '/beans', name: 'beans', component: Beans, meta: { icon: 'bi-diagram-3', title: 'Beans' } },
     { path: '/mappings', name: 'mappings', component: Mappings, meta: { icon: 'bi-signpost-2', title: 'Mappings' } },

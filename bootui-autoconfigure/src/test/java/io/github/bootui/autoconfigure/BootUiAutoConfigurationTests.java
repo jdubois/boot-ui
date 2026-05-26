@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.bootui.autoconfigure.safety.LocalhostOnlyFilter;
+import io.github.bootui.autoconfigure.web.DevToolsBridge;
+import io.github.bootui.autoconfigure.web.DevToolsController;
 import io.github.bootui.autoconfigure.web.OverviewController;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -28,6 +30,8 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(BootUiAutoConfiguration.class)
                         .hasSingleBean(LocalhostOnlyFilter.class)
                         .hasSingleBean(ConfigOverrideService.class)
+                        .hasSingleBean(DevToolsBridge.class)
+                        .hasSingleBean(DevToolsController.class)
                         .hasSingleBean(OverviewController.class)
                         .hasSingleBean(BootUiActivation.class));
     }
