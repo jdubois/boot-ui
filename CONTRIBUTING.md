@@ -52,6 +52,21 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 
 Then open <http://localhost:8080/bootui>.
 
+## End-to-end tests
+
+The sample app includes Playwright tests that exercise every visible BootUI
+panel and the sample REST API.
+
+```bash
+cd bootui-sample-app/e2e
+npm install
+npx playwright install chromium
+npm test
+```
+
+Playwright can start the sample app automatically. If you already have the
+sample app running on port 8080, it will reuse that server.
+
 ## Front-end development
 
 The Vue source lives in `bootui-ui/src/main/frontend`. For a fast inner loop:
@@ -74,7 +89,9 @@ re-bundle the assets into the JAR.
 3. Keep PRs small and focused. Update `docs/` whenever public behaviour
    changes.
 4. Run `mvn clean install` before pushing.
-5. Use the pull request template — it links to the verifications we expect.
+5. Run the Playwright end-to-end suite when you change the UI, browser-facing
+   API responses, or sample-app behavior.
+6. Use the pull request template — it links to the verifications we expect.
 
 ## Reporting bugs and security issues
 

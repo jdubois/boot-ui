@@ -84,6 +84,10 @@ class BootUiSampleApplicationIntegrationTests {
         return client().post().uri(path).body(body).retrieve().toEntity(Map.class);
     }
 
+    private ResponseEntity<List> getList(String path) {
+        return client().get().uri(path).retrieve().toEntity(List.class);
+    }
+
     private ResponseEntity<String> getString(String path) {
         return client().get().uri(path).retrieve().toEntity(String.class);
     }
@@ -229,6 +233,99 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void conditionsEndpointReturnsStableDto() {
+        ResponseEntity<Map> response = getMap("/bootui/api/conditions");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("positiveMatches")).isInstanceOf(List.class);
+        assertThat(body.get("negativeMatches")).isInstanceOf(List.class);
+        assertThat(body.get("unconditionalClasses")).isInstanceOf(List.class);
+        assertThat(body.get("exclusions")).isInstanceOf(List.class);
+    }
+
+    @Test
+    void startupEndpointReturnsStableDto() {
+        ResponseEntity<Map> response = getMap("/bootui/api/startup");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("steps")).isInstanceOf(List.class);
+    }
+
+    @Test
+    void scheduledEndpointFindsSampleTask() {
+        ResponseEntity<Map> response = getMap("/bootui/api/scheduled");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("schedulingPresent")).isEqualTo(true);
+        assertThat(((Number) body.get("total")).intValue()).isGreaterThan(0);
+        assertThat((Iterable<?>) body.get("tasks"))
+                .anySatisfy(task -> {
+                    Map<?, ?> dto = (Map<?, ?>) task;
+                    assertThat(dto.get("runnable")).asString().contains("EchoScheduler");
+                    assertThat(dto.get("triggerType")).isIn("FIXED_RATE", "FIXED_DELAY", "CRON");
+                });
+    }
+
+    @Test
+    void memoryEndpointReturnsJvmMemoryReport() {
+        ResponseEntity<Map> response = getMap("/bootui/api/memory");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        Map<?, ?> heap = (Map<?, ?>) body.get("heap");
+        Map<?, ?> nonHeap = (Map<?, ?>) body.get("nonHeap");
+        assertThat(heap.containsKey("usedBytes")).isTrue();
+        assertThat(heap.containsKey("committedBytes")).isTrue();
+        assertThat(heap.containsKey("usedPercent")).isTrue();
+        assertThat(nonHeap.containsKey("usedBytes")).isTrue();
+        assertThat(nonHeap.containsKey("committedBytes")).isTrue();
+        assertThat(nonHeap.containsKey("usedPercent")).isTrue();
+        assertThat(body.get("pools")).isInstanceOf(List.class);
+        assertThat(body.get("jvmInputArguments")).isInstanceOf(List.class);
+        assertThat(body.get("suggestedJvmOptions")).asString().contains("-Xms").contains("-Xmx");
+    }
+
+    @Test
+    void profilesEndpointReturnsActiveProfileReport() {
+        ResponseEntity<Map> response = getMap("/bootui/api/profiles");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(((List<?>) body.get("activeProfiles")).contains("dev")).isTrue();
+        assertThat(body.get("profileSources")).isInstanceOf(List.class);
+    }
+
+    @Test
+    void httpProbeEndpointCallsLoopbackSampleEndpoint() {
+        ResponseEntity<Map> response = postMap("/bootui/api/probe",
+                Map.of("method", "get", "path", "api/hello", "headers", Map.of("X-Ignored", "ok")));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("status")).isEqualTo(200);
+        assertThat(body.get("statusText")).isEqualTo("OK");
+        assertThat(body.get("body")).isEqualTo("Hello, world");
+        assertThat(body.get("error")).isNull();
+    }
+
+    @Test
+    void logTailRecentEndpointReturnsSerializedLogLines() {
+        ResponseEntity<List> response = getList("/bootui/api/logs/recent");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+    }
+
+    @Test
     void sampleAppEndpointsRemainPublicButAdminRequiresPassword() {
         ResponseEntity<String> plainHello = getString("/api/hello");
         assertThat(plainHello.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -247,6 +344,18 @@ class BootUiSampleApplicationIntegrationTests {
         ResponseEntity<String> adminWithAdminCredentials = getStringWithBasicAuth("/admin", "admin", "admin");
         assertThat(adminWithAdminCredentials.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(adminWithAdminCredentials.getBody()).isEqualTo("BootUI sample admin");
+    }
+
+    @Test
+    void rootIndexPageIntroducesTheSampleApp() {
+        ResponseEntity<String> response = getString("/");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody())
+                .contains("Welcome to the BootUI sample app")
+                .contains("Open BootUI")
+                .contains("href=\"/bootui/\"")
+                .contains("GET /api/sample/products");
     }
 
     @Test

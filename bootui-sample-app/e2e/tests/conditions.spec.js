@@ -6,8 +6,8 @@ test.describe('Auto-configuration conditions view', () => {
   test('shows positive matches by default and lets the user switch to negative ones', async ({ openView }) => {
     const page = await openView('conditions', 'Auto-configuration conditions')
 
-    const positiveTab = page.locator('.nav-link', { hasText: /^Positive/ })
-    const negativeTab = page.locator('.nav-link', { hasText: /^Negative/ })
+    const positiveTab = page.locator('.nav-tabs .nav-link', { hasText: /Positive/ })
+    const negativeTab = page.locator('.nav-tabs .nav-link', { hasText: /Negative/ })
 
     await expect(positiveTab).toHaveClass(/active/)
     await expect(positiveTab).toContainText(/Positive \(\d+\)/)

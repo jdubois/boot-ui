@@ -8,6 +8,15 @@ import { test, expect } from '@playwright/test'
  */
 test.describe('Sample application REST API', () => {
 
+  test('GET / serves a welcome page that links to BootUI', async ({ request }) => {
+    const response = await request.get('/')
+    expect(response.status()).toBe(200)
+    const body = await response.text()
+    expect(body).toContain('Welcome to the BootUI sample app')
+    expect(body).toContain('href="/bootui/"')
+    expect(body).toContain('GET /api/sample/products')
+  })
+
   test('GET /api/hello returns a simple HTTP probe greeting', async ({ request }) => {
     const response = await request.get('/api/hello')
     expect(response.status()).toBe(200)

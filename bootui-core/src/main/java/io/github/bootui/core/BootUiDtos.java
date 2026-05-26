@@ -160,6 +160,24 @@ public final class BootUiDtos {
     public record LogLineDto(long timestamp, String level, String logger, String message, String thread) {
     }
 
+    /** DevTools-backed reload and restart status. */
+    public record DevToolsStatus(
+            boolean restartAvailable,
+            String restartUnavailableReason,
+            boolean restartPending,
+            boolean liveReloadAvailable,
+            Integer liveReloadPort,
+            String liveReloadUnavailableReason) {
+    }
+
+    /** Request to restart the application through Spring Boot DevTools. */
+    public record DevToolsRestartRequest(Boolean confirm) {
+    }
+
+    /** Result of a DevTools reload or restart action. */
+    public record DevToolsActionResult(String action, String status, String message) {
+    }
+
     public record StartupStepDto(
             long id,
             Long parentId,
