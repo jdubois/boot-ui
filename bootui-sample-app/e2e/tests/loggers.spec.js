@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect } from './fixtures.js'
 
-const SAMPLE_LOGGER = 'io.github.bootui.sample'
+const SAMPLE_LOGGER = 'io.github.jdubois.bootui.sample'
 
 test.describe('Loggers view', () => {
 

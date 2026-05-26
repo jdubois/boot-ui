@@ -56,7 +56,7 @@ bootui-sample-app            Reference Spring Boot 4 app used for demos and inte
 ## API & DTO conventions
 
 - All endpoints live under `/bootui/api/**`. The browser UI is at `/bootui/` (Vite `base: '/bootui/'`, hash router).
-- Never return raw Actuator descriptors. Map them to records in `io.github.bootui.core.BootUiDtos` so the UI binds to a stable shape. Add new DTOs there as nested `record`s, not in feature packages.
+- Never return raw Actuator descriptors. Map them to records in `io.github.jdubois.bootui.core.BootUiDtos` so the UI binds to a stable shape. Add new DTOs there as nested `record`s, not in feature packages.
 - Actuator endpoints are consumed in-process via `ObjectProvider<XxxEndpoint>` (see `BeansController`, `LoggersController`). Always handle `getIfAvailable() == null` by returning an empty DTO — Actuator may be partially disabled.
 - Any code path that surfaces a property name/value to the browser **must** route it through `SecretMasker` (or honor `BootUiProperties.exposeValues`) before serialization. See `ConfigController.toDto` and `ConfigOverrideService.displayValue` for the pattern.
 
@@ -71,7 +71,7 @@ Because already-bound `@ConfigurationProperties` beans won't auto-rebind, every 
 
 ## Java conventions
 
-- Package root: `io.github.bootui.<module>`. Controllers live in `...autoconfigure.web`, safety in `...autoconfigure.safety`, override plumbing in `...autoconfigure.config`.
+- Package root: `io.github.jdubois.bootui.<module>`. Controllers live in `...autoconfigure.web`, safety in `...autoconfigure.safety`, override plumbing in `...autoconfigure.config`.
 - DTOs are immutable Java `record`s (Jackson-friendly with Spring Boot defaults — no annotations needed).
 - Compiler is configured with `-parameters` (root `pom.xml` `<parameters>true</parameters>`); rely on that for `@RequestBody`/`@PathVariable` binding without explicit `value=` attributes.
 - 4-space indent for Java/XML, 2-space for JS/Vue/JSON/YAML/MD (`.editorconfig`). UTF-8, LF, trailing newline.
