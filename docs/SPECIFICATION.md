@@ -553,8 +553,8 @@ Purpose: answer "Which local backing services are connected?"
 Data sources:
 
 - Spring Boot service connection metadata when available.
-- Docker Compose integration state when available.
-- Health indicators.
+- Spring Boot Docker Compose startup service snapshot when available.
+- Testcontainers beans that are present in the application context.
 
 Features:
 
@@ -571,8 +571,7 @@ Features:
 - Show source:
   - Docker Compose.
   - Testcontainers.
-  - manual configuration.
-- Link to related health contributor.
+  - connection details.
 - Show sanitized connection details.
 - Show bounded logs when a bean-backed Testcontainers service exposes them.
 - Show a restart action for bean-backed services only when explicitly enabled with
@@ -730,13 +729,18 @@ Initial endpoints:
 | `/bootui/api/startup` | GET | Startup timeline |
 | `/bootui/api/metrics` | GET | Browseable Micrometer meter list |
 | `/bootui/api/metrics/detail` | GET | Micrometer meter detail and live measurements |
+| `/bootui/api/devtools` | GET | Spring Boot DevTools status |
+| `/bootui/api/devtools/livereload` | POST | Trigger a DevTools LiveReload notification when available |
+| `/bootui/api/devtools/restart` | POST | Schedule a DevTools restart after explicit confirmation |
 | `/bootui/api/memory` | GET | JVM memory report |
 | `/bootui/api/scheduled` | GET | Scheduled tasks |
 | `/bootui/api/probe` | POST | Local HTTP probe |
 | `/bootui/api/logs/recent` | GET | Recent log lines |
 | `/bootui/api/logs/stream` | GET | Log stream over Server-Sent Events |
 | `/bootui/api/profiles` | GET | Profile-specific property sources |
-| `/bootui/api/services` | GET | Local service connections |
+| `/bootui/api/dev-services` | GET | Docker Compose, Testcontainers, and service connection entries |
+| `/bootui/api/dev-services/{id}/logs` | GET | Bounded log tail for a bean-backed service when available |
+| `/bootui/api/dev-services/{id}/restart` | POST | Restart a bean-backed service only when explicitly enabled |
 | `/bootui/api/data/repositories` | GET | Detected Spring Data repositories (summary) |
 | `/bootui/api/data/repositories/{name}` | GET | Spring Data repository detail with query methods |
 | `/bootui/api/security` | GET | Spring Security filter chain report |
@@ -767,6 +771,8 @@ Initial properties:
 | `bootui.disabled-profiles` | `prod,production` | Profiles that disable BootUI unless `bootui.enabled=ON`. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides. |
 | `bootui.endpoint-timeout` | `5s` | Timeout for endpoint-related calls. |
+| `bootui.dev-services.restart-enabled` | `false` | Enables restart controls for bean-backed Testcontainers services. |
+| `bootui.dev-services.log-tail-bytes` | `65536` | Maximum bytes returned by one Dev Services log request. |
 
 ### 6.6 Security model
 
@@ -812,6 +818,9 @@ Top-level tabs:
 - Data.
 - Startup Timeline.
 - Memory.
+- Metrics.
+- DevTools.
+- Dev Services.
 - Scheduled Tasks.
 - HTTP Probe.
 - Log Tail.
@@ -898,7 +907,7 @@ Future compatibility:
 BootUI v0.1 is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Beans, Conditions, Configuration, Mappings, Health, Loggers, Startup Timeline, Memory, Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, and Security.
+- The UI shows Overview, Beans, Conditions, Configuration, Mappings, Health, Loggers, Startup Timeline, Memory, Metrics, DevTools, Dev Services, Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, and Security.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.
