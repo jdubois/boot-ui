@@ -160,6 +160,24 @@ public final class BootUiDtos {
     public record LogLineDto(long timestamp, String level, String logger, String message, String thread) {
     }
 
+    /** DevTools-backed reload and restart status. */
+    public record DevToolsStatus(
+            boolean restartAvailable,
+            String restartUnavailableReason,
+            boolean restartPending,
+            boolean liveReloadAvailable,
+            Integer liveReloadPort,
+            String liveReloadUnavailableReason) {
+    }
+
+    /** Request to restart the application through Spring Boot DevTools. */
+    public record DevToolsRestartRequest(Boolean confirm) {
+    }
+
+    /** Result of a DevTools reload or restart action. */
+    public record DevToolsActionResult(String action, String status, String message) {
+    }
+
     public record StartupStepDto(
             long id,
             Long parentId,
@@ -375,5 +393,52 @@ public final class BootUiDtos {
             List<MemoryPoolDto> pools,
             List<String> jvmInputArguments,
             String suggestedJvmOptions) {
+    }
+
+    /** A host/container port mapping exposed by a local development service. */
+    public record DevServicePortDto(
+            Integer containerPort,
+            Integer hostPort,
+            String protocol) {
+    }
+
+    /** One Docker Compose, Testcontainers, or service-connection entry. */
+    public record DevServiceDto(
+            String id,
+            String name,
+            String type,
+            String source,
+            String image,
+            String status,
+            String host,
+            List<DevServicePortDto> ports,
+            Map<String, Object> connectionDetails,
+            boolean restartable,
+            boolean logsAvailable,
+            String note) {
+    }
+
+    /** Top-level report for local development services. */
+    public record DevServicesReport(
+            boolean dockerComposePresent,
+            boolean testcontainersPresent,
+            long snapshotTimestamp,
+            int total,
+            List<DevServiceDto> services) {
+    }
+
+    /** Tail of logs for one local development service. */
+    public record DevServiceLogReport(
+            String id,
+            String logs,
+            boolean truncated,
+            int maxBytes) {
+    }
+
+    /** Result of restarting a local development service. */
+    public record DevServiceRestartResult(
+            String id,
+            String status,
+            String message) {
     }
 }

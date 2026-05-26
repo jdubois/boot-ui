@@ -65,6 +65,34 @@ public class BootUiProperties {
     /** Timeout applied to Actuator endpoint calls. */
     private Duration endpointTimeout = Duration.ofSeconds(5);
 
+    /** Dev Services panel settings. */
+    private DevServices devServices = new DevServices();
+
+    public static class DevServices {
+
+        /** Allow BootUI to restart Testcontainers-backed services. */
+        private boolean restartEnabled = false;
+
+        /** Maximum bytes returned by a single Dev Services log request. */
+        private int logTailBytes = 64 * 1024;
+
+        public boolean isRestartEnabled() {
+            return restartEnabled;
+        }
+
+        public void setRestartEnabled(boolean restartEnabled) {
+            this.restartEnabled = restartEnabled;
+        }
+
+        public int getLogTailBytes() {
+            return logTailBytes;
+        }
+
+        public void setLogTailBytes(int logTailBytes) {
+            this.logTailBytes = logTailBytes;
+        }
+    }
+
     public Mode getEnabled() {
         return enabled;
     }
@@ -159,5 +187,13 @@ public class BootUiProperties {
 
     public void setEndpointTimeout(Duration endpointTimeout) {
         this.endpointTimeout = endpointTimeout;
+    }
+
+    public DevServices getDevServices() {
+        return devServices;
+    }
+
+    public void setDevServices(DevServices devServices) {
+        this.devServices = devServices;
     }
 }
