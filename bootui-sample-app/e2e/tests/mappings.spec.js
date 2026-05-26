@@ -10,6 +10,8 @@ test.describe('HTTP mappings view', () => {
     await expect.poll(async () => rows.count()).toBeGreaterThan(5)
 
     // The sample API and admin endpoints must be present.
+    await expect(page.locator('table tbody')).toContainText('/api/hello')
+    await expect(page.locator('table tbody')).toContainText('/api/secure')
     await expect(page.locator('table tbody')).toContainText('/api/sample/hello')
     await expect(page.locator('table tbody')).toContainText('/api/sample/products')
     await expect(page.locator('table tbody')).toContainText('/admin')

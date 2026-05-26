@@ -8,6 +8,12 @@ import { test, expect } from '@playwright/test'
  */
 test.describe('Sample application REST API', () => {
 
+  test('GET /api/hello returns a simple HTTP probe greeting', async ({ request }) => {
+    const response = await request.get('/api/hello')
+    expect(response.status()).toBe(200)
+    expect(await response.text()).toBe('Hello, world')
+  })
+
   test('GET /api/sample/hello returns the configured greeting', async ({ request }) => {
     const response = await request.get('/api/sample/hello')
     expect(response.status()).toBe(200)
@@ -46,5 +52,22 @@ test.describe('Sample application REST API', () => {
     })
     expect(asAdmin.status()).toBe(200)
     expect(await asAdmin.text()).toBe('BootUI sample admin')
+  })
+
+  test('/api/secure requires basic authentication with the ADMIN role', async ({ request }) => {
+    const anonymous = await request.get('/api/secure', { failOnStatusCode: false })
+    expect(anonymous.status()).toBe(401)
+
+    const asUser = await request.get('/api/secure', {
+      headers: { Authorization: 'Basic ' + Buffer.from('developer:developer').toString('base64') },
+      failOnStatusCode: false
+    })
+    expect(asUser.status()).toBe(403)
+
+    const asAdmin = await request.get('/api/secure', {
+      headers: { Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64') }
+    })
+    expect(asAdmin.status()).toBe(200)
+    expect(await asAdmin.text()).toBe('Secure Hello, world')
   })
 })

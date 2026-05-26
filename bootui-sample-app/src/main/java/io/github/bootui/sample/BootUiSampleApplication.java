@@ -5,11 +5,13 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootApplication
+@EnableScheduling
 @EnableConfigurationProperties(BootUiSampleApplication.SampleSettings.class)
 public class BootUiSampleApplication {
 
@@ -70,6 +72,21 @@ public class BootUiSampleApplication {
 
         static ProductSummary from(Product product) {
             return new ProductSummary(product.getId(), product.getName(), product.getCategory(), product.isActive());
+        }
+    }
+
+    @RestController
+    @RequestMapping("/api")
+    public static class HelloController {
+
+        @GetMapping("/hello")
+        public String hello() {
+            return "Hello, world";
+        }
+
+        @GetMapping("/secure")
+        public String secure() {
+            return "Secure Hello, world";
         }
     }
 

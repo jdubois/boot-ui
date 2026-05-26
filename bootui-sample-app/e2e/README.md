@@ -22,13 +22,13 @@ flow) exposed by the sample app:
 | `loggers.spec.js`          | Logger search, change `io.github.bootui.sample` to `WARN`, reset                       |
 | `data.spec.js`             | `ProductRepository` is listed, detail panel shows `searchByName`                       |
 | `startup.spec.js`          | Startup timeline displays step rows                                                    |
-| `scheduled.spec.js`        | Scheduled tasks view renders (empty-state allowed)                                     |
-| `http-probe.spec.js`       | Probe `/api/sample/hello` and assert the JSON response is shown                        |
+| `scheduled.spec.js`        | Scheduled tasks view lists the sample echo scheduler                                  |
+| `http-probe.spec.js`       | Probe `/api/hello` and assert the response body is shown                              |
 | `log-tail.spec.js`         | Log Tail connects, streams new events, pause / resume / clear controls work           |
 | `profile-diff.spec.js`     | Profile sources & properties render with filtering                                     |
-| `security.spec.js`         | Filter chains list `/admin/**`, explain endpoint returns a match                       |
+| `security.spec.js`         | Filter chains list `/api/secure`, explain endpoint returns a match                     |
 | `memory.spec.js`           | Heap / non-heap cards render, JVM options copy button                                  |
-| `sample-api.spec.js`       | Sample REST API (`/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
+| `sample-api.spec.js`       | Sample REST API (`/api/hello`, `/api/secure`, `/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
 
 ## Prerequisites
 
