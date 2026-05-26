@@ -50,11 +50,37 @@ public class MemoryController {
     /**
      * Calculates recommended JVM startup options based on current heap usage.
      *
+     * <p>Targets Spring Boot 4 on Java 25.
+     *
      * <p>The strategy:
      * <ul>
      *   <li>-Xms: next multiple of 128 MB above current heap committed (minimum 64 MB)</li>
      *   <li>-Xmx: next multiple of 256 MB above current heap max (or committed when max is -1)</li>
-     *   <li>G1GC, container-support, and other best-practice flags</li>
+     *   <li>G1GC for heaps &lt; 4 GB; ZGC (generational by default on JDK 24+) for larger heaps</li>
+     *   <li>{@code -XX:+UseStringDeduplication}: Spring apps allocate many duplicate strings
+     *       (bean names, config keys, JSON property names, log templates); deduplication
+     *       typically saves 5–15% of heap on G1 and ZGC (since JDK 18)</li>
+     *   <li>{@code -XX:+UseCompactObjectHeaders}: JEP 519 graduated this to a product flag
+     *       in JDK 25 — shrinks every object header from 12 to 8 bytes on 64-bit JVMs with
+     *       compressed oops, saving roughly 10–20% of heap on Spring's small-object-heavy
+     *       allocation pattern</li>
+     *   <li>OOM safety flags with a writable HeapDumpPath suitable for containers</li>
+     * </ul>
+     *
+     * <p>Notes on flags intentionally <em>not</em> emitted:
+     * <ul>
+     *   <li>{@code -XX:+UseContainerSupport} is enabled by default since JDK 10.</li>
+     *   <li>{@code -XX:+ZGenerational} was removed in JDK 24 (JEP 490); generational
+     *       mode is now the default for ZGC and the flag is rejected as unrecognized.</li>
+     *   <li>{@code -XX:MaxRAMPercentage} / {@code -XX:InitialRAMPercentage} are only
+     *       honored when {@code -Xmx} / {@code -Xms} are <em>not</em> set, so mixing
+     *       them with explicit heap sizes is a no-op and misleading.</li>
+     *   <li>{@code -Djava.security.egd=file:/dev/./urandom} has been obsolete since
+     *       JDK 9 — {@code SecureRandom} already uses {@code NativePRNGNonBlocking}
+     *       (which reads {@code /dev/urandom}) by default on Linux.</li>
+     *   <li>AOT cache ({@code -XX:AOTCache=...}, JEP 514 stable in JDK 25) is Spring
+     *       Boot 4's biggest startup-time win but requires a multi-step training
+     *       workflow, so it belongs in documentation, not a copy-paste options string.</li>
      * </ul>
      */
     private String buildSuggestedOptions(MemoryUsage heapUsage) {
@@ -67,18 +93,16 @@ public class MemoryController {
         long xmxMb = roundUpTo(max / (1024 * 1024), 256);
         if (xmxMb < 256) xmxMb = 256;
 
-        // Determine GC recommendation: prefer ZGC for large heaps (>= 4 GB), G1GC otherwise
-        String gcFlag = xmxMb >= 4096 ? "-XX:+UseZGC -XX:+ZGenerational" : "-XX:+UseG1GC";
+        String gcFlag = xmxMb >= 4096 ? "-XX:+UseZGC" : "-XX:+UseG1GC";
 
         return "-Xms" + xmsMb + "m" +
                " -Xmx" + xmxMb + "m" +
                " " + gcFlag +
-               " -XX:+UseContainerSupport" +
-               " -XX:MaxRAMPercentage=75.0" +
-               " -XX:InitialRAMPercentage=50.0" +
+               " -XX:+UseStringDeduplication" +
+               " -XX:+UseCompactObjectHeaders" +
                " -XX:+ExitOnOutOfMemoryError" +
                " -XX:+HeapDumpOnOutOfMemoryError" +
-               " -Djava.security.egd=file:/dev/./urandom";
+               " -XX:HeapDumpPath=/tmp";
     }
 
     private long roundUpTo(long value, long multiple) {
