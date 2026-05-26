@@ -3,7 +3,12 @@ export default { name: 'HealthNode' }
 </script>
 
 <script setup>
-const props = defineProps({ node: { type: Object, required: true } })
+import HealthDetails from './HealthDetails.vue'
+
+const props = defineProps({
+  node: { type: Object, required: true },
+  depth: { type: Number, default: 0 }
+})
 
 const statusClass = s => ({
   UP: 'bg-success',
@@ -11,17 +16,52 @@ const statusClass = s => ({
   OUT_OF_SERVICE: 'bg-warning text-dark',
   UNKNOWN: 'bg-secondary'
 }[s] || 'bg-secondary')
+
+const statusIcon = s => ({
+  UP: 'bi-check-circle-fill text-success',
+  DOWN: 'bi-x-circle-fill text-danger',
+  OUT_OF_SERVICE: 'bi-exclamation-triangle-fill text-warning',
+  UNKNOWN: 'bi-question-circle-fill text-secondary'
+}[s] || 'bi-question-circle-fill text-secondary')
+
+const childCount = node => (node.components || []).length
+
+const detailCount = node => {
+  if (!node.details || typeof node.details !== 'object' || Array.isArray(node.details)) return node.details ? 1 : 0
+  return Object.keys(node.details).length
+}
 </script>
 
 <template>
-  <div class="card mb-2">
-    <div class="card-header d-flex justify-content-between">
-      <strong>{{ node.name }}</strong>
+  <details class="card mb-2" :open="depth < 2 || node.status !== 'UP'">
+    <summary class="card-header d-flex justify-content-between align-items-center gap-2">
+      <span class="d-flex align-items-center gap-2">
+        <i class="bi" :class="statusIcon(node.status)"></i>
+        <strong>{{ node.name }}</strong>
+        <span v-if="childCount(node)" class="text-muted small">
+          {{ childCount(node) }} {{ childCount(node) === 1 ? 'component' : 'components' }}
+        </span>
+        <span v-if="detailCount(node)" class="text-muted small">
+          {{ detailCount(node) }} {{ detailCount(node) === 1 ? 'detail' : 'details' }}
+        </span>
+      </span>
       <span class="badge" :class="statusClass(node.status)">{{ node.status }}</span>
+    </summary>
+
+    <div v-if="childCount(node) || node.details" class="card-body">
+      <section v-if="node.details" class="mb-3">
+        <h6 class="text-muted text-uppercase small mb-2">Details</h6>
+        <HealthDetails :value="node.details" />
+      </section>
+
+      <section v-if="childCount(node)">
+        <h6 v-if="node.details" class="text-muted text-uppercase small mb-2">Components</h6>
+        <HealthNode
+          v-for="c in node.components"
+          :key="c.name"
+          :node="c"
+          :depth="depth + 1" />
+      </section>
     </div>
-    <div v-if="(node.components && node.components.length) || node.details" class="card-body">
-      <pre v-if="node.details" class="small mb-0">{{ JSON.stringify(node.details, null, 2) }}</pre>
-      <HealthNode v-for="c in (node.components || [])" :key="c.name" :node="c" />
-    </div>
-  </div>
+  </details>
 </template>
