@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -8,6 +8,20 @@ const overview = ref(null)
 const error = ref(null)
 
 const routes = router.options.routes.filter(r => r.name)
+const primaryRoutes = computed(() => routes.filter(r => !r.meta.experimental))
+const experimentalRoutes = computed(() => routes.filter(r => r.meta.experimental))
+const activeTitle = computed(() => route.meta?.title ?? 'BootUI')
+const activeIcon = computed(() => route.meta?.icon ?? 'bi-speedometer2')
+const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
+const runtimeSummary = computed(() => {
+  if (!overview.value) return 'Loading runtime details'
+  return `Spring Boot ${overview.value.springBootVersion} · Java ${overview.value.javaVersion}`
+})
+const activeProfiles = computed(() => overview.value?.activeProfiles ?? [])
+const activationLabel = computed(() => {
+  if (!overview.value?.activation) return 'Loading'
+  return overview.value.activation.enabled ? 'Active' : 'Disabled'
+})
 
 async function loadOverview() {
   try {
@@ -23,49 +37,487 @@ onMounted(loadOverview)
 </script>
 
 <template>
-  <div class="d-flex flex-column min-vh-100">
-    <nav class="navbar navbar-dark bg-success">
-      <div class="container-fluid">
-        <span class="navbar-brand mb-0 h1">
-          <i class="bi bi-cup-hot-fill me-2"></i>BootUI
-        </span>
-        <span class="text-light small" v-if="overview">
-          {{ overview.applicationName }} ·
-          Spring Boot {{ overview.springBootVersion }} ·
-          Java {{ overview.javaVersion }}
-        </span>
-      </div>
-    </nav>
+  <div class="bootui-shell min-vh-100">
+    <div class="ambient-orb ambient-orb-one"></div>
+    <div class="ambient-orb ambient-orb-two"></div>
 
-    <div class="container-fluid flex-grow-1">
-      <div class="row h-100">
-        <aside class="col-md-2 bg-light border-end py-3">
-          <ul class="nav nav-pills flex-column">
-            <li v-for="r in routes" :key="r.name" class="nav-item">
-              <router-link
-                :to="r.path"
-                class="nav-link d-flex align-items-center"
-                :class="{ active: route.name === r.name }">
-                <i :class="['bi', r.meta.icon, 'me-2']"></i>
-                <span>{{ r.meta.title }}</span>
-              </router-link>
-            </li>
-          </ul>
-          <div v-if="overview && overview.activation && !overview.activation.enabled"
-               class="alert alert-warning mt-3 small">
-            BootUI is disabled: {{ overview.activation.reason }}
+    <aside class="bootui-sidebar">
+      <router-link to="/overview" class="brand-card text-decoration-none">
+        <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
+        <span>
+          <span class="brand-name">BootUI</span>
+          <span class="brand-subtitle">Local developer console</span>
+        </span>
+      </router-link>
+
+      <section class="sidebar-section">
+        <p class="sidebar-label">Core insight</p>
+        <nav class="nav nav-pills flex-column gap-1">
+          <router-link
+            v-for="r in primaryRoutes"
+            :key="r.name"
+            :to="r.path"
+            class="nav-link bootui-nav-link"
+            :class="{ active: route.name === r.name }">
+            <i :class="['bi', r.meta.icon]"></i>
+            <span>{{ r.meta.title }}</span>
+          </router-link>
+        </nav>
+      </section>
+
+      <section class="sidebar-section">
+        <p class="sidebar-label">Labs</p>
+        <nav class="nav nav-pills flex-column gap-1">
+          <router-link
+            v-for="r in experimentalRoutes"
+            :key="r.name"
+            :to="r.path"
+            class="nav-link bootui-nav-link"
+            :class="{ active: route.name === r.name }">
+            <i :class="['bi', r.meta.icon]"></i>
+            <span>{{ r.meta.title }}</span>
+            <span class="nav-dot" title="Experimental panel"></span>
+          </router-link>
+        </nav>
+      </section>
+
+      <div class="safety-card mt-auto">
+        <div class="d-flex align-items-center gap-2">
+          <span class="safety-icon">
+            <i class="bi bi-shield-lock"></i>
+          </span>
+          <div>
+            <strong>Loopback first</strong>
+            <div class="small text-muted">Local-only by default</div>
           </div>
-        </aside>
-
-        <main class="col-md-10 py-3">
-          <div v-if="error" class="alert alert-danger">{{ error }}</div>
-          <router-view />
-        </main>
+        </div>
+        <div v-if="overview?.activation && !overview.activation.enabled" class="alert alert-warning mt-3 mb-0 small">
+          BootUI is disabled: {{ overview.activation.reason }}
+        </div>
       </div>
-    </div>
+    </aside>
 
-    <footer class="border-top py-2 text-center text-muted small">
-      BootUI · local developer console · loopback only by default
-    </footer>
+    <div class="bootui-workspace">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Inspecting</div>
+          <h1 class="topbar-title">{{ applicationTitle }}</h1>
+          <p class="topbar-subtitle mb-0">{{ runtimeSummary }}</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="status-pill">
+            <i class="bi bi-broadcast-pin"></i>
+            {{ activationLabel }}
+          </span>
+          <span v-if="activeProfiles.length" class="profile-stack">
+            <span v-for="profile in activeProfiles" :key="profile" class="profile-chip">{{ profile }}</span>
+          </span>
+          <span v-else class="profile-chip muted">default</span>
+        </div>
+      </header>
+
+      <main class="content-stage">
+        <div v-if="error" class="alert alert-danger shadow-sm">{{ error }}</div>
+        <div v-if="route.meta && route.meta.experimental" class="alert alert-warning d-flex align-items-start panel-alert">
+          <i class="bi bi-exclamation-triangle-fill me-2 mt-1"></i>
+          <div>
+            <strong>Experimental panel.</strong>
+            This panel is not yet part of the supported BootUI surface.
+            Its behavior, data shape, and HTTP API may change or be removed before the first stable release.
+          </div>
+        </div>
+
+        <div class="page-heading">
+          <span class="page-icon"><i :class="['bi', activeIcon]"></i></span>
+          <div>
+            <div class="eyebrow">Current panel</div>
+            <h2>{{ activeTitle }}</h2>
+          </div>
+        </div>
+
+        <router-view v-slot="{ Component }">
+          <transition name="page-slide" mode="out-in">
+            <component :is="Component" :key="route.fullPath" class="page-panel" />
+          </transition>
+        </router-view>
+      </main>
+
+      <footer class="bootui-footer">
+        BootUI · embedded in your Spring Boot app · no external service required
+      </footer>
+    </div>
   </div>
 </template>
+
+<style scoped>
+:global(body) {
+  background:
+    radial-gradient(circle at top left, rgba(25, 135, 84, 0.18), transparent 34rem),
+    linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
+}
+
+:global(.card) {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 1.1rem;
+  box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.07);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+:global(.card:hover) {
+  border-color: rgba(25, 135, 84, 0.25);
+  box-shadow: 0 1.2rem 3rem rgba(15, 23, 42, 0.11);
+  transform: translateY(-2px);
+}
+
+:global(.btn),
+:global(.badge),
+:global(.alert),
+:global(.form-control),
+:global(.form-select) {
+  border-radius: 0.75rem;
+}
+
+:global(.progress) {
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+:global(.progress-bar) {
+  transition: width 500ms ease;
+}
+
+.bootui-shell {
+  color: #152033;
+  display: flex;
+  isolation: isolate;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.ambient-orb {
+  border-radius: 999px;
+  filter: blur(4px);
+  opacity: 0.45;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+.ambient-orb-one {
+  animation: float-orb 13s ease-in-out infinite;
+  background: rgba(25, 135, 84, 0.22);
+  height: 18rem;
+  left: -5rem;
+  top: 7rem;
+  width: 18rem;
+}
+
+.ambient-orb-two {
+  animation: float-orb 16s ease-in-out infinite reverse;
+  background: rgba(13, 110, 253, 0.16);
+  bottom: 4rem;
+  height: 22rem;
+  right: -8rem;
+  width: 22rem;
+}
+
+.bootui-sidebar {
+  backdrop-filter: blur(22px);
+  background: rgba(255, 255, 255, 0.76);
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0.75rem 0 2rem rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 1.4rem;
+  min-height: 100vh;
+  padding: 1.25rem;
+  position: sticky;
+  top: 0;
+  width: 18rem;
+}
+
+.brand-card {
+  align-items: center;
+  background: linear-gradient(135deg, rgba(25, 135, 84, 0.12), rgba(13, 110, 253, 0.1));
+  border: 1px solid rgba(25, 135, 84, 0.14);
+  border-radius: 1.25rem;
+  color: inherit;
+  display: flex;
+  gap: 0.85rem;
+  padding: 0.85rem;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.brand-card:hover {
+  box-shadow: 0 1rem 2rem rgba(25, 135, 84, 0.12);
+  transform: translateY(-2px);
+}
+
+.brand-mark,
+.page-icon,
+.safety-icon {
+  align-items: center;
+  border-radius: 1rem;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.brand-mark {
+  background: #198754;
+  box-shadow: 0 0.6rem 1.2rem rgba(25, 135, 84, 0.28);
+  color: #fff;
+  height: 2.75rem;
+  width: 2.75rem;
+}
+
+.brand-name,
+.brand-subtitle {
+  display: block;
+}
+
+.brand-name {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.brand-subtitle,
+.topbar-subtitle {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.sidebar-section {
+  animation: fade-up 420ms ease both;
+}
+
+.sidebar-label,
+.eyebrow {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.55rem;
+  text-transform: uppercase;
+}
+
+.bootui-nav-link {
+  align-items: center;
+  color: #334155;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.62rem 0.75rem;
+  position: relative;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.bootui-nav-link:hover {
+  background: rgba(25, 135, 84, 0.08);
+  color: #146c43;
+  transform: translateX(3px);
+}
+
+.bootui-nav-link.active {
+  background: linear-gradient(135deg, #198754, #0d6efd);
+  box-shadow: 0 0.8rem 1.4rem rgba(25, 135, 84, 0.2);
+  color: #fff;
+}
+
+.bootui-nav-link i {
+  font-size: 1.05rem;
+}
+
+.nav-dot {
+  background: #ffc107;
+  border-radius: 50%;
+  height: 0.45rem;
+  margin-left: auto;
+  width: 0.45rem;
+}
+
+.safety-card {
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 1.1rem;
+  padding: 0.9rem;
+}
+
+.safety-icon {
+  background: rgba(25, 135, 84, 0.12);
+  color: #198754;
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
+.bootui-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.5rem 2rem 1rem;
+}
+
+.topbar-title {
+  font-size: clamp(1.45rem, 2vw, 2.1rem);
+  font-weight: 800;
+  margin: 0;
+}
+
+.topbar-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
+.status-pill,
+.profile-chip {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  box-shadow: 0 0.5rem 1.2rem rgba(15, 23, 42, 0.06);
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 700;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+}
+
+.profile-stack {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.profile-chip {
+  background: rgba(25, 135, 84, 0.1);
+  color: #146c43;
+}
+
+.profile-chip.muted {
+  background: rgba(100, 116, 139, 0.1);
+  color: #64748b;
+}
+
+.content-stage {
+  flex: 1;
+  padding: 0 2rem 1.5rem;
+}
+
+.page-heading {
+  align-items: center;
+  display: flex;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.page-heading h2 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+.page-icon {
+  background: linear-gradient(135deg, #198754, #0d6efd);
+  box-shadow: 0 0.8rem 1.5rem rgba(13, 110, 253, 0.2);
+  color: #fff;
+  height: 2.75rem;
+  width: 2.75rem;
+}
+
+.page-panel {
+  animation: fade-up 360ms ease both;
+}
+
+.panel-alert {
+  border: 0;
+  box-shadow: 0 0.75rem 1.75rem rgba(180, 83, 9, 0.12);
+}
+
+.bootui-footer {
+  color: #64748b;
+  font-size: 0.82rem;
+  padding: 0 2rem 1.25rem;
+  text-align: center;
+}
+
+.page-slide-enter-active,
+.page-slide-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.page-slide-enter-from {
+  opacity: 0;
+  transform: translateY(0.75rem) scale(0.99);
+}
+
+.page-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-0.35rem) scale(0.99);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float-orb {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(1.5rem, -1rem, 0) scale(1.06);
+  }
+}
+
+@media (max-width: 991.98px) {
+  .bootui-shell {
+    flex-direction: column;
+  }
+
+  .bootui-sidebar {
+    min-height: auto;
+    position: relative;
+    width: 100%;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .content-stage,
+  .topbar,
+  .bootui-footer {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
