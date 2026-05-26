@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -24,6 +25,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.web.client.RestClient;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * End-to-end tests that boot the sample app on a random port and call BootUI's
@@ -35,12 +39,18 @@ import org.springframework.web.client.RestClient;
         webEnvironment = WebEnvironment.RANDOM_PORT,
         properties = {
                 "spring.profiles.active=dev",
+                "spring.docker.compose.enabled=false",
                 "bootui.show-banner=false",
                 "bootui.overrides-file=target/bootui-test-overrides.properties"
         })
+@Testcontainers
 class BootUiSampleApplicationIntegrationTests {
 
     private static final Path OVERRIDES_FILE = Paths.get("target/bootui-test-overrides.properties");
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18-alpine");
 
     @LocalServerPort
     int port;
