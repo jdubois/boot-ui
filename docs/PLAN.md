@@ -50,6 +50,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - profile diff
   - Spring Security
   - Micrometer metrics
+  - dependency inventory and OSV vulnerability scan
   - DevTools reload/restart
 - Vue 3 UI shell with routes for:
   - Overview
@@ -68,11 +69,12 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Profile Diff
   - Security
   - Metrics
+  - Vulnerabilities
   - DevTools
   - Dev Services
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 - Backend tests covering activation, auto-configuration activation cases, localhost filtering, config override persistence, override property sources, override file storage, environment post-processing, config metadata loading, selected web controllers, missing Actuator behavior, and sample-app integration.
-- Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API, every visible BootUI route, and focused flows for the current panel set, including Metrics, DevTools, and Dev Services.
+- Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API, every visible BootUI route, and focused flows for the current panel set, including Metrics, Vulnerabilities, DevTools, and Dev Services.
 
 ## 3. Milestone status
 
@@ -84,7 +86,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 3. Actuator bridge | Implemented, needs deeper backend coverage | Stable BootUI DTO endpoints exist for the original MVP panels; missing-Actuator behavior needs broader explicit tests. |
 | 4. Beans and Conditions panels | Implemented and covered by sample e2e | API and UI panels exist; large-app edge cases remain release-hardening work. |
 | 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests. |
-| 6. Post-MVP diagnostic panels | Implemented and covered by sample e2e | Startup, Memory, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, DevTools, and Dev Services panels have API/UI slices plus route-level and focused Playwright coverage. Backend edge-case tests and safety review remain. |
+| 6. Post-MVP diagnostic panels | Implemented and covered by sample e2e | Startup, Memory, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus route-level and focused Playwright coverage. Backend edge-case tests and safety review remain. |
 | 7. Documentation and release hardening | In progress | Installation, activation, safety, troubleshooting, release notes, screenshots, and sample walkthrough need to stay reconciled with current behavior. |
 
 ## 4. What still needs to be done
@@ -134,15 +136,16 @@ Validate every visible route against the sample app:
 9. Startup Timeline.
 10. Memory.
 11. Metrics.
-12. DevTools.
-13. Dev Services.
-14. Scheduled Tasks.
-15. HTTP Probe.
-16. Log Tail.
-17. Profile Diff.
-18. Security.
+12. Vulnerabilities.
+13. DevTools.
+14. Dev Services.
+15. Scheduled Tasks.
+16. HTTP Probe.
+17. Log Tail.
+18. Profile Diff.
+19. Security.
 
-The plan no longer treats Startup, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, DevTools, or Dev Services as future-only ideas: they are implemented surfaces with sample-app Playwright coverage and should either be hardened for the next alpha or explicitly marked experimental before release.
+The plan no longer treats Startup, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, or Dev Services as future-only ideas: they are implemented surfaces with sample-app Playwright coverage and should either be hardened for the next alpha or explicitly marked experimental before release.
 
 ### 4.3 Refresh user-facing documentation
 
@@ -176,14 +179,13 @@ Reconcile the specification with the implementation where behavior has become mo
 Run the CI-equivalent build:
 
 ```bash
-mvn -B -ntp clean install
+./mvnw -B -ntp clean install
 ```
 
 Run the sample app:
 
 ```bash
-cd bootui-sample-app
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 Manual smoke checks:
@@ -356,7 +358,7 @@ Reason:
 
 Before considering the next alpha complete:
 
-- `mvn -B -ntp clean install` passes.
+- `./mvnw -B -ntp clean install` passes.
 - The UI build is executed automatically by Maven.
 - Sample app starts with the `dev` profile.
 - `/bootui` loads.

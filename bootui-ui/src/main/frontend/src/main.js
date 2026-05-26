@@ -20,6 +20,7 @@ import ProfileDiff from './views/ProfileDiff.vue'
 import Security from './views/Security.vue'
 import Memory from './views/Memory.vue'
 import Metrics from './views/Metrics.vue'
+import Vulnerabilities from './views/Dependencies.vue'
 import DevServices from './views/DevServices.vue'
 import DevTools from './views/DevTools.vue'
 
@@ -28,23 +29,25 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/overview' },
     { path: '/overview', name: 'overview', component: Overview, meta: { icon: 'bi-speedometer2', title: 'Overview' } },
-    { path: '/health', name: 'health', component: Health, meta: { icon: 'bi-heart-pulse', title: 'Health' } },
     { path: '/startup', name: 'startup', component: Startup, meta: { icon: 'bi-bar-chart-steps', title: 'Startup Timeline' } },
     { path: '/memory', name: 'memory', component: Memory, meta: { icon: 'bi-memory', title: 'Memory' } },
+    { path: '/health', name: 'health', component: Health, meta: { icon: 'bi-heart-pulse', title: 'Health' } },
     { path: '/metrics', name: 'metrics', component: Metrics, meta: { icon: 'bi-activity', title: 'Metrics' } },
-    { path: '/devtools', name: 'devtools', component: DevTools, meta: { icon: 'bi-lightning-charge', title: 'DevTools' } },
     { path: '/conditions', name: 'conditions', component: Conditions, meta: { icon: 'bi-check2-circle', title: 'Conditions' } },
     { path: '/beans', name: 'beans', component: Beans, meta: { icon: 'bi-diagram-3', title: 'Beans' } },
     { path: '/mappings', name: 'mappings', component: Mappings, meta: { icon: 'bi-signpost-2', title: 'Mappings' } },
     { path: '/config', name: 'config', component: Config, meta: { icon: 'bi-sliders', title: 'Configuration' } },
     { path: '/profiles', name: 'profiles', component: ProfileDiff, meta: { icon: 'bi-layers', title: 'Profile Diff' } },
-    { path: '/dev-services', name: 'dev-services', component: DevServices, meta: { icon: 'bi-box-seam', title: 'Dev Services' } },
-    { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
-    { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security' } },
-    { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },
     { path: '/loggers', name: 'loggers', component: Loggers, meta: { icon: 'bi-journal-text', title: 'Loggers' } },
     { path: '/log-tail', name: 'log-tail', component: LogTail, meta: { icon: 'bi-terminal', title: 'Log Tail' } },
-    { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe' } }
+    { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe' } },
+    { path: '/devtools', name: 'devtools', component: DevTools, meta: { icon: 'bi-lightning-charge', title: 'DevTools' } },
+    { path: '/dev-services', name: 'dev-services', component: DevServices, meta: { icon: 'bi-box-seam', title: 'Dev Services' } },
+    { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },
+    { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
+    { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-person-lock', title: 'Security' } },
+    { path: '/vulnerabilities', name: 'vulnerabilities', component: Vulnerabilities, meta: { icon: 'bi-bug', title: 'Vulnerabilities' } },
+    { path: '/dependencies', redirect: '/vulnerabilities' }
   ]
 })
 

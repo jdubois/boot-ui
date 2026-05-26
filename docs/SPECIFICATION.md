@@ -411,7 +411,31 @@ Acceptance criteria:
 - Suggested options are clearly presented as recommendations, not automatic changes.
 - JVM argument disclosure is reviewed as part of release hardening.
 
-### 5.11 Scheduled Tasks Inspector
+### 5.11 Vulnerabilities Panel
+
+Purpose: answer "Which runtime JAR dependencies are present, and do any have known vulnerabilities?"
+
+Data sources:
+
+- Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
+- OSV.dev Maven vulnerability data for explicit on-demand scans.
+
+Features:
+
+- List runtime Maven dependencies by group, artifact, and version.
+- Keep the initial inventory local-only; no external vulnerability lookup runs on page load.
+- Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
+- Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed versions when available.
+- Support disabling OSV scans with `bootui.dependencies.osv-enabled=false`.
+
+Acceptance criteria:
+
+- Dependency and advisory data serialize through stable BootUI DTOs.
+- External scanning is user-initiated and clearly labeled in the UI.
+- OSV failures return a clear error status while preserving the local dependency inventory.
+- Scan size is bounded by configuration so large classpaths remain responsive.
+
+### 5.12 Scheduled Tasks Inspector
 
 Purpose: answer "Which scheduled tasks are registered?"
 
@@ -430,7 +454,7 @@ Acceptance criteria:
 - Opening the panel never invokes scheduled tasks.
 - Spring wrapper runnables are displayed with the most useful available task description.
 
-### 5.12 HTTP Probe Panel
+### 5.13 HTTP Probe Panel
 
 Purpose: issue safe local HTTP requests to the running app from the developer console.
 
@@ -452,7 +476,7 @@ Acceptance criteria:
 - Unsafe-body behavior is explicit and predictable.
 - Response headers are filtered to a small allow-list.
 
-### 5.13 Log Tail Panel
+### 5.14 Log Tail Panel
 
 Purpose: stream recent local application log lines in the browser.
 
@@ -471,7 +495,7 @@ Acceptance criteria:
 - The panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
 
-### 5.14 Profile Diff Panel
+### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
 
@@ -492,7 +516,7 @@ Acceptance criteria:
 - Metadata-only exposure hides values.
 - Source attribution remains visible.
 
-### 5.15 Spring Security Panel
+### 5.16 Spring Security Panel
 
 Purpose: answer "Which security filter chains and authorization rules apply?"
 
@@ -515,7 +539,7 @@ Acceptance criteria:
 - Credentials, password hashes, signing keys, session IDs, and tokens are never displayed.
 - Matching caveats are clearly marked as best-effort.
 
-### 5.16 Spring Data Explorer
+### 5.17 Spring Data Explorer
 
 Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they expose?"
 
@@ -548,7 +572,7 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
-### 5.17 Dev Services Panel
+### 5.18 Dev Services Panel
 
 Purpose: answer "Which local backing services are connected?"
 
@@ -670,7 +694,7 @@ Build requirements:
 - The Maven build must install/use the configured Node.js and npm versions for reproducible frontend builds.
 - The frontend build must run before Java resources are packaged.
 - The generated Vue assets must be copied into a classpath location served by `bootui-autoconfigure`, such as `META-INF/resources/bootui/`.
-- `mvn clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue UI.
+- `./mvnw clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue UI.
 - Consumer Spring Boot 4 applications should only need the `bootui-spring-boot-starter` dependency; they must not run `npm install` or `npm run build` themselves.
 
 #### `bootui-sample-app`
@@ -732,6 +756,8 @@ Initial endpoints:
 | `/bootui/api/startup` | GET | Startup timeline |
 | `/bootui/api/metrics` | GET | Browseable Micrometer meter list |
 | `/bootui/api/metrics/detail` | GET | Micrometer meter detail and live measurements |
+| `/bootui/api/dependencies` | GET | Runtime Maven dependency inventory without external scanning |
+| `/bootui/api/dependencies/scan` | POST | Explicit on-demand OSV.dev vulnerability scan |
 | `/bootui/api/devtools` | GET | Spring Boot DevTools status |
 | `/bootui/api/devtools/livereload` | POST | Trigger a DevTools LiveReload notification when available |
 | `/bootui/api/devtools/restart` | POST | Schedule a DevTools restart after explicit confirmation |
@@ -774,6 +800,10 @@ Initial properties:
 | `bootui.disabled-profiles` | `prod,production` | Profiles that disable BootUI unless `bootui.enabled=ON`. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides. |
 | `bootui.endpoint-timeout` | `5s` | Timeout for endpoint-related calls. |
+| `bootui.dependencies.osv-enabled` | `true` | Allow the user-initiated OSV.dev vulnerability scan action. |
+| `bootui.dependencies.request-timeout` | `10s` | Timeout applied to each OSV request. |
+| `bootui.dependencies.max-packages` | `250` | Maximum packages sent in one OSV batch query. |
+| `bootui.dependencies.max-advisories` | `200` | Maximum advisory detail documents fetched after a query. |
 | `bootui.dev-services.restart-enabled` | `false` | Enables restart controls for bean-backed Testcontainers services. |
 | `bootui.dev-services.log-tail-bytes` | `65536` | Maximum bytes returned by one Dev Services log request. |
 
@@ -792,6 +822,7 @@ Rules:
 - Persist runtime overrides only to BootUI's configured override file.
 - Never send telemetry by default.
 - Never proxy arbitrary external URLs.
+- Never perform dependency vulnerability lookups until the developer explicitly starts an OSV scan.
 
 Production safety:
 
@@ -822,6 +853,7 @@ Top-level tabs:
 - Startup Timeline.
 - Memory.
 - Metrics.
+- Vulnerabilities.
 - DevTools.
 - Dev Services.
 - Scheduled Tasks.

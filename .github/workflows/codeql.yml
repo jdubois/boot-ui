@@ -58,7 +58,7 @@ jobs:
 
       - name: Build (Java)
         if: steps.code-scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
-        run: mvn -B -ntp -DskipTests package
+        run: ./mvnw -B -ntp -DskipTests package
 
       - name: Perform CodeQL Analysis
         if: steps.code-scanning.outputs.enabled == 'true'

@@ -5,34 +5,34 @@ BootUI is a **Spring Boot 4 starter** that adds a local-only developer console (
 ## Toolchain
 
 - Java 25, Spring Boot 4.0.x (`spring-boot.version` in root `pom.xml`).
-- Maven 3.9+ (no wrapper committed — use system Maven).
+- Maven Wrapper (`./mvnw`) using Maven 3.9.16; do not require a system Maven install.
 - Node.js / npm are downloaded automatically by the `frontend-maven-plugin`; do not add a manual Node install step.
 
 ## Build, run, test
 
 ```bash
 # Full multi-module build (downloads Node, builds Vue UI, packages all JARs).
-mvn clean install
+./mvnw clean install
 
 # Backend-only iteration loop (skips the Vue build).
-mvn -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
+./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
 
 # Run the sample app (smoke-test path: http://localhost:8080/bootui).
-cd bootui-sample-app && mvn spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
 
 # Single test class / single test method.
-mvn -pl bootui-core test -Dtest=SecretMaskerTests
-mvn -pl bootui-core test -Dtest=SecretMaskerTests#detectsCommonSecretKeys
+./mvnw -pl bootui-core test -Dtest=SecretMaskerTests
+./mvnw -pl bootui-core test -Dtest=SecretMaskerTests#detectsCommonSecretKeys
 
 # Front-end inner loop (Vite dev server with HMR; proxies /bootui/api/* to a running sample app).
 cd bootui-ui/src/main/frontend
 npm install
 npm run dev
 # After changing UI code that needs to be re-bundled into the JAR:
-mvn -pl bootui-ui install
+./mvnw -pl bootui-ui install
 ```
 
-CI (`.github/workflows/build.yml`) runs `mvn -B -ntp clean install` on Java 25 — keep that command green.
+CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 25 — keep that command green.
 
 ## Module topology
 
@@ -85,5 +85,5 @@ Because already-bound `@ConfigurationProperties` beans won't auto-rebind, every 
 ## Contribution conventions (from `CONTRIBUTING.md`)
 
 - Branch names start with the GitHub username, e.g. `jdubois/improve-config-ui`.
-- Keep PRs small and update `docs/` whenever public behavior changes. The PR template's checklist (`mvn clean install`, sample-app smoke test, no committed secrets) is enforced in review.
+- Keep PRs small and update `docs/` whenever public behavior changes. The PR template's checklist (`./mvnw clean install`, sample-app smoke test, no committed secrets) is enforced in review.
 - Spring Boot 3.x compatibility is **out of scope** for v0.1 — don't add compatibility shims.

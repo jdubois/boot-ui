@@ -38,7 +38,7 @@ jobs:
           cache-dependency-path: bootui-sample-app/e2e/package-lock.json
 
       - name: Build all modules
-        run: mvn -B -ntp clean install
+        run: ./mvnw -B -ntp clean install
 
       - name: Install Playwright dependencies
         working-directory: bootui-sample-app/e2e

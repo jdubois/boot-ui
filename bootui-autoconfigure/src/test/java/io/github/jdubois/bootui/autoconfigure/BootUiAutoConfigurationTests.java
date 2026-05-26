@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.web.DataController;
+import io.github.jdubois.bootui.autoconfigure.web.DependenciesController;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsBridge;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsController;
 import io.github.jdubois.bootui.autoconfigure.web.DevServicesController;
@@ -41,6 +42,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(DevToolsController.class)
                         .hasSingleBean(OverviewController.class)
                         .hasSingleBean(DevServicesController.class)
+                        .hasSingleBean(DependenciesController.class)
                         .hasSingleBean(BootUiActivation.class));
     }
 
@@ -112,7 +114,10 @@ class BootUiAutoConfigurationTests {
                         "bootui.overrides-file=/tmp/bootui.properties",
                         "bootui.endpoint-timeout=2s",
                         "bootui.dev-services.restart-enabled=true",
-                        "bootui.dev-services.log-tail-bytes=2048")
+                        "bootui.dev-services.log-tail-bytes=2048",
+                        "bootui.dependencies.osv-enabled=false",
+                        "bootui.dependencies.max-packages=42",
+                        "bootui.dependencies.max-advisories=24")
                 .run(context -> {
                     BootUiProperties properties = context.getBean(BootUiProperties.class);
                     assertThat(properties.getPath()).isEqualTo("/admin");
@@ -124,6 +129,9 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(2));
                     assertThat(properties.getDevServices().isRestartEnabled()).isTrue();
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
+                    assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
+                    assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
+                    assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
                 });
     }
 

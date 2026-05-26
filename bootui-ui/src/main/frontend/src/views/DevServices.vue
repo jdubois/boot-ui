@@ -183,21 +183,21 @@ onMounted(load)
               </thead>
               <tbody>
                 <tr v-for="service in filtered" :key="service.id">
-                  <td>
+                  <td data-label="Service">
                     <div class="fw-semibold">{{ service.name }}</div>
                     <div class="small text-muted">
                       {{ service.type }}
                       <span v-if="service.image"> · <code>{{ service.image }}</code></span>
                     </div>
                   </td>
-                  <td><span class="badge" :class="sourceClass(service.source)">{{ service.source }}</span></td>
-                  <td><span class="badge" :class="statusClass(service.status)">{{ service.status }}</span></td>
-                  <td class="small">
+                  <td data-label="Source"><span class="badge" :class="sourceClass(service.source)">{{ service.source }}</span></td>
+                  <td data-label="Status"><span class="badge" :class="statusClass(service.status)">{{ service.status }}</span></td>
+                  <td data-label="Host / ports" class="small">
                     <div>{{ service.host || '—' }}</div>
                     <code>{{ formatPorts(service) }}</code>
                   </td>
-                  <td class="text-end">
-                    <div class="btn-group btn-group-sm">
+                  <td data-label="Actions" class="text-end">
+                    <div class="btn-group btn-group-sm service-actions">
                       <button class="btn btn-outline-secondary" @click="selected = service">
                         Details
                       </button>
@@ -281,5 +281,70 @@ onMounted(load)
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+td code {
+  white-space: normal;
+  word-break: break-word;
+}
+
+@media (max-width: 991.98px) {
+  .table-responsive {
+    overflow-x: visible;
+  }
+
+  table,
+  tbody,
+  tr,
+  td {
+    display: block;
+    width: 100%;
+  }
+
+  table {
+    border-collapse: separate;
+    border-spacing: 0 0.75rem;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tr {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 1rem;
+    box-shadow: 0 0.75rem 1.75rem rgba(15, 23, 42, 0.06);
+    padding: 0.75rem;
+  }
+
+  td {
+    border: 0;
+    padding: 0.35rem 0;
+  }
+
+  td::before {
+    color: #6c757d;
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+    text-transform: uppercase;
+  }
+
+  td.text-end {
+    text-align: start !important;
+  }
+
+  .service-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .service-actions > .btn {
+    border-radius: 0.75rem !important;
+  }
 }
 </style>

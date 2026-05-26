@@ -36,13 +36,13 @@ flow) exposed by the sample app:
 ## Prerequisites
 
 * Node.js 20+
-* Java 25 and Maven (used to build & run the sample app)
+* Java 25 and the repository Maven Wrapper (used to build & run the sample app)
 * The BootUI parent build must be installed locally so the sample app can
   resolve its modules:
 
   ```bash
-  cd ..               # back to the repository root
-  mvn -DskipTests install
+  cd ../..            # back to the repository root
+  ./mvnw -DskipTests install
   ```
 
 ## Install
@@ -56,7 +56,7 @@ npx playwright install --with-deps chromium
 ## Run
 
 ```bash
-# Lets Playwright start the sample app for you (via mvn spring-boot:run)
+# Lets Playwright start the sample app for you (via ./mvnw spring-boot:run)
 npm test
 ```
 
@@ -65,8 +65,8 @@ launch the tests — Playwright will reuse the running server:
 
 ```bash
 # terminal 1
-cd ..
-mvn spring-boot:run
+cd ../..
+./mvnw -pl bootui-sample-app spring-boot:run
 # terminal 2
 cd bootui-sample-app/e2e
 npm test

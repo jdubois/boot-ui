@@ -68,6 +68,9 @@ public class BootUiProperties {
     /** Dev Services panel settings. */
     private DevServices devServices = new DevServices();
 
+    /** Dependency inventory and vulnerability scanning settings. */
+    private Dependencies dependencies = new Dependencies();
+
     public static class DevServices {
 
         /** Allow BootUI to restart Testcontainers-backed services. */
@@ -90,6 +93,53 @@ public class BootUiProperties {
 
         public void setLogTailBytes(int logTailBytes) {
             this.logTailBytes = logTailBytes;
+        }
+    }
+
+    public static class Dependencies {
+
+        /** Allow on-demand vulnerability scans against OSV.dev. */
+        private boolean osvEnabled = true;
+
+        /** Timeout applied to each OSV request. */
+        private Duration requestTimeout = Duration.ofSeconds(10);
+
+        /** Maximum number of dependency packages included in one OSV batch query. */
+        private int maxPackages = 250;
+
+        /** Maximum number of advisory details fetched after the package query. */
+        private int maxAdvisories = 200;
+
+        public boolean isOsvEnabled() {
+            return osvEnabled;
+        }
+
+        public void setOsvEnabled(boolean osvEnabled) {
+            this.osvEnabled = osvEnabled;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
+        }
+
+        public int getMaxPackages() {
+            return maxPackages;
+        }
+
+        public void setMaxPackages(int maxPackages) {
+            this.maxPackages = maxPackages;
+        }
+
+        public int getMaxAdvisories() {
+            return maxAdvisories;
+        }
+
+        public void setMaxAdvisories(int maxAdvisories) {
+            this.maxAdvisories = maxAdvisories;
         }
     }
 
@@ -195,5 +245,13 @@ public class BootUiProperties {
 
     public void setDevServices(DevServices devServices) {
         this.devServices = devServices;
+    }
+
+    public Dependencies getDependencies() {
+        return dependencies;
+    }
+
+    public void setDependencies(Dependencies dependencies) {
+        this.dependencies = dependencies;
     }
 }

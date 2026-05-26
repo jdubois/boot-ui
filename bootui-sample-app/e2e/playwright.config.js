@@ -8,7 +8,7 @@ import { defineConfig, devices } from '@playwright/test'
  * by the `bootui-sample-app` Spring Boot module, using a real Chromium browser.
  *
  * By default Playwright will boot the sample app for you via
- * `mvn spring-boot:run` (requires `mvn install` of the parent build first so
+ * `./mvnw spring-boot:run` (requires `./mvnw install` of the parent build first so
  * the BootUI artefacts are available in the local Maven repository). If you
  * already have the app running on port 8080 it will be reused automatically.
  */
@@ -44,8 +44,8 @@ export default defineConfig({
   // Set BOOTUI_SKIP_WEBSERVER=1 to disable the auto-started Maven server when
   // running the tests against an already-deployed instance, listing tests, etc.
   webServer: process.env.BOOTUI_SKIP_WEBSERVER ? undefined : {
-    // Run from the sample-app module so `spring-boot:run` picks up the right pom.
-    command: 'mvn -f ../pom.xml -q spring-boot:run',
+    // Run from the e2e module through the root Maven Wrapper.
+    command: '../../mvnw -f ../pom.xml -q spring-boot:run',
     url: `${BASE_URL}/bootui/api/overview`,
     reuseExistingServer: !process.env.CI,
     stdout: 'pipe',

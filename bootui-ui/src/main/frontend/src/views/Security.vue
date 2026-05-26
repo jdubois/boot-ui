@@ -125,7 +125,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <h2><i class="bi bi-shield-lock me-2"></i>Spring Security</h2>
+    <h2><i class="bi bi-person-lock me-2"></i>Spring Security</h2>
 
     <div v-if="!springSecurityPresent" class="alert alert-info">
       Spring Security is not on the classpath of this application. Add
