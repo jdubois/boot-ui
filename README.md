@@ -54,7 +54,7 @@ Some panels depend on optional Spring, Actuator, or development infrastructure. 
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>0.1.0-alpha.2</version>
+  <version>0.1.0-alpha.4</version>
 </dependency>
 ```
 
