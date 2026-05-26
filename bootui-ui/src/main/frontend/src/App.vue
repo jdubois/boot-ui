@@ -8,8 +8,6 @@ const overview = ref(null)
 const error = ref(null)
 
 const routes = router.options.routes.filter(r => r.name)
-const primaryRoutes = computed(() => routes.filter(r => !r.meta.experimental))
-const experimentalRoutes = computed(() => routes.filter(r => r.meta.experimental))
 const activeTitle = computed(() => route.meta?.title ?? 'BootUI')
 const activeIcon = computed(() => route.meta?.icon ?? 'bi-speedometer2')
 const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
@@ -50,36 +48,17 @@ onMounted(loadOverview)
         </span>
       </router-link>
 
-      <section class="sidebar-section">
-        <p class="sidebar-label">Core insight</p>
-        <nav class="nav nav-pills flex-column gap-1">
-          <router-link
-            v-for="r in primaryRoutes"
-            :key="r.name"
-            :to="r.path"
-            class="nav-link bootui-nav-link"
-            :class="{ active: route.name === r.name }">
-            <i :class="['bi', r.meta.icon]"></i>
-            <span>{{ r.meta.title }}</span>
-          </router-link>
-        </nav>
-      </section>
-
-      <section class="sidebar-section">
-        <p class="sidebar-label">Labs</p>
-        <nav class="nav nav-pills flex-column gap-1">
-          <router-link
-            v-for="r in experimentalRoutes"
-            :key="r.name"
-            :to="r.path"
-            class="nav-link bootui-nav-link"
-            :class="{ active: route.name === r.name }">
-            <i :class="['bi', r.meta.icon]"></i>
-            <span>{{ r.meta.title }}</span>
-            <span class="nav-dot" title="Experimental panel"></span>
-          </router-link>
-        </nav>
-      </section>
+      <nav class="nav nav-pills flex-column gap-1 sidebar-nav">
+        <router-link
+          v-for="r in routes"
+          :key="r.name"
+          :to="r.path"
+          class="nav-link bootui-nav-link"
+          :class="{ active: route.name === r.name }">
+          <i :class="['bi', r.meta.icon]"></i>
+          <span>{{ r.meta.title }}</span>
+        </router-link>
+      </nav>
 
       <div class="safety-card mt-auto">
         <div class="d-flex align-items-center gap-2">
@@ -118,15 +97,6 @@ onMounted(loadOverview)
 
       <main class="content-stage">
         <div v-if="error" class="alert alert-danger shadow-sm">{{ error }}</div>
-        <div v-if="route.meta && route.meta.experimental" class="alert alert-warning d-flex align-items-start panel-alert">
-          <i class="bi bi-exclamation-triangle-fill me-2 mt-1"></i>
-          <div>
-            <strong>Experimental panel.</strong>
-            This panel is not yet part of the supported BootUI surface.
-            Its behavior, data shape, and HTTP API may change or be removed before the first stable release.
-          </div>
-        </div>
-
         <div class="page-heading">
           <span class="page-icon"><i :class="['bi', activeIcon]"></i></span>
           <div>
@@ -287,11 +257,10 @@ onMounted(loadOverview)
   font-size: 0.85rem;
 }
 
-.sidebar-section {
+.sidebar-nav {
   animation: fade-up 420ms ease both;
 }
 
-.sidebar-label,
 .eyebrow {
   color: #64748b;
   font-size: 0.7rem;
@@ -325,14 +294,6 @@ onMounted(loadOverview)
 
 .bootui-nav-link i {
   font-size: 1.05rem;
-}
-
-.nav-dot {
-  background: #ffc107;
-  border-radius: 50%;
-  height: 0.45rem;
-  margin-left: auto;
-  width: 0.45rem;
 }
 
 .safety-card {
