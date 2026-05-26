@@ -36,7 +36,7 @@ BootUI is served by the host application at `/bootui/` and uses internal `/bootu
 
 ![BootUI startup timeline](docs/images/bootui-startup.png)
 
-## Setup (use in your own Spring Boot app)
+## Setup with your own Spring Boot application
 
 ### 1) Prerequisites
 
@@ -74,7 +74,7 @@ bootui.enabled=OFF
 
 Visit: <http://localhost:8080/bootui>
 
-## Setup (run this repository locally)
+## Setup with the sample application (for testing purposes only)
 
 ### 1) Prerequisites
 
