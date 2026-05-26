@@ -113,6 +113,7 @@ class MissingActuatorEndpointsTests {
                 emptyProvider(),
                 emptyProvider(),
                 emptyProvider(),
+                emptyProvider(),
                 new MockEnvironment(),
                 new BootUiProperties());
         MockMvc mvc = standaloneSetup(controller).build();
