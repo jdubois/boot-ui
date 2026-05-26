@@ -22,12 +22,19 @@ It is designed for local development (not production) and helps you quickly insp
 - live log tail
 - profile-specific configuration
 - Spring Security filter chains and endpoint rules
+- Micrometer metrics
+- DevTools LiveReload / restart status
+- local development services from Docker Compose, Testcontainers, and service connection metadata
 
 BootUI is served by the host application at `/bootui/` and uses internal `/bootui/api/**` endpoints. The browser UI is packaged into the starter; consumers do not need Node.js or npm.
 
-## Screenshot
+## Screenshots
 
-![BootUI overview](https://github.com/user-attachments/assets/065013d1-73df-46a0-914c-0a5c88127995)
+![BootUI overview](docs/images/bootui-overview.png)
+
+![BootUI mappings](docs/images/bootui-mappings.png)
+
+![BootUI startup timeline](docs/images/bootui-startup.png)
 
 ## Setup (use in your own Spring Boot app)
 
@@ -112,6 +119,8 @@ Common properties:
 | `bootui.allow-non-localhost` | `false` | Explicit opt-out of loopback-only protection. |
 | `bootui.expose-values` | `MASKED` | `MASKED`, `METADATA_ONLY`, or `FULL`. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | Runtime override persistence file. |
+| `bootui.dev-services.restart-enabled` | `false` | Enables restart controls for bean-backed Testcontainers services. Disabled by default. |
+| `bootui.dev-services.log-tail-bytes` | `65536` | Maximum bytes returned by one Dev Services log request. |
 
 ## Panels
 
@@ -129,6 +138,9 @@ Current visible panels:
 | Data | Spring Data repositories and query methods. |
 | Startup Timeline | Startup steps from Actuator startup data. |
 | Memory | JVM heap/non-heap usage and suggested JVM options. |
+| Metrics | Micrometer meter browser, measurements, tags, and live local graph. |
+| DevTools | Spring Boot DevTools LiveReload and restart controls when available. |
+| Dev Services | Docker Compose snapshots, Testcontainers beans, and service connection metadata. |
 | Scheduled Tasks | Registered scheduled tasks. |
 | HTTP Probe | Local-only request probe against the running app. |
 | Log Tail | Recent and streaming application logs. |

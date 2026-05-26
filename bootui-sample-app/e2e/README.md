@@ -29,6 +29,8 @@ flow) exposed by the sample app:
 | `security.spec.js`         | Filter chains list `/api/secure`, explain endpoint returns a match                     |
 | `memory.spec.js`           | Heap / non-heap cards render, JVM options copy button                                  |
 | `metrics.spec.js`          | Micrometer meter browser, live graph, measurements, and type filtering                 |
+| `devtools.spec.js`         | DevTools LiveReload / restart status cards and guarded action feedback                 |
+| `dev-services.spec.js`     | Dev Services snapshot, filtering, details, log viewing, and disabled restart controls  |
 | `sample-api.spec.js`       | Sample REST API (`/api/hello`, `/api/secure`, `/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
 
 ## Prerequisites

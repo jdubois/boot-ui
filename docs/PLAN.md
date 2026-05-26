@@ -72,7 +72,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Dev Services
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 - Backend tests covering activation, auto-configuration activation cases, localhost filtering, config override persistence, override property sources, override file storage, environment post-processing, config metadata loading, selected web controllers, missing Actuator behavior, and sample-app integration.
-- Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API and every visible BootUI route.
+- Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API, every visible BootUI route, and focused flows for the current panel set, including Metrics, DevTools, and Dev Services.
 
 ## 3. Milestone status
 
@@ -80,25 +80,25 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 |---|---|---|
 | 0. Project foundation | Done | Multi-module build, Java/Spring baseline, sample app, docs, and CI exist. |
 | 1. Auto-configuration and safety | Implemented, partially tested | Activation, auto-configuration, localhost filter, banner, and overview API exist. Activation and localhost behavior have focused tests. |
-| 2. Static UI shell | Implemented, needs smoke validation | Vue shell, Maven frontend build, classpath packaging, and routes exist. |
-| 3. Actuator bridge | Implemented, needs controller coverage | Stable BootUI DTO endpoints exist for the original MVP panels; missing-Actuator behavior needs broader explicit tests. |
-| 4. Beans and Conditions panels | Implemented, needs product validation | API and UI panels exist; sample-app usefulness and large-app edge cases should be checked. |
-| 5. Config, Mappings, Health, and Loggers | Implemented, partially tested | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has tests; web endpoint coverage still needs expansion. |
-| 6. Post-MVP diagnostic panels | Implemented, needs hardening | Startup, Memory, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, DevTools, and Dev Services panels have API/UI slices. They need focused tests, safety review, and documentation. |
-| 7. Documentation and release hardening | Not complete | Installation, activation, safety, troubleshooting, release notes, and sample walkthrough need to be finished and reconciled with current behavior. |
+| 2. Static UI shell | Implemented and smoke-tested | Vue shell, Maven frontend build, classpath packaging, and routes exist; Playwright verifies sidebar navigation across every visible section. |
+| 3. Actuator bridge | Implemented, needs deeper backend coverage | Stable BootUI DTO endpoints exist for the original MVP panels; missing-Actuator behavior needs broader explicit tests. |
+| 4. Beans and Conditions panels | Implemented and covered by sample e2e | API and UI panels exist; large-app edge cases remain release-hardening work. |
+| 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests. |
+| 6. Post-MVP diagnostic panels | Implemented and covered by sample e2e | Startup, Memory, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, DevTools, and Dev Services panels have API/UI slices plus route-level and focused Playwright coverage. Backend edge-case tests and safety review remain. |
+| 7. Documentation and release hardening | In progress | Installation, activation, safety, troubleshooting, release notes, screenshots, and sample walkthrough need to stay reconciled with current behavior. |
 
 ## 4. What still needs to be done
 
 ### 4.1 Expand backend tests
 
-Existing focused tests cover several core safety and config paths. Remaining test work should prioritize browser-facing behavior and newer panels:
+Existing focused tests cover several core safety and config paths, and the sample-app Playwright suite covers every visible browser route. Remaining backend test work should prioritize edge cases that are hard to exercise reliably from a browser:
 
 1. `BootUiProperties` binding defaults for all public properties, including `expose-values`, `overrides-file`, and endpoint timeout.
 2. Activation rules not yet covered explicitly:
    - devtools-based activation.
    - custom disabled profiles.
    - invalid `bootui.enabled` values failing closed.
-3. Controller mappings and DTO serialization for every `/bootui/api/**` endpoint.
+3. Controller mappings and DTO serialization for every `/bootui/api/**` endpoint, especially newer DevTools and Dev Services endpoints.
 4. Missing or unavailable Actuator endpoints returning stable empty DTOs.
 5. Config controller behavior:
    - create, update, delete through HTTP.
@@ -107,7 +107,7 @@ Existing focused tests cover several core safety and config paths. Remaining tes
    - restart-warning messages.
 6. Logger level mutation and clearing through HTTP.
 7. Secret masking for all browser-visible property names and values.
-8. Newer panel controllers:
+8. Newer panel controller edge cases:
    - Spring Data repository list/detail, including no Spring Data and no repositories states.
    - Scheduled task reporting when scheduling infrastructure is present or absent.
    - HTTP probe method/path normalization, loopback-only target construction, header filtering, timeout/error responses, and unsafe-body handling.
@@ -115,6 +115,8 @@ Existing focused tests cover several core safety and config paths. Remaining tes
    - Profile diff source attribution and masking.
    - Spring Security chain listing, best-effort explain behavior, classpath gating, and credential non-disclosure.
    - Micrometer metrics browsing, tag filtering, and live value shaping.
+   - DevTools unavailable states, confirmation-required restart API behavior, and LiveReload action mapping.
+   - Dev Services service discovery, secret sanitization, bounded logs, disabled-by-default restart behavior, and restart-enabled opt-in behavior.
    - JVM memory report values, JVM argument disclosure review, and suggested JVM option generation.
 
 ### 4.2 Finish UI and product parity checks
@@ -140,7 +142,7 @@ Validate every visible route against the sample app:
 17. Profile Diff.
 18. Security.
 
-The plan no longer treats Startup, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, DevTools, or Dev Services as future-only ideas: they are implemented surfaces and should either be hardened for the next alpha or explicitly hidden/marked experimental before release.
+The plan no longer treats Startup, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, DevTools, or Dev Services as future-only ideas: they are implemented surfaces with sample-app Playwright coverage and should either be hardened for the next alpha or explicitly marked experimental before release.
 
 ### 4.3 Refresh user-facing documentation
 
@@ -153,7 +155,7 @@ Before the first alpha, document:
 5. Secret masking and value exposure behavior.
 6. Runtime configuration override behavior, persistence to `.bootui/application-bootui.properties`, and restart/rebind caveats.
 7. Actuator requirements and degraded behavior when endpoints are unavailable.
-8. Panel-by-panel feature guide for every visible route, including the JVM memory panel and its suggested JVM options.
+8. Panel-by-panel feature guide for every visible route, including Metrics, DevTools, Dev Services, and the JVM memory panel with its suggested JVM options.
 9. Troubleshooting.
 10. Sample app walkthrough.
 11. Release notes.
