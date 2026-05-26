@@ -1,7 +1,5 @@
 package io.github.bootui.autoconfigure.web;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.bootui.core.BootUiDtos.ConfigPropertySuggestionDto;
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,6 +11,8 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 final class ConfigMetadataCatalog {
 
@@ -120,6 +120,6 @@ final class ConfigMetadataCatalog {
         if (node == null || node.isNull()) {
             return null;
         }
-        return objectMapper.convertValue(node, Object.class);
+        return objectMapper.treeToValue(node, Object.class);
     }
 }
