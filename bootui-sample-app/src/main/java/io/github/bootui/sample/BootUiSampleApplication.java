@@ -1,6 +1,10 @@
 package io.github.bootui.sample;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -16,7 +20,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class BootUiSampleApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(BootUiSampleApplication.class, args);
+        SpringApplication application = new SpringApplication(BootUiSampleApplication.class);
+        composeFileDefault().ifPresent(composeFile -> application.setDefaultProperties(
+                Map.of("spring.docker.compose.file", composeFile.toString())));
+        application.run(args);
+    }
+
+    static Optional<Path> composeFileDefault() {
+        return composeFileDefault(Path.of("").toAbsolutePath());
+    }
+
+    static Optional<Path> composeFileDefault(Path workingDirectory) {
+        if (Files.isRegularFile(workingDirectory.resolve("compose.yaml"))) {
+            return Optional.empty();
+        }
+        Path moduleComposeFile = workingDirectory.resolve(Path.of("bootui-sample-app", "compose.yaml"));
+        return Files.isRegularFile(moduleComposeFile) ? Optional.of(moduleComposeFile) : Optional.empty();
     }
 
     @ConfigurationProperties(prefix = "sample")
