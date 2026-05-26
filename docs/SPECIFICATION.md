@@ -385,14 +385,23 @@ Purpose: answer "How much heap/non-heap memory is this app using, and what JVM o
 
 Data sources:
 
-- Java management beans (`MemoryMXBean`, `MemoryPoolMXBean`, runtime input arguments).
+- Java management beans (`MemoryMXBean`, `MemoryPoolMXBean`, `ClassLoadingMXBean`, `ThreadMXBean`, runtime input arguments).
 
 Features:
 
 - Show heap and non-heap usage summaries.
 - Show memory pool usage.
 - Show JVM input arguments.
-- Suggest JVM options derived from current heap sizing, including `-Xms`, `-Xmx`, GC selection, container-support flags, and out-of-memory safeguards.
+- A Paketo `libjvm`-style memory calculator that partitions a user-chosen
+  target container memory into JVM regions
+  (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
+  using the live loaded-class count from `ClassLoadingMXBean` (with a 1.25× safety
+  factor) and a live-or-floored thread count, so the recommendation is independent
+  of the host machine's RAM rather than inheriting the JVM's `~25% of host RAM` heap-max default.
+- Suggest JVM options derived from the calculator output, including `-Xms`/`-Xmx`
+  (equal for predictable startup), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`,
+  `-XX:MaxDirectMemorySize`, `-Xss`, GC selection (G1 below 4 GB, ZGC above), and
+  out-of-memory safeguards.
 
 Acceptance criteria:
 

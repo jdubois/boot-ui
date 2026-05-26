@@ -300,6 +300,23 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(body.get("pools")).isInstanceOf(List.class);
         assertThat(body.get("jvmInputArguments")).isInstanceOf(List.class);
         assertThat(body.get("suggestedJvmOptions")).asString().contains("-Xms").contains("-Xmx");
+
+        Map<?, ?> calculation = (Map<?, ?>) body.get("calculation");
+        assertThat(calculation).isNotNull();
+        assertThat(calculation.get("valid")).isEqualTo(Boolean.TRUE);
+        assertThat(calculation.containsKey("totalMemoryBytes")).isTrue();
+        assertThat(calculation.containsKey("heapBytes")).isTrue();
+        assertThat(calculation.containsKey("metaspaceBytes")).isTrue();
+        assertThat(calculation.containsKey("codeCacheBytes")).isTrue();
+        assertThat(calculation.containsKey("directMemoryBytes")).isTrue();
+        assertThat(calculation.containsKey("stackBytesTotal")).isTrue();
+        assertThat(calculation.containsKey("headRoomBytes")).isTrue();
+        assertThat(calculation.containsKey("threadCount")).isTrue();
+        assertThat(calculation.containsKey("loadedClasses")).isTrue();
+        assertThat(calculation.get("jvmOptions")).asString()
+                .contains("-Xmx")
+                .contains("-XX:MaxMetaspaceSize=")
+                .contains("-XX:ReservedCodeCacheSize=");
     }
 
     @Test

@@ -40,4 +40,35 @@ test.describe('Memory view', () => {
     await expect(rows.first().locator('td').nth(0)).not.toBeEmpty()
     await expect(rows.first().locator('td').nth(4)).toContainText(/%/)
   })
+
+  test('editing total memory updates the recommended -Xmx', async ({ openView, page }) => {
+    await openView('memory', 'Memory')
+
+    const calculatorCard = page.locator('.card', { hasText: 'JVM memory calculator' })
+    await expect(calculatorCard).toBeVisible()
+
+    const totalInput = calculatorCard.locator('input[type="number"]').first()
+    await expect(totalInput).toBeVisible()
+    await expect(totalInput).not.toHaveValue('')
+
+    const optionsBlock = page.locator('.options-box code')
+    // Capture the current -Xmx value before editing
+    const before = await optionsBlock.innerText()
+    const beforeMatch = before.match(/-Xmx(\d+)m/)
+    expect(beforeMatch).not.toBeNull()
+    const beforeXmx = parseInt(beforeMatch[1], 10)
+
+    // Pick a clearly different total: jump by 256 MB up or down to dodge clamping.
+    const currentTotal = parseInt(await totalInput.inputValue(), 10)
+    const newTotal = currentTotal > 1024 ? 512 : currentTotal + 512
+    await totalInput.fill(String(newTotal))
+    await totalInput.blur()
+
+    // Debounced re-fetch is 300 ms; allow up to 5 s.
+    await expect.poll(async () => {
+      const text = await optionsBlock.innerText()
+      const m = text.match(/-Xmx(\d+)m/)
+      return m ? parseInt(m[1], 10) : 0
+    }, { timeout: 5_000 }).not.toBe(beforeXmx)
+  })
 })
