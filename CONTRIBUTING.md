@@ -44,18 +44,15 @@ To rebuild only the backend (useful while iterating on Java code):
 ./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
 ```
 
-## Run the sample app
+## Testing
+
+Use the CI-equivalent build before opening or updating a pull request:
 
 ```bash
-./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -B -ntp clean install
 ```
 
-Then open <http://localhost:8080/bootui>.
-
-## End-to-end tests
-
-The sample app includes Playwright tests that exercise every visible BootUI
-panel and the sample REST API.
+Run the browser end-to-end suite when you change the UI, browser-facing API responses, or sample-app behavior:
 
 ```bash
 cd bootui-sample-app/e2e
@@ -64,8 +61,15 @@ npx playwright install chromium
 npm test
 ```
 
-Playwright can start the sample app automatically. If you already have the
-sample app running on port 8080, it will reuse that server.
+Playwright can start the sample app automatically. If you already have the sample app running on port 8080, it will reuse that server.
+
+## Run the sample app
+
+```bash
+./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+Then open <http://localhost:8080/bootui>.
 
 ## Front-end development
 
@@ -80,6 +84,18 @@ npm run dev
 This starts Vite on a separate port and proxies `/bootui/api/*` to a locally
 running sample app. When you are done, run `./mvnw install -pl bootui-ui` once to
 re-bundle the assets into the JAR.
+
+## Publishing
+
+Maven Central publication uses the `release` Maven profile:
+
+```bash
+mvn -B -ntp -Prelease clean deploy
+```
+
+The release profile attaches source and Javadoc JARs, signs artifacts with GPG,
+and stages through the Sonatype Central Publishing plugin using the `central`
+server from `~/.m2/settings.xml`. The sample app is not deployed.
 
 ## Submitting a change
 
