@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.autoconfigure.web.ConditionsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
 import io.github.jdubois.bootui.autoconfigure.web.DataController;
 import io.github.jdubois.bootui.autoconfigure.web.DefaultDevToolsBridge;
+import io.github.jdubois.bootui.autoconfigure.web.DependenciesController;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsBridge;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsController;
 import io.github.jdubois.bootui.autoconfigure.web.DevServicesController;
@@ -62,6 +63,7 @@ import org.springframework.core.env.Environment;
         StartupController.class,
         DataController.class,
         DevServicesController.class,
+        DependenciesController.class,
         ScheduledController.class,
         HttpProbeController.class,
         LogTailController.class,

@@ -10,7 +10,7 @@ Closes #
 
 ## How was it tested?
 
-- [ ] `mvn clean install` passes locally
+- [ ] `./mvnw clean install` passes locally
 - [ ] Started `bootui-sample-app` and verified `/bootui` loads and the change works end-to-end
 - [ ] Added or updated tests where applicable
 

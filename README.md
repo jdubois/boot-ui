@@ -42,7 +42,7 @@ BootUI is served by the host application at `/bootui/` and uses internal `/bootu
 
 - Java 25
 - Spring Boot 4.x application
-- Maven
+- Maven or your application's Maven Wrapper
 
 ### 2) Add the starter dependency
 
@@ -57,7 +57,7 @@ BootUI is served by the host application at `/bootui/` and uses internal `/bootu
 ### 3) Run your app in development mode
 
 ```bash
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 BootUI also activates automatically when `spring-boot-devtools` is on the classpath. To force it on or off:
@@ -79,21 +79,20 @@ Visit: <http://localhost:8080/bootui>
 ### 1) Prerequisites
 
 - Java 25
-- Maven
+- Maven Wrapper (`./mvnw`, included)
 
 Node.js and npm are downloaded automatically by Maven for the UI build.
 
 ### 2) Build everything
 
 ```bash
-mvn clean install
+./mvnw clean install
 ```
 
 ### 3) Run the sample app
 
 ```bash
-cd bootui-sample-app
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 ### 4) Open BootUI
@@ -186,7 +185,7 @@ The release profile attaches source and Javadoc JARs, signs artifacts with GPG, 
 
 ```bash
 # CI-equivalent build
-mvn -B -ntp clean install
+./mvnw -B -ntp clean install
 
 # Browser end-to-end tests for the sample app
 cd bootui-sample-app/e2e

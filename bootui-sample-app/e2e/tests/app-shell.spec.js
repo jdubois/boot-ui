@@ -16,23 +16,24 @@ test.describe('BootUI app shell', () => {
   test('sidebar links open every BootUI section', async ({ page }) => {
     const links = [
       { title: 'Overview',          heading: /^Overview/ },
-      { title: 'Beans',             heading: /^Beans/ },
-      { title: 'Conditions',        heading: /Auto-configuration conditions/ },
-      { title: 'Configuration',     heading: /^Configuration/ },
-      { title: 'Mappings',          heading: /HTTP mappings/ },
-      { title: 'Health',            heading: /^Health/ },
-      { title: 'Loggers',           heading: /^Loggers/ },
-      { title: 'Data',              heading: /Spring Data repositories/ },
       { title: 'Startup Timeline',  heading: /Startup timeline/ },
       { title: 'Memory',            heading: /^Memory/ },
+      { title: 'Health',            heading: /^Health/ },
       { title: 'Metrics',           heading: /^Metrics/ },
+      { title: 'Conditions',        heading: /Auto-configuration conditions/ },
+      { title: 'Beans',             heading: /^Beans/ },
+      { title: 'Mappings',          heading: /HTTP mappings/ },
+      { title: 'Configuration',     heading: /^Configuration/ },
+      { title: 'Profile Diff',      heading: /Profile Diff/ },
+      { title: 'Loggers',           heading: /^Loggers/ },
+      { title: 'Log Tail',          heading: /Log Tail/ },
+      { title: 'HTTP Probe',        heading: /HTTP Probe/ },
       { title: 'DevTools',          heading: /^DevTools/ },
       { title: 'Dev Services',      heading: /^Dev Services/ },
       { title: 'Scheduled Tasks',   heading: /Scheduled Tasks/ },
-      { title: 'HTTP Probe',        heading: /HTTP Probe/ },
-      { title: 'Log Tail',          heading: /Log Tail/ },
-      { title: 'Profile Diff',      heading: /Profile Diff/ },
-      { title: 'Security',          heading: /Spring Security/ }
+      { title: 'Data',              heading: /Spring Data repositories/ },
+      { title: 'Security',          heading: /Spring Security/ },
+      { title: 'Vulnerabilities',   heading: /^Vulnerabilities/ }
     ]
 
     await page.goto('/bootui/')

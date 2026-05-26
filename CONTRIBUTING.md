@@ -11,7 +11,8 @@ participating you are expected to uphold this code.
 ## Prerequisites
 
 - **Java 25** (or newer). The reference toolchain is OpenJDK 25.
-- **Maven 3.9+**. The wrapper is not committed; use your system Maven.
+- **Maven Wrapper**. Use the committed `./mvnw` script; no system Maven
+  installation is required.
 - **Node.js 24+** and npm 11+ are downloaded automatically by the
   `frontend-maven-plugin` when you run the build. You do not need to install
   Node manually.
@@ -31,7 +32,7 @@ docs/                         Specification and roadmap
 ## Build
 
 ```bash
-mvn clean install
+./mvnw clean install
 ```
 
 This downloads Node + npm, runs `npm install`, builds the Vue UI with Vite, and
@@ -40,14 +41,13 @@ packages every module. A full clean build takes about a minute on a warm cache.
 To rebuild only the backend (useful while iterating on Java code):
 
 ```bash
-mvn -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
+./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
 ```
 
 ## Run the sample app
 
 ```bash
-cd bootui-sample-app
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 Then open <http://localhost:8080/bootui>.
@@ -78,7 +78,7 @@ npm run dev
 ```
 
 This starts Vite on a separate port and proxies `/bootui/api/*` to a locally
-running sample app. When you are done, run `mvn install -pl bootui-ui` once to
+running sample app. When you are done, run `./mvnw install -pl bootui-ui` once to
 re-bundle the assets into the JAR.
 
 ## Submitting a change
@@ -88,7 +88,7 @@ re-bundle the assets into the JAR.
    GitHub username (e.g. `jdubois/improve-config-ui`).
 3. Keep PRs small and focused. Update `docs/` whenever public behaviour
    changes.
-4. Run `mvn clean install` before pushing.
+4. Run `./mvnw clean install` before pushing.
 5. Run the Playwright end-to-end suite when you change the UI, browser-facing
    API responses, or sample-app behavior.
 6. Use the pull request template — it links to the verifications we expect.

@@ -377,6 +377,54 @@ public final class BootUiDtos {
             List<MetricSampleDto> samples) {
     }
 
+    /** One Maven dependency discovered on the running application's classpath. */
+    public record DependencyDto(
+            String groupId,
+            String artifactId,
+            String version,
+            String packageName,
+            String source,
+            int vulnerabilityCount,
+            String highestSeverity,
+            List<DependencyVulnerabilityDto> vulnerabilities) {
+    }
+
+    /** One vulnerability advisory affecting a dependency. */
+    public record DependencyVulnerabilityDto(
+            String id,
+            String summary,
+            String details,
+            String severity,
+            Double score,
+            List<String> aliases,
+            List<String> references,
+            List<String> fixedVersions) {
+    }
+
+    /** Count of vulnerability advisories by normalized severity. */
+    public record DependencySeverityCountDto(String severity, int count) {
+    }
+
+    /** Metadata about the dependency vulnerability scan. */
+    public record DependencyScanStatusDto(
+            String scanner,
+            String status,
+            String message,
+            Long scannedAt,
+            int packagesScanned,
+            int vulnerabilitiesFound) {
+    }
+
+    /** Top-level report for dependency inventory and vulnerability findings. */
+    public record DependenciesReport(
+            boolean scanningEnabled,
+            int total,
+            int vulnerable,
+            List<DependencySeverityCountDto> severityCounts,
+            DependencyScanStatusDto scan,
+            List<DependencyDto> dependencies) {
+    }
+
     /** A single JVM memory pool (heap, non-heap, or GC pool). */
     public record MemoryPoolDto(
             String name,
