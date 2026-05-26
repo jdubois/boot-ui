@@ -99,6 +99,13 @@ server from `~/.m2/settings.xml`. The sample app is not deployed. By default,
 Central uploads are published automatically; set `-Dcentral.autoPublish=false`
 to stage for manual publishing instead.
 
+To prepare a release, run the **Prepare Release** GitHub Actions workflow from
+the branch you want to release, usually `main`, and enter the target version
+without the leading `v`, for example `0.1.0-alpha.2`. The workflow updates all
+Maven module versions, refreshes the README dependency example, commits the
+release, creates an annotated `v0.1.0-alpha.2` tag, and pushes the branch plus
+tag. Pushing the tag starts the release workflow below.
+
 The GitHub Actions release workflow (`.github/workflows/release.yml`) runs on
 `v*` tags or manually through `workflow_dispatch`. Configure these repository or
 environment secrets before running it:
