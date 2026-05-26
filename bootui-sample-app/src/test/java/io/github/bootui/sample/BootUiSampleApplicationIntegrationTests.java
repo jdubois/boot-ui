@@ -339,6 +339,18 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void rootIndexPageIntroducesTheSampleApp() {
+        ResponseEntity<String> response = getString("/");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody())
+                .contains("Welcome to the BootUI sample app")
+                .contains("Open BootUI")
+                .contains("href=\"/bootui/\"")
+                .contains("GET /api/sample/products");
+    }
+
+    @Test
     void secureApiEndpointRequiresAdminRole() {
         ResponseEntity<String> secureWithoutCredentials = getString("/api/secure");
         assertThat(secureWithoutCredentials.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
