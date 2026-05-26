@@ -669,7 +669,7 @@ Sample Spring Boot app used for demos and integration tests.
 Responsibilities:
 
 - Demonstrate common Spring Boot features.
-- Include Actuator, DevTools, web, JPA/H2, scheduling, and Spring Security.
+- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, scheduling, and Spring Security.
 - Provide enough beans, mappings, config, health, repositories, scheduled tasks, security chains, and logs to test BootUI.
 - Host Playwright end-to-end tests for every visible BootUI route and the sample REST API.
 
