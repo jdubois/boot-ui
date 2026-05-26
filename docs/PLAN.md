@@ -48,6 +48,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - log tail
   - profile diff
   - Spring Security
+  - Micrometer metrics
 - Vue 3 UI shell with routes for:
   - Overview
   - Beans
@@ -63,6 +64,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Log Tail
   - Profile Diff
   - Security
+  - Metrics
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 - Backend tests covering activation, auto-configuration activation cases, localhost filtering, config override persistence, override property sources, override file storage, environment post-processing, and config metadata loading.
 
@@ -76,7 +78,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 3. Actuator bridge | Implemented, needs controller coverage | Stable BootUI DTO endpoints exist for the original MVP panels; missing-Actuator behavior needs broader explicit tests. |
 | 4. Beans and Conditions panels | Implemented, needs product validation | API and UI panels exist; sample-app usefulness and large-app edge cases should be checked. |
 | 5. Config, Mappings, Health, and Loggers | Implemented, partially tested | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has tests; web endpoint coverage still needs expansion. |
-| 6. Post-MVP diagnostic panels | Implemented, needs hardening | Startup, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, and Security panels have API/UI slices. They need focused tests, safety review, and documentation. |
+| 6. Post-MVP diagnostic panels | Implemented, needs hardening | Startup, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, and Metrics panels have API/UI slices. They need focused tests, safety review, and documentation. |
 | 7. Documentation and release hardening | Not complete | Installation, activation, safety, troubleshooting, release notes, and sample walkthrough need to be finished and reconciled with current behavior. |
 
 ## 4. What still needs to be done
@@ -106,6 +108,7 @@ Existing focused tests cover several core safety and config paths. Remaining tes
    - Log tail buffer behavior and message shaping.
    - Profile diff source attribution and masking.
    - Spring Security chain listing, best-effort explain behavior, classpath gating, and credential non-disclosure.
+   - Micrometer metrics browsing, tag filtering, and live value shaping.
 
 ### 4.2 Finish UI and product parity checks
 
@@ -125,8 +128,9 @@ Validate every visible route against the sample app:
 12. Log Tail.
 13. Profile Diff.
 14. Security.
+15. Metrics.
 
-The plan no longer treats Startup, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, or Security as future-only ideas: they are implemented surfaces and should either be hardened for the next alpha or explicitly hidden/marked experimental before release.
+The plan no longer treats Startup, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, or Metrics as future-only ideas: they are implemented surfaces and should either be hardened for the next alpha or explicitly hidden/marked experimental before release.
 
 ### 4.3 Refresh user-facing documentation
 
@@ -149,7 +153,7 @@ Reconcile the specification with the implementation where behavior has become mo
 - `bootui.enabled` currently uses `AUTO|ON|OFF`, while older specification text mentions boolean `true|false`.
 - Runtime config overrides are persisted to a BootUI overrides file by default, while older specification text says overrides disappear on restart.
 - The frontend is currently plain JavaScript Vue 3, not TypeScript/Vitest.
-- Startup Timeline, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, and Security are implemented and should be moved out of future-only language.
+- Startup Timeline, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, and Metrics are implemented and should be moved out of future-only language.
 - Local Services / Docker Compose / Testcontainers remains unimplemented.
 - Maven Central publishing scope for `0.1.0-alpha.1` still needs a release decision.
 
@@ -219,6 +223,7 @@ Already implemented beyond the original MVP surface:
 - Live log tail.
 - Profile diff.
 - Spring Security panel.
+- Micrometer metrics browser with live values.
 
 Still excluded:
 

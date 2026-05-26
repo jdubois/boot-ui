@@ -24,6 +24,7 @@ test.describe('BootUI app shell', () => {
       { title: 'Loggers',           heading: /^Loggers/ },
       { title: 'Data',              heading: /Spring Data repositories/ },
       { title: 'Startup Timeline',  heading: /Startup timeline/ },
+      { title: 'Metrics',           heading: /^Metrics/ },
       { title: 'Scheduled Tasks',   heading: /Scheduled Tasks/ },
       { title: 'HTTP Probe',        heading: /HTTP Probe/ },
       { title: 'Log Tail',          heading: /Log Tail/ },

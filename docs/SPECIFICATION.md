@@ -364,7 +364,35 @@ Acceptance criteria:
 - Missing startup data does not break the UI.
 - The UI gives exact property/code instructions to enable startup data.
 
-### 5.9 Local Services Panel
+### 5.9 Metrics Panel
+
+Purpose: answer "Which Micrometer meters exist, how are they tagged, and what are their live values?"
+
+Data sources:
+
+- Micrometer `MeterRegistry`.
+- Spring Boot Actuator metrics auto-configuration when present.
+
+Features:
+
+- List meters by name, description, base unit, and Micrometer type.
+- Search meters by name or description.
+- Filter meters by type.
+- Inspect a meter's current measurements.
+- Show available tag keys and values for each meter.
+- Filter live values by tag key/value.
+- Render a lightweight live graph for the selected statistic.
+- Poll locally with bounded browser-side history; no external monitoring service is required.
+
+Acceptance criteria:
+
+- Missing Micrometer infrastructure produces a clear empty state.
+- Browser responses use BootUI DTOs, not raw registry internals.
+- Tag values remain browser-bounded so high-cardinality meters do not freeze the UI.
+- Polling does not overlap slow requests.
+- Switching meter, tag filters, or statistic resets the live graph history.
+
+### 5.10 Local Services Panel
 
 Purpose: answer "Which local backing services are connected?"
 
@@ -399,7 +427,7 @@ Acceptance criteria:
 - Unknown services are represented generically.
 - Works even when Docker is not installed.
 
-### 5.10 Spring Data Explorer
+### 5.11 Spring Data Explorer
 
 Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they expose?"
 
@@ -583,6 +611,8 @@ Initial endpoints:
 | `/bootui/api/loggers` | GET | Logger levels |
 | `/bootui/api/loggers/{name}` | POST | Change logger level |
 | `/bootui/api/startup` | GET | Startup timeline |
+| `/bootui/api/metrics` | GET | Browseable Micrometer meter list |
+| `/bootui/api/metrics/detail` | GET | Micrometer meter detail and live measurements |
 | `/bootui/api/services` | GET | Local service connections |
 | `/bootui/api/data/repositories` | GET | Detected Spring Data repositories (summary) |
 | `/bootui/api/data/repositories/{name}` | GET | Spring Data repository detail with query methods |

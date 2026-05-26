@@ -318,6 +318,47 @@ public final class BootUiDtos {
             List<SecurityEndpointDto> endpoints) {
     }
 
+    /** One Micrometer meter exposed by the application's meter registry. */
+    public record MetricMeterDto(
+            String name,
+            String description,
+            String baseUnit,
+            String type,
+            List<MetricAvailableTagDto> availableTags) {
+    }
+
+    /** A concrete tag attached to a Micrometer meter sample. */
+    public record MetricTagDto(String key, String value) {
+    }
+
+    /** Available values for one Micrometer meter tag key. */
+    public record MetricAvailableTagDto(String key, List<String> values, boolean truncated) {
+    }
+
+    /** One measured statistic for a Micrometer meter. */
+    public record MetricMeasurementDto(String statistic, double value) {
+    }
+
+    /** One concrete tagged Micrometer meter sample. */
+    public record MetricSampleDto(List<MetricTagDto> tags, List<MetricMeasurementDto> measurements) {
+    }
+
+    /** Browseable list of Micrometer meters. */
+    public record MetricsReport(boolean metricsAvailable, int total, List<MetricMeterDto> meters) {
+    }
+
+    /** Detail view for one Micrometer meter name, including current values. */
+    public record MetricDetailDto(
+            boolean metricsAvailable,
+            String name,
+            String description,
+            String baseUnit,
+            String type,
+            List<MetricMeasurementDto> measurements,
+            List<MetricAvailableTagDto> availableTags,
+            List<MetricSampleDto> samples) {
+    }
+
     /** A single JVM memory pool (heap, non-heap, or GC pool). */
     public record MemoryPoolDto(
             String name,
