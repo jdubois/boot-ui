@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>io.github.bootui</groupId>
+        <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-parent</artifactId>
         <version>0.1.0-alpha.1</version>
     </parent>

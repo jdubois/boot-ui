@@ -48,7 +48,7 @@ BootUI is served by the host application at `/bootui/` and uses internal `/bootu
 
 ```xml
 <dependency>
-  <groupId>io.github.bootui</groupId>
+  <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
   <version>0.1.0-alpha.1</version>
 </dependency>

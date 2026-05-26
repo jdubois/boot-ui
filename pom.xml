@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>io.github.bootui</groupId>
+    <groupId>com.julien-dubois.bootui</groupId>
     <artifactId>bootui-parent</artifactId>
     <version>0.1.0-alpha.1</version>
     <packaging>pom</packaging>
@@ -75,22 +75,22 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
-                <groupId>io.github.bootui</groupId>
+                <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>io.github.bootui</groupId>
+                <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-autoconfigure</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>io.github.bootui</groupId>
+                <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-spring-boot-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>io.github.bootui</groupId>
+                <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-ui</artifactId>
                 <version>${project.version}</version>
             </dependency>

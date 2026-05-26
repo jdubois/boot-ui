@@ -18,7 +18,7 @@ test.describe('Data (Spring Data repositories) view', () => {
     // Open the detail panel.
     await productRepoEntry.click()
     const detailCard = page.locator('main .col-md-7 .card')
-    await expect(detailCard).toContainText('io.github.bootui.sample.ProductRepository')
+    await expect(detailCard).toContainText('io.github.jdubois.bootui.sample.ProductRepository')
     await expect(detailCard).toContainText('searchByName')
     await expect(detailCard).toContainText('select p from Product p')
     await expect(detailCard.locator('.badge', { hasText: 'ANNOTATED' }).first()).toBeVisible()
