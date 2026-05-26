@@ -113,7 +113,7 @@
                 <executions>
                     <execution>
                         <id>attach-empty-javadocs</id>
-                        <phase>verify</phase>
+                        <phase>package</phase>
                         <goals>
                             <goal>jar</goal>
                         </goals>
