@@ -14,8 +14,8 @@ test.describe('Memory view', () => {
 
     await openView('memory', 'Memory')
 
-    await expect(page.locator('.card', { hasText: 'Recommended JVM Options' })).toBeVisible()
-    await expect(page.locator('.card', { hasText: 'Heap Memory' })).toBeVisible()
+    await expect(page.locator('.card', { hasText: 'Recommended JVM Options' }).first()).toBeVisible()
+    await expect(page.locator('.card', { hasText: 'Heap Memory' }).first()).toBeVisible()
     await expect(page.locator('.card', { hasText: /Non[- ]?Heap/i }).first()).toBeVisible()
 
     const optionsBlock = page.locator('.options-box code')

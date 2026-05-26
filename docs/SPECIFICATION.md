@@ -68,12 +68,12 @@ Default activation rules:
 - Enabled when the `bootui-spring-boot-starter` dependency is present in a Spring Boot 4 application and at least one of these is true:
   - `spring-boot-devtools` is present.
   - Active profile is `dev` or `local`.
-  - `bootui.enabled=true`.
+  - `bootui.enabled=ON`.
 - Disabled when:
-  - `bootui.enabled=false`.
-  - Cloud platform or production profile is detected, unless explicit override is set.
+  - `bootui.enabled=OFF`.
+  - Active profile is `prod` or `production`, unless `bootui.enabled=ON` is set.
 
-BootUI must fail closed. If the activation state is ambiguous, it should not expose the UI.
+`bootui.enabled=AUTO` is the default. BootUI must fail closed: if no enabled profile is active and DevTools is not on the classpath, it should not expose the UI.
 
 ### 4.2 URL
 
@@ -83,13 +83,7 @@ Default UI URL inside the host Spring Boot 4 application:
 http://localhost:${server.port}/bootui
 ```
 
-If a management port is configured and different from the application port, BootUI should prefer:
-
-```text
-http://localhost:${management.server.port}/bootui
-```
-
-The exact path is configurable:
+The current implementation serves the UI at `/bootui/` and APIs at `/bootui/api/**`. Configuration properties for the UI/API paths exist, but v0.1 should treat `/bootui` as the supported route until path customization is wired through every controller and packaged asset:
 
 ```properties
 bootui.path=/bootui
@@ -100,7 +94,7 @@ bootui.path=/bootui
 When BootUI is enabled, the application startup output should include:
 
 ```text
-BootUI: http://localhost:8080/bootui
+BootUI is available at http://localhost:8080/bootui
 ```
 
 This should integrate with the project's startup banner convention.
@@ -157,23 +151,13 @@ Data sources:
 Features:
 
 - Search by bean name, class name, package, scope, and resource.
-- Filter by:
-  - User beans.
-  - Auto-configured beans.
-  - Infrastructure beans.
-  - Controllers.
-  - Repositories.
-  - Services.
-  - Configuration properties beans.
-- Bean detail view:
-  - Bean name.
-  - Type.
-  - Scope.
-  - Resource/declaring class when available.
-  - Dependencies.
-  - Depended-on beans.
-  - Aliases.
-- Dependency graph for one bean.
+- Filter by current BootUI classification:
+  - application beans.
+  - BootUI beans.
+  - Spring framework beans.
+  - Java/Jakarta platform beans.
+  - other beans.
+- Show bean name, type, scope, resource/declaring class when available, dependencies, aliases, and classification.
 
 Acceptance criteria:
 
@@ -197,24 +181,11 @@ Features:
 - Show negative matches.
 - Show unconditional classes.
 - Search by class, condition type, missing class, missing bean, missing property.
-- Human-readable explanations for common conditions:
-  - `@ConditionalOnClass`
-  - `@ConditionalOnMissingClass`
-  - `@ConditionalOnBean`
-  - `@ConditionalOnMissingBean`
-  - `@ConditionalOnProperty`
-  - `@ConditionalOnWebApplication`
-  - `@ConditionalOnResource`
-- Quick diagnostics:
-  - "Why is no DataSource configured?"
-  - "Why is Spring Security active?"
-  - "Why is a web server running?"
-  - "Why is this auto-configuration skipped?"
 
 Acceptance criteria:
 
 - Raw condition messages are preserved.
-- BootUI adds readable summaries without hiding exact Spring Boot output.
+- BootUI presents Spring Boot condition messages without binding the browser to raw Actuator JSON.
 - Negative matches are easy to discover.
 
 ### 5.4 Configuration Properties Explorer
@@ -236,12 +207,6 @@ Features:
 - Show known default where metadata is available.
 - Show description from configuration metadata where available.
 - Suggest known Spring Boot configuration keys when creating an override.
-- Group by prefix:
-  - `spring.*`
-  - `server.*`
-  - `management.*`
-  - `logging.*`
-  - custom application prefixes.
 - Detect and mask likely secrets:
   - password
   - secret
@@ -249,7 +214,6 @@ Features:
   - key
   - credential
   - private
-- Show override chain when possible.
 - Modify configuration properties through local runtime overrides.
 - Add a runtime-only override for an existing property.
 - Add a runtime-only override for a new property key.
@@ -257,6 +221,7 @@ Features:
 - Remove a runtime override.
 - Show whether a displayed value comes from a BootUI runtime override.
 - Clearly label modified values as local, runtime-only, and not persisted to `application.properties`, environment variables, or config server.
+- Persist overrides to BootUI's override file by default so they can be reapplied on restart.
 - Explain when a modified property may not affect already-created beans or already-bound `@ConfigurationProperties` without restart or explicit rebind support.
 
 Acceptance criteria:
@@ -267,7 +232,7 @@ Acceptance criteria:
 - Custom `@ConfigurationProperties` metadata is displayed when available.
 - Developers can create, update, and remove local runtime overrides for Spring Boot configuration properties.
 - BootUI never writes secrets or modified values back to source files by default.
-- Every property mutation is local-development-only and disappears on application restart unless a later explicit persistence feature is designed.
+- Every property mutation is local-development-only and is persisted only to BootUI's override file, `.bootui/application-bootui.properties` by default.
 - Mutating a property returns a clear result that states whether the new value is visible in the Spring `Environment` and whether restart/rebind may be required.
 
 ### 5.5 Mappings Browser
@@ -283,10 +248,7 @@ Features:
 - List HTTP mappings by method and path.
 - Show handler class and method.
 - Show consumes/produces metadata.
-- Filter by HTTP method.
 - Search paths and handler names.
-- Copy route path.
-- Optional built-in probe for safe GET requests.
 
 Acceptance criteria:
 
@@ -362,9 +324,167 @@ Features:
 Acceptance criteria:
 
 - Missing startup data does not break the UI.
-- The UI gives exact property/code instructions to enable startup data.
+- The UI gives a clear unavailable state when startup data is absent.
 
-### 5.9 Local Services Panel
+### 5.9 JVM Memory Panel
+
+Purpose: answer "How much heap/non-heap memory is this app using, and what JVM options would be reasonable locally?"
+
+Data sources:
+
+- Java management beans (`MemoryMXBean`, `MemoryPoolMXBean`, runtime input arguments).
+
+Features:
+
+- Show heap and non-heap usage summaries.
+- Show memory pool usage.
+- Show JVM input arguments.
+- Suggest JVM options derived from current heap sizing, including `-Xms`, `-Xmx`, GC selection, container-support flags, and out-of-memory safeguards.
+
+Acceptance criteria:
+
+- Memory values serialize through stable BootUI DTOs.
+- Suggested options are clearly presented as recommendations, not automatic changes.
+- JVM argument disclosure is reviewed as part of release hardening.
+
+### 5.10 Scheduled Tasks Inspector
+
+Purpose: answer "Which scheduled tasks are registered?"
+
+Data sources:
+
+- Spring `ScheduledTaskHolder`.
+
+Features:
+
+- List registered scheduled tasks.
+- Show runnable description, trigger type, interval/cron expression, initial delay, and display units.
+- Show an empty state when scheduling infrastructure is absent or no tasks are registered.
+
+Acceptance criteria:
+
+- Opening the panel never invokes scheduled tasks.
+- Spring wrapper runnables are displayed with the most useful available task description.
+
+### 5.11 HTTP Probe Panel
+
+Purpose: issue safe local HTTP requests to the running app from the developer console.
+
+Data sources:
+
+- BootUI internal `/bootui/api/probe` endpoint using a local `HttpClient`.
+
+Features:
+
+- Send requests to paths relative to the application root.
+- Normalize method and path.
+- Restrict targets to localhost.
+- Support request bodies only for methods that can carry a body.
+- Display status, selected response headers, body, timing, and errors.
+
+Acceptance criteria:
+
+- BootUI never proxies arbitrary external URLs.
+- Unsafe-body behavior is explicit and predictable.
+- Response headers are filtered to a small allow-list.
+
+### 5.12 Log Tail Panel
+
+Purpose: stream recent local application log lines in the browser.
+
+Data sources:
+
+- BootUI Logback appender installed when Logback is on the classpath.
+
+Features:
+
+- Show recent buffered log lines.
+- Stream new log events with Server-Sent Events.
+- Pause, resume, clear, and filter by severity in the browser.
+
+Acceptance criteria:
+
+- The panel is classpath-gated and unavailable when Logback is absent.
+- Log events are shaped into stable DTOs before reaching the browser.
+
+### 5.13 Profile Diff Panel
+
+Purpose: show which properties are contributed by active profile-specific property sources.
+
+Data sources:
+
+- Spring `ConfigurableEnvironment` property sources.
+
+Features:
+
+- List active profiles.
+- Group enumerable profile-specific property sources by profile.
+- Mask secret-like property values.
+- Filter profile properties.
+
+Acceptance criteria:
+
+- Secret-like keys remain masked by default.
+- Metadata-only exposure hides values.
+- Source attribution remains visible.
+
+### 5.14 Spring Security Panel
+
+Purpose: answer "Which security filter chains and authorization rules apply?"
+
+Data sources:
+
+- Spring Security `FilterChainProxy`.
+- Authentication provider and user-details-service beans.
+- Spring MVC request mappings when available.
+
+Features:
+
+- List filter chains, matchers, filter pipeline, CSRF/CORS/session indicators.
+- Summarize authentication provider and user-details-service types without credentials.
+- Best-effort explain for a method/path.
+- Best-effort per-endpoint authorization rule listing.
+
+Acceptance criteria:
+
+- The panel is classpath-gated and unavailable when Spring Security Web is absent.
+- Credentials, password hashes, signing keys, session IDs, and tokens are never displayed.
+- Matching caveats are clearly marked as best-effort.
+
+### 5.15 Spring Data Explorer
+
+Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they expose?"
+
+Data sources:
+
+- Spring Data `RepositoryFactoryInformation` beans discovered in the application context.
+- Each repository's `RepositoryInformation` (domain type, ID type, repository interface, custom implementation class, query methods, fragment methods).
+
+Features:
+
+- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, Redis, R2DBC, Cassandra, Neo4j, generic).
+- For each repository, show:
+  - Repository interface name and package.
+  - Domain type and ID type.
+  - Custom implementation class, if any.
+  - Method list with origin badge (CRUD, derived-query, `@Query`, fragment, default-method).
+  - For `@Query`-annotated methods: the declared query string, native flag, and named-query reference if any.
+- Filter by repository interface, bean name, domain type, method, or query content.
+
+Out of scope for v0.1:
+
+- Executing repository methods or arbitrary queries from the UI.
+- Schema migration controls.
+- Editing or generating repository code.
+
+Acceptance criteria:
+
+- When Spring Data is not on the classpath, the API endpoint is not registered.
+- When Spring Data is present but no repositories are detected, the panel shows a clear empty state.
+- Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
+- No repository method is invoked as a side effect of opening the panel.
+
+### 5.16 Local Services Panel
 
 Purpose: answer "Which local backing services are connected?"
 
@@ -393,56 +513,13 @@ Features:
 - Link to related health contributor.
 - Show sanitized connection details.
 
+Status: future candidate, not implemented for v0.1.
+
 Acceptance criteria:
 
 - Secrets are never displayed.
 - Unknown services are represented generically.
 - Works even when Docker is not installed.
-
-### 5.10 Spring Data Explorer
-
-Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they expose?"
-
-Data sources:
-
-- Spring Data `Repositories` bean and `RepositoryFactoryInformation` beans discovered in the application context.
-- Each repository's `RepositoryInformation` (domain type, ID type, repository interface, custom implementation class, query methods, fragment methods).
-- Optional Spring Data JPA / Hibernate metamodel when present, for managed entities and `@NamedQuery` declarations.
-- Optional link to the related `DataSource` health contributor surfaced in §5.6.
-
-Features:
-
-- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, Redis, R2DBC, Cassandra, Neo4j, generic).
-- For each repository, show:
-  - Repository interface name and package.
-  - Domain (entity) type and ID type.
-  - Whether the repository is a user-declared interface, a fragment, or auto-generated.
-  - Custom implementation class, if any.
-  - Method list with origin badge (CRUD, derived-query, `@Query`, fragment, default-method).
-  - For `@Query`-annotated methods: the declared query string, native flag, and named-query reference if any.
-  - For derived queries: the parsed property path / predicate, when available.
-- Filter by store module, by domain type, and by free-text on method or query content.
-- JPA-specific detail when Hibernate is on the classpath:
-  - Managed entities with table name and primary key.
-  - `@NamedQuery` and `@NamedNativeQuery` declarations.
-- Cross-link each repository to:
-  - The corresponding bean in the Beans Explorer (§5.2).
-  - The relevant `spring.datasource.*`, `spring.jpa.*`, `spring.data.*` properties in the Config Explorer (§5.4).
-  - The health contributor for its datastore in the Health Dashboard (§5.6).
-
-Out of scope for v0.1:
-
-- Executing repository methods or arbitrary queries from the UI (would break the read-only, fail-closed safety stance).
-- Schema migration controls (Flyway/Liquibase) — possible future panel.
-- Editing or generating repository code.
-
-Acceptance criteria:
-
-- When Spring Data is not on the classpath, the panel is hidden from the navigation and the API endpoint is not registered.
-- When Spring Data is present but no repositories are detected, the panel shows a clear empty state.
-- Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
-- No repository method is invoked as a side effect of opening the panel.
-- The detail view exposes enough information to answer "which repository owns this entity?" and "where is the SQL for this method?" without reading the codebase.
 
 ## 6. Technical architecture
 
@@ -455,7 +532,6 @@ BootUI/
 │   ├── SPECIFICATION.md
 │   └── PLAN.md
 ├── pom.xml
-├── bootui-bom/
 ├── bootui-core/
 ├── bootui-autoconfigure/
 ├── bootui-spring-boot-starter/
@@ -496,7 +572,7 @@ Spring Boot 4 starter dependency for users.
 Responsibilities:
 
 - Pull `bootui-autoconfigure`.
-- Pull required Actuator dependencies if appropriate.
+- Pull `bootui-ui`, `spring-boot-starter-web`, and `spring-boot-starter-actuator`.
 - Avoid bringing production-heavy dependencies.
 
 #### `bootui-ui`
@@ -506,10 +582,9 @@ Vue.js frontend application.
 Required stack:
 
 - Vue 3.
-- TypeScript.
+- Plain JavaScript with Vue Composition API.
 - Vite.
 - Bootstrap 5.3.
-- Vitest.
 
 Responsibilities:
 
@@ -524,7 +599,7 @@ Build requirements:
 - The Maven build must install/use the configured Node.js and npm versions for reproducible frontend builds.
 - The frontend build must run before Java resources are packaged.
 - The generated Vue assets must be copied into a classpath location served by `bootui-autoconfigure`, such as `META-INF/resources/bootui/`.
-- `./mvnw clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue UI.
+- `mvn clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue UI.
 - Consumer Spring Boot 4 applications should only need the `bootui-spring-boot-starter` dependency; they must not run `npm install` or `npm run build` themselves.
 
 #### `bootui-sample-app`
@@ -534,8 +609,9 @@ Sample Spring Boot app used for demos and integration tests.
 Responsibilities:
 
 - Demonstrate common Spring Boot features.
-- Include Actuator, DevTools, web, validation, JPA, PostgreSQL, Docker Compose support, and Testcontainers.
-- Provide enough beans, mappings, config, health, and service connections to test BootUI.
+- Include Actuator, DevTools, web, JPA/H2, scheduling, and Spring Security.
+- Provide enough beans, mappings, config, health, repositories, scheduled tasks, security chains, and logs to test BootUI.
+- Host Playwright end-to-end tests for every visible BootUI route and the sample REST API.
 
 ### 6.3 Runtime architecture
 
@@ -552,8 +628,9 @@ flowchart TD
     E --> J[health]
     E --> K[loggers]
     E --> L[startup]
-    D --> M[Configuration metadata reader]
-    D --> N[Safety and masking layer]
+    D --> M[Spring-managed metadata]
+    D --> N[Configuration metadata reader]
+    D --> O[Safety and masking layer]
     C --> D
 ```
 
@@ -573,7 +650,6 @@ Initial endpoints:
 |---|---|---|
 | `/bootui/api/overview` | GET | App, runtime, Spring Boot, profile, and BootUI status |
 | `/bootui/api/beans` | GET | Searchable bean summary |
-| `/bootui/api/beans/{name}` | GET | Bean detail |
 | `/bootui/api/conditions` | GET | Auto-configuration conditions |
 | `/bootui/api/config` | GET | Effective configuration values |
 | `/bootui/api/config/overrides` | POST | Create or update a local runtime configuration property override |
@@ -583,9 +659,17 @@ Initial endpoints:
 | `/bootui/api/loggers` | GET | Logger levels |
 | `/bootui/api/loggers/{name}` | POST | Change logger level |
 | `/bootui/api/startup` | GET | Startup timeline |
-| `/bootui/api/services` | GET | Local service connections |
+| `/bootui/api/memory` | GET | JVM memory report |
+| `/bootui/api/scheduled` | GET | Scheduled tasks |
+| `/bootui/api/probe` | POST | Local HTTP probe |
+| `/bootui/api/logs/recent` | GET | Recent log lines |
+| `/bootui/api/logs/stream` | GET | Log stream over Server-Sent Events |
+| `/bootui/api/profiles` | GET | Profile-specific property sources |
 | `/bootui/api/data/repositories` | GET | Detected Spring Data repositories (summary) |
 | `/bootui/api/data/repositories/{name}` | GET | Spring Data repository detail with query methods |
+| `/bootui/api/security` | GET | Spring Security filter chain report |
+| `/bootui/api/security/explain` | GET | Best-effort chain match for a method/path |
+| `/bootui/api/security/endpoints` | GET | Best-effort per-endpoint authorization report |
 
 ### 6.5 Configuration properties
 
@@ -599,14 +683,18 @@ Initial properties:
 
 | Property | Default | Description |
 |---|---|---|
-| `bootui.enabled` | auto | Enables BootUI. Auto means dev-only detection. |
-| `bootui.path` | `/bootui` | UI base path. |
-| `bootui.api-path` | `/bootui/api` | Internal API base path. |
+| `bootui.enabled` | `AUTO` | Enables BootUI. Values: `AUTO`, `ON`, `OFF`. |
+| `bootui.path` | `/bootui` | UI base path used by the banner and safety filter; `/bootui` is the supported v0.1 route. |
+| `bootui.api-path` | `/bootui/api` | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`. |
 | `bootui.localhost-only` | `true` | Reject non-local requests. |
+| `bootui.allow-non-localhost` | `false` | Explicitly allow non-loopback requests. |
 | `bootui.mask-secrets` | `true` | Mask secret-like config values. |
-| `bootui.expose-values` | `masked` | One of `masked`, `metadata-only`, `full`. |
+| `bootui.expose-values` | `MASKED` | One of `MASKED`, `METADATA_ONLY`, `FULL`. |
 | `bootui.show-banner` | `true` | Print BootUI URL on startup. |
 | `bootui.enabled-profiles` | `dev,local` | Profiles that activate BootUI. |
+| `bootui.disabled-profiles` | `prod,production` | Profiles that disable BootUI unless `bootui.enabled=ON`. |
+| `bootui.overrides-file` | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides. |
+| `bootui.endpoint-timeout` | `5s` | Timeout for endpoint-related calls. |
 
 ### 6.6 Security model
 
@@ -619,7 +707,8 @@ Rules:
 - Disable in production profile by default.
 - Mask secret-like values by default.
 - Never display `.env` contents.
-- Never persist configuration values.
+- Never write configuration values back to application source files.
+- Persist runtime overrides only to BootUI's configured override file.
 - Never send telemetry by default.
 - Never proxy arbitrary external URLs.
 
@@ -629,7 +718,7 @@ Production safety:
 - Explicit override should be intentionally named, for example:
 
 ```properties
-bootui.enabled=true
+bootui.enabled=ON
 bootui.allow-non-localhost=true
 ```
 
@@ -644,13 +733,18 @@ Top-level tabs:
 - Overview.
 - Beans.
 - Conditions.
-- Config.
+- Configuration.
 - Mappings.
 - Health.
 - Loggers.
-- Startup.
-- Services.
 - Data.
+- Startup Timeline.
+- Memory.
+- Scheduled Tasks.
+- HTTP Probe.
+- Log Tail.
+- Profile Diff.
+- Security.
 
 ### 7.2 UI principles
 
@@ -717,11 +811,12 @@ Future compatibility:
 - BootUI UI assets are served.
 - BootUI API returns overview.
 - Beans, conditions, env, mappings, health, loggers work against real Spring Boot context.
+- Newer panels work against the sample app or degrade cleanly when optional infrastructure is absent.
 - Production profile disables BootUI.
 
 ### 9.4 Browser/UI tests
 
-- Smoke test all panels.
+- Playwright smoke tests for all visible panels in `bootui-sample-app/e2e`.
 - Search and filter behavior.
 - Masked values stay masked.
 - Empty states are readable.
@@ -731,7 +826,7 @@ Future compatibility:
 BootUI v0.1 is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Beans, Conditions, Config, Mappings, Health, and Loggers.
+- The UI shows Overview, Beans, Conditions, Configuration, Mappings, Health, Loggers, Startup Timeline, Memory, Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, and Security.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.
@@ -739,8 +834,7 @@ BootUI v0.1 is complete when:
 
 ## 11. Open questions
 
-1. Should BootUI use `/bootui` or `/actuator/bootui` as the default path?
-2. Should BootUI require Actuator as a dependency, or provide a reduced mode without it?
-3. Should BootUI support Spring Boot 3.5 from day one, or start with Spring Boot 4 only?
-4. Should the starter automatically expose required Actuator endpoints locally, or only explain how to enable them?
-5. Should endpoint data be read through Actuator web endpoints or internal endpoint invokers?
+1. Should newer panels be supported for the first alpha, clearly marked experimental, or hidden until hardened?
+2. Should `0.1.0-alpha.1` be published to Maven Central or remain source/local-build only?
+3. Should optional panels be hidden dynamically when their classpath or data source is unavailable?
+4. Should endpoint data continue using in-process endpoint beans, or should some panels move to a more general metadata abstraction?

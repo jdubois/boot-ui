@@ -21,7 +21,7 @@ export const test = base.extend({
       const matcher = typeof heading === 'string'
         ? new RegExp(heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
         : heading
-      await expect(page.getByRole('heading', { level: 2, name: matcher })).toBeVisible()
+      await expect(page.locator('main h2').filter({ hasText: matcher }).first()).toBeVisible()
       return page
     }
     await use(openView)

@@ -4,9 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.bootui.autoconfigure.safety.LocalhostOnlyFilter;
+import io.github.bootui.autoconfigure.web.DataController;
+import io.github.bootui.autoconfigure.web.LogTailController;
 import io.github.bootui.autoconfigure.web.OverviewController;
+import io.github.bootui.autoconfigure.web.ScheduledController;
+import io.github.bootui.autoconfigure.web.SecurityController;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 
 class BootUiAutoConfigurationTests {
@@ -77,5 +82,43 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getExposeValues())
                             .isEqualTo(BootUiProperties.ValueExposure.FULL);
                 });
+    }
+
+    @Test
+    void optionalClasspathPanelsAreRegisteredWhenDependenciesArePresent() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .run(context -> assertThat(context)
+                        .hasSingleBean(DataController.class)
+                        .hasSingleBean(LogTailController.class)
+                        .hasSingleBean(ScheduledController.class)
+                        .hasSingleBean(SecurityController.class));
+    }
+
+    @Test
+    void skipsSpringDataPanelWhenSpringDataRepositoryMetadataIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("org.springframework.data.repository.core.support"))
+                .run(context -> assertThat(context).doesNotHaveBean(DataController.class));
+    }
+
+    @Test
+    void skipsLogTailPanelWhenLogbackIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("ch.qos.logback.classic"))
+                .run(context -> assertThat(context).doesNotHaveBean(LogTailController.class));
+    }
+
+    @Test
+    void skipsScheduledPanelWhenSchedulingInfrastructureIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("org.springframework.scheduling.config.ScheduledTaskHolder"))
+                .run(context -> assertThat(context).doesNotHaveBean(ScheduledController.class));
+    }
+
+    @Test
+    void skipsSecurityPanelWhenSpringSecurityWebIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("org.springframework.security.web.FilterChainProxy"))
+                .run(context -> assertThat(context).doesNotHaveBean(SecurityController.class));
     }
 }

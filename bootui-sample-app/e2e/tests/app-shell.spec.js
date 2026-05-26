@@ -6,9 +6,9 @@ test.describe('BootUI app shell', () => {
   test('navbar shows the application name and Spring Boot / Java versions', async ({ page }) => {
     await page.goto('/bootui/')
 
-    await expect(page.getByRole('heading', { name: /BootUI/, level: 1 })).toBeVisible()
-    const subtitle = page.locator('.navbar .text-light.small')
-    await expect(subtitle).toContainText('bootui-sample')
+    await expect(page.locator('.brand-name')).toHaveText('BootUI')
+    await expect(page.locator('.topbar-title')).toContainText('bootui-sample')
+    const subtitle = page.locator('.topbar-subtitle')
     await expect(subtitle).toContainText(/Spring Boot \d+\.\d+/)
     await expect(subtitle).toContainText(/Java /)
   })
@@ -36,7 +36,7 @@ test.describe('BootUI app shell', () => {
 
     for (const link of links) {
       await page.locator('aside .nav-link', { hasText: link.title }).click()
-      await expect(page.getByRole('heading', { level: 2, name: link.heading }))
+      await expect(page.locator('main h2').filter({ hasText: link.heading }).first())
         .toBeVisible({ timeout: 15_000 })
     }
   })
