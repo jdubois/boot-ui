@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.bootui.autoconfigure.BootUiProperties;
+import io.github.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.bootui.core.BootUiDtos.ConfigOverrideResult;
 import io.github.bootui.core.SecretMasker;
 import java.nio.file.Files;
@@ -69,6 +70,24 @@ class ConfigOverrideServiceTests {
     @Test
     void putDoesNotMaskWhenMaskingDisabled() {
         properties.setMaskSecrets(false);
+
+        ConfigOverrideResult result = service.put("api.token", "abc");
+
+        assertThat(result.value()).isEqualTo("abc");
+    }
+
+    @Test
+    void putHidesValuesUnderMetadataOnlyExposure() {
+        properties.setExposeValues(ValueExposure.METADATA_ONLY);
+
+        ConfigOverrideResult result = service.put("server.port", "9090");
+
+        assertThat(result.value()).isNull();
+    }
+
+    @Test
+    void putExposesSecretValuesUnderFullExposure() {
+        properties.setExposeValues(ValueExposure.FULL);
 
         ConfigOverrideResult result = service.put("api.token", "abc");
 

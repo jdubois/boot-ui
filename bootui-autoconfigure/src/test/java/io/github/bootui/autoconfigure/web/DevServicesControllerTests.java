@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.bootui.autoconfigure.BootUiProperties;
+import io.github.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.service.connection.ConnectionDetails;
 import org.springframework.context.support.GenericApplicationContext;
@@ -44,6 +45,24 @@ class DevServicesControllerTests {
                 .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl")
                         .value("jdbc:postgresql://******@localhost:5432/app"))
                 .andExpect(jsonPath("$.services[0].connectionDetails.password").value("******"));
+
+        context.close();
+    }
+
+    @Test
+    void listExposesConnectionDetailsUnderFullExposure() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setExposeValues(ValueExposure.FULL);
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("postgresConnectionDetails", SampleConnectionDetails.class);
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, properties)).build();
+
+        mvc.perform(get("/bootui/api/dev-services"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl")
+                        .value("jdbc:postgresql://dbuser:secret@localhost:5432/app"))
+                .andExpect(jsonPath("$.services[0].connectionDetails.password").value("secret"));
 
         context.close();
     }

@@ -166,10 +166,10 @@ Reconcile the specification with the implementation where behavior has become mo
 - Runtime config overrides are persisted to a BootUI overrides file by default, while older specification text says overrides disappear on restart.
 - The frontend is currently plain JavaScript Vue 3, not TypeScript/Vitest.
 - Startup Timeline, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, DevTools, and Dev Services are implemented and should be moved out of future-only language.
-- Dev Services / Docker Compose / Testcontainers is implemented as a best-effort experimental panel.
+- Dev Services / Docker Compose / Testcontainers is implemented and included in the harden-all-visible-panels alpha scope.
   Docker Compose entries are startup snapshots; bean-backed Testcontainers services can expose bounded logs,
   and restart is disabled unless `bootui.dev-services.restart-enabled=true`.
-- Maven Central publishing scope for `0.1.0-alpha.1` still needs a release decision.
+- Maven Central publishing is required for `0.1.0-alpha.1`; the release profile signs and stages artifacts through the Sonatype Central Publishing plugin.
 
 ### 4.4 Validate release readiness
 
@@ -200,15 +200,15 @@ Manual smoke checks:
 
 ## 5. Next release scope
 
-The codebase currently contains more than the original v0.1 MVP. The next release should use one of these release strategies:
+The codebase currently contains more than the original v0.1 MVP. The next release uses this release strategy:
 
 | Strategy | Scope | Trade-off |
 |---|---|---|
-| Harden all visible panels | Ship every current route as supported alpha functionality. | More documentation and test work before release. |
+| Harden all visible panels | Ship every current route as supported alpha functionality. | Selected for `0.1.0-alpha.1`; requires focused backend tests, docs, and release validation. |
 | Mark newer panels experimental | Keep all routes visible but clearly label Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations. |
 | Hide unfinished panels | Only expose the original MVP routes plus any fully hardened additions. | Safest alpha surface, but requires UI gating work. |
 
-Recommended alpha stance: **mark newer panels experimental unless they receive focused tests and documentation before release**.
+Selected alpha stance: **harden all visible panels**.
 
 Included in the original MVP surface:
 
@@ -347,11 +347,10 @@ Reason:
 
 ## 9. Suggested next steps
 
-1. Decide the next release strategy for the already-visible post-MVP panels: harden, mark experimental, or hide.
-2. Decide whether publishing to Maven Central is required for `0.1.0-alpha.1`.
+1. Finish focused backend tests for the harden-all-visible-panels scope.
+2. Verify Maven Central publishing prerequisites: `central` server credentials, GPG signing key, and release-profile deploy configuration.
 3. Prepare release notes and tag the first alpha only after CI and manual smoke checks pass.
-4. Review whether experimental panels need UI labeling or route gating before the alpha.
-5. Re-run the full build and Playwright suite after any final release-scope changes.
+4. Re-run the full build and Playwright suite after any final release-scope changes.
 
 ## 10. Validation checklist
 
@@ -367,7 +366,7 @@ Before considering the next alpha complete:
 - Runtime config overrides persist through the BootUI overrides file and warn about restart/rebind caveats.
 - Logger changes work.
 - DevTools controls show unavailable states when Spring Boot DevTools is absent.
-- Newer diagnostic panels either have release-grade coverage/docs or are clearly marked experimental/hidden.
+- Newer diagnostic panels have release-grade coverage/docs for the alpha.
 - BootUI is disabled with `prod` and `production` profiles unless `bootui.enabled=ON`.
 - Non-local requests are rejected by default.
 - Documentation matches actual behavior.
