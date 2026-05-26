@@ -509,7 +509,7 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
-### 5.16 Local Services Panel
+### 5.16 Dev Services Panel
 
 Purpose: answer "Which local backing services are connected?"
 
@@ -537,14 +537,21 @@ Features:
   - manual configuration.
 - Link to related health contributor.
 - Show sanitized connection details.
+- Show bounded logs when a bean-backed Testcontainers service exposes them.
+- Show a restart action for bean-backed services only when explicitly enabled with
+  `bootui.dev-services.restart-enabled=true`.
 
-Status: future candidate, not implemented for v0.1.
+Status: implemented as an experimental panel for v0.1.
 
 Acceptance criteria:
 
 - Secrets are never displayed.
 - Unknown services are represented generically.
 - Works even when Docker is not installed.
+- Docker Compose services are clearly identified as startup snapshots because
+  Spring Boot does not expose live per-service lifecycle state.
+- Restart controls are disabled by default and warn that already-created client
+  beans may not reconnect after container ports change.
 
 ## 6. Technical architecture
 

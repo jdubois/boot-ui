@@ -2,6 +2,10 @@ package io.github.bootui.sample;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -17,6 +21,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.web.client.RestClient;
 
@@ -61,6 +66,9 @@ class BootUiSampleApplicationIntegrationTests {
         if (client == null) {
             client = RestClient.builder()
                     .baseUrl("http://localhost:" + port)
+                    .requestFactory(new JdkClientHttpRequestFactory(HttpClient.newBuilder()
+                            .proxy(new NoProxySelector())
+                            .build()))
                     // Never throw on non-2xx — tests inspect the status directly.
                     .defaultStatusHandler(HttpStatusCode::isError, (req, res) -> { })
                     .build();
@@ -467,5 +475,17 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         // The bundled Vue index.html is served from bootui-ui's META-INF/resources.
         assertThat(response.getBody()).contains("<html");
+    }
+
+    private static final class NoProxySelector extends ProxySelector {
+
+        @Override
+        public List<Proxy> select(URI uri) {
+            return List.of(Proxy.NO_PROXY);
+        }
+
+        @Override
+        public void connectFailed(URI uri, java.net.SocketAddress sa, java.io.IOException ioe) {
+        }
     }
 }

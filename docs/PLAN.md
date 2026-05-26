@@ -157,7 +157,9 @@ Reconcile the specification with the implementation where behavior has become mo
 - Runtime config overrides are persisted to a BootUI overrides file by default, while older specification text says overrides disappear on restart.
 - The frontend is currently plain JavaScript Vue 3, not TypeScript/Vitest.
 - Startup Timeline, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, and Security are implemented and should be moved out of future-only language.
-- Local Services / Docker Compose / Testcontainers remains unimplemented.
+- Dev Services / Docker Compose / Testcontainers is implemented as a best-effort experimental panel.
+  Docker Compose entries are startup snapshots; bean-backed Testcontainers services can expose bounded logs,
+  and restart is disabled unless `bootui.dev-services.restart-enabled=true`.
 - Maven Central publishing scope for `0.1.0-alpha.1` still needs a release decision.
 
 ### 4.4 Validate release readiness
@@ -223,6 +225,7 @@ Already implemented beyond the original MVP surface:
 - Startup Timeline.
 - JVM memory panel.
 - Spring Data repository explorer.
+- Dev Services panel for Docker Compose snapshots, Testcontainers beans, and Spring Boot service connection metadata.
 - Scheduled task inspector.
 - HTTP probe panel.
 - Live log tail.
@@ -233,7 +236,7 @@ Already implemented beyond the original MVP surface:
 Still excluded:
 
 - Multi-service orchestration.
-- Local Services panel for Docker Compose and Testcontainers.
+- Live Docker Compose lifecycle control.
 - Request history.
 - Distributed tracing.
 - Extension SPI.
@@ -246,7 +249,7 @@ Still excluded:
 
 Potential features:
 
-- Local Services panel for Docker Compose and Testcontainers.
+- Dev Services hardening for Docker Compose/Testcontainers edge cases.
 - Better WebFlux support.
 - Link from UI to source files when possible.
 - Experimental-panel hardening if any current panel is not promoted in the alpha.

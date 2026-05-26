@@ -19,6 +19,7 @@ import LogTail from './views/LogTail.vue'
 import ProfileDiff from './views/ProfileDiff.vue'
 import Security from './views/Security.vue'
 import Memory from './views/Memory.vue'
+import DevServices from './views/DevServices.vue'
 import DevTools from './views/DevTools.vue'
 
 const router = createRouter({
@@ -35,6 +36,7 @@ const router = createRouter({
     { path: '/mappings', name: 'mappings', component: Mappings, meta: { icon: 'bi-signpost-2', title: 'Mappings' } },
     { path: '/config', name: 'config', component: Config, meta: { icon: 'bi-sliders', title: 'Configuration' } },
     { path: '/profiles', name: 'profiles', component: ProfileDiff, meta: { icon: 'bi-layers', title: 'Profile Diff' } },
+    { path: '/dev-services', name: 'dev-services', component: DevServices, meta: { icon: 'bi-box-seam', title: 'Dev Services' } },
     { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
     { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-shield-lock', title: 'Security' } },
     { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },

@@ -24,12 +24,14 @@ test.describe('BootUI app shell', () => {
       { title: 'Loggers',           heading: /^Loggers/ },
       { title: 'Data',              heading: /Spring Data repositories/ },
       { title: 'Startup Timeline',  heading: /Startup timeline/ },
+      { title: 'Memory',            heading: /^Memory/ },
+      { title: 'DevTools',          heading: /^DevTools/ },
+      { title: 'Dev Services',      heading: /^Dev Services/ },
       { title: 'Scheduled Tasks',   heading: /Scheduled Tasks/ },
       { title: 'HTTP Probe',        heading: /HTTP Probe/ },
       { title: 'Log Tail',          heading: /Log Tail/ },
       { title: 'Profile Diff',      heading: /Profile Diff/ },
-      { title: 'Security',          heading: /Spring Security/ },
-      { title: 'Memory',            heading: /^Memory/ }
+      { title: 'Security',          heading: /Spring Security/ }
     ]
 
     await page.goto('/bootui/')
