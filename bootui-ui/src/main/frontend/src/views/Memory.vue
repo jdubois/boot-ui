@@ -1,26 +1,61 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 
 const data = ref(null)
 const error = ref(null)
 const lastUpdated = ref(null)
 const copied = ref(false)
 let timer = null
+let debounceHandle = null
+
+const totalMemoryMb = ref(null)
+const threadCount = ref(null)
+const headRoomPercent = ref(null)
+const inputsInitialized = ref(false)
+
+const MB = 1024 * 1024
+
+function bytesToMb(bytes) {
+  return Math.round(bytes / MB)
+}
+
+function buildQuery() {
+  if (!inputsInitialized.value) return ''
+  const parts = []
+  if (totalMemoryMb.value != null) parts.push('totalMemoryMb=' + totalMemoryMb.value)
+  if (threadCount.value != null) parts.push('threadCount=' + threadCount.value)
+  if (headRoomPercent.value != null) parts.push('headRoomPercent=' + headRoomPercent.value)
+  return parts.length ? '?' + parts.join('&') : ''
+}
 
 async function load() {
   try {
-    const res = await fetch('api/memory')
+    const res = await fetch('api/memory' + buildQuery())
     if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
+    const payload = await res.json()
+    data.value = payload
     lastUpdated.value = new Date()
     error.value = null
+    if (!inputsInitialized.value && payload.calculation) {
+      totalMemoryMb.value = bytesToMb(payload.calculation.totalMemoryBytes)
+      threadCount.value = payload.calculation.threadCount
+      headRoomPercent.value = payload.calculation.headRoomPercent
+      inputsInitialized.value = true
+    }
   } catch (e) {
     error.value = e.message
   }
 }
 
+function scheduleReload() {
+  if (debounceHandle) clearTimeout(debounceHandle)
+  debounceHandle = setTimeout(() => {
+    load()
+  }, 300)
+}
+
 function formatBytes(bytes) {
-  if (bytes < 0) return 'N/A'
+  if (bytes == null || bytes < 0) return 'N/A'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
@@ -44,7 +79,6 @@ async function copyOptions() {
     copied.value = true
     setTimeout(() => { copied.value = false }, 2000)
   } catch {
-    // fallback for older browsers
     const ta = document.createElement('textarea')
     ta.value = data.value.suggestedJvmOptions
     document.body.appendChild(ta)
@@ -56,6 +90,34 @@ async function copyOptions() {
   }
 }
 
+const breakdown = computed(() => {
+  const c = data.value?.calculation
+  if (!c) return []
+  const segments = [
+    { key: 'heap', label: 'Heap', bytes: c.heapBytes, color: '#198754' },
+    { key: 'metaspace', label: 'Metaspace', bytes: c.metaspaceBytes, color: '#0d6efd' },
+    { key: 'codeCache', label: 'Code cache', bytes: c.codeCacheBytes, color: '#6610f2' },
+    { key: 'directMemory', label: 'Direct', bytes: c.directMemoryBytes, color: '#fd7e14' },
+    { key: 'stacks', label: 'Thread stacks', bytes: c.stackBytesTotal, color: '#ffc107' },
+    { key: 'headroom', label: 'Headroom', bytes: c.headRoomBytes, color: '#6c757d' }
+  ]
+  const total = segments.reduce((sum, s) => sum + Math.max(0, s.bytes || 0), 0)
+  return segments.map(s => ({
+    ...s,
+    bytes: Math.max(0, s.bytes || 0),
+    percent: total > 0 ? (Math.max(0, s.bytes || 0) / total) * 100 : 0
+  }))
+})
+
+function stepTotal(delta) {
+  const next = Math.max(128, Math.min(8192, (totalMemoryMb.value || 0) + delta))
+  totalMemoryMb.value = next
+}
+
+watch([totalMemoryMb, threadCount, headRoomPercent], () => {
+  if (inputsInitialized.value) scheduleReload()
+})
+
 onMounted(() => {
   load()
   timer = setInterval(load, 5000)
@@ -63,6 +125,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  if (debounceHandle) clearTimeout(debounceHandle)
 })
 </script>
 
@@ -78,20 +141,120 @@ onBeforeUnmount(() => {
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
     <template v-if="data">
-      <!-- JVM Options Panel -->
+      <!-- Memory Calculator Panel -->
+      <div class="card mb-4 border-primary" v-if="data.calculation">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-calculator me-2"></i>JVM memory calculator</span>
+          <small class="text-white-50">Plan a container memory limit</small>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            Inspired by the Paketo <code>libjvm</code> memory calculator.
+            Heap is whatever is left after subtracting metaspace (sized from
+            currently loaded classes × 1.25 safety factor), code cache, direct
+            memory, thread stacks, and headroom from your target memory.
+          </p>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-5">
+              <label class="form-label small fw-semibold">Total container memory (MB)</label>
+              <div class="input-group input-group-sm">
+                <button type="button" class="btn btn-outline-secondary" @click="stepTotal(-64)" aria-label="Decrease">−</button>
+                <input
+                  type="number"
+                  class="form-control text-center"
+                  v-model.number="totalMemoryMb"
+                  min="128"
+                  max="8192"
+                  step="64"
+                />
+                <button type="button" class="btn btn-outline-secondary" @click="stepTotal(64)" aria-label="Increase">+</button>
+                <span class="input-group-text">MB</span>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">
+                Thread count
+                <span class="text-muted fw-normal">
+                  (currently {{ data.calculation.liveThreadCount }})
+                </span>
+              </label>
+              <input
+                type="number"
+                class="form-control form-control-sm"
+                v-model.number="threadCount"
+                min="1"
+                max="10000"
+                step="10"
+              />
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Headroom (%)</label>
+              <input
+                type="number"
+                class="form-control form-control-sm"
+                v-model.number="headRoomPercent"
+                min="0"
+                max="30"
+                step="1"
+              />
+            </div>
+          </div>
+
+          <div v-if="!data.calculation.valid" class="alert alert-warning small mb-3">
+            <i class="bi bi-exclamation-triangle me-1"></i>{{ data.calculation.error }}
+          </div>
+
+          <template v-else>
+            <div class="progress breakdown-bar mb-2" style="height: 24px;" role="img" aria-label="Memory breakdown">
+              <div
+                v-for="seg in breakdown"
+                :key="seg.key"
+                class="progress-bar"
+                :style="{ width: seg.percent + '%', backgroundColor: seg.color }"
+                :title="seg.label + ': ' + formatBytes(seg.bytes)"
+              >
+                <span v-if="seg.percent >= 8" class="small">{{ seg.label }}</span>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-3 small mb-2">
+              <div v-for="seg in breakdown" :key="'leg-' + seg.key" class="d-flex align-items-center">
+                <span class="legend-swatch me-1" :style="{ backgroundColor: seg.color }"></span>
+                <span class="text-muted me-1">{{ seg.label }}:</span>
+                <span class="fw-semibold">{{ formatBytes(seg.bytes) }}</span>
+              </div>
+            </div>
+            <div class="small text-muted">
+              Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded ·
+              metaspace sized for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Recommended JVM Options -->
       <div class="card mb-4 border-primary">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
           <span><i class="bi bi-rocket-takeoff me-2"></i>Recommended JVM Options</span>
-          <button class="btn btn-sm btn-light" @click="copyOptions" :class="{ 'btn-success': copied }">
+          <button
+            class="btn btn-sm btn-light"
+            @click="copyOptions"
+            :class="{ 'btn-success': copied }"
+            :disabled="!data.calculation || !data.calculation.valid"
+          >
             <i :class="['bi', copied ? 'bi-check-lg' : 'bi-clipboard', 'me-1']"></i>
             {{ copied ? 'Copied!' : 'Copy' }}
           </button>
         </div>
         <div class="card-body">
           <p class="text-muted small mb-2">
-            Calculated from current heap usage. Tuned for Java 24+ (generational ZGC is the default; container support is built in).
+            Generated from your calculator inputs. <code>-Xms == -Xmx</code> for predictable container startup;
+            GC picked automatically (G1 below 4 GB, ZGC above).
           </p>
-          <pre class="bg-dark text-light rounded p-3 mb-0 options-box"><code>{{ data.suggestedJvmOptions }}</code></pre>
+          <pre
+            class="bg-dark text-light rounded p-3 mb-0 options-box"
+            :class="{ 'opacity-50': data.calculation && !data.calculation.valid }"
+          ><code>{{ data.suggestedJvmOptions || '—' }}</code></pre>
           <div class="mt-2">
             <span class="badge text-bg-secondary me-1"><i class="bi bi-shield-check me-1"></i>OOM protection</span>
             <span class="badge text-bg-secondary me-1"><i class="bi bi-gear me-1"></i>GC tuned</span>
@@ -239,4 +402,18 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-all;
 }
+.breakdown-bar .progress-bar {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff;
+  font-weight: 500;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
 </style>
+
