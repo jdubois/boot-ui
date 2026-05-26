@@ -26,4 +26,18 @@ test.describe('Memory view', () => {
     await copyButton.click()
     await expect(page.getByRole('button', { name: /Copied!/ })).toBeVisible({ timeout: 5_000 })
   })
+
+  test('renders the memory pools table with usage values', async ({ openView, page }) => {
+    await openView('memory', 'Memory')
+
+    const poolsCard = page.locator('.card', { hasText: 'Memory Pools' })
+    await expect(poolsCard).toBeVisible()
+    await expect(poolsCard.locator('thead')).toContainText('Pool')
+    await expect(poolsCard.locator('thead')).toContainText('Usage')
+
+    const rows = poolsCard.locator('tbody tr')
+    await expect.poll(async () => rows.count()).toBeGreaterThan(0)
+    await expect(rows.first().locator('td').nth(0)).not.toBeEmpty()
+    await expect(rows.first().locator('td').nth(4)).toContainText(/%/)
+  })
 })
