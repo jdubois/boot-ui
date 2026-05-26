@@ -351,7 +351,35 @@ Acceptance criteria:
 - Missing startup data does not break the UI.
 - The UI gives a clear unavailable state when startup data is absent.
 
-### 5.9 JVM Memory Panel
+### 5.9 Metrics Panel
+
+Purpose: answer "Which Micrometer meters exist, how are they tagged, and what are their live values?"
+
+Data sources:
+
+- Micrometer `MeterRegistry`.
+- Spring Boot Actuator metrics auto-configuration when present.
+
+Features:
+
+- List meters by name, description, base unit, and Micrometer type.
+- Search meters by name or description.
+- Filter meters by type.
+- Inspect a meter's current measurements.
+- Show available tag keys and values for each meter.
+- Filter live values by tag key/value.
+- Render a lightweight live graph for the selected statistic.
+- Poll locally with bounded browser-side history; no external monitoring service is required.
+
+Acceptance criteria:
+
+- Missing Micrometer infrastructure produces a clear empty state.
+- Browser responses use BootUI DTOs, not raw registry internals.
+- Tag values remain browser-bounded so high-cardinality meters do not freeze the UI.
+- Polling does not overlap slow requests.
+- Switching meter, tag filters, or statistic resets the live graph history.
+
+### 5.10 JVM Memory Panel
 
 Purpose: answer "How much heap/non-heap memory is this app using, and what JVM options would be reasonable locally?"
 
@@ -372,7 +400,7 @@ Acceptance criteria:
 - Suggested options are clearly presented as recommendations, not automatic changes.
 - JVM argument disclosure is reviewed as part of release hardening.
 
-### 5.10 Scheduled Tasks Inspector
+### 5.11 Scheduled Tasks Inspector
 
 Purpose: answer "Which scheduled tasks are registered?"
 
@@ -391,7 +419,7 @@ Acceptance criteria:
 - Opening the panel never invokes scheduled tasks.
 - Spring wrapper runnables are displayed with the most useful available task description.
 
-### 5.11 HTTP Probe Panel
+### 5.12 HTTP Probe Panel
 
 Purpose: issue safe local HTTP requests to the running app from the developer console.
 
@@ -413,7 +441,7 @@ Acceptance criteria:
 - Unsafe-body behavior is explicit and predictable.
 - Response headers are filtered to a small allow-list.
 
-### 5.12 Log Tail Panel
+### 5.13 Log Tail Panel
 
 Purpose: stream recent local application log lines in the browser.
 
@@ -432,7 +460,7 @@ Acceptance criteria:
 - The panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
 
-### 5.13 Profile Diff Panel
+### 5.14 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
 
@@ -453,7 +481,7 @@ Acceptance criteria:
 - Metadata-only exposure hides values.
 - Source attribution remains visible.
 
-### 5.14 Spring Security Panel
+### 5.15 Spring Security Panel
 
 Purpose: answer "Which security filter chains and authorization rules apply?"
 
@@ -476,7 +504,7 @@ Acceptance criteria:
 - Credentials, password hashes, signing keys, session IDs, and tokens are never displayed.
 - Matching caveats are clearly marked as best-effort.
 
-### 5.15 Spring Data Explorer
+### 5.16 Spring Data Explorer
 
 Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they expose?"
 
@@ -509,7 +537,7 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
-### 5.16 Dev Services Panel
+### 5.17 Dev Services Panel
 
 Purpose: answer "Which local backing services are connected?"
 
@@ -691,12 +719,15 @@ Initial endpoints:
 | `/bootui/api/loggers` | GET | Logger levels |
 | `/bootui/api/loggers/{name}` | POST | Change logger level |
 | `/bootui/api/startup` | GET | Startup timeline |
+| `/bootui/api/metrics` | GET | Browseable Micrometer meter list |
+| `/bootui/api/metrics/detail` | GET | Micrometer meter detail and live measurements |
 | `/bootui/api/memory` | GET | JVM memory report |
 | `/bootui/api/scheduled` | GET | Scheduled tasks |
 | `/bootui/api/probe` | POST | Local HTTP probe |
 | `/bootui/api/logs/recent` | GET | Recent log lines |
 | `/bootui/api/logs/stream` | GET | Log stream over Server-Sent Events |
 | `/bootui/api/profiles` | GET | Profile-specific property sources |
+| `/bootui/api/services` | GET | Local service connections |
 | `/bootui/api/data/repositories` | GET | Detected Spring Data repositories (summary) |
 | `/bootui/api/data/repositories/{name}` | GET | Spring Data repository detail with query methods |
 | `/bootui/api/security` | GET | Spring Security filter chain report |

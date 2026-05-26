@@ -28,6 +28,7 @@ flow) exposed by the sample app:
 | `profile-diff.spec.js`     | Profile sources & properties render with filtering                                     |
 | `security.spec.js`         | Filter chains list `/api/secure`, explain endpoint returns a match                     |
 | `memory.spec.js`           | Heap / non-heap cards render, JVM options copy button                                  |
+| `metrics.spec.js`          | Micrometer meter browser, live graph, measurements, and type filtering                 |
 | `sample-api.spec.js`       | Sample REST API (`/api/hello`, `/api/secure`, `/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
 
 ## Prerequisites

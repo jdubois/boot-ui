@@ -49,6 +49,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - log tail
   - profile diff
   - Spring Security
+  - Micrometer metrics
   - DevTools reload/restart
 - Vue 3 UI shell with routes for:
   - Overview
@@ -66,7 +67,9 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Log Tail
   - Profile Diff
   - Security
+  - Metrics
   - DevTools
+  - Dev Services
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 - Backend tests covering activation, auto-configuration activation cases, localhost filtering, config override persistence, override property sources, override file storage, environment post-processing, config metadata loading, selected web controllers, missing Actuator behavior, and sample-app integration.
 - Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API and every visible BootUI route.
@@ -81,7 +84,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 3. Actuator bridge | Implemented, needs controller coverage | Stable BootUI DTO endpoints exist for the original MVP panels; missing-Actuator behavior needs broader explicit tests. |
 | 4. Beans and Conditions panels | Implemented, needs product validation | API and UI panels exist; sample-app usefulness and large-app edge cases should be checked. |
 | 5. Config, Mappings, Health, and Loggers | Implemented, partially tested | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has tests; web endpoint coverage still needs expansion. |
-| 6. Post-MVP diagnostic panels | Implemented, needs hardening | Startup, Memory, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, and Security panels have API/UI slices. They need focused tests, safety review, and documentation. |
+| 6. Post-MVP diagnostic panels | Implemented, needs hardening | Startup, Memory, Spring Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, DevTools, and Dev Services panels have API/UI slices. They need focused tests, safety review, and documentation. |
 | 7. Documentation and release hardening | Not complete | Installation, activation, safety, troubleshooting, release notes, and sample walkthrough need to be finished and reconciled with current behavior. |
 
 ## 4. What still needs to be done
@@ -111,6 +114,7 @@ Existing focused tests cover several core safety and config paths. Remaining tes
    - Log tail buffer behavior and message shaping.
    - Profile diff source attribution and masking.
    - Spring Security chain listing, best-effort explain behavior, classpath gating, and credential non-disclosure.
+   - Micrometer metrics browsing, tag filtering, and live value shaping.
    - JVM memory report values, JVM argument disclosure review, and suggested JVM option generation.
 
 ### 4.2 Finish UI and product parity checks
@@ -127,13 +131,16 @@ Validate every visible route against the sample app:
 8. Data.
 9. Startup Timeline.
 10. Memory.
-11. Scheduled Tasks.
-12. HTTP Probe.
-13. Log Tail.
-14. Profile Diff.
-15. Security.
+11. Metrics.
+12. DevTools.
+13. Dev Services.
+14. Scheduled Tasks.
+15. HTTP Probe.
+16. Log Tail.
+17. Profile Diff.
+18. Security.
 
-The plan no longer treats Startup, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, or Security as future-only ideas: they are implemented surfaces and should either be hardened for the next alpha or explicitly hidden/marked experimental before release.
+The plan no longer treats Startup, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, DevTools, or Dev Services as future-only ideas: they are implemented surfaces and should either be hardened for the next alpha or explicitly hidden/marked experimental before release.
 
 ### 4.3 Refresh user-facing documentation
 
@@ -156,7 +163,7 @@ Reconcile the specification with the implementation where behavior has become mo
 - `bootui.enabled` currently uses `AUTO|ON|OFF`, while older specification text mentions boolean `true|false`.
 - Runtime config overrides are persisted to a BootUI overrides file by default, while older specification text says overrides disappear on restart.
 - The frontend is currently plain JavaScript Vue 3, not TypeScript/Vitest.
-- Startup Timeline, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, and Security are implemented and should be moved out of future-only language.
+- Startup Timeline, Memory, Spring Data, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, DevTools, and Dev Services are implemented and should be moved out of future-only language.
 - Dev Services / Docker Compose / Testcontainers is implemented as a best-effort experimental panel.
   Docker Compose entries are startup snapshots; bean-backed Testcontainers services can expose bounded logs,
   and restart is disabled unless `bootui.dev-services.restart-enabled=true`.
@@ -231,6 +238,7 @@ Already implemented beyond the original MVP surface:
 - Live log tail.
 - Profile diff.
 - Spring Security panel.
+- Micrometer metrics browser with live values.
 - DevTools reload/restart controls.
 
 Still excluded:

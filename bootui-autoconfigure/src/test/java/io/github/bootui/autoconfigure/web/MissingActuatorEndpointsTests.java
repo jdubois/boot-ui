@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.bootui.autoconfigure.BootUiProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
@@ -74,6 +75,18 @@ class MissingActuatorEndpointsTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.availableLevels").isEmpty())
                 .andExpect(jsonPath("$.loggers").isEmpty());
+    }
+
+    @Test
+    void metricsControllerReturnsEmptyReportWhenRegistryMissing() throws Exception {
+        ObjectProvider<MeterRegistry> provider = emptyProvider();
+        MockMvc mvc = standaloneSetup(new MetricsController(provider)).build();
+
+        mvc.perform(get("/bootui/api/metrics"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metricsAvailable").value(false))
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.meters").isEmpty());
     }
 
     @Test

@@ -25,6 +25,7 @@ test.describe('BootUI app shell', () => {
       { title: 'Data',              heading: /Spring Data repositories/ },
       { title: 'Startup Timeline',  heading: /Startup timeline/ },
       { title: 'Memory',            heading: /^Memory/ },
+      { title: 'Metrics',           heading: /^Metrics/ },
       { title: 'DevTools',          heading: /^DevTools/ },
       { title: 'Dev Services',      heading: /^Dev Services/ },
       { title: 'Scheduled Tasks',   heading: /Scheduled Tasks/ },
