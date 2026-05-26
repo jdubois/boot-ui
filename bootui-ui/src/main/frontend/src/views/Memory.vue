@@ -89,11 +89,10 @@ onBeforeUnmount(() => {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-2">
-            Calculated from current memory usage. Includes Kubernetes container-aware settings and best practices.
+            Calculated from current heap usage. Tuned for Java 24+ (generational ZGC is the default; container support is built in).
           </p>
           <pre class="bg-dark text-light rounded p-3 mb-0 options-box"><code>{{ data.suggestedJvmOptions }}</code></pre>
           <div class="mt-2">
-            <span class="badge text-bg-secondary me-1"><i class="bi bi-box me-1"></i>Kubernetes-ready</span>
             <span class="badge text-bg-secondary me-1"><i class="bi bi-shield-check me-1"></i>OOM protection</span>
             <span class="badge text-bg-secondary me-1"><i class="bi bi-gear me-1"></i>GC tuned</span>
           </div>
