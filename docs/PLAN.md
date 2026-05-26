@@ -349,10 +349,11 @@ Reason:
 
 ## 9. Suggested next steps
 
+Maven Central publishing prerequisites (`central` server credentials, GPG signing key, and release-profile deploy configuration) are in place, and the first alpha has been released to Maven Central via the `Prepare Release` workflow. Remaining work:
+
 1. Finish focused backend tests for the harden-all-visible-panels scope.
-2. Verify Maven Central publishing prerequisites: `central` server credentials, GPG signing key, and release-profile deploy configuration.
-3. Prepare release notes and tag the first alpha only after CI and manual smoke checks pass.
-4. Re-run the full build and Playwright suite after any final release-scope changes.
+2. Refresh user-facing documentation per §4.3 so it matches current behavior before the next alpha.
+3. Re-run the full build and Playwright suite after any final release-scope changes.
 
 ## 10. Validation checklist
 
