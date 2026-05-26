@@ -8,7 +8,7 @@ test.describe('HTTP Probe view', () => {
 
     await page.locator('select.form-select').selectOption('GET')
     await page.getByPlaceholder('/api/sample/hello').fill('/api/hello')
-    await page.getByRole('button', { name: /^Send/ }).click()
+    await page.locator('button.btn-primary', { hasText: 'Send' }).click()
 
     const responseCard = page.locator('.card', { hasText: /^Response/ })
     await expect(responseCard).toBeVisible()
@@ -22,7 +22,8 @@ test.describe('HTTP Probe view', () => {
     await expect(page.locator('textarea')).toHaveCount(0)
     await page.locator('select.form-select').selectOption('POST')
     await expect(page.locator('textarea')).toBeVisible()
-    await expect(page.locator('text=Content-Type:')).toBeVisible()
+    await page.locator('textarea').fill('{"message":"hello"}')
+    await expect(page.locator('.form-text', { hasText: 'Content-Type:' })).toBeVisible()
   })
 
   test('clear resets the form back to defaults', async ({ openView, page }) => {

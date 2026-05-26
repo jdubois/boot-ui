@@ -24,7 +24,7 @@ test.describe('Security view', () => {
     await page.getByPlaceholder('/api/example').fill('/api/secure')
     await page.getByRole('button', { name: /^Explain/ }).click()
 
-    const result = page.locator('.card', { hasText: /Request matcher|Filters/ }).first()
+    const result = page.locator('.card', { hasText: /Matcher:|Filter pipeline/ }).first()
     await expect(result).toBeVisible()
     await expect(result).toContainText('/api/secure')
     await expect(result).toContainText('BasicAuthenticationFilter')
