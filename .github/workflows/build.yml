@@ -30,13 +30,36 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
 
-      - name: Set up Node.js (used by the bootui-ui module)
+      - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: bootui-sample-app/e2e/package-lock.json
 
       - name: Build all modules
         run: mvn -B -ntp clean install
+
+      - name: Install Playwright dependencies
+        working-directory: bootui-sample-app/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright end-to-end tests
+        working-directory: bootui-sample-app/e2e
+        run: npm test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            bootui-sample-app/e2e/playwright-report/
+            bootui-sample-app/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload sample-app jar
         if: success()
