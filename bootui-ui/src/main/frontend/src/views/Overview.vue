@@ -78,16 +78,22 @@ onMounted(load)
           <i class="bi bi-stars me-1"></i>
           Runtime command center
         </span>
-        <h2>Understand this Spring Boot app in minutes.</h2>
+        <h2>Understand your Spring Boot app in minutes</h2>
         <p>
           BootUI turns the local runtime into a guided map of profiles, ports,
           safety status, Actuator-backed diagnostics, and the panels that explain how the app is wired.
         </p>
       </div>
-      <button class="btn btn-light hero-refresh" @click="load" :disabled="loading">
-        <i class="bi bi-arrow-clockwise me-1" :class="{ 'spin': loading }"></i>
-        Refresh snapshot
-      </button>
+      <div class="hero-actions">
+        <a class="btn btn-outline-light" href="/">
+          <i class="bi bi-house-door me-1"></i>
+          Back to homepage
+        </a>
+        <button class="btn btn-light hero-refresh" @click="load" :disabled="loading">
+          <i class="bi bi-arrow-clockwise me-1" :class="{ 'spin': loading }"></i>
+          Refresh snapshot
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="overview-skeleton">
@@ -297,12 +303,20 @@ onMounted(load)
   margin-bottom: 0;
 }
 
-.hero-refresh {
-  box-shadow: 0 0.8rem 1.8rem rgba(0, 0, 0, 0.14);
+.hero-actions {
+  display: flex;
   flex-shrink: 0;
-  font-weight: 700;
+  gap: 0.75rem;
   position: relative;
   z-index: 1;
+}
+
+.hero-actions .btn {
+  font-weight: 700;
+}
+
+.hero-refresh {
+  box-shadow: 0 0.8rem 1.8rem rgba(0, 0, 0, 0.14);
 }
 
 .spin {
@@ -611,6 +625,10 @@ onMounted(load)
   .overview-hero,
   .openapi-card {
     flex-direction: column;
+  }
+
+  .hero-actions {
+    flex-wrap: wrap;
   }
 
   .overview-skeleton {
