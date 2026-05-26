@@ -30,7 +30,7 @@ class SecurityConfiguration {
     @Order(2)
     SecurityFilterChain adminSecurity(HttpSecurity http) throws Exception {
         return http
-                .securityMatcher("/admin/**")
+                .securityMatcher("/admin/**", "/api/secure")
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().hasRole("ADMIN"))
                 .httpBasic(withDefaults())
                 .csrf(csrf -> csrf.disable())

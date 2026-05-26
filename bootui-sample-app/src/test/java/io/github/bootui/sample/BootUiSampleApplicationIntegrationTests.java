@@ -221,6 +221,10 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void sampleAppEndpointsRemainPublicButAdminRequiresPassword() {
+        ResponseEntity<String> plainHello = getString("/api/hello");
+        assertThat(plainHello.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(plainHello.getBody()).isEqualTo("Hello, world");
+
         ResponseEntity<String> hello = getString("/api/sample/hello");
         assertThat(hello.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(hello.getBody()).contains("Hello, BootUI!");
@@ -234,6 +238,20 @@ class BootUiSampleApplicationIntegrationTests {
         ResponseEntity<String> adminWithAdminCredentials = getStringWithBasicAuth("/admin", "admin", "admin");
         assertThat(adminWithAdminCredentials.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(adminWithAdminCredentials.getBody()).isEqualTo("BootUI sample admin");
+    }
+
+    @Test
+    void secureApiEndpointRequiresAdminRole() {
+        ResponseEntity<String> secureWithoutCredentials = getString("/api/secure");
+        assertThat(secureWithoutCredentials.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> secureWithDeveloperCredentials = getStringWithBasicAuth("/api/secure", "developer",
+                "developer");
+        assertThat(secureWithDeveloperCredentials.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        ResponseEntity<String> secureWithAdminCredentials = getStringWithBasicAuth("/api/secure", "admin", "admin");
+        assertThat(secureWithAdminCredentials.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(secureWithAdminCredentials.getBody()).isEqualTo("Secure Hello, world");
     }
 
     @Test
@@ -282,7 +300,7 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat((Iterable<?>) body.get("chains"))
                 .anySatisfy(chain -> {
                     Map<?, ?> dto = (Map<?, ?>) chain;
-                    assertThat(dto.get("requestMatcher")).asString().contains("/admin/**");
+                    assertThat(dto.get("requestMatcher")).asString().contains("/api/secure");
                     assertThat((Iterable<?>) dto.get("filters"))
                             .anySatisfy(filter -> assertThat(filter).isEqualTo("BasicAuthenticationFilter"));
                 });
@@ -294,14 +312,14 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
-    void securityExplainMatchesAdminRequest() {
-        ResponseEntity<Map> response = getMap("/bootui/api/security/explain?method=GET&path=/admin");
+    void securityExplainMatchesSecureApiRequest() {
+        ResponseEntity<Map> response = getMap("/bootui/api/security/explain?method=GET&path=/api/secure");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
         assertThat(body).isNotNull();
         assertThat(body.get("matched")).isEqualTo(true);
-        assertThat(body.get("matcherDescription")).asString().contains("/admin/**");
+        assertThat(body.get("matcherDescription")).asString().contains("/api/secure");
         assertThat((Iterable<?>) body.get("filters"))
                 .anySatisfy(filter -> assertThat(filter).isEqualTo("BasicAuthenticationFilter"));
     }

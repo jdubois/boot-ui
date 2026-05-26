@@ -7,13 +7,13 @@ test.describe('HTTP Probe view', () => {
     await openView('http-probe', 'HTTP Probe')
 
     await page.locator('select.form-select').selectOption('GET')
-    await page.getByPlaceholder('/api/sample/hello').fill('/api/sample/hello')
+    await page.getByPlaceholder('/api/sample/hello').fill('/api/hello')
     await page.getByRole('button', { name: /^Send/ }).click()
 
     const responseCard = page.locator('.card', { hasText: /^Response/ })
     await expect(responseCard).toBeVisible()
     await expect(responseCard.locator('.badge', { hasText: /200 OK/ })).toBeVisible()
-    await expect(responseCard.locator('pre')).toContainText('Hello, BootUI!')
+    await expect(responseCard.locator('pre')).toContainText('Hello, world')
   })
 
   test('switching to POST reveals the request body editor', async ({ openView, page }) => {
