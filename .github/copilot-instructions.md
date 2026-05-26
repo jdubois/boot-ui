@@ -39,6 +39,15 @@ BootUI is a **Spring Boot 4 starter** that adds a local-only developer console (
 
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 25, installs Playwright Chromium, and runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow (`.github/workflows/release.yml`) publishes `v*` tags to Maven Central through the `release` Maven profile and the Sonatype Central Publishing plugin.
 
+## Release plumbing (Maven Central)
+
+A few subtle constraints that have already burned us in past releases — preserve them when touching `pom.xml` files or the release profile:
+
+- **Source-less modules (`bootui-ui`, `bootui-spring-boot-starter`) must attach their empty `javadoc.jar` at phase `package`, not `verify`.** The parent's `release` profile binds `maven-source-plugin`, `maven-javadoc-plugin`, and `maven-gpg-plugin:sign` all to `verify`, and gpg runs before any child-pom executions in the same phase. If the empty javadoc is attached at `verify`, gpg signs everything *except* the javadoc.jar, and Sonatype Central rejects the deployment with `Missing signature for file: ...-javadoc.jar`. If you add another source-less module, copy the existing `attach-empty-javadocs` execution (phase `package`, classifier `javadoc`, `skipIfEmpty=false`, fed from `target/empty-javadocs`).
+- **The signing GPG public key must be queryable by fingerprint on `keys.openpgp.org` and/or `keyserver.ubuntu.com`.** Sonatype Central validates signatures against those keyservers; if the public key isn't there, every signature comes back `Invalid signature ... Could not find a public key by the key fingerprint`. After rotating the `GPG_PRIVATE_KEY` secret, re-publish the matching public key. On macOS, `gpg --send-keys` often fails with `Invalid argument` from dirmngr; the reliable fallback is the HTTPS upload APIs (`POST https://keys.openpgp.org/vks/v1/upload` with a JSON `{"keytext": ...}` body, and `POST https://keyserver.ubuntu.com/pks/add` with form field `keytext`).
+- **A failed deployment still consumes the version coordinate in Central.** Once the publishing plugin uploads `com.julien-dubois.bootui:<artifact>:<version>` — even if validation rejects it — you cannot re-upload that exact GAV without dropping the failed deployment from the Sonatype Central Portal first. The default path is to bump the version (`./mvnw -B versions:set -DnewVersion=… -DgenerateBackupPoms=false`), commit, tag `v<version>`, and let the tag push trigger `release.yml` again.
+- **The sample app is excluded from release deploys** via `<maven.deploy.skip>true</maven.deploy.skip>` in `bootui-sample-app/pom.xml`; keep it that way — it must still be built so the central-publishing plugin sees the full reactor, but it must not be published.
+
 ## Module topology
 
 ```
