@@ -392,12 +392,19 @@ Features:
   - manual configuration.
 - Link to related health contributor.
 - Show sanitized connection details.
+- Show bounded logs when a bean-backed Testcontainers service exposes them.
+- Show a restart action for bean-backed services only when explicitly enabled with
+  `bootui.dev-services.restart-enabled=true`.
 
 Acceptance criteria:
 
 - Secrets are never displayed.
 - Unknown services are represented generically.
 - Works even when Docker is not installed.
+- Docker Compose services are clearly identified as startup snapshots because
+  Spring Boot does not expose live per-service lifecycle state.
+- Restart controls are disabled by default and warn that already-created client
+  beans may not reconnect after container ports change.
 
 ### 5.10 Spring Data Explorer
 

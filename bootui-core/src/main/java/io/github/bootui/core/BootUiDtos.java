@@ -335,4 +335,51 @@ public final class BootUiDtos {
             List<String> jvmInputArguments,
             String suggestedJvmOptions) {
     }
+
+    /** A host/container port mapping exposed by a local development service. */
+    public record DevServicePortDto(
+            Integer containerPort,
+            Integer hostPort,
+            String protocol) {
+    }
+
+    /** One Docker Compose, Testcontainers, or service-connection entry. */
+    public record DevServiceDto(
+            String id,
+            String name,
+            String type,
+            String source,
+            String image,
+            String status,
+            String host,
+            List<DevServicePortDto> ports,
+            Map<String, Object> connectionDetails,
+            boolean restartable,
+            boolean logsAvailable,
+            String note) {
+    }
+
+    /** Top-level report for local development services. */
+    public record DevServicesReport(
+            boolean dockerComposePresent,
+            boolean testcontainersPresent,
+            long snapshotTimestamp,
+            int total,
+            List<DevServiceDto> services) {
+    }
+
+    /** Tail of logs for one local development service. */
+    public record DevServiceLogReport(
+            String id,
+            String logs,
+            boolean truncated,
+            int maxBytes) {
+    }
+
+    /** Result of restarting a local development service. */
+    public record DevServiceRestartResult(
+            String id,
+            String status,
+            String message) {
+    }
 }

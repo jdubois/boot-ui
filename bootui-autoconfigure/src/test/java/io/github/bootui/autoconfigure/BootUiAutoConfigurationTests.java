@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.bootui.autoconfigure.safety.LocalhostOnlyFilter;
+import io.github.bootui.autoconfigure.web.DevServicesController;
 import io.github.bootui.autoconfigure.web.OverviewController;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -29,6 +30,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(LocalhostOnlyFilter.class)
                         .hasSingleBean(ConfigOverrideService.class)
                         .hasSingleBean(OverviewController.class)
+                        .hasSingleBean(DevServicesController.class)
                         .hasSingleBean(BootUiActivation.class));
     }
 
@@ -68,7 +70,9 @@ class BootUiAutoConfigurationTests {
                         "bootui.path=/admin",
                         "bootui.api-path=/admin/api",
                         "bootui.mask-secrets=false",
-                        "bootui.expose-values=FULL")
+                        "bootui.expose-values=FULL",
+                        "bootui.dev-services.restart-enabled=true",
+                        "bootui.dev-services.log-tail-bytes=2048")
                 .run(context -> {
                     BootUiProperties properties = context.getBean(BootUiProperties.class);
                     assertThat(properties.getPath()).isEqualTo("/admin");
@@ -76,6 +80,8 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.isMaskSecrets()).isFalse();
                     assertThat(properties.getExposeValues())
                             .isEqualTo(BootUiProperties.ValueExposure.FULL);
+                    assertThat(properties.getDevServices().isRestartEnabled()).isTrue();
+                    assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
                 });
     }
 }

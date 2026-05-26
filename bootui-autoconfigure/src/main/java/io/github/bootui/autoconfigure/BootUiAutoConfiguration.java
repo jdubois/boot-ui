@@ -7,6 +7,7 @@ import io.github.bootui.autoconfigure.web.BootUiIndexController;
 import io.github.bootui.autoconfigure.web.ConditionsController;
 import io.github.bootui.autoconfigure.web.ConfigController;
 import io.github.bootui.autoconfigure.web.DataController;
+import io.github.bootui.autoconfigure.web.DevServicesController;
 import io.github.bootui.autoconfigure.web.HealthController;
 import io.github.bootui.autoconfigure.web.HttpProbeController;
 import io.github.bootui.autoconfigure.web.LoggersController;
@@ -55,6 +56,7 @@ import org.springframework.core.env.Environment;
         LoggersController.class,
         StartupController.class,
         DataController.class,
+        DevServicesController.class,
         ScheduledController.class,
         HttpProbeController.class,
         LogTailController.class,
