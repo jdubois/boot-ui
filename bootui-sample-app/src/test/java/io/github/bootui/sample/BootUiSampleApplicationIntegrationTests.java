@@ -374,6 +374,17 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void sampleProductsEndpointReturnsSqlInitializedProducts() {
+        ResponseEntity<List> response = getList("/api/sample/products");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody()).extracting(product -> ((Map<?, ?>) product).get("name"))
+                .contains("BootUI Starter", "Sample Console")
+                .doesNotContain("Archived Prototype");
+    }
+
+    @Test
     void rootIndexPageIntroducesTheSampleApp() {
         ResponseEntity<String> response = getString("/");
 
