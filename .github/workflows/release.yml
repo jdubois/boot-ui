@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      auto_publish:
+        description: Publish automatically after upload to Maven Central
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  maven-central:
+    name: Maven Central
+    runs-on: ubuntu-latest
+    env:
+      CENTRAL_AUTO_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Verify release version
+        run: |
+          VERSION="$(./mvnw -q -N -DforceStdout help:evaluate -Dexpression=project.version)"
+
+          if [[ "$VERSION" == *-SNAPSHOT ]]; then
+            echo "::error::Refusing to release snapshot version $VERSION"
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match project version $VERSION"
+            exit 1
+          fi
+
+          echo "Releasing version $VERSION"
+
+      - name: Publish to Maven Central
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          ./mvnw -B -ntp -Prelease clean deploy \
+            -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}" \
+            -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"

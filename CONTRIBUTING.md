@@ -90,12 +90,30 @@ re-bundle the assets into the JAR.
 Maven Central publication uses the `release` Maven profile:
 
 ```bash
-mvn -B -ntp -Prelease clean deploy
+./mvnw -B -ntp -Prelease clean deploy
 ```
 
 The release profile attaches source and Javadoc JARs, signs artifacts with GPG,
-and stages through the Sonatype Central Publishing plugin using the `central`
-server from `~/.m2/settings.xml`. The sample app is not deployed.
+and publishes through the Sonatype Central Publishing plugin using the `central`
+server from `~/.m2/settings.xml`. The sample app is not deployed. By default,
+Central uploads are published automatically; set `-Dcentral.autoPublish=false`
+to stage for manual publishing instead.
+
+The GitHub Actions release workflow (`.github/workflows/release.yml`) runs on
+`v*` tags or manually through `workflow_dispatch`. Configure these repository or
+environment secrets before running it:
+
+| Secret | Value |
+|---|---|
+| `MAVEN_CENTRAL_USERNAME` | Sonatype Central Portal user token username |
+| `MAVEN_CENTRAL_PASSWORD` | Sonatype Central Portal user token password |
+| `GPG_PRIVATE_KEY` | ASCII-armored private key used to sign artifacts |
+| `MAVEN_GPG_PASSPHRASE` | Passphrase for the GPG private key |
+
+For a tag release, create a tag that matches the Maven project version, for
+example `v0.1.0-alpha.1`. Manual runs publish automatically by default; disable
+`auto_publish` when you want to review and publish the deployment in the Central
+Portal.
 
 ## Submitting a change
 
