@@ -75,6 +75,8 @@ Default activation rules:
 
 `bootui.enabled=AUTO` is the default. BootUI must fail closed: if no enabled profile is active and DevTools is not on the classpath, it should not expose the UI.
 
+When BootUI is active, the starter should contribute low-precedence Actuator defaults for the local panels, including `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host applications can override those `management.*` settings explicitly.
+
 ### 4.2 URL
 
 Default UI URL inside the host Spring Boot 4 application:
