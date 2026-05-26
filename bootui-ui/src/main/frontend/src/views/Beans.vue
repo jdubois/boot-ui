@@ -48,7 +48,14 @@ onMounted(load)
     </div>
 
     <div class="table-responsive">
-      <table class="table table-sm table-hover">
+      <table class="table table-sm table-hover beans-table">
+        <colgroup>
+          <col class="beans-table-name" />
+          <col class="beans-table-type" />
+          <col class="beans-table-scope" />
+          <col class="beans-table-classification" />
+          <col class="beans-table-dependencies" />
+        </colgroup>
         <thead>
           <tr>
             <th>Name</th>
@@ -60,14 +67,40 @@ onMounted(load)
         </thead>
         <tbody>
           <tr v-for="b in filtered" :key="b.name">
-            <td><code>{{ b.name }}</code></td>
-            <td><small>{{ b.type }}</small></td>
+            <td><code class="text-truncate d-block" :title="b.name">{{ b.name }}</code></td>
+            <td><small class="text-truncate d-block" :title="b.type">{{ b.type }}</small></td>
             <td>{{ b.scope }}</td>
             <td><span class="badge bg-light text-dark">{{ b.classification }}</span></td>
-            <td><small class="text-muted">{{ b.dependencies.join(', ') }}</small></td>
+            <td><small class="text-muted text-truncate d-block" :title="b.dependencies.join(', ')">{{ b.dependencies.join(', ') }}</small></td>
           </tr>
         </tbody>
       </table>
     </div>
   </div>
 </template>
+
+<style scoped>
+.beans-table {
+  table-layout: fixed;
+}
+
+.beans-table-name {
+  width: 22%;
+}
+
+.beans-table-type {
+  width: 34%;
+}
+
+.beans-table-scope {
+  width: 10%;
+}
+
+.beans-table-classification {
+  width: 14%;
+}
+
+.beans-table-dependencies {
+  width: 20%;
+}
+</style>

@@ -52,18 +52,24 @@ onMounted(load)
     <div v-if="message" class="alert alert-success">{{ message }}</div>
     <input class="form-control mb-3" v-model="filter" placeholder="Filter loggers by name…" />
     <div class="table-responsive">
-      <table class="table table-sm table-hover">
+      <table class="table table-sm table-hover loggers-table">
+        <colgroup>
+          <col class="loggers-table-name" />
+          <col class="loggers-table-level" />
+          <col class="loggers-table-level" />
+          <col class="loggers-table-actions" />
+        </colgroup>
         <thead>
           <tr>
             <th>Logger</th>
-            <th style="width:120px">Configured</th>
-            <th style="width:120px">Effective</th>
-            <th style="width:340px">Set level</th>
+            <th>Configured</th>
+            <th>Effective</th>
+            <th>Set level</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="l in filtered" :key="l.name">
-            <td><code>{{ l.name }}</code></td>
+            <td><code class="text-truncate d-block" :title="l.name">{{ l.name }}</code></td>
             <td :class="levelClass(l.configuredLevel)">{{ l.configuredLevel || '—' }}</td>
             <td :class="levelClass(l.effectiveLevel)">{{ l.effectiveLevel || '—' }}</td>
             <td>
@@ -81,3 +87,22 @@ onMounted(load)
     </div>
   </div>
 </template>
+
+<style scoped>
+.loggers-table {
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.loggers-table-name {
+  width: 34%;
+}
+
+.loggers-table-level {
+  width: 15%;
+}
+
+.loggers-table-actions {
+  width: 36%;
+}
+</style>
