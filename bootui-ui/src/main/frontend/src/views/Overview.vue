@@ -335,6 +335,10 @@ onMounted(load)
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
+.metric-card > div {
+  min-width: 0;
+}
+
 .metric-card:hover {
   box-shadow: 0 1.25rem 2.8rem rgba(15, 23, 42, 0.12);
   transform: translateY(-3px);
@@ -383,14 +387,13 @@ onMounted(load)
 .metric-value {
   font-size: 1.12rem;
   font-weight: 850;
+  overflow-wrap: anywhere;
 }
 
 .metric-detail {
   color: #64748b;
   font-size: 0.82rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .app-map-card {
