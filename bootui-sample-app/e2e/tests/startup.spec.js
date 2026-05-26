@@ -9,9 +9,17 @@ test.describe('Startup timeline view', () => {
     // Wait until the page is no longer in the loading state.
     await expect(page.locator('text=Loading startup data…')).toHaveCount(0)
 
+    await page.getByRole('button', { name: 'Expand all' }).click()
+
     // The sample app records a non-trivial number of startup steps.
     const steps = page.locator('.list-group .list-group-item')
     await expect.poll(async () => steps.count()).toBeGreaterThan(5)
+
+    await page.getByRole('button', { name: 'Collapse all' }).click()
+    const collapsedCount = await steps.count()
+    expect(collapsedCount).toBeGreaterThan(0)
+    await page.getByRole('button', { name: 'Expand all' }).click()
+    await expect.poll(async () => steps.count()).toBeGreaterThan(collapsedCount)
 
     await page.getByPlaceholder(/Filter by step name/).fill('spring.boot');
     // Either the filter produces a smaller list, or the explicit "no matches" state.
