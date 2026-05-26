@@ -19,7 +19,7 @@ flow) exposed by the sample app:
 | `config.spec.js`           | Property search, add an override (`sample.greeting`), confirm + delete it              |
 | `mappings.spec.js`         | HTTP mappings include the sample app routes, filter narrows the list                   |
 | `health.spec.js`           | Health tree renders with an overall status badge                                       |
-| `loggers.spec.js`          | Logger search, change `io.github.bootui.sample` to `WARN`, reset                       |
+| `loggers.spec.js`          | Logger search, change `io.github.jdubois.bootui.sample` to `WARN`, reset                       |
 | `data.spec.js`             | `ProductRepository` is listed, detail panel shows `searchByName`                       |
 | `startup.spec.js`          | Startup timeline displays step rows                                                    |
 | `scheduled.spec.js`        | Scheduled tasks view lists the sample echo scheduler                                  |
