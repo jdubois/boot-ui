@@ -3,19 +3,50 @@ import { computed, onMounted, ref } from 'vue'
 
 const report = ref({ steps: [] })
 const filter = ref('')
+const selectedDurationBand = ref('all')
 const expandedStepIds = ref(new Set())
 const loading = ref(true)
 const error = ref('')
 
-const durationThresholds = [
-  { minMs: 500, label: '500ms', className: 'startup-duration-tag--500' },
-  { minMs: 200, label: '200ms', className: 'startup-duration-tag--200' },
-  { minMs: 100, label: '100ms', className: 'startup-duration-tag--100' },
-  { minMs: 50, label: '50ms', className: 'startup-duration-tag--50' }
+const durationBands = [
+  { id: 'fastest', label: 'Fastest', className: 'startup-duration-label--fastest' },
+  { id: 'fast', label: 'Fast', className: 'startup-duration-label--fast' },
+  { id: 'medium', label: 'Medium', className: 'startup-duration-label--medium' },
+  { id: 'slow', label: 'Slow', className: 'startup-duration-label--slow' },
+  { id: 'slowest', label: 'Slowest', className: 'startup-duration-label--slowest' }
 ]
 
-function durationTagFor(durationMs) {
-  return durationThresholds.find(threshold => durationMs >= threshold.minMs)
+function normalizedDuration(durationMs) {
+  const duration = Number(durationMs)
+  return Number.isFinite(duration) ? Math.max(0, duration) : 0
+}
+
+const durationScale = computed(() => {
+  const durations = report.value.steps.map(step => normalizedDuration(step.durationMs))
+  if (durations.length === 0) {
+    return { min: 0, max: 0, minLog: 0, span: 0 }
+  }
+
+  const min = Math.min(...durations)
+  const max = Math.max(...durations)
+  const minLog = Math.log1p(min)
+  return {
+    min,
+    max,
+    minLog,
+    span: Math.log1p(max) - minLog
+  }
+})
+
+function durationBandFor(durationMs) {
+  const scale = durationScale.value
+  if (scale.span <= 0) {
+    return durationBands[0]
+  }
+
+  const ratio = (Math.log1p(normalizedDuration(durationMs)) - scale.minLog) / scale.span
+  const index = Math.min(durationBands.length - 1, Math.max(0, Math.floor(ratio * durationBands.length)))
+  return durationBands[index]
 }
 
 function buildTree(steps) {
@@ -69,14 +100,27 @@ const sortedSteps = computed(() =>
 
 const tree = computed(() => buildTree(sortedSteps.value))
 
-function filterTree(nodes, query) {
-  if (!query) {
+const durationBandCounts = computed(() =>
+  durationBands.map(band => ({
+    ...band,
+    count: report.value.steps.filter(step => durationBandFor(step.durationMs).id === band.id).length
+  }))
+)
+
+function stepMatchesFilters(node, query, durationBandId) {
+  const matchesQuery = !query || (node.name || '').toLowerCase().includes(query)
+  const matchesDurationBand = durationBandId === 'all' || durationBandFor(node.durationMs).id === durationBandId
+  return matchesQuery && matchesDurationBand
+}
+
+function filterTree(nodes, query, durationBandId) {
+  if (!query && durationBandId === 'all') {
     return nodes
   }
 
   return nodes.flatMap(node => {
-    const children = filterTree(node.children, query)
-    const matches = (node.name || '').toLowerCase().includes(query)
+    const children = filterTree(node.children, query, durationBandId)
+    const matches = stepMatchesFilters(node, query, durationBandId)
     if (!matches && children.length === 0) {
       return []
     }
@@ -84,19 +128,21 @@ function filterTree(nodes, query) {
   })
 }
 
-function flattenVisible(nodes, query, depth = 0) {
+function flattenVisible(nodes, hasActiveFilter, depth = 0) {
   return nodes.flatMap(node => {
-    const expanded = Boolean(query) || expandedStepIds.value.has(node.id)
+    const expanded = hasActiveFilter || expandedStepIds.value.has(node.id)
     return [
       { ...node, depth, expanded },
-      ...(expanded ? flattenVisible(node.children, query, depth + 1) : [])
+      ...(expanded ? flattenVisible(node.children, hasActiveFilter, depth + 1) : [])
     ]
   })
 }
 
 const visibleSteps = computed(() => {
   const query = filter.value.trim().toLowerCase()
-  return flattenVisible(filterTree(tree.value, query), query)
+  const durationBandId = selectedDurationBand.value
+  const hasActiveFilter = Boolean(query) || durationBandId !== 'all'
+  return flattenVisible(filterTree(tree.value, query, durationBandId), hasActiveFilter)
 })
 
 const branchStepCount = computed(() =>
@@ -140,11 +186,11 @@ onMounted(load)
       <div>
         <h2 class="mb-1"><i class="bi bi-clock-history me-2"></i>Startup timeline</h2>
         <p class="text-muted mb-0">
-          {{ report.steps.length }} steps · {{ branchStepCount }} nested<span v-if="filter"> · {{ visibleSteps.length }} shown</span>
+          {{ report.steps.length }} steps · {{ branchStepCount }} nested<span v-if="filter || selectedDurationBand !== 'all'"> · {{ visibleSteps.length }} shown</span>
         </p>
       </div>
       <div class="col-12 col-md-7 col-lg-6 px-0">
-        <div class="input-group">
+        <div class="input-group mb-2">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
           <input
             v-model="filter"
@@ -169,6 +215,34 @@ onMounted(load)
             Collapse all
           </button>
         </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="text-muted small">Duration color:</span>
+          <div class="btn-group flex-wrap" role="group" aria-label="Filter startup steps by duration color">
+            <button
+              class="btn btn-sm btn-outline-secondary"
+              type="button"
+              :class="{ active: selectedDurationBand === 'all' }"
+              :aria-pressed="selectedDurationBand === 'all'"
+              @click="selectedDurationBand = 'all'"
+            >
+              All
+            </button>
+            <button
+              v-for="band in durationBandCounts"
+              :key="band.id"
+              class="btn btn-sm btn-outline-secondary startup-duration-filter"
+              type="button"
+              :class="{ active: selectedDurationBand === band.id }"
+              :aria-pressed="selectedDurationBand === band.id"
+              :title="`Show ${band.label.toLowerCase()} startup steps`"
+              @click="selectedDurationBand = band.id"
+            >
+              <span class="startup-duration-filter__swatch" :class="band.className"></span>
+              {{ band.label }}
+              <span class="badge text-bg-light ms-1">{{ band.count }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -182,7 +256,7 @@ onMounted(load)
       <i class="bi bi-info-circle me-2"></i>No startup data available
     </div>
     <div v-else-if="visibleSteps.length === 0" class="alert alert-light border" role="status">
-      <i class="bi bi-search me-2"></i>No startup steps match the current filter
+      <i class="bi bi-search me-2"></i>No startup steps match the current filters
     </div>
     <div v-else class="list-group">
       <div
@@ -205,14 +279,6 @@ onMounted(load)
                 <i class="bi" :class="step.expanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
               </button>
               <span class="fw-semibold text-break">{{ step.name }}</span>
-              <span
-                v-if="durationTagFor(step.durationMs)"
-                class="badge rounded-pill startup-duration-tag"
-                :class="durationTagFor(step.durationMs).className"
-                :title="`Took at least ${durationTagFor(step.durationMs).label}`"
-              >
-                {{ durationTagFor(step.durationMs).label }}
-              </span>
               <span class="badge text-bg-light">#{{ step.id }}</span>
               <span v-if="step.children?.length" class="badge text-bg-light">
                 {{ step.children.length }} child{{ step.children.length === 1 ? '' : 'ren' }}
@@ -228,7 +294,13 @@ onMounted(load)
               </span>
             </div>
           </div>
-          <span class="badge text-bg-primary ms-auto">{{ step.durationMs }} ms</span>
+          <span
+            class="badge ms-auto startup-duration-label"
+            :class="durationBandFor(step.durationMs).className"
+            :title="`${durationBandFor(step.durationMs).label} startup step`"
+          >
+            {{ step.durationMs }} ms
+          </span>
         </div>
       </div>
     </div>
@@ -236,27 +308,45 @@ onMounted(load)
 </template>
 
 <style scoped>
-.startup-duration-tag {
+.startup-duration-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.startup-duration-filter__swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.startup-duration-label {
   font-weight: 700;
 }
 
-.startup-duration-tag--50 {
+.startup-duration-label--fastest {
+  background-color: #198754;
+  color: #fff;
+}
+
+.startup-duration-label--fast {
+  background-color: #8bc34a;
+  color: #212529;
+}
+
+.startup-duration-label--medium {
   background-color: #ffc107;
   color: #212529;
 }
 
-.startup-duration-tag--100 {
-  background-color: #fd7e14;
+.startup-duration-label--slow {
+  background-color: #ff7a00;
   color: #212529;
 }
 
-.startup-duration-tag--200 {
-  background-color: #dc3545;
-  color: #fff;
-}
-
-.startup-duration-tag--500 {
-  background-color: #ff0033;
+.startup-duration-label--slowest {
+  background-color: #ff0000;
   color: #fff;
 }
 </style>

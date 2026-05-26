@@ -28,5 +28,13 @@ test.describe('Startup timeline view', () => {
       const noMatch = await page.locator('text=No startup steps match').count()
       expect(visible + noMatch).toBeGreaterThan(0)
     }).toPass()
+
+    await page.getByPlaceholder(/Filter by step name/).clear()
+    await page.getByRole('button', { name: /Slowest/ }).click()
+    await expect(page.getByRole('button', { name: /Slowest/ })).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(async () => steps.count()).toBeGreaterThan(0)
+    await expect(page.locator('.startup-duration-label--slowest').first()).toBeVisible()
+    await page.getByRole('button', { name: 'All' }).click()
+    await expect(page.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
   })
 })
