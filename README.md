@@ -106,6 +106,7 @@ BootUI is intended for local development only. By default it:
 - activates in `AUTO` mode only for `dev` / `local` profiles or DevTools
 - rejects non-loopback requests
 - masks secret-like configuration values
+- exposes the local Actuator endpoints used by BootUI panels when BootUI is active
 - disables itself for `prod` / `production` profiles
 - stores runtime configuration overrides in `.bootui/application-bootui.properties`, not in your source config files
 
