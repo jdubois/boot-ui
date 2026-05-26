@@ -317,7 +317,9 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (value == null || !properties.isMaskSecrets()) {
+        if (value == null
+                || properties.getExposeValues() == ValueExposure.FULL
+                || !properties.isMaskSecrets()) {
             return value;
         }
         if (masker.isSecret(key)) {

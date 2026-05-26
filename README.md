@@ -50,7 +50,7 @@ BootUI is served by the host application at `/bootui/` and uses internal `/bootu
 <dependency>
   <groupId>io.github.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0-alpha.1</version>
 </dependency>
 ```
 
@@ -63,11 +63,12 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 BootUI also activates automatically when `spring-boot-devtools` is on the classpath. To force it on or off:
 
 ```properties
+bootui.enabled=AUTO
 bootui.enabled=ON
 bootui.enabled=OFF
 ```
 
-`prod` and `production` profiles disable BootUI unless `bootui.enabled=ON` is set.
+`prod` and `production` profiles disable BootUI unless `bootui.enabled=ON` is set. Invalid `bootui.enabled` values fail closed and keep BootUI disabled.
 
 ### 4) Open BootUI
 
@@ -118,7 +119,7 @@ Common properties:
 | `bootui.enabled-profiles` | `dev,local` | Profiles that activate BootUI in auto mode. |
 | `bootui.disabled-profiles` | `prod,production` | Profiles that disable BootUI unless forced on. |
 | `bootui.allow-non-localhost` | `false` | Explicit opt-out of loopback-only protection. |
-| `bootui.expose-values` | `MASKED` | `MASKED`, `METADATA_ONLY`, or `FULL`. |
+| `bootui.expose-values` | `MASKED` | `MASKED`, `METADATA_ONLY`, or `FULL`; `FULL` can disclose secrets and should stay local. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | Runtime override persistence file. |
 | `bootui.dev-services.restart-enabled` | `false` | Enables restart controls for bean-backed Testcontainers services. Disabled by default. |
 | `bootui.dev-services.log-tail-bytes` | `65536` | Maximum bytes returned by one Dev Services log request. |
@@ -149,6 +150,37 @@ Current visible panels:
 | Security | Spring Security filter chains and best-effort endpoint rules. |
 
 Some panels depend on optional Spring or Actuator infrastructure. When data is unavailable, BootUI returns stable empty responses or shows an explanatory empty state.
+
+## Runtime overrides
+
+The Configuration panel can create, update, and delete local runtime overrides. Overrides are stored in `.bootui/application-bootui.properties` by default, are loaded at high precedence on the next startup, and never modify your application source configuration. Already-bound `@ConfigurationProperties` beans may keep their previous value until the app restarts; BootUI returns that warning with every override mutation.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| `/bootui` returns 404 | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`. |
+| BootUI is disabled in `prod` | This is intentional; only `bootui.enabled=ON` can force activation with a disabled profile. |
+| Browser is rejected | BootUI accepts loopback callers by default. Use `bootui.allow-non-localhost=true` only for a trusted local network. |
+| A panel is empty | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable. |
+| Startup Timeline is empty | Configure `BufferingApplicationStartup` in the host app. |
+| Secrets are hidden | Default exposure is `MASKED`; use `METADATA_ONLY` to hide all values or `FULL` only in trusted local sessions. |
+
+## Release notes: 0.1.0-alpha.1
+
+`0.1.0-alpha.1` is scoped to harden every visible panel as supported alpha functionality: Overview, Beans, Conditions, Configuration, Mappings, Health, Loggers, Data, Startup Timeline, Memory, Metrics, DevTools, Dev Services, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, and Security.
+
+The alpha targets Java 25 and Spring Boot 4.x only, publishes Maven artifacts for the starter modules, and keeps the sample app as a local validation/demo module.
+
+## Publishing
+
+Maven Central publication uses the `release` Maven profile:
+
+```bash
+mvn -B -ntp -Prelease clean deploy
+```
+
+The release profile attaches source and Javadoc JARs, signs artifacts with GPG, and stages through the Sonatype Central Publishing plugin using the `central` server from `~/.m2/settings.xml`. The sample app is not deployed.
 
 ## Testing
 

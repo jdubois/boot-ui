@@ -1,6 +1,7 @@
 package io.github.bootui.autoconfigure.config;
 
 import io.github.bootui.autoconfigure.BootUiProperties;
+import io.github.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.bootui.core.BootUiDtos.ConfigOverrideResult;
 import io.github.bootui.core.SecretMasker;
 import java.nio.file.Path;
@@ -100,7 +101,12 @@ public class ConfigOverrideService {
     }
 
     private String displayValue(String name, Object value) {
-        if (properties.isMaskSecrets() && masker.isSecret(name)) {
+        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+            return null;
+        }
+        if (properties.getExposeValues() == ValueExposure.MASKED
+                && properties.isMaskSecrets()
+                && masker.isSecret(name)) {
             return SecretMasker.MASKED_VALUE;
         }
         return value == null ? null : String.valueOf(value);

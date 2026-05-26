@@ -107,7 +107,9 @@ public class ConfigController {
         boolean masked = false;
         if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
             displayValue = null;
-        } else if (properties.isMaskSecrets() && masker.isSecret(name)) {
+        } else if (properties.getExposeValues() == ValueExposure.MASKED
+                && properties.isMaskSecrets()
+                && masker.isSecret(name)) {
             displayValue = SecretMasker.MASKED_VALUE;
             masked = true;
         }

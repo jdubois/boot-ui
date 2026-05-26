@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
 import org.springframework.core.env.Environment;
@@ -35,12 +36,18 @@ public class BootUiActivationCondition implements Condition {
     }
 
     public static BootUiActivation resolve(Environment environment, ClassLoader classLoader) {
-        String mode = environment.getProperty("bootui.enabled", "AUTO").toUpperCase();
+        String mode = environment.getProperty("bootui.enabled", "AUTO").trim().toUpperCase(Locale.ROOT);
         List<String> warnings = new ArrayList<>();
         Collection<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());
 
         List<String> disabledProfiles = listProperty(environment, "bootui.disabled-profiles", List.of("prod", "production"));
         List<String> enabledProfiles = listProperty(environment, "bootui.enabled-profiles", List.of("dev", "local"));
+
+        if (!List.of("AUTO", "ON", "OFF").contains(mode)) {
+            return new BootUiActivation(false,
+                    "Disabled: invalid bootui.enabled value '" + mode + "'",
+                    warnings);
+        }
 
         for (String profile : disabledProfiles) {
             if (activeProfiles.contains(profile)) {

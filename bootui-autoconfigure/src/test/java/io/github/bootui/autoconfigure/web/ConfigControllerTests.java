@@ -80,6 +80,18 @@ class ConfigControllerTests {
     }
 
     @Test
+    void listExposesSecretValuesUnderFullExposure() throws Exception {
+        properties.setExposeValues(ValueExposure.FULL);
+
+        mvc.perform(get("/bootui/api/config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].masked")
+                        .value(false))
+                .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].value")
+                        .value("s3cret"));
+    }
+
+    @Test
     void postCreatesOverrideAndDeleteRemovesIt() throws Exception {
         // First write to establish a previous override value.
         mvc.perform(post("/bootui/api/config/overrides")
@@ -88,7 +100,8 @@ class ConfigControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("server.port"))
                 .andExpect(jsonPath("$.value").value("9090"))
-                .andExpect(jsonPath("$.persisted").value(true));
+                .andExpect(jsonPath("$.persisted").value(true))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("until restart")));
 
         // Second write should report the previous override value.
         mvc.perform(post("/bootui/api/config/overrides")

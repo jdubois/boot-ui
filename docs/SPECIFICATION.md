@@ -579,11 +579,12 @@ Features:
 - Show a restart action for bean-backed services only when explicitly enabled with
   `bootui.dev-services.restart-enabled=true`.
 
-Status: implemented as an experimental panel for v0.1.
+Status: implemented and supported for `0.1.0-alpha.1` as part of the harden-all-visible-panels release scope.
 
 Acceptance criteria:
 
 - Secrets are never displayed.
+- `bootui.expose-values=FULL` is the only mode that may reveal secret-like service connection values, and should be used only in trusted local sessions.
 - Unknown services are represented generically.
 - Works even when Docker is not installed.
 - Docker Compose services are clearly identified as startup snapshots because
@@ -915,9 +916,11 @@ BootUI v0.1 is complete when:
 - Tests verify activation and safety behavior.
 - Documentation explains installation, activation, safety model, and limitations.
 
-## 11. Open questions
+## 11. Release decisions
 
-1. Should newer panels be supported for the first alpha, clearly marked experimental, or hidden until hardened?
-2. Should `0.1.0-alpha.1` be published to Maven Central or remain source/local-build only?
-3. Should optional panels be hidden dynamically when their classpath or data source is unavailable?
-4. Should endpoint data continue using in-process endpoint beans, or should some panels move to a more general metadata abstraction?
+Resolved for `0.1.0-alpha.1`:
+
+1. Harden every visible panel and ship the full current route set as supported alpha functionality.
+2. Publish the alpha artifacts to Maven Central.
+3. Keep optional panels visible and show clear unavailable/empty states when their classpath or data source is absent.
+4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for v0.1; revisit broader metadata abstractions after the alpha.
