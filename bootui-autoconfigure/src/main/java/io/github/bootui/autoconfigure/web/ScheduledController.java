@@ -41,7 +41,7 @@ public class ScheduledController {
     private ScheduledTaskDto toDto(ScheduledTask scheduledTask) {
         Task task = scheduledTask.getTask();
         Runnable runnable = task.getRunnable();
-        String runnableName = runnable == null ? null : runnable.getClass().getName();
+        String runnableName = runnableName(runnable);
         if (task instanceof CronTask cronTask) {
             return new ScheduledTaskDto(runnableName, "CRON", cronTask.getExpression(), null, null);
         }
@@ -66,6 +66,20 @@ public class ScheduledController {
             return new ScheduledTaskDto(runnableName, "ONE_SHOT", String.valueOf(triggerTask.getTrigger()), null, null);
         }
         return new ScheduledTaskDto(runnableName, "ONE_SHOT", null, null, null);
+    }
+
+    private String runnableName(Runnable runnable) {
+        if (runnable == null) {
+            return null;
+        }
+        String typeName = runnable.getClass().getName();
+        String description = runnable.toString();
+        if (description != null && !description.isBlank()
+                && !description.equals(typeName)
+                && !description.startsWith(typeName + "@")) {
+            return description;
+        }
+        return typeName;
     }
 
     private Long toMillis(Duration duration) {

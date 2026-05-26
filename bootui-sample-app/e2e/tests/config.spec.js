@@ -26,7 +26,7 @@ test.describe('Configuration view', () => {
     await page.getByRole('button', { name: /Add override/ }).click()
     await page.locator('tr.table-warning input').first().fill(propertyName)
     await page.locator('tr.table-warning input').nth(1).fill(propertyValue)
-    await page.getByRole('button', { name: /^Save$/ }).first().click()
+    await page.locator('tr.table-warning button.btn-success', { hasText: 'Save' }).click()
 
     // Wait for the banner confirmation.
     await expect(page.locator('.alert.alert-success'))
