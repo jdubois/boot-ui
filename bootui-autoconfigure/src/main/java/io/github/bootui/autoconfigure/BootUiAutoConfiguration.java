@@ -7,6 +7,9 @@ import io.github.bootui.autoconfigure.web.BootUiIndexController;
 import io.github.bootui.autoconfigure.web.ConditionsController;
 import io.github.bootui.autoconfigure.web.ConfigController;
 import io.github.bootui.autoconfigure.web.DataController;
+import io.github.bootui.autoconfigure.web.DefaultDevToolsBridge;
+import io.github.bootui.autoconfigure.web.DevToolsBridge;
+import io.github.bootui.autoconfigure.web.DevToolsController;
 import io.github.bootui.autoconfigure.web.HealthController;
 import io.github.bootui.autoconfigure.web.HttpProbeController;
 import io.github.bootui.autoconfigure.web.LoggersController;
@@ -28,6 +31,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ApplicationListener;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Import;
@@ -61,6 +65,7 @@ import org.springframework.core.env.Environment;
         ProfileController.class,
         SecurityController.class,
         MemoryController.class,
+        DevToolsController.class,
         BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {
@@ -81,6 +86,11 @@ public class BootUiAutoConfiguration {
     public ConfigOverrideService bootUiConfigOverrideService(ConfigurableEnvironment environment,
                                                               BootUiProperties properties) {
         return new ConfigOverrideService(environment, properties);
+    }
+
+    @Bean
+    public DevToolsBridge bootUiDevToolsBridge(ApplicationContext applicationContext) {
+        return new DefaultDevToolsBridge(applicationContext);
     }
 
     @Bean

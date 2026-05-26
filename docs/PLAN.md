@@ -49,6 +49,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - log tail
   - profile diff
   - Spring Security
+  - DevTools reload/restart
 - Vue 3 UI shell with routes for:
   - Overview
   - Beans
@@ -65,6 +66,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Log Tail
   - Profile Diff
   - Security
+  - DevTools
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 - Backend tests covering activation, auto-configuration activation cases, localhost filtering, config override persistence, override property sources, override file storage, environment post-processing, config metadata loading, selected web controllers, missing Actuator behavior, and sample-app integration.
 - Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API and every visible BootUI route.
@@ -226,6 +228,7 @@ Already implemented beyond the original MVP surface:
 - Live log tail.
 - Profile diff.
 - Spring Security panel.
+- DevTools reload/restart controls.
 
 Still excluded:
 
@@ -350,6 +353,7 @@ Before considering the next alpha complete:
 - Configuration panel works and masks secrets.
 - Runtime config overrides persist through the BootUI overrides file and warn about restart/rebind caveats.
 - Logger changes work.
+- DevTools controls show unavailable states when Spring Boot DevTools is absent.
 - Newer diagnostic panels either have release-grade coverage/docs or are clearly marked experimental/hidden.
 - BootUI is disabled with `prod` and `production` profiles unless `bootui.enabled=ON`.
 - Non-local requests are rejected by default.
