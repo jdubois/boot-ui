@@ -7,6 +7,17 @@ const expandedStepIds = ref(new Set())
 const loading = ref(true)
 const error = ref('')
 
+const durationThresholds = [
+  { minMs: 500, label: '500ms', className: 'startup-duration-tag--500' },
+  { minMs: 200, label: '200ms', className: 'startup-duration-tag--200' },
+  { minMs: 100, label: '100ms', className: 'startup-duration-tag--100' },
+  { minMs: 50, label: '50ms', className: 'startup-duration-tag--50' }
+]
+
+function durationTagFor(durationMs) {
+  return durationThresholds.find(threshold => durationMs >= threshold.minMs)
+}
+
 function buildTree(steps) {
   const byId = new Map()
   const roots = []
@@ -194,6 +205,14 @@ onMounted(load)
                 <i class="bi" :class="step.expanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
               </button>
               <span class="fw-semibold text-break">{{ step.name }}</span>
+              <span
+                v-if="durationTagFor(step.durationMs)"
+                class="badge rounded-pill startup-duration-tag"
+                :class="durationTagFor(step.durationMs).className"
+                :title="`Took at least ${durationTagFor(step.durationMs).label}`"
+              >
+                {{ durationTagFor(step.durationMs).label }}
+              </span>
               <span class="badge text-bg-light">#{{ step.id }}</span>
               <span v-if="step.children?.length" class="badge text-bg-light">
                 {{ step.children.length }} child{{ step.children.length === 1 ? '' : 'ren' }}
@@ -215,3 +234,29 @@ onMounted(load)
     </div>
   </div>
 </template>
+
+<style scoped>
+.startup-duration-tag {
+  font-weight: 700;
+}
+
+.startup-duration-tag--50 {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.startup-duration-tag--100 {
+  background-color: #fd7e14;
+  color: #212529;
+}
+
+.startup-duration-tag--200 {
+  background-color: #dc3545;
+  color: #fff;
+}
+
+.startup-duration-tag--500 {
+  background-color: #ff0033;
+  color: #fff;
+}
+</style>
