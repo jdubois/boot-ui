@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0-alpha.5] - 2026-05-27
+
+Latest tagged alpha with the expanded panel surface, telemetry features, and release hardening.
+
 ### Added
 
 - Backend test coverage for `BootUiProperties` binding, additional activation rules
@@ -17,12 +21,36 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (Data, Scheduled, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, DevTools,
   Dev Services, Memory).
 - `CHANGELOG.md` and a sample-app walkthrough at `bootui-sample-app/README.md`.
+- Spring Cache panel for cache managers, known caches, safe local sizes, Micrometer cache metrics,
+  cache annotations, and confirmation-gated clear actions.
+- Embedded OTLP/HTTP trace receiver at `/bootui/api/otlp/v1/traces`, plus Traces and AI Usage panels
+  for local trace waterfalls, Spring AI observations, token usage, tool calls, and bounded in-memory
+  telemetry.
+- Optional panel availability metadata so the sidebar can dim panels whose backing classpath,
+  Actuator endpoint, or local infrastructure is unavailable.
+- GitHub project links in the UI and sample-app AI prompt helpers for exercising telemetry locally.
 
 ### Changed
 
 - Documentation reconciled with the implemented `AUTO|ON|OFF` activation model,
   persisted runtime overrides, plain-JavaScript Vue 3 frontend, and the full
   visible panel set as supported alpha functionality.
+- Dev Services, Vulnerabilities, Traces, and AI Usage now have stronger empty/disabled states,
+  bounded data handling, and focused Playwright coverage.
+- Vulnerability scan results are retained in memory after an explicit scan so the panel can keep
+  showing the latest local results.
+- Sample app PostgreSQL JDBC driver updated to 42.7.11.
+- Repository formatting checks and release documentation now cover the alpha release workflow,
+  README version synchronization, and Maven Central signing constraints.
+
+### Fixed
+
+- Corrected the sample Redis service port mapping used by the Cache panel tests.
+- Fixed GitHub code scanning workflow permissions and an incomplete string escaping/encoding finding.
+
+### Security
+
+- Enabled CSRF protection in the sample app.
 
 ## [0.1.0-alpha.4] - 2026
 
@@ -80,7 +108,9 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.1.0-alpha.4...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.1.0-alpha.5...HEAD
+
+[0.1.0-alpha.5]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.5
 
 [0.1.0-alpha.4]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.4
 
