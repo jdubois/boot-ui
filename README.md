@@ -30,14 +30,14 @@ BootUI exposes these panels in the same order as the application menu. See the [
 | [Profile Diff](docs/FEATURES.md#profile-diff) | Compare profile-specific property sources and values while preserving secret masking. |
 | [Loggers](docs/FEATURES.md#loggers) | Inspect and change logger levels at runtime through the Actuator loggers endpoint. |
 | [Log Tail](docs/FEATURES.md#log-tail) | Read recent application logs and stream new local log events from the running process. |
+| [Traces](docs/FEATURES.md#traces) | Inspect distributed tracing spans collected by the embedded OTLP receiver with a per-trace waterfall view. |
+| [AI Usage](docs/FEATURES.md#ai-usage) | Summarize Spring AI chat conversations, token usage, latency, and model details from OpenTelemetry spans. |
 | [HTTP Probe](docs/FEATURES.md#http-probe) | Send local-only HTTP requests to the app and inspect response status, headers, and body. |
 | [DevTools](docs/FEATURES.md#devtools) | Check Spring Boot DevTools status, LiveReload availability, and restart controls. |
 | [Dev Services](docs/FEATURES.md#dev-services) | Inspect Docker Compose snapshots, Testcontainers beans, service connection metadata, and bounded logs. |
 | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks) | View registered scheduled tasks and their trigger metadata. |
 | [Data](docs/FEATURES.md#data) | Explore Spring Data repositories, domain types, IDs, and query methods. |
 | [Cache](docs/FEATURES.md#cache) | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions. |
-| [Traces](docs/FEATURES.md#traces) | Inspect distributed tracing spans collected by the embedded OTLP receiver with a per-trace waterfall view. |
-| [AI Usage](docs/FEATURES.md#ai-usage) | Summarize Spring AI chat conversations, token usage, latency, and model details from OpenTelemetry spans. |
 | [Security](docs/FEATURES.md#security) | Inspect Spring Security filter chains and best-effort endpoint rule explanations. |
 | [Vulnerabilities](docs/FEATURES.md#vulnerabilities) | Review dependency inventory and local OSV vulnerability scan results. |
 

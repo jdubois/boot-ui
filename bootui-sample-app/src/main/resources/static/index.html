@@ -79,15 +79,23 @@
         justify-content: center;
         min-height: 44px;
         padding: 0 18px;
+        border: 0;
         border-radius: 999px;
         background: #3451b2;
         color: #ffffff;
         box-shadow: 0 10px 24px rgba(52, 81, 178, 0.25);
+        cursor: pointer;
+        font: inherit;
       }
 
       .button:hover {
         text-decoration: none;
         background: #2b459f;
+      }
+
+      .button:disabled {
+        cursor: progress;
+        opacity: 0.65;
       }
 
       .button.secondary {
@@ -110,9 +118,63 @@
         box-shadow: 0 12px 36px rgba(23, 32, 51, 0.08);
       }
 
+      .wide {
+        grid-column: 1 / -1;
+      }
+
       h2 {
         margin: 0 0 12px;
         font-size: 1.1rem;
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      label {
+        font-weight: 700;
+      }
+
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 14px 16px;
+        border: 1px solid #cbd5e1;
+        border-radius: 14px;
+        color: #172033;
+        font: inherit;
+        resize: vertical;
+      }
+
+      textarea:focus {
+        border-color: #3451b2;
+        box-shadow: 0 0 0 3px rgba(52, 81, 178, 0.16);
+        outline: none;
+      }
+
+      .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .chat-status {
+        color: #4a5568;
+        font-size: 0.95rem;
+      }
+
+      .chat-result {
+        margin: 16px 0 0;
+        padding: 16px;
+        overflow: auto;
+        white-space: pre-wrap;
+        border-radius: 14px;
+        background: #172033;
+        color: #f8fafc;
+        font: 0.95rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       }
 
       ul {
@@ -166,6 +228,25 @@
       </div>
 
       <div class="content-grid">
+        <section class="wide" aria-labelledby="ai-prompt-heading">
+          <h2 id="ai-prompt-heading">Ask Spring AI</h2>
+          <p>
+            Send a prompt through the sample app's Spring AI <code>ChatClient</code>
+            using <code>POST /api/chat</code>. Then open BootUI's
+            <a href="/bootui/#/ai">AI Usage</a> panel to inspect the generated
+            observations, spans, and token usage.
+          </p>
+          <form id="ai-chat-form">
+            <label for="ai-chat-message">Question for the LLM</label>
+            <textarea id="ai-chat-message" name="message" rows="4" required>What can BootUI show me about this app?</textarea>
+            <div class="form-row">
+              <button class="button" type="submit">Ask the LLM</button>
+              <span id="ai-chat-status" class="chat-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+          <pre id="ai-chat-result" class="chat-result" hidden></pre>
+        </section>
+
         <section aria-labelledby="api-heading">
           <h2 id="api-heading">Try the sample API</h2>
           <ul>
@@ -194,5 +275,54 @@
         </section>
       </div>
     </main>
+    <script>
+      const chatForm = document.getElementById('ai-chat-form')
+      const chatMessage = document.getElementById('ai-chat-message')
+      const chatStatus = document.getElementById('ai-chat-status')
+      const chatResult = document.getElementById('ai-chat-result')
+
+      chatForm.addEventListener('submit', async event => {
+        event.preventDefault()
+
+        const message = chatMessage.value.trim()
+        if (!message) {
+          chatStatus.textContent = 'Enter a question first.'
+          chatResult.hidden = true
+          return
+        }
+
+        const submitButton = chatForm.querySelector('button[type="submit"]')
+        submitButton.disabled = true
+        chatStatus.textContent = 'Asking Spring AI...'
+        chatResult.textContent = ''
+        chatResult.hidden = true
+
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+          })
+          const contentType = response.headers.get('content-type') || ''
+          const body = contentType.includes('application/json')
+            ? await response.json()
+            : { error: await response.text() }
+
+          if (!response.ok) {
+            throw new Error(body.error || `Request failed with HTTP ${response.status}`)
+          }
+
+          chatStatus.textContent = 'Response from Spring AI'
+          chatResult.textContent = body.reply || '(empty response)'
+          chatResult.hidden = false
+        } catch (error) {
+          chatStatus.textContent = 'Unable to ask the LLM'
+          chatResult.textContent = error instanceof Error ? error.message : String(error)
+          chatResult.hidden = false
+        } finally {
+          submitButton.disabled = false
+        }
+      })
+    </script>
   </body>
 </html>

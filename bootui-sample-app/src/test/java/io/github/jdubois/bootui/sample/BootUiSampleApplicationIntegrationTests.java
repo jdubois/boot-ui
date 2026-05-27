@@ -384,6 +384,24 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void sampleChatEndpointReportsUnavailableWhenSpringAiClientIsDisabled() {
+        ResponseEntity<Map> response = postMap("/api/chat", Map.of("message", "What can BootUI show me?"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().get("error")).asString().contains("Spring AI ChatClient");
+    }
+
+    @Test
+    void sampleChatEndpointRejectsBlankMessages() {
+        ResponseEntity<Map> response = postMap("/api/chat", Map.of("message", " "));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().get("error")).isEqualTo("Message must not be blank.");
+    }
+
+    @Test
     void sampleProductsEndpointReturnsSqlInitializedProducts() {
         ResponseEntity<List> response = getList("/api/sample/products");
 
@@ -403,6 +421,9 @@ class BootUiSampleApplicationIntegrationTests {
                 .contains("Welcome to the BootUI sample app")
                 .contains("Open BootUI")
                 .contains("href=\"/bootui/\"")
+                .contains("Ask Spring AI")
+                .contains("id=\"ai-chat-form\"")
+                .contains("POST /api/chat")
                 .contains("GET /api/sample/products");
     }
 

@@ -44,6 +44,14 @@ async function openChat(spanId) {
   }
 }
 
+function toggleChat(spanId) {
+  if (spanId === selectedSpanId.value) {
+    closeDrawer()
+    return
+  }
+  openChat(spanId)
+}
+
 function closeDrawer() {
   selectedSpanId.value = null
   detail.value = null
@@ -227,87 +235,96 @@ onMounted(load)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="chat in overview.recent" :key="chat.spanId"
-                  :class="{ 'table-active': chat.spanId === selectedSpanId }">
-                <td class="text-muted small">{{ formatTime(chat.startEpochNanos) }}</td>
-                <td>{{ chat.provider || '—' }}</td>
-                <td><code>{{ chat.requestModel || '—' }}</code></td>
-                <td>{{ formatNumber(chat.inputTokens) }} / {{ formatNumber(chat.outputTokens) }}</td>
-                <td>{{ formatDuration(chat.durationNanos) }}</td>
-                <td>
-                  <span v-if="chat.statusCode === 'ERROR'" class="badge text-bg-danger">error</span>
-                  <span v-else class="badge text-bg-success">{{ chat.finishReason || 'ok' }}</span>
-                </td>
-                <td class="text-end">
-                  <button class="btn btn-sm btn-outline-primary" @click="openChat(chat.spanId)">Open</button>
-                </td>
-              </tr>
+              <template v-for="chat in overview.recent" :key="chat.spanId">
+                <tr :class="{ 'table-active': chat.spanId === selectedSpanId }">
+                  <td class="text-muted small">{{ formatTime(chat.startEpochNanos) }}</td>
+                  <td>{{ chat.provider || '—' }}</td>
+                  <td><code>{{ chat.requestModel || '—' }}</code></td>
+                  <td>{{ formatNumber(chat.inputTokens) }} / {{ formatNumber(chat.outputTokens) }}</td>
+                  <td>{{ formatDuration(chat.durationNanos) }}</td>
+                  <td>
+                    <span v-if="chat.statusCode === 'ERROR'" class="badge text-bg-danger">error</span>
+                    <span v-else class="badge text-bg-success">{{ chat.finishReason || 'ok' }}</span>
+                  </td>
+                  <td class="text-end">
+                    <button
+                      class="btn btn-sm btn-outline-primary"
+                      :aria-expanded="chat.spanId === selectedSpanId"
+                      @click="toggleChat(chat.spanId)">
+                      {{ chat.spanId === selectedSpanId ? 'Close' : 'Open' }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="chat.spanId === selectedSpanId" class="chat-detail-row">
+                  <td colspan="7" class="p-0">
+                    <div class="card m-2">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                        <div><i class="bi bi-stars me-2"></i>Chat <code>{{ selectedSpanId }}</code></div>
+                        <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
+                      </div>
+                      <div class="card-body">
+                        <div v-if="detailLoading" class="text-muted">Loading…</div>
+                        <template v-else-if="detail && detail.summary">
+                          <div v-if="detail.contentBanner && !detail.contentCaptured" class="alert alert-info small">
+                            <i class="bi bi-info-circle me-1"></i>{{ detail.contentBanner }}
+                          </div>
+                          <dl class="row mb-3">
+                            <dt class="col-sm-3">Provider</dt><dd class="col-sm-9">{{ detail.summary.provider || '—' }}</dd>
+                            <dt class="col-sm-3">Request model</dt><dd class="col-sm-9"><code>{{ detail.summary.requestModel || '—' }}</code></dd>
+                            <dt class="col-sm-3">Response model</dt><dd class="col-sm-9"><code>{{ detail.summary.responseModel || '—' }}</code></dd>
+                            <dt class="col-sm-3">Tokens</dt><dd class="col-sm-9">
+                              in {{ formatNumber(detail.summary.inputTokens) }} ·
+                              out {{ formatNumber(detail.summary.outputTokens) }} ·
+                              total {{ formatNumber(detail.summary.totalTokens) }}
+                            </dd>
+                            <dt class="col-sm-3">Duration</dt><dd class="col-sm-9">{{ formatDuration(detail.summary.durationNanos) }}</dd>
+                            <dt class="col-sm-3">Finish reason</dt><dd class="col-sm-9">{{ detail.summary.finishReason || '—' }}</dd>
+                          </dl>
+
+                          <div v-if="detail.toolCalls && detail.toolCalls.length" class="mb-3">
+                            <h6>Tool calls</h6>
+                            <ul class="list-group">
+                              <li v-for="tc in detail.toolCalls" :key="tc.spanId" class="list-group-item d-flex justify-content-between">
+                                <span><i class="bi bi-tools me-1"></i><code>{{ tc.name || '(unnamed)' }}</code></span>
+                                <span class="text-muted small">{{ formatDuration(tc.durationNanos) }}</span>
+                              </li>
+                            </ul>
+                          </div>
+
+                          <div v-if="detail.vectorOperations && detail.vectorOperations.length" class="mb-3">
+                            <h6>Vector operations</h6>
+                            <ul class="list-group">
+                              <li v-for="vo in detail.vectorOperations" :key="vo.spanId" class="list-group-item d-flex justify-content-between">
+                                <span><i class="bi bi-database me-1"></i><code>{{ vo.collectionName || '?' }}</code> · {{ vo.operation || '—' }}</span>
+                                <span class="text-muted small">{{ formatDuration(vo.durationNanos) }}</span>
+                              </li>
+                            </ul>
+                          </div>
+
+                          <details v-if="detail.attributes && detail.attributes.length">
+                            <summary class="text-muted">Span attributes ({{ detail.attributes.length }})</summary>
+                            <table class="table table-sm mt-2">
+                              <tbody>
+                                <tr v-for="a in detail.attributes" :key="a.key">
+                                  <td><code>{{ a.key }}</code></td>
+                                  <td><code>{{ a.value }}</code></td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </details>
+                        </template>
+                        <div v-else-if="detail && detail.error" class="alert alert-danger small">{{ detail.error }}</div>
+                        <div v-else class="text-muted small">No detail available.</div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
       </template>
     </template>
-
-    <div v-if="selectedSpanId" class="card mt-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <div><i class="bi bi-stars me-2"></i>Chat <code>{{ selectedSpanId }}</code></div>
-        <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
-      </div>
-      <div class="card-body">
-        <div v-if="detailLoading" class="text-muted">Loading…</div>
-        <template v-else-if="detail && detail.summary">
-          <div v-if="detail.contentBanner && !detail.contentCaptured" class="alert alert-info small">
-            <i class="bi bi-info-circle me-1"></i>{{ detail.contentBanner }}
-          </div>
-          <dl class="row mb-3">
-            <dt class="col-sm-3">Provider</dt><dd class="col-sm-9">{{ detail.summary.provider || '—' }}</dd>
-            <dt class="col-sm-3">Request model</dt><dd class="col-sm-9"><code>{{ detail.summary.requestModel || '—' }}</code></dd>
-            <dt class="col-sm-3">Response model</dt><dd class="col-sm-9"><code>{{ detail.summary.responseModel || '—' }}</code></dd>
-            <dt class="col-sm-3">Tokens</dt><dd class="col-sm-9">
-              in {{ formatNumber(detail.summary.inputTokens) }} ·
-              out {{ formatNumber(detail.summary.outputTokens) }} ·
-              total {{ formatNumber(detail.summary.totalTokens) }}
-            </dd>
-            <dt class="col-sm-3">Duration</dt><dd class="col-sm-9">{{ formatDuration(detail.summary.durationNanos) }}</dd>
-            <dt class="col-sm-3">Finish reason</dt><dd class="col-sm-9">{{ detail.summary.finishReason || '—' }}</dd>
-          </dl>
-
-          <div v-if="detail.toolCalls && detail.toolCalls.length" class="mb-3">
-            <h6>Tool calls</h6>
-            <ul class="list-group">
-              <li v-for="tc in detail.toolCalls" :key="tc.spanId" class="list-group-item d-flex justify-content-between">
-                <span><i class="bi bi-tools me-1"></i><code>{{ tc.name || '(unnamed)' }}</code></span>
-                <span class="text-muted small">{{ formatDuration(tc.durationNanos) }}</span>
-              </li>
-            </ul>
-          </div>
-
-          <div v-if="detail.vectorOperations && detail.vectorOperations.length" class="mb-3">
-            <h6>Vector operations</h6>
-            <ul class="list-group">
-              <li v-for="vo in detail.vectorOperations" :key="vo.spanId" class="list-group-item d-flex justify-content-between">
-                <span><i class="bi bi-database me-1"></i><code>{{ vo.collectionName || '?' }}</code> · {{ vo.operation || '—' }}</span>
-                <span class="text-muted small">{{ formatDuration(vo.durationNanos) }}</span>
-              </li>
-            </ul>
-          </div>
-
-          <details v-if="detail.attributes && detail.attributes.length">
-            <summary class="text-muted">Span attributes ({{ detail.attributes.length }})</summary>
-            <table class="table table-sm mt-2">
-              <tbody>
-                <tr v-for="a in detail.attributes" :key="a.key">
-                  <td><code>{{ a.key }}</code></td>
-                  <td><code>{{ a.value }}</code></td>
-                </tr>
-              </tbody>
-            </table>
-          </details>
-        </template>
-        <div v-else-if="detail && detail.error" class="alert alert-danger small">{{ detail.error }}</div>
-        <div v-else class="text-muted small">No detail available.</div>
-      </div>
-    </div>
   </div>
 </template>
 
