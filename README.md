@@ -61,7 +61,7 @@ endpoint support is unavailable so you can spot empty sections immediately.
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>0.1.0-alpha.4</version>
+  <version>0.1.0-alpha.5</version>
 </dependency>
 ```
 
