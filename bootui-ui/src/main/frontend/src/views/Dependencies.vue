@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const data = ref(null)
 const error = ref(null)
@@ -68,7 +68,7 @@ async function loadDependencies() {
 async function scanDependencies() {
   loading.value = true
   try {
-    const res = await fetch('api/dependencies/scan', { method: 'POST' })
+    const res = await fetch('api/dependencies/scan', {method: 'POST'})
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
     if (data.value.vulnerable > 0) {
@@ -93,11 +93,11 @@ onMounted(loadDependencies)
         <p class="text-muted mb-0">Inspect runtime Maven JARs and scan them for known dependency vulnerabilities.</p>
       </div>
       <button
-        type="button"
-        class="btn btn-primary"
         :disabled="loading || data?.scanningEnabled === false"
+        class="btn btn-primary"
+        type="button"
         @click="scanDependencies">
-        <span v-if="loading" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+        <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
         Scan with OSV.dev
       </button>
     </div>
@@ -155,11 +155,12 @@ onMounted(loadDependencies)
           </div>
           <div v-for="item in data.severityCounts" v-else :key="item.severity" class="row align-items-center g-2 mb-2">
             <div class="col-3 col-md-2">
-              <span class="badge" :class="severityClass(item.severity)">{{ item.severity }}</span>
+              <span :class="severityClass(item.severity)" class="badge">{{ item.severity }}</span>
             </div>
             <div class="col">
-              <div class="progress" role="img" :aria-label="`${item.severity} vulnerabilities: ${item.count}`">
-                <div class="progress-bar" :class="severityClass(item.severity)" :style="{ width: severityWidth(item.count) }"></div>
+              <div :aria-label="`${item.severity} vulnerabilities: ${item.count}`" class="progress" role="img">
+                <div :class="severityClass(item.severity)" :style="{ width: severityWidth(item.count) }"
+                     class="progress-bar"></div>
               </div>
             </div>
             <div class="col-auto small text-muted">{{ item.count }}</div>
@@ -175,7 +176,8 @@ onMounted(loadDependencies)
               <div class="text-muted small">{{ filteredDependencies.length }} of {{ data.total }} dependencies</div>
             </div>
             <div class="d-flex flex-wrap gap-2">
-              <input v-model="search" class="form-control form-control-sm dependency-search" placeholder="Search group, artifact, or version">
+              <input v-model="search" class="form-control form-control-sm dependency-search"
+                     placeholder="Search group, artifact, or version">
               <div class="form-check form-switch">
                 <input id="vulnerableOnly" v-model="vulnerableOnly" class="form-check-input" type="checkbox">
                 <label class="form-check-label small" for="vulnerableOnly">Vulnerable only</label>
@@ -186,49 +188,54 @@ onMounted(loadDependencies)
         <div class="table-responsive">
           <table class="table table-sm align-middle mb-0">
             <thead>
-              <tr>
-                <th>Dependency</th>
-                <th>Version</th>
-                <th>Risk</th>
-                <th>Advisories</th>
-              </tr>
+            <tr>
+              <th>Dependency</th>
+              <th>Version</th>
+              <th>Risk</th>
+              <th>Advisories</th>
+            </tr>
             </thead>
             <tbody>
-              <tr v-for="dependency in filteredDependencies" :key="`${dependency.packageName}:${dependency.version}`">
-                <td>
-                  <code>{{ dependency.packageName }}</code>
-                </td>
-                <td>{{ dependency.version }}</td>
-                <td>
-                  <span class="badge" :class="severityClass(dependency.highestSeverity)">
+            <tr v-for="dependency in filteredDependencies" :key="`${dependency.packageName}:${dependency.version}`">
+              <td>
+                <code>{{ dependency.packageName }}</code>
+              </td>
+              <td>{{ dependency.version }}</td>
+              <td>
+                  <span :class="severityClass(dependency.highestSeverity)" class="badge">
                     {{ dependency.highestSeverity }}
                   </span>
-                </td>
-                <td>
-                  <span v-if="dependency.vulnerabilityCount === 0" class="text-muted">None found</span>
-                  <div v-else class="vulnerability-list">
-                    <div v-for="vulnerability in dependency.vulnerabilities" :key="vulnerability.id" class="mb-2">
-                      <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span class="badge" :class="severityClass(vulnerability.severity)">{{ vulnerability.severity }}</span>
-                        <a v-if="vulnerability.references.length" :href="vulnerability.references[0]" target="_blank" rel="noreferrer">
-                          {{ vulnerability.id }}
-                        </a>
-                        <span v-else class="fw-semibold">{{ vulnerability.id }}</span>
-                        <span v-if="vulnerability.fixedVersions.length" class="small text-muted">
+              </td>
+              <td>
+                <span v-if="dependency.vulnerabilityCount === 0" class="text-muted">None found</span>
+                <div v-else class="vulnerability-list">
+                  <div v-for="vulnerability in dependency.vulnerabilities" :key="vulnerability.id" class="mb-2">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                      <span :class="severityClass(vulnerability.severity)" class="badge">{{
+                          vulnerability.severity
+                        }}</span>
+                      <a v-if="vulnerability.references.length" :href="vulnerability.references[0]" rel="noreferrer"
+                         target="_blank">
+                        {{ vulnerability.id }}
+                      </a>
+                      <span v-else class="fw-semibold">{{ vulnerability.id }}</span>
+                      <span v-if="vulnerability.fixedVersions.length" class="small text-muted">
                           fixed in {{ vulnerability.fixedVersions.join(', ') }}
                         </span>
-                      </div>
-                      <div class="small">{{ vulnerability.summary || vulnerability.details || 'No advisory summary available.' }}</div>
-                      <div v-if="vulnerability.aliases.length" class="small text-muted">
-                        {{ vulnerability.aliases.join(', ') }}
-                      </div>
+                    </div>
+                    <div class="small">
+                      {{ vulnerability.summary || vulnerability.details || 'No advisory summary available.' }}
+                    </div>
+                    <div v-if="vulnerability.aliases.length" class="small text-muted">
+                      {{ vulnerability.aliases.join(', ') }}
                     </div>
                   </div>
-                </td>
-              </tr>
-              <tr v-if="filteredDependencies.length === 0">
-                <td colspan="4" class="text-muted text-center py-4">No dependencies match the current filters.</td>
-              </tr>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="filteredDependencies.length === 0">
+              <td class="text-muted text-center py-4" colspan="4">No dependencies match the current filters.</td>
+            </tr>
             </tbody>
           </table>
         </div>

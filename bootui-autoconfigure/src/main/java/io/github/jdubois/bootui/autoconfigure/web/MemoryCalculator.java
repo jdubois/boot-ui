@@ -32,19 +32,29 @@ import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
  */
 final class MemoryCalculator {
 
-    /** libjvm: {@code DefaultDirectMemory = 10 * Mebi}. */
+    /**
+     * libjvm: {@code DefaultDirectMemory = 10 * Mebi}.
+     */
     static final long DIRECT_MEMORY_BYTES = 10L * 1024 * 1024;
 
-    /** libjvm: {@code DefaultReservedCodeCache = 240 * Mebi}. */
+    /**
+     * libjvm: {@code DefaultReservedCodeCache = 240 * Mebi}.
+     */
     static final long CODE_CACHE_BYTES = 240L * 1024 * 1024;
 
-    /** libjvm: {@code DefaultStack = 1 * Mebi}. */
+    /**
+     * libjvm: {@code DefaultStack = 1 * Mebi}.
+     */
     static final long STACK_BYTES_PER_THREAD = 1L * 1024 * 1024;
 
-    /** libjvm: {@code ClassOverhead = 14_000_000} (decimal MB, not MiB). */
+    /**
+     * libjvm: {@code ClassOverhead = 14_000_000} (decimal MB, not MiB).
+     */
     static final long META_BASE_BYTES = 14_000_000L;
 
-    /** libjvm: {@code ClassSize = 5_800} bytes per loaded class. */
+    /**
+     * libjvm: {@code ClassSize = 5_800} bytes per loaded class.
+     */
     static final long META_PER_CLASS_BYTES = 5_800L;
 
     /**
@@ -55,7 +65,9 @@ final class MemoryCalculator {
      */
     static final double META_SAFETY_FACTOR = 1.25;
 
-    /** Floor for the default thread count, matching libjvm's value. */
+    /**
+     * Floor for the default thread count, matching libjvm's value.
+     */
     static final int DEFAULT_THREAD_COUNT_FLOOR = 250;
 
     static final int MIN_THREAD_COUNT = 1;
@@ -77,27 +89,44 @@ final class MemoryCalculator {
         this.jdkVersion = jdkVersion;
     }
 
+    static int defaultThreadCount(int liveThreadCount) {
+        return Math.max(liveThreadCount, DEFAULT_THREAD_COUNT_FLOOR);
+    }
+
+    private static long bytesToMb(long bytes) {
+        return Math.max(0, Math.round(bytes / (1024.0 * 1024.0)));
+    }
+
+    private static long roundUpTo(long value, long multiple) {
+        if (value <= 0) return multiple;
+        return ((value + multiple - 1) / multiple) * multiple;
+    }
+
+    private static long clamp(long value, long min, long max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     /**
      * Compute a memory plan for the given inputs.
      *
-     * @param totalMemoryBytes target container memory budget
-     * @param threadCount      thread count to reserve stack memory for
-     * @param loadedClasses    live class count from {@code ClassLoadingMXBean}
-     * @param headRoomPercent  percentage of total memory to leave unallocated
-     * @param liveThreadCount  current live thread count (reported for UI context)
+     * @param totalMemoryBytes     target container memory budget
+     * @param threadCount          thread count to reserve stack memory for
+     * @param loadedClasses        live class count from {@code ClassLoadingMXBean}
+     * @param headRoomPercent      percentage of total memory to leave unallocated
+     * @param liveThreadCount      current live thread count (reported for UI context)
      * @param liveLoadedClassCount currently loaded classes (reported for UI context)
      * @return calculation DTO; if inputs leave no room for any heap, the
-     *         returned DTO has {@code valid = false} and a non-null
-     *         {@code error} — no exception is thrown so the panel can keep
-     *         polling without an HTTP error
+     * returned DTO has {@code valid = false} and a non-null
+     * {@code error} — no exception is thrown so the panel can keep
+     * polling without an HTTP error
      */
     MemoryCalculationDto calculate(
-            long totalMemoryBytes,
-            int threadCount,
-            int loadedClasses,
-            int headRoomPercent,
-            int liveThreadCount,
-            int liveLoadedClassCount) {
+        long totalMemoryBytes,
+        int threadCount,
+        int loadedClasses,
+        int headRoomPercent,
+        int liveThreadCount,
+        int liveLoadedClassCount) {
 
         long clampedTotal = clamp(totalMemoryBytes, MIN_TOTAL_MEMORY_BYTES, MAX_TOTAL_MEMORY_BYTES);
         int clampedThreads = (int) clamp(threadCount, MIN_THREAD_COUNT, MAX_THREAD_COUNT);
@@ -112,37 +141,14 @@ final class MemoryCalculator {
 
         if (heapBytes <= 0) {
             String message = String.format(
-                    "No room for heap: fixed regions (%d MB) + headroom (%d MB) >= total (%d MB). "
-                            + "Try a larger total memory, fewer threads, or lower headroom.",
-                    bytesToMb(fixedRegionsBytes),
-                    bytesToMb(headRoomBytes),
-                    bytesToMb(clampedTotal));
+                "No room for heap: fixed regions (%d MB) + headroom (%d MB) >= total (%d MB). "
+                    + "Try a larger total memory, fewer threads, or lower headroom.",
+                bytesToMb(fixedRegionsBytes),
+                bytesToMb(headRoomBytes),
+                bytesToMb(clampedTotal));
             return new MemoryCalculationDto(
-                    clampedTotal,
-                    0,
-                    metaspaceBytes,
-                    CODE_CACHE_BYTES,
-                    DIRECT_MEMORY_BYTES,
-                    STACK_BYTES_PER_THREAD,
-                    stackBytesTotal,
-                    headRoomBytes,
-                    fixedRegionsBytes,
-                    clampedThreads,
-                    clampedClasses,
-                    liveThreadCount,
-                    liveLoadedClassCount,
-                    clampedHeadRoom,
-                    "",
-                    false,
-                    message);
-        }
-
-        String jvmOptions = buildJvmOptions(
-                heapBytes, metaspaceBytes, CODE_CACHE_BYTES, DIRECT_MEMORY_BYTES, STACK_BYTES_PER_THREAD);
-
-        return new MemoryCalculationDto(
                 clampedTotal,
-                heapBytes,
+                0,
                 metaspaceBytes,
                 CODE_CACHE_BYTES,
                 DIRECT_MEMORY_BYTES,
@@ -155,9 +161,32 @@ final class MemoryCalculator {
                 liveThreadCount,
                 liveLoadedClassCount,
                 clampedHeadRoom,
-                jvmOptions,
-                true,
-                null);
+                "",
+                false,
+                message);
+        }
+
+        String jvmOptions = buildJvmOptions(
+            heapBytes, metaspaceBytes, CODE_CACHE_BYTES, DIRECT_MEMORY_BYTES, STACK_BYTES_PER_THREAD);
+
+        return new MemoryCalculationDto(
+            clampedTotal,
+            heapBytes,
+            metaspaceBytes,
+            CODE_CACHE_BYTES,
+            DIRECT_MEMORY_BYTES,
+            STACK_BYTES_PER_THREAD,
+            stackBytesTotal,
+            headRoomBytes,
+            fixedRegionsBytes,
+            clampedThreads,
+            clampedClasses,
+            liveThreadCount,
+            liveLoadedClassCount,
+            clampedHeadRoom,
+            jvmOptions,
+            true,
+            null);
     }
 
     /**
@@ -168,16 +197,16 @@ final class MemoryCalculator {
      * the recommendation. The user can move the value freely afterwards.
      */
     long defaultTotalMemoryBytes(
-            long heapCommittedBytes,
-            long nonHeapCommittedBytes,
-            int threadCount,
-            int loadedClasses) {
+        long heapCommittedBytes,
+        long nonHeapCommittedBytes,
+        int threadCount,
+        int loadedClasses) {
 
         int safeThreads = Math.max(threadCount, DEFAULT_THREAD_COUNT_FLOOR);
         long fixed = DIRECT_MEMORY_BYTES
-                + computeMetaspaceBytes(loadedClasses)
-                + CODE_CACHE_BYTES
-                + STACK_BYTES_PER_THREAD * (long) safeThreads;
+            + computeMetaspaceBytes(loadedClasses)
+            + CODE_CACHE_BYTES
+            + STACK_BYTES_PER_THREAD * (long) safeThreads;
         long floor = fixed + 128L * 1024 * 1024;
 
         long useful = heapCommittedBytes + Math.max(0, nonHeapCommittedBytes);
@@ -191,21 +220,17 @@ final class MemoryCalculator {
         return clamp(picked, min, max);
     }
 
-    static int defaultThreadCount(int liveThreadCount) {
-        return Math.max(liveThreadCount, DEFAULT_THREAD_COUNT_FLOOR);
-    }
-
     private long computeMetaspaceBytes(int loadedClasses) {
         double withFactor = (META_BASE_BYTES + META_PER_CLASS_BYTES * (double) loadedClasses) * META_SAFETY_FACTOR;
         return (long) Math.ceil(withFactor);
     }
 
     private String buildJvmOptions(
-            long heapBytes,
-            long metaspaceBytes,
-            long codeCacheBytes,
-            long directMemoryBytes,
-            long stackBytesPerThread) {
+        long heapBytes,
+        long metaspaceBytes,
+        long codeCacheBytes,
+        long directMemoryBytes,
+        long stackBytesPerThread) {
 
         long heapMb = bytesToMb(heapBytes);
         long metaMb = bytesToMb(metaspaceBytes);
@@ -233,19 +258,6 @@ final class MemoryCalculator {
         return sb.toString();
     }
 
-    private static long bytesToMb(long bytes) {
-        return Math.max(0, Math.round(bytes / (1024.0 * 1024.0)));
-    }
-
-    private static long roundUpTo(long value, long multiple) {
-        if (value <= 0) return multiple;
-        return ((value + multiple - 1) / multiple) * multiple;
-    }
-
-    private static long clamp(long value, long min, long max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
     /**
      * Indirection over {@link Runtime#version()} so tests can pin the feature
      * version and verify JDK-gated options (e.g. {@code UseCompactObjectHeaders}
@@ -254,10 +266,10 @@ final class MemoryCalculator {
      */
     @FunctionalInterface
     interface JdkVersion {
-        int feature();
-
         static JdkVersion current() {
             return () -> Runtime.version().feature();
         }
+
+        int feature();
     }
 }

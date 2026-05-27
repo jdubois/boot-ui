@@ -1,13 +1,13 @@
 <script>
-export default { name: 'HealthNode' }
+export default {name: 'HealthNode'}
 </script>
 
 <script setup>
 import HealthDetails from './HealthDetails.vue'
 
 const props = defineProps({
-  node: { type: Object, required: true },
-  depth: { type: Number, default: 0 }
+  node: {type: Object, required: true},
+  depth: {type: Number, default: 0}
 })
 
 const statusClass = s => ({
@@ -33,10 +33,10 @@ const detailCount = node => {
 </script>
 
 <template>
-  <details class="card mb-2" :open="depth < 2 || node.status !== 'UP'">
+  <details :open="depth < 2 || node.status !== 'UP'" class="card mb-2">
     <summary class="card-header d-flex justify-content-between align-items-center gap-2">
       <span class="d-flex align-items-center gap-2">
-        <i class="bi" :class="statusIcon(node.status)"></i>
+        <i :class="statusIcon(node.status)" class="bi"></i>
         <strong>{{ node.name }}</strong>
         <span v-if="childCount(node)" class="text-muted small">
           {{ childCount(node) }} {{ childCount(node) === 1 ? 'component' : 'components' }}
@@ -45,13 +45,13 @@ const detailCount = node => {
           {{ detailCount(node) }} {{ detailCount(node) === 1 ? 'detail' : 'details' }}
         </span>
       </span>
-      <span class="badge" :class="statusClass(node.status)">{{ node.status }}</span>
+      <span :class="statusClass(node.status)" class="badge">{{ node.status }}</span>
     </summary>
 
     <div v-if="childCount(node) || node.details" class="card-body">
       <section v-if="node.details" class="mb-3">
         <h6 class="text-muted text-uppercase small mb-2">Details</h6>
-        <HealthDetails :value="node.details" />
+        <HealthDetails :value="node.details"/>
       </section>
 
       <section v-if="childCount(node)">
@@ -59,8 +59,8 @@ const detailCount = node => {
         <HealthNode
           v-for="c in node.components"
           :key="c.name"
-          :node="c"
-          :depth="depth + 1" />
+          :depth="depth + 1"
+          :node="c"/>
       </section>
     </div>
   </details>

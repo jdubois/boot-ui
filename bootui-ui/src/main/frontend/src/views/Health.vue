@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 import HealthNode from './HealthNode.vue'
 
 const root = ref(null)
@@ -54,7 +54,7 @@ onMounted(load)
           Inspect application and dependency health without reading raw Actuator JSON.
         </p>
       </div>
-      <button class="btn btn-outline-secondary" @click="load" :disabled="loading" title="Refresh">
+      <button :disabled="loading" class="btn btn-outline-secondary" title="Refresh" @click="load">
         <i class="bi bi-arrow-clockwise"></i>
       </button>
     </div>
@@ -69,12 +69,12 @@ onMounted(load)
             <div class="card-body">
               <div class="text-muted small text-uppercase">Overall status</div>
               <div class="fs-4 fw-semibold">
-                <span class="badge" :class="{
+                <span :class="{
                   'bg-success': root.status === 'UP',
                   'bg-danger': root.status === 'DOWN',
                   'bg-warning text-dark': root.status === 'OUT_OF_SERVICE',
                   'bg-secondary': !['UP', 'DOWN', 'OUT_OF_SERVICE'].includes(root.status)
-                }">
+                }" class="badge">
                   {{ root.status }}
                 </span>
               </div>
@@ -110,7 +110,7 @@ onMounted(load)
       </div>
 
       <h5 class="mb-2">Component tree</h5>
-      <HealthNode :node="root" />
+      <HealthNode :node="root"/>
     </template>
   </div>
 </template>

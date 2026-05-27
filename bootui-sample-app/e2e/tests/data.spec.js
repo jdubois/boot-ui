@@ -1,15 +1,15 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 test.describe('Data (Spring Data repositories) view', () => {
 
-  test('lists the ProductRepository and shows its searchByName query', async ({ openView, page }) => {
+  test('lists the ProductRepository and shows its searchByName query', async ({openView, page}) => {
     await openView('data', 'Spring Data repositories')
 
-    const productRepoEntry = page.locator('.list-group-item-action', { hasText: 'ProductRepository' })
+    const productRepoEntry = page.locator('.list-group-item-action', {hasText: 'ProductRepository'})
     await expect(productRepoEntry).toBeVisible()
     await expect(productRepoEntry).toContainText('Product')
-    await expect(productRepoEntry.locator('.badge', { hasText: 'JPA' })).toBeVisible()
+    await expect(productRepoEntry.locator('.badge', {hasText: 'JPA'})).toBeVisible()
 
     // Filtering by entity name still keeps the repo visible.
     await page.getByPlaceholder(/Filter by interface, entity, or bean name/).fill('Product')
@@ -21,6 +21,6 @@ test.describe('Data (Spring Data repositories) view', () => {
     await expect(detailCard).toContainText('io.github.jdubois.bootui.sample.ProductRepository')
     await expect(detailCard).toContainText('searchByName')
     await expect(detailCard).toContainText('select p from Product p')
-    await expect(detailCard.locator('.badge', { hasText: 'ANNOTATED' }).first()).toBeVisible()
+    await expect(detailCard.locator('.badge', {hasText: 'ANNOTATED'}).first()).toBeVisible()
   })
 })

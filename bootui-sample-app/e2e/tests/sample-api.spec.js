@@ -1,5 +1,5 @@
 // @ts-check
-import { test, expect } from '@playwright/test'
+import {expect, test} from '@playwright/test'
 
 /**
  * End-to-end checks for the sample application's own REST API. These are the
@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test'
  */
 test.describe('Sample application REST API', () => {
 
-  test('GET / serves a welcome page that links to BootUI', async ({ request }) => {
+  test('GET / serves a welcome page that links to BootUI', async ({request}) => {
     const response = await request.get('/')
     expect(response.status()).toBe(200)
     const body = await response.text()
@@ -17,19 +17,19 @@ test.describe('Sample application REST API', () => {
     expect(body).toContain('GET /api/sample/products')
   })
 
-  test('GET /api/hello returns a simple HTTP probe greeting', async ({ request }) => {
+  test('GET /api/hello returns a simple HTTP probe greeting', async ({request}) => {
     const response = await request.get('/api/hello')
     expect(response.status()).toBe(200)
     expect(await response.text()).toBe('Hello, world')
   })
 
-  test('GET /api/sample/hello returns the configured greeting', async ({ request }) => {
+  test('GET /api/sample/hello returns the configured greeting', async ({request}) => {
     const response = await request.get('/api/sample/hello')
     expect(response.status()).toBe(200)
     expect(await response.text()).toBe('Hello, BootUI! (retries=3)')
   })
 
-  test('GET /api/sample/products returns only the active sample products', async ({ request }) => {
+  test('GET /api/sample/products returns only the active sample products', async ({request}) => {
     const response = await request.get('/api/sample/products')
     expect(response.status()).toBe(200)
     const products = await response.json()
@@ -46,35 +46,35 @@ test.describe('Sample application REST API', () => {
     expect(names).not.toContain('Archived Prototype')
   })
 
-  test('/admin requires basic authentication with the ADMIN role', async ({ request }) => {
-    const anonymous = await request.get('/admin', { failOnStatusCode: false })
+  test('/admin requires basic authentication with the ADMIN role', async ({request}) => {
+    const anonymous = await request.get('/admin', {failOnStatusCode: false})
     expect(anonymous.status()).toBe(401)
 
     const asUser = await request.get('/admin', {
-      headers: { Authorization: 'Basic ' + Buffer.from('developer:developer').toString('base64') },
+      headers: {Authorization: 'Basic ' + Buffer.from('developer:developer').toString('base64')},
       failOnStatusCode: false
     })
     expect(asUser.status()).toBe(403)
 
     const asAdmin = await request.get('/admin', {
-      headers: { Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64') }
+      headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
     })
     expect(asAdmin.status()).toBe(200)
     expect(await asAdmin.text()).toBe('BootUI sample admin')
   })
 
-  test('/api/secure requires basic authentication with the ADMIN role', async ({ request }) => {
-    const anonymous = await request.get('/api/secure', { failOnStatusCode: false })
+  test('/api/secure requires basic authentication with the ADMIN role', async ({request}) => {
+    const anonymous = await request.get('/api/secure', {failOnStatusCode: false})
     expect(anonymous.status()).toBe(401)
 
     const asUser = await request.get('/api/secure', {
-      headers: { Authorization: 'Basic ' + Buffer.from('developer:developer').toString('base64') },
+      headers: {Authorization: 'Basic ' + Buffer.from('developer:developer').toString('base64')},
       failOnStatusCode: false
     })
     expect(asUser.status()).toBe(403)
 
     const asAdmin = await request.get('/api/secure', {
-      headers: { Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64') }
+      headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
     })
     expect(asAdmin.status()).toBe(200)
     expect(await asAdmin.text()).toBe('Secure Hello, world')

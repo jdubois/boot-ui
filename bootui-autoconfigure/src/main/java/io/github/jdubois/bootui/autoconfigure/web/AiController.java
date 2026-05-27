@@ -3,27 +3,12 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
-import io.github.jdubois.bootui.core.BootUiDtos.AiChatDetailDto;
-import io.github.jdubois.bootui.core.BootUiDtos.AiChatSummaryDto;
-import io.github.jdubois.bootui.core.BootUiDtos.AiOverviewDto;
-import io.github.jdubois.bootui.core.BootUiDtos.AiTokenBucketDto;
-import io.github.jdubois.bootui.core.BootUiDtos.AiTokenSeriesDto;
-import io.github.jdubois.bootui.core.BootUiDtos.AiToolCallDto;
-import io.github.jdubois.bootui.core.BootUiDtos.AiVectorOpDto;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import io.github.jdubois.bootui.core.BootUiDtos.*;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.*;
 
 /**
  * Read-only API for the BootUI AI Usage panel.
@@ -55,6 +40,50 @@ public class AiController {
     public AiController(TelemetryStore store, BootUiProperties properties) {
         this.store = store;
         this.properties = properties;
+    }
+
+    private static String preferredModel(NormalizedSpan chat) {
+        String model = AiSpanRecognizer.responseModel(chat);
+        if (model == null || model.isBlank()) {
+            model = AiSpanRecognizer.requestModel(chat);
+        }
+        return model == null || model.isBlank() ? "unknown" : model;
+    }
+
+    private static boolean isSpringAiOnClasspath() {
+        try {
+            Class.forName(SPRING_AI_CLASS, false, AiController.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
+    // helper used by unit tests
+    static long nanosPerMs() {
+        return NANOS_PER_MS;
+    }
+
+    private static Map<String, Long> topLongEntries(Map<String, Long> input) {
+        return input.entrySet().stream()
+            .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+            .limit(MAX_MODEL_BREAKDOWN_ENTRIES)
+            .collect(LinkedHashMap::new,
+                (map, entry) -> map.put(entry.getKey(), entry.getValue()),
+                LinkedHashMap::putAll);
+    }
+
+    private static Map<String, Integer> topIntegerEntries(Map<String, Integer> input) {
+        return input.entrySet().stream()
+            .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+            .limit(MAX_MODEL_BREAKDOWN_ENTRIES)
+            .collect(LinkedHashMap::new,
+                (map, entry) -> map.put(entry.getKey(), entry.getValue()),
+                LinkedHashMap::putAll);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     @GetMapping("/overview")
@@ -97,23 +126,23 @@ public class AiController {
         boolean telemetryEnabled = properties.getTelemetry().isEnabled();
         boolean springAi = isSpringAiOnClasspath();
         String banner = telemetryEnabled && springAi && aiConfig.isShowContentCaptureBanner()
-                ? "Prompt and completion text is not captured by default. Enable Spring AI's "
-                  + "include-prompt / include-completion observation options (or attach a custom "
-                  + "ObservationFilter) to see message content in the conversation drawer."
-                : null;
+            ? "Prompt and completion text is not captured by default. Enable Spring AI's "
+              + "include-prompt / include-completion observation options (or attach a custom "
+              + "ObservationFilter) to see message content in the conversation drawer."
+            : null;
         return new AiOverviewDto(
-                telemetryEnabled,
-                springAi,
-                chats.size(),
-                totalIn,
-                totalOut,
-                topLongEntries(tokensByModel),
-                topIntegerEntries(callsByModel),
-                toolCount,
-                vectorCount,
-                embeddingCount,
-                recent,
-                banner);
+            telemetryEnabled,
+            springAi,
+            chats.size(),
+            totalIn,
+            totalOut,
+            topLongEntries(tokensByModel),
+            topIntegerEntries(callsByModel),
+            toolCount,
+            vectorCount,
+            embeddingCount,
+            recent,
+            banner);
     }
 
     @GetMapping("/chats")
@@ -203,21 +232,21 @@ public class AiController {
         Long out = AiSpanRecognizer.outputTokens(chat);
         Long total = AiSpanRecognizer.totalTokens(chat);
         return new AiChatSummaryDto(
-                chat.traceId(),
-                chat.spanId(),
-                chat.startEpochNanos(),
-                chat.durationNanos(),
-                AiSpanRecognizer.provider(chat),
-                AiSpanRecognizer.requestModel(chat),
-                AiSpanRecognizer.responseModel(chat),
-                in,
-                out,
-                total,
-                AiSpanRecognizer.finishReason(chat),
-                chat.statusCode(),
-                "chat",
-                toolCalls,
-                vectorOps);
+            chat.traceId(),
+            chat.spanId(),
+            chat.startEpochNanos(),
+            chat.durationNanos(),
+            AiSpanRecognizer.provider(chat),
+            AiSpanRecognizer.requestModel(chat),
+            AiSpanRecognizer.responseModel(chat),
+            in,
+            out,
+            total,
+            AiSpanRecognizer.finishReason(chat),
+            chat.statusCode(),
+            "chat",
+            toolCalls,
+            vectorOps);
     }
 
     private AiChatDetailDto buildDetail(NormalizedSpan chat) {
@@ -228,85 +257,41 @@ public class AiController {
             for (NormalizedSpan sibling : bucket.spans()) {
                 if (AiSpanRecognizer.isToolCall(sibling)) {
                     tools.add(new AiToolCallDto(
-                            sibling.spanId(),
-                            AiSpanRecognizer.toolName(sibling),
-                            sibling.startEpochNanos(),
-                            sibling.durationNanos(),
-                            sibling.statusCode()));
+                        sibling.spanId(),
+                        AiSpanRecognizer.toolName(sibling),
+                        sibling.startEpochNanos(),
+                        sibling.durationNanos(),
+                        sibling.statusCode()));
                 }
                 if (AiSpanRecognizer.isVectorOperation(sibling)) {
                     vectors.add(new AiVectorOpDto(
-                            sibling.spanId(),
-                            AiSpanRecognizer.vectorOperation(sibling),
-                            AiSpanRecognizer.vectorCollection(sibling),
-                            sibling.startEpochNanos(),
-                            sibling.durationNanos(),
-                            sibling.statusCode()));
+                        sibling.spanId(),
+                        AiSpanRecognizer.vectorOperation(sibling),
+                        AiSpanRecognizer.vectorCollection(sibling),
+                        sibling.startEpochNanos(),
+                        sibling.durationNanos(),
+                        sibling.statusCode()));
                 }
             }
         }
         tools.sort(Comparator.comparingLong(AiToolCallDto::startEpochNanos));
         vectors.sort(Comparator.comparingLong(AiVectorOpDto::startEpochNanos));
         boolean contentCaptured = chat.attributes() != null
-                && (chat.attributes().containsKey("gen_ai.prompt")
-                    || chat.attributes().containsKey("gen_ai.completion")
-                    || chat.attributes().containsKey("gen_ai.input.messages")
-                    || chat.attributes().containsKey("gen_ai.output.messages"));
+            && (chat.attributes().containsKey("gen_ai.prompt")
+            || chat.attributes().containsKey("gen_ai.completion")
+            || chat.attributes().containsKey("gen_ai.input.messages")
+            || chat.attributes().containsKey("gen_ai.output.messages"));
         String banner = !contentCaptured && properties.getAi().isShowContentCaptureBanner()
-                ? "Message content is not on this span. Enable Spring AI's include-prompt / include-completion "
-                  + "observation options to capture prompt and completion text."
-                : null;
+            ? "Message content is not on this span. Enable Spring AI's include-prompt / include-completion "
+              + "observation options to capture prompt and completion text."
+            : null;
         return new AiChatDetailDto(
-                toSummary(chat),
-                tools,
-                vectors,
-                TracesController.toAttributeList(chat.attributes()),
-                TracesController.toEventList(chat.events()),
-                contentCaptured,
-                banner);
-    }
-
-    private static String preferredModel(NormalizedSpan chat) {
-        String model = AiSpanRecognizer.responseModel(chat);
-        if (model == null || model.isBlank()) {
-            model = AiSpanRecognizer.requestModel(chat);
-        }
-        return model == null || model.isBlank() ? "unknown" : model;
-    }
-
-    private static boolean isSpringAiOnClasspath() {
-        try {
-            Class.forName(SPRING_AI_CLASS, false, AiController.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException ex) {
-            return false;
-        }
-    }
-
-    // helper used by unit tests
-    static long nanosPerMs() {
-        return NANOS_PER_MS;
-    }
-
-    private static Map<String, Long> topLongEntries(Map<String, Long> input) {
-        return input.entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(MAX_MODEL_BREAKDOWN_ENTRIES)
-                .collect(LinkedHashMap::new,
-                        (map, entry) -> map.put(entry.getKey(), entry.getValue()),
-                        LinkedHashMap::putAll);
-    }
-
-    private static Map<String, Integer> topIntegerEntries(Map<String, Integer> input) {
-        return input.entrySet().stream()
-                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .limit(MAX_MODEL_BREAKDOWN_ENTRIES)
-                .collect(LinkedHashMap::new,
-                        (map, entry) -> map.put(entry.getKey(), entry.getValue()),
-                        LinkedHashMap::putAll);
-    }
-
-    private static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
+            toSummary(chat),
+            tools,
+            vectors,
+            TracesController.toAttributeList(chat.attributes()),
+            TracesController.toEventList(chat.events()),
+            contentCaptured,
+            banner);
     }
 }

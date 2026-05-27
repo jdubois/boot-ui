@@ -2,9 +2,9 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
   schedule:
     - cron: '0 6 * * 1'
 
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ['java-kotlin', 'javascript-typescript']
+        language: [ 'java-kotlin', 'javascript-typescript' ]
     steps:
       - name: Check code scanning availability
         id: code-scanning

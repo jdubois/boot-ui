@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.core;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies that {@link SecretMasker} correctly masks every category of property
@@ -134,7 +134,7 @@ class SecretMaskerBrowserVisibleSurfaceTests {
     void masksPrivateKeyProperty() {
         assertThat(masker.isSecret("ssl.private-key")).isTrue();
         assertThat(masker.mask("ssl.private-key", "-----BEGIN RSA PRIVATE KEY-----"))
-                .isEqualTo(SecretMasker.MASKED_VALUE);
+            .isEqualTo(SecretMasker.MASKED_VALUE);
     }
 
     @Test
@@ -155,7 +155,7 @@ class SecretMaskerBrowserVisibleSurfaceTests {
     void masksAuthorizationHeader() {
         assertThat(masker.isSecret("http.authorization")).isTrue();
         assertThat(masker.mask("http.authorization", "******"))
-                .isEqualTo(SecretMasker.MASKED_VALUE);
+            .isEqualTo(SecretMasker.MASKED_VALUE);
     }
 
     @Test
@@ -176,8 +176,8 @@ class SecretMaskerBrowserVisibleSurfaceTests {
     void masksOAuthClientSecretHyphenated() {
         assertThat(masker.isSecret("spring.security.oauth2.client.registration.github.client-secret")).isTrue();
         assertThat(masker.mask(
-                "spring.security.oauth2.client.registration.github.client-secret",
-                "super-secret")).isEqualTo(SecretMasker.MASKED_VALUE);
+            "spring.security.oauth2.client.registration.github.client-secret",
+            "super-secret")).isEqualTo(SecretMasker.MASKED_VALUE);
     }
 
     @Test

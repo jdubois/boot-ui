@@ -14,187 +14,221 @@ public final class BootUiDtos {
     private BootUiDtos() {
     }
 
-    /** High-level information about the running application. */
+    /**
+     * High-level information about the running application.
+     */
     public record OverviewDto(
-            String bootUiVersion,
-            String applicationName,
-            String springBootVersion,
-            String javaVersion,
-            String javaVendor,
-            List<String> activeProfiles,
-            List<String> defaultProfiles,
-            String webApplicationType,
-            Integer serverPort,
-            Integer managementPort,
-            String contextPath,
-            Long startupTimeMillis,
-            ActivationStatus activation,
-            String openApiUrl) {
+        String bootUiVersion,
+        String applicationName,
+        String springBootVersion,
+        String javaVersion,
+        String javaVendor,
+        List<String> activeProfiles,
+        List<String> defaultProfiles,
+        String webApplicationType,
+        Integer serverPort,
+        Integer managementPort,
+        String contextPath,
+        Long startupTimeMillis,
+        ActivationStatus activation,
+        String openApiUrl) {
     }
 
-    /** Reason why BootUI activated, plus current safety settings. */
+    /**
+     * Reason why BootUI activated, plus current safety settings.
+     */
     public record ActivationStatus(
-            boolean enabled,
-            boolean localhostOnly,
-            String reason,
-            List<String> warnings) {
+        boolean enabled,
+        boolean localhostOnly,
+        String reason,
+        List<String> warnings) {
     }
 
-    /** Availability status for one BootUI sidebar panel. */
+    /**
+     * Availability status for one BootUI sidebar panel.
+     */
     public record PanelDto(
-            String id,
-            String title,
-            boolean available,
-            String unavailableReason) {
+        String id,
+        String title,
+        boolean available,
+        String unavailableReason) {
     }
 
     public record PanelsReport(List<PanelDto> panels) {
     }
 
-    /** Spring-managed bean summary. */
+    /**
+     * Spring-managed bean summary.
+     */
     public record BeanSummary(
-            String name,
-            String type,
-            String scope,
-            String resource,
-            List<String> dependencies,
-            List<String> aliases,
-            String classification) {
+        String name,
+        String type,
+        String scope,
+        String resource,
+        List<String> dependencies,
+        List<String> aliases,
+        String classification) {
     }
 
     public record BeanList(int total, List<BeanSummary> beans) {
     }
 
-    /** One auto-configuration evaluation entry. */
+    /**
+     * One auto-configuration evaluation entry.
+     */
     public record ConditionEntry(
-            String autoConfigurationClass,
-            String condition,
-            String message,
-            String outcome) {
+        String autoConfigurationClass,
+        String condition,
+        String message,
+        String outcome) {
     }
 
     public record ConditionsReport(
-            List<ConditionEntry> positiveMatches,
-            List<ConditionEntry> negativeMatches,
-            List<String> unconditionalClasses,
-            List<String> exclusions) {
+        List<ConditionEntry> positiveMatches,
+        List<ConditionEntry> negativeMatches,
+        List<String> unconditionalClasses,
+        List<String> exclusions) {
     }
 
-    /** A single configuration property value, with its source. */
+    /**
+     * A single configuration property value, with its source.
+     */
     public record ConfigPropertyDto(
-            String name,
-            Object value,
-            String source,
-            String origin,
-            boolean masked,
-            boolean override,
-            String description,
-            Object defaultValue) {
+        String name,
+        Object value,
+        String source,
+        String origin,
+        boolean masked,
+        boolean override,
+        String description,
+        Object defaultValue) {
     }
 
-    /** A known configuration property that can be used for new overrides. */
+    /**
+     * A known configuration property that can be used for new overrides.
+     */
     public record ConfigPropertySuggestionDto(
-            String name,
-            String type,
-            String description,
-            Object defaultValue) {
+        String name,
+        String type,
+        String description,
+        Object defaultValue) {
     }
 
     public record ConfigReport(
-            List<String> activeProfiles,
-            List<String> sources,
-            List<ConfigPropertyDto> properties,
-            List<ConfigPropertySuggestionDto> propertySuggestions) {
+        List<String> activeProfiles,
+        List<String> sources,
+        List<ConfigPropertyDto> properties,
+        List<ConfigPropertySuggestionDto> propertySuggestions) {
     }
 
-    /** Request to add/update a runtime property override. */
+    /**
+     * Request to add/update a runtime property override.
+     */
     public record ConfigOverrideRequest(String name, String value, Boolean persist) {
     }
 
-    /** Result of mutating a property override. */
+    /**
+     * Result of mutating a property override.
+     */
     public record ConfigOverrideResult(
-            String name,
-            String value,
-            String previousValue,
-            boolean persisted,
-            String message) {
+        String name,
+        String value,
+        String previousValue,
+        boolean persisted,
+        String message) {
     }
 
-    /** One HTTP mapping. */
+    /**
+     * One HTTP mapping.
+     */
     public record MappingDto(
-            String method,
-            String pattern,
-            String handler,
-            String produces,
-            String consumes) {
+        String method,
+        String pattern,
+        String handler,
+        String produces,
+        String consumes) {
     }
 
     public record MappingsReport(int total, List<MappingDto> mappings) {
     }
 
-    /** Request from the browser to probe a local HTTP endpoint. */
+    /**
+     * Request from the browser to probe a local HTTP endpoint.
+     */
     public record HttpProbeRequest(
-            String method,
-            String path,
-            String body,
-            Map<String, String> headers) {
+        String method,
+        String path,
+        String body,
+        Map<String, String> headers) {
     }
 
-    /** Result of an HTTP probe. */
+    /**
+     * Result of an HTTP probe.
+     */
     public record HttpProbeResponse(
-            int status,
-            String statusText,
-            Map<String, String> headers,
-            String body,
-            long durationMs,
-            String error) {
+        int status,
+        String statusText,
+        Map<String, String> headers,
+        String body,
+        long durationMs,
+        String error) {
     }
 
-    /** Health node, possibly nested. */
+    /**
+     * Health node, possibly nested.
+     */
     public record HealthNodeDto(
-            String name,
-            String status,
-            Object details,
-            List<HealthNodeDto> components) {
+        String name,
+        String status,
+        Object details,
+        List<HealthNodeDto> components) {
     }
 
     public record LoggerDto(
-            String name,
-            String configuredLevel,
-            String effectiveLevel) {
+        String name,
+        String configuredLevel,
+        String effectiveLevel) {
     }
 
     public record LoggersReport(List<String> availableLevels, List<LoggerDto> loggers) {
     }
 
-    /** A single log line for the live log tail. */
+    /**
+     * A single log line for the live log tail.
+     */
     public record LogLineDto(long timestamp, String level, String logger, String message, String thread) {
     }
 
-    /** DevTools-backed reload and restart status. */
+    /**
+     * DevTools-backed reload and restart status.
+     */
     public record DevToolsStatus(
-            boolean restartAvailable,
-            String restartUnavailableReason,
-            boolean restartPending,
-            boolean liveReloadAvailable,
-            Integer liveReloadPort,
-            String liveReloadUnavailableReason) {
+        boolean restartAvailable,
+        String restartUnavailableReason,
+        boolean restartPending,
+        boolean liveReloadAvailable,
+        Integer liveReloadPort,
+        String liveReloadUnavailableReason) {
     }
 
-    /** Request to restart the application through Spring Boot DevTools. */
+    /**
+     * Request to restart the application through Spring Boot DevTools.
+     */
     public record DevToolsRestartRequest(Boolean confirm) {
     }
 
-    /** Result of a DevTools reload or restart action. */
+    /**
+     * Result of a DevTools reload or restart action.
+     */
     public record DevToolsActionResult(String action, String status, String message) {
     }
 
     public record StartupStepDto(
-            long id,
-            Long parentId,
-            String name,
-            long durationMs,
-            List<TagDto> tags) {
+        long id,
+        Long parentId,
+        String name,
+        long durationMs,
+        List<TagDto> tags) {
     }
 
     public record TagDto(String key, String value) {
@@ -203,150 +237,180 @@ public final class BootUiDtos {
     public record StartupReport(List<StartupStepDto> steps) {
     }
 
-    /** Summary of a @Scheduled task registered in the application context. */
+    /**
+     * Summary of a @Scheduled task registered in the application context.
+     */
     public record ScheduledTaskDto(
-            String runnable,
-            String triggerType,
-            String expression,
-            Long initialDelayMs,
-            String timeUnit) {
+        String runnable,
+        String triggerType,
+        String expression,
+        Long initialDelayMs,
+        String timeUnit) {
     }
 
     public record ScheduledReport(boolean schedulingPresent, int total, List<ScheduledTaskDto> tasks) {
     }
 
-    /** Summary of one Spring Data repository discovered in the context. */
+    /**
+     * Summary of one Spring Data repository discovered in the context.
+     */
     public record RepositoryDto(
-            String beanName,
-            String repositoryInterface,
-            String domainType,
-            String idType,
-            String storeModule,
-            String customImplementation,
-            int queryMethodCount,
-            int fragmentCount) {
+        String beanName,
+        String repositoryInterface,
+        String domainType,
+        String idType,
+        String storeModule,
+        String customImplementation,
+        int queryMethodCount,
+        int fragmentCount) {
     }
 
-    /** Detail view of a Spring Data repository, including its query methods. */
+    /**
+     * Detail view of a Spring Data repository, including its query methods.
+     */
     public record RepositoryDetailDto(
-            String beanName,
-            String repositoryInterface,
-            String domainType,
-            String idType,
-            String storeModule,
-            String customImplementation,
-            List<RepositoryMethodDto> methods,
-            List<String> fragments) {
+        String beanName,
+        String repositoryInterface,
+        String domainType,
+        String idType,
+        String storeModule,
+        String customImplementation,
+        List<RepositoryMethodDto> methods,
+        List<String> fragments) {
     }
 
-    /** One query method on a Spring Data repository. */
+    /**
+     * One query method on a Spring Data repository.
+     */
     public record RepositoryMethodDto(
-            String name,
-            String signature,
-            String origin,
-            String query,
-            boolean nativeQuery,
-            String namedQuery) {
+        String name,
+        String signature,
+        String origin,
+        String query,
+        boolean nativeQuery,
+        String namedQuery) {
     }
 
     public record RepositoriesReport(
-            boolean springDataPresent,
-            int total,
-            List<RepositoryDto> repositories) {
+        boolean springDataPresent,
+        int total,
+        List<RepositoryDto> repositories) {
     }
 
-    /** Current Micrometer cache metrics for one cache, when cache meters are registered. */
+    /**
+     * Current Micrometer cache metrics for one cache, when cache meters are registered.
+     */
     public record CacheMetricsDto(
-            boolean available,
-            Double hits,
-            Double misses,
-            Double hitRatio,
-            Double puts,
-            Double evictions,
-            Double removals,
-            Double size) {
+        boolean available,
+        Double hits,
+        Double misses,
+        Double hitRatio,
+        Double puts,
+        Double evictions,
+        Double removals,
+        Double size) {
     }
 
-    /** One cache known to a Spring {@code CacheManager}. */
+    /**
+     * One cache known to a Spring {@code CacheManager}.
+     */
     public record CacheDto(
-            String managerName,
-            String name,
-            String nativeType,
-            Long size,
-            CacheMetricsDto metrics) {
+        String managerName,
+        String name,
+        String nativeType,
+        Long size,
+        CacheMetricsDto metrics) {
     }
 
-    /** One Spring {@code CacheManager} bean and its currently known caches. */
+    /**
+     * One Spring {@code CacheManager} bean and its currently known caches.
+     */
     public record CacheManagerDto(
-            String name,
-            String type,
-            boolean noOp,
-            List<CacheDto> caches) {
+        String name,
+        String type,
+        boolean noOp,
+        List<CacheDto> caches) {
     }
 
-    /** One cache annotation operation discovered on an application bean method. */
+    /**
+     * One cache annotation operation discovered on an application bean method.
+     */
     public record CacheOperationDto(
-            String beanName,
-            String targetType,
-            String method,
-            String operation,
-            List<String> caches,
-            String key,
-            String condition,
-            String unless,
-            boolean allEntries,
-            boolean beforeInvocation) {
+        String beanName,
+        String targetType,
+        String method,
+        String operation,
+        List<String> caches,
+        String key,
+        String condition,
+        String unless,
+        boolean allEntries,
+        boolean beforeInvocation) {
     }
 
-    /** Top-level Spring Cache report. */
+    /**
+     * Top-level Spring Cache report.
+     */
     public record CacheReport(
-            boolean cacheAvailable,
-            boolean clearEnabled,
-            int managerCount,
-            int cacheCount,
-            int operationCount,
-            List<CacheManagerDto> managers,
-            List<CacheOperationDto> operations,
-            List<String> warnings) {
+        boolean cacheAvailable,
+        boolean clearEnabled,
+        int managerCount,
+        int cacheCount,
+        int operationCount,
+        List<CacheManagerDto> managers,
+        List<CacheOperationDto> operations,
+        List<String> warnings) {
     }
 
-    /** Request to clear one cache or every known cache. */
+    /**
+     * Request to clear one cache or every known cache.
+     */
     public record CacheClearRequest(String managerName, String cacheName, Boolean all, Boolean confirm) {
     }
 
-    /** Result of a cache clear operation. */
+    /**
+     * Result of a cache clear operation.
+     */
     public record CacheClearResult(String status, String message, int clearedCaches, List<String> caches) {
     }
 
-    /** Properties contributed by a single profile-specific property source. */
+    /**
+     * Properties contributed by a single profile-specific property source.
+     */
     public record ProfileSourceDto(
-            String sourceName,
-            String profile,
-            List<ConfigPropertyDto> properties) {
+        String sourceName,
+        String profile,
+        List<ConfigPropertyDto> properties) {
     }
 
-    /** Profile-aware view of the active configuration. */
+    /**
+     * Profile-aware view of the active configuration.
+     */
     public record ProfilesReport(
-            List<String> activeProfiles,
-            List<ProfileSourceDto> profileSources) {
+        List<String> activeProfiles,
+        List<ProfileSourceDto> profileSources) {
     }
 
-    /** One Spring Security filter chain. */
+    /**
+     * One Spring Security filter chain.
+     */
     public record SecurityFilterChainDto(
-            int order,
-            String requestMatcher,
-            String requestMatcherType,
-            List<String> filters,
-            boolean csrfEnabled,
-            boolean corsEnabled,
-            boolean sessionManagementPresent) {
+        int order,
+        String requestMatcher,
+        String requestMatcherType,
+        List<String> filters,
+        boolean csrfEnabled,
+        boolean corsEnabled,
+        boolean sessionManagementPresent) {
     }
 
-    /** Authentication and user-details summary. */
+    /**
+     * Authentication and user-details summary.
+     */
     public record SecurityAuthDto(
-            List<String> authenticationProviderTypes,
-            List<String> userDetailsServiceTypes,
-            String configuredUsername) {
+        List<String> authenticationProviderTypes,
+        List<String> userDetailsServiceTypes,
+        String configuredUsername) {
     }
 
     /**
@@ -357,18 +421,20 @@ public final class BootUiDtos {
      * session-based matchers.</p>
      */
     public record SecurityExplainDto(
-            boolean matched,
-            boolean bestEffort,
-            Integer chainIndex,
-            String matcherDescription,
-            List<String> filters) {
+        boolean matched,
+        boolean bestEffort,
+        Integer chainIndex,
+        String matcherDescription,
+        List<String> filters) {
     }
 
-    /** Top-level Spring Security report. */
+    /**
+     * Top-level Spring Security report.
+     */
     public record SecurityReport(
-            boolean springSecurityPresent,
-            List<SecurityFilterChainDto> chains,
-            SecurityAuthDto auth) {
+        boolean springSecurityPresent,
+        List<SecurityFilterChainDto> chains,
+        SecurityAuthDto auth) {
     }
 
     /**
@@ -390,136 +456,166 @@ public final class BootUiDtos {
      * that did not include headers/session state.</p>
      */
     public record SecurityEndpointDto(
-            String method,
-            String pattern,
-            String handler,
-            boolean secured,
-            String rule,
-            List<String> roles,
-            Integer chainIndex,
-            String matcherDescription,
-            String description,
-            boolean bestEffort) {
+        String method,
+        String pattern,
+        String handler,
+        boolean secured,
+        String rule,
+        List<String> roles,
+        Integer chainIndex,
+        String matcherDescription,
+        String description,
+        boolean bestEffort) {
     }
 
-    /** Per-endpoint Spring Security authorization report. */
+    /**
+     * Per-endpoint Spring Security authorization report.
+     */
     public record SecurityEndpointsReport(
-            boolean springSecurityPresent,
-            boolean handlerMappingAvailable,
-            int total,
-            List<SecurityEndpointDto> endpoints) {
+        boolean springSecurityPresent,
+        boolean handlerMappingAvailable,
+        int total,
+        List<SecurityEndpointDto> endpoints) {
     }
 
-    /** One Micrometer meter exposed by the application's meter registry. */
+    /**
+     * One Micrometer meter exposed by the application's meter registry.
+     */
     public record MetricMeterDto(
-            String name,
-            String description,
-            String baseUnit,
-            String type,
-            List<MetricAvailableTagDto> availableTags) {
+        String name,
+        String description,
+        String baseUnit,
+        String type,
+        List<MetricAvailableTagDto> availableTags) {
     }
 
-    /** A concrete tag attached to a Micrometer meter sample. */
+    /**
+     * A concrete tag attached to a Micrometer meter sample.
+     */
     public record MetricTagDto(String key, String value) {
     }
 
-    /** Available values for one Micrometer meter tag key. */
+    /**
+     * Available values for one Micrometer meter tag key.
+     */
     public record MetricAvailableTagDto(String key, List<String> values, boolean truncated) {
     }
 
-    /** One measured statistic for a Micrometer meter. */
+    /**
+     * One measured statistic for a Micrometer meter.
+     */
     public record MetricMeasurementDto(String statistic, double value) {
     }
 
-    /** One concrete tagged Micrometer meter sample. */
+    /**
+     * One concrete tagged Micrometer meter sample.
+     */
     public record MetricSampleDto(List<MetricTagDto> tags, List<MetricMeasurementDto> measurements) {
     }
 
-    /** Browseable list of Micrometer meters. */
+    /**
+     * Browseable list of Micrometer meters.
+     */
     public record MetricsReport(boolean metricsAvailable, int total, List<MetricMeterDto> meters) {
     }
 
-    /** Detail view for one Micrometer meter name, including current values. */
+    /**
+     * Detail view for one Micrometer meter name, including current values.
+     */
     public record MetricDetailDto(
-            boolean metricsAvailable,
-            String name,
-            String description,
-            String baseUnit,
-            String type,
-            List<MetricMeasurementDto> measurements,
-            List<MetricAvailableTagDto> availableTags,
-            List<MetricSampleDto> samples) {
+        boolean metricsAvailable,
+        String name,
+        String description,
+        String baseUnit,
+        String type,
+        List<MetricMeasurementDto> measurements,
+        List<MetricAvailableTagDto> availableTags,
+        List<MetricSampleDto> samples) {
     }
 
-    /** One Maven dependency discovered on the running application's classpath. */
+    /**
+     * One Maven dependency discovered on the running application's classpath.
+     */
     public record DependencyDto(
-            String groupId,
-            String artifactId,
-            String version,
-            String packageName,
-            String source,
-            int vulnerabilityCount,
-            String highestSeverity,
-            List<DependencyVulnerabilityDto> vulnerabilities) {
+        String groupId,
+        String artifactId,
+        String version,
+        String packageName,
+        String source,
+        int vulnerabilityCount,
+        String highestSeverity,
+        List<DependencyVulnerabilityDto> vulnerabilities) {
     }
 
-    /** One vulnerability advisory affecting a dependency. */
+    /**
+     * One vulnerability advisory affecting a dependency.
+     */
     public record DependencyVulnerabilityDto(
-            String id,
-            String summary,
-            String details,
-            String severity,
-            Double score,
-            List<String> aliases,
-            List<String> references,
-            List<String> fixedVersions) {
+        String id,
+        String summary,
+        String details,
+        String severity,
+        Double score,
+        List<String> aliases,
+        List<String> references,
+        List<String> fixedVersions) {
     }
 
-    /** Count of vulnerability advisories by normalized severity. */
+    /**
+     * Count of vulnerability advisories by normalized severity.
+     */
     public record DependencySeverityCountDto(String severity, int count) {
     }
 
-    /** Metadata about the dependency vulnerability scan. */
+    /**
+     * Metadata about the dependency vulnerability scan.
+     */
     public record DependencyScanStatusDto(
-            String scanner,
-            String status,
-            String message,
-            Long scannedAt,
-            int packagesScanned,
-            int vulnerabilitiesFound) {
+        String scanner,
+        String status,
+        String message,
+        Long scannedAt,
+        int packagesScanned,
+        int vulnerabilitiesFound) {
     }
 
-    /** Top-level report for dependency inventory and vulnerability findings. */
+    /**
+     * Top-level report for dependency inventory and vulnerability findings.
+     */
     public record DependenciesReport(
-            boolean scanningEnabled,
-            int total,
-            int vulnerable,
-            List<DependencySeverityCountDto> severityCounts,
-            DependencyScanStatusDto scan,
-            List<DependencyDto> dependencies) {
+        boolean scanningEnabled,
+        int total,
+        int vulnerable,
+        List<DependencySeverityCountDto> severityCounts,
+        DependencyScanStatusDto scan,
+        List<DependencyDto> dependencies) {
 
         public String status() {
             return scan == null ? null : scan.status();
         }
     }
 
-    /** A single JVM memory pool (heap, non-heap, or GC pool). */
+    /**
+     * A single JVM memory pool (heap, non-heap, or GC pool).
+     */
     public record MemoryPoolDto(
-            String name,
-            long usedBytes,
-            long committedBytes,
-            long maxBytes,
-            int usedPercent) {
+        String name,
+        long usedBytes,
+        long committedBytes,
+        long maxBytes,
+        int usedPercent) {
     }
 
-    /** Snapshot of JVM memory metrics. */
+    /**
+     * Snapshot of JVM memory metrics.
+     */
     public record MemoryReport(
-            MemoryPoolDto heap,
-            MemoryPoolDto nonHeap,
-            List<MemoryPoolDto> pools,
-            List<String> jvmInputArguments,
-            String suggestedJvmOptions,
-            MemoryCalculationDto calculation) {
+        MemoryPoolDto heap,
+        MemoryPoolDto nonHeap,
+        List<MemoryPoolDto> pools,
+        List<String> jvmInputArguments,
+        String suggestedJvmOptions,
+        MemoryCalculationDto calculation) {
     }
 
     /**
@@ -532,209 +628,245 @@ public final class BootUiDtos {
      * with a safety factor instead of the buildpack's build-time JAR-entry estimate.
      */
     public record MemoryCalculationDto(
-            long totalMemoryBytes,
-            long heapBytes,
-            long metaspaceBytes,
-            long codeCacheBytes,
-            long directMemoryBytes,
-            long stackBytesPerThread,
-            long stackBytesTotal,
-            long headRoomBytes,
-            long fixedRegionsBytes,
-            int threadCount,
-            int loadedClasses,
-            int liveThreadCount,
-            int liveLoadedClassCount,
-            int headRoomPercent,
-            String jvmOptions,
-            boolean valid,
-            String error) {
+        long totalMemoryBytes,
+        long heapBytes,
+        long metaspaceBytes,
+        long codeCacheBytes,
+        long directMemoryBytes,
+        long stackBytesPerThread,
+        long stackBytesTotal,
+        long headRoomBytes,
+        long fixedRegionsBytes,
+        int threadCount,
+        int loadedClasses,
+        int liveThreadCount,
+        int liveLoadedClassCount,
+        int headRoomPercent,
+        String jvmOptions,
+        boolean valid,
+        String error) {
     }
 
-    /** A host/container port mapping exposed by a local development service. */
+    /**
+     * A host/container port mapping exposed by a local development service.
+     */
     public record DevServicePortDto(
-            Integer containerPort,
-            Integer hostPort,
-            String protocol) {
+        Integer containerPort,
+        Integer hostPort,
+        String protocol) {
     }
 
-    /** One Docker Compose, Testcontainers, or service-connection entry. */
+    /**
+     * One Docker Compose, Testcontainers, or service-connection entry.
+     */
     public record DevServiceDto(
-            String id,
-            String name,
-            String type,
-            String source,
-            String image,
-            String status,
-            String host,
-            List<DevServicePortDto> ports,
-            Map<String, Object> connectionDetails,
-            boolean restartable,
-            boolean logsAvailable,
-            String note) {
+        String id,
+        String name,
+        String type,
+        String source,
+        String image,
+        String status,
+        String host,
+        List<DevServicePortDto> ports,
+        Map<String, Object> connectionDetails,
+        boolean restartable,
+        boolean logsAvailable,
+        String note) {
     }
 
-    /** Top-level report for local development services. */
+    /**
+     * Top-level report for local development services.
+     */
     public record DevServicesReport(
-            boolean dockerComposePresent,
-            boolean testcontainersPresent,
-            long snapshotTimestamp,
-            int total,
-            List<DevServiceDto> services) {
+        boolean dockerComposePresent,
+        boolean testcontainersPresent,
+        long snapshotTimestamp,
+        int total,
+        List<DevServiceDto> services) {
     }
 
-    /** Tail of logs for one local development service. */
+    /**
+     * Tail of logs for one local development service.
+     */
     public record DevServiceLogReport(
-            String id,
-            String logs,
-            boolean truncated,
-            int maxBytes) {
+        String id,
+        String logs,
+        boolean truncated,
+        int maxBytes) {
     }
 
-    /** Result of restarting a local development service. */
+    /**
+     * Result of restarting a local development service.
+     */
     public record DevServiceRestartResult(
-            String id,
-            String status,
-            String message) {
+        String id,
+        String status,
+        String message) {
     }
 
     // ----- OTLP traces + AI panel ----------------------------------------------------------
 
-    /** Summary describing a span attribute, normalized to a JSON-friendly value type. */
+    /**
+     * Summary describing a span attribute, normalized to a JSON-friendly value type.
+     */
     public record SpanAttributeDto(
-            String key,
-            String type,
-            Object value) {
+        String key,
+        String type,
+        Object value) {
     }
 
-    /** Discrete event recorded inside a span. */
+    /**
+     * Discrete event recorded inside a span.
+     */
     public record SpanEventDto(
-            String name,
-            long timeOffsetNanos,
-            List<SpanAttributeDto> attributes) {
+        String name,
+        long timeOffsetNanos,
+        List<SpanAttributeDto> attributes) {
     }
 
-    /** Detailed span record returned by the Traces detail endpoint. */
+    /**
+     * Detailed span record returned by the Traces detail endpoint.
+     */
     public record SpanDto(
-            String traceId,
-            String spanId,
-            String parentSpanId,
-            String name,
-            String kind,
-            String serviceName,
-            String scope,
-            long startEpochNanos,
-            long endEpochNanos,
-            long durationNanos,
-            String statusCode,
-            String statusMessage,
-            List<SpanAttributeDto> attributes,
-            List<SpanEventDto> events) {
+        String traceId,
+        String spanId,
+        String parentSpanId,
+        String name,
+        String kind,
+        String serviceName,
+        String scope,
+        long startEpochNanos,
+        long endEpochNanos,
+        long durationNanos,
+        String statusCode,
+        String statusMessage,
+        List<SpanAttributeDto> attributes,
+        List<SpanEventDto> events) {
     }
 
-    /** Summary used by the Traces list view. */
+    /**
+     * Summary used by the Traces list view.
+     */
     public record TraceSummaryDto(
-            String traceId,
-            String rootSpanName,
-            List<String> services,
-            long startEpochNanos,
-            long endEpochNanos,
-            long durationNanos,
-            int spanCount,
-            boolean hasError,
-            boolean hasAi) {
+        String traceId,
+        String rootSpanName,
+        List<String> services,
+        long startEpochNanos,
+        long endEpochNanos,
+        long durationNanos,
+        int spanCount,
+        boolean hasError,
+        boolean hasAi) {
     }
 
-    /** Top-level Traces list payload. */
+    /**
+     * Top-level Traces list payload.
+     */
     public record TracesReport(
-            boolean enabled,
-            int retained,
-            int capacity,
-            List<TraceSummaryDto> traces) {
+        boolean enabled,
+        int retained,
+        int capacity,
+        List<TraceSummaryDto> traces) {
     }
 
-    /** Top-level Trace detail payload. */
+    /**
+     * Top-level Trace detail payload.
+     */
     public record TraceDetailDto(
-            String traceId,
-            List<SpanDto> spans) {
+        String traceId,
+        List<SpanDto> spans) {
     }
 
-    /** Summary of a single AI chat completion span. */
+    /**
+     * Summary of a single AI chat completion span.
+     */
     public record AiChatSummaryDto(
-            String traceId,
-            String spanId,
-            long startEpochNanos,
-            long durationNanos,
-            String provider,
-            String requestModel,
-            String responseModel,
-            Long inputTokens,
-            Long outputTokens,
-            Long totalTokens,
-            String finishReason,
-            String statusCode,
-            String operation,
-            int toolCallCount,
-            int vectorOperationCount) {
+        String traceId,
+        String spanId,
+        long startEpochNanos,
+        long durationNanos,
+        String provider,
+        String requestModel,
+        String responseModel,
+        Long inputTokens,
+        Long outputTokens,
+        Long totalTokens,
+        String finishReason,
+        String statusCode,
+        String operation,
+        int toolCallCount,
+        int vectorOperationCount) {
     }
 
-    /** Tool call (function call) emitted by Spring AI advisors. */
+    /**
+     * Tool call (function call) emitted by Spring AI advisors.
+     */
     public record AiToolCallDto(
-            String spanId,
-            String name,
-            long startEpochNanos,
-            long durationNanos,
-            String statusCode) {
+        String spanId,
+        String name,
+        long startEpochNanos,
+        long durationNanos,
+        String statusCode) {
     }
 
-    /** Vector store operation linked to the same trace. */
+    /**
+     * Vector store operation linked to the same trace.
+     */
     public record AiVectorOpDto(
-            String spanId,
-            String operation,
-            String collectionName,
-            long startEpochNanos,
-            long durationNanos,
-            String statusCode) {
+        String spanId,
+        String operation,
+        String collectionName,
+        long startEpochNanos,
+        long durationNanos,
+        String statusCode) {
     }
 
-    /** Detail of a single AI chat span, including linked tool calls and vector operations from the same trace. */
+    /**
+     * Detail of a single AI chat span, including linked tool calls and vector operations from the same trace.
+     */
     public record AiChatDetailDto(
-            AiChatSummaryDto summary,
-            List<AiToolCallDto> toolCalls,
-            List<AiVectorOpDto> vectorOperations,
-            List<SpanAttributeDto> attributes,
-            List<SpanEventDto> events,
-            boolean contentCaptured,
-            String contentBanner) {
+        AiChatSummaryDto summary,
+        List<AiToolCallDto> toolCalls,
+        List<AiVectorOpDto> vectorOperations,
+        List<SpanAttributeDto> attributes,
+        List<SpanEventDto> events,
+        boolean contentCaptured,
+        String contentBanner) {
     }
 
-    /** Per-minute token usage bucket. */
+    /**
+     * Per-minute token usage bucket.
+     */
     public record AiTokenBucketDto(
-            long epochMinute,
-            long inputTokens,
-            long outputTokens,
-            int callCount) {
+        long epochMinute,
+        long inputTokens,
+        long outputTokens,
+        int callCount) {
     }
 
-    /** Token usage time series payload. */
+    /**
+     * Token usage time series payload.
+     */
     public record AiTokenSeriesDto(
-            int minutes,
-            List<AiTokenBucketDto> buckets) {
+        int minutes,
+        List<AiTokenBucketDto> buckets) {
     }
 
-    /** AI Usage overview payload. */
+    /**
+     * AI Usage overview payload.
+     */
     public record AiOverviewDto(
-            boolean enabled,
-            boolean springAiDetected,
-            int totalChats,
-            long totalInputTokens,
-            long totalOutputTokens,
-            Map<String, Long> tokensByModel,
-            Map<String, Integer> callsByModel,
-            int toolCallCount,
-            int vectorOperationCount,
-            int embeddingCount,
-            List<AiChatSummaryDto> recent,
-            String contentBanner) {
+        boolean enabled,
+        boolean springAiDetected,
+        int totalChats,
+        long totalInputTokens,
+        long totalOutputTokens,
+        Map<String, Long> tokensByModel,
+        Map<String, Integer> callsByModel,
+        int toolCallCount,
+        int vectorOperationCount,
+        int embeddingCount,
+        List<AiChatSummaryDto> recent,
+        String contentBanner) {
     }
 }

@@ -1,5 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.slf4j.ILoggerFactory;
+import org.slf4j.LoggerFactory;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -7,16 +18,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import java.util.List;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
-import org.slf4j.ILoggerFactory;
-import org.slf4j.LoggerFactory;
-import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * Tests for {@link LogTailController} and {@link BootUiLogAppender}.
@@ -28,13 +29,36 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class LogTailControllerTests {
 
+    /**
+     * Creates a fresh, started {@link BootUiLogAppender} that is NOT installed in Logback.
+     */
+    private static BootUiLogAppender freshAppender() {
+        ILoggerFactory factory = LoggerFactory.getILoggerFactory();
+        LoggerContext context = (LoggerContext) factory;
+        BootUiLogAppender appender = new BootUiLogAppender();
+        appender.setContext(context);
+        appender.setName("TEST_APPENDER_" + System.nanoTime());
+        appender.start();
+        return appender;
+    }
+
+    // ── ring-buffer behaviour ─────────────────────────────────────────────────
+
+    private static ILoggingEvent event(Level level, String logger, String message) {
+        ILoggingEvent evt = mock(ILoggingEvent.class);
+        when(evt.getTimeStamp()).thenReturn(System.currentTimeMillis());
+        when(evt.getLevel()).thenReturn(level);
+        when(evt.getLoggerName()).thenReturn(logger);
+        when(evt.getFormattedMessage()).thenReturn(message);
+        when(evt.getThreadName()).thenReturn("test-thread");
+        return evt;
+    }
+
     @AfterEach
     void cleanupInstalledAppender() {
         // The installed appender is re-used across tests; we don't uninstall it because
         // BootUiLogAppender.install() is idempotent, and the ring buffer is bounded.
     }
-
-    // ── ring-buffer behaviour ─────────────────────────────────────────────────
 
     @Test
     void ringBufferCapIs500Lines() {
@@ -46,6 +70,8 @@ class LogTailControllerTests {
 
         assertThat(appender.getRecentLines()).hasSize(500);
     }
+
+    // ── message shaping ───────────────────────────────────────────────────────
 
     @Test
     void overflowDropsOldestLine() {
@@ -80,7 +106,7 @@ class LogTailControllerTests {
         assertThat(lines.get(499).message()).isEqualTo("msg-599");
     }
 
-    // ── message shaping ───────────────────────────────────────────────────────
+    // ── subscription ──────────────────────────────────────────────────────────
 
     @Test
     void appendedEventFieldsMappedCorrectly() {
@@ -104,6 +130,8 @@ class LogTailControllerTests {
         assertThat(line.thread()).isEqualTo("worker-3");
     }
 
+    // ── controller endpoint ───────────────────────────────────────────────────
+
     @Test
     void levelStringMatchesLogbackLevelToString() {
         BootUiLogAppender appender = freshAppender();
@@ -113,12 +141,10 @@ class LogTailControllerTests {
         }
 
         List<String> levels = appender.getRecentLines().stream()
-                .map(BootUiLogAppender.LogLineDto::level)
-                .toList();
+            .map(BootUiLogAppender.LogLineDto::level)
+            .toList();
         assertThat(levels).containsExactly("TRACE", "DEBUG", "INFO", "WARN", "ERROR");
     }
-
-    // ── subscription ──────────────────────────────────────────────────────────
 
     @Test
     void subscriberReceivesNewEventsAndCanUnsubscribe() {
@@ -137,7 +163,7 @@ class LogTailControllerTests {
         assertThat(received.get(1).message()).isEqualTo("event-b");
     }
 
-    // ── controller endpoint ───────────────────────────────────────────────────
+    // ── helpers ───────────────────────────────────────────────────────────────
 
     @Test
     void recentEndpointReturnsTailFromInstalledAppender() throws Exception {
@@ -150,10 +176,10 @@ class LogTailControllerTests {
         MockMvc mvc = standaloneSetup(new LogTailController()).build();
 
         mvc.perform(get("/bootui/api/logs/recent"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("ERROR"))
-                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger")
-                        .value("io.github.jdubois.Test"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("ERROR"))
+            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger")
+                .value("io.github.jdubois.Test"));
     }
 
     @Test
@@ -173,33 +199,10 @@ class LogTailControllerTests {
         MockMvc mvc = standaloneSetup(new LogTailController()).build();
 
         mvc.perform(get("/bootui/api/logs/recent"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].timestamp").value(ts))
-                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("DEBUG"))
-                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger").value("shape.Logger"))
-                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].thread").value("shape-thread"));
-    }
-
-    // ── helpers ───────────────────────────────────────────────────────────────
-
-    /** Creates a fresh, started {@link BootUiLogAppender} that is NOT installed in Logback. */
-    private static BootUiLogAppender freshAppender() {
-        ILoggerFactory factory = LoggerFactory.getILoggerFactory();
-        LoggerContext context = (LoggerContext) factory;
-        BootUiLogAppender appender = new BootUiLogAppender();
-        appender.setContext(context);
-        appender.setName("TEST_APPENDER_" + System.nanoTime());
-        appender.start();
-        return appender;
-    }
-
-    private static ILoggingEvent event(Level level, String logger, String message) {
-        ILoggingEvent evt = mock(ILoggingEvent.class);
-        when(evt.getTimeStamp()).thenReturn(System.currentTimeMillis());
-        when(evt.getLevel()).thenReturn(level);
-        when(evt.getLoggerName()).thenReturn(logger);
-        when(evt.getFormattedMessage()).thenReturn(message);
-        when(evt.getThreadName()).thenReturn("test-thread");
-        return evt;
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].timestamp").value(ts))
+            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("DEBUG"))
+            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger").value("shape.Logger"))
+            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].thread").value("shape-thread"));
     }
 }

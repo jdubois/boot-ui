@@ -1,18 +1,19 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.Map;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class ProfileControllerTests {
 
@@ -24,10 +25,10 @@ class ProfileControllerTests {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("dev");
         environment.getPropertySources().addFirst(new MapPropertySource(
-                "application-dev.properties",
-                Map.of(
-                        "sample.name", "demo",
-                        "sample.password", "secret")));
+            "application-dev.properties",
+            Map.of(
+                "sample.name", "demo",
+                "sample.password", "secret")));
         properties = new BootUiProperties();
         mvc = standaloneSetup(new ProfileController(environment, properties)).build();
     }
@@ -35,13 +36,13 @@ class ProfileControllerTests {
     @Test
     void profilesMaskSecretValuesByDefault() throws Exception {
         mvc.perform(get("/bootui/api/profiles"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.activeProfiles[0]").value("dev"))
-                .andExpect(jsonPath("$.profileSources[0].profile").value("dev"))
-                .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].masked")
-                        .value(true))
-                .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].value")
-                        .value("******"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.activeProfiles[0]").value("dev"))
+            .andExpect(jsonPath("$.profileSources[0].profile").value("dev"))
+            .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].masked")
+                .value(true))
+            .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].value")
+                .value("******"));
     }
 
     @Test
@@ -49,11 +50,11 @@ class ProfileControllerTests {
         properties.setExposeValues(ValueExposure.METADATA_ONLY);
 
         mvc.perform(get("/bootui/api/profiles"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.name')].value[0]")
-                        .doesNotExist())
-                .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].masked")
-                        .value(false));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.name')].value[0]")
+                .doesNotExist())
+            .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].masked")
+                .value(false));
     }
 
     @Test
@@ -61,10 +62,10 @@ class ProfileControllerTests {
         properties.setExposeValues(ValueExposure.FULL);
 
         mvc.perform(get("/bootui/api/profiles"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].masked")
-                        .value(false))
-                .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].value")
-                        .value("secret"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].masked")
+                .value(false))
+            .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='sample.password')].value")
+                .value("secret"));
     }
 }

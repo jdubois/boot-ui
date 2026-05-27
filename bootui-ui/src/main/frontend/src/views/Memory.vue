@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 
 const data = ref(null)
 const error = ref(null)
@@ -69,7 +69,12 @@ function progressClass(pct) {
 
 function lastUpdatedText() {
   if (!lastUpdated.value) return ''
-  return lastUpdated.value.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return lastUpdated.value.toLocaleTimeString([], {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 }
 
 async function copyOptions() {
@@ -77,7 +82,9 @@ async function copyOptions() {
   try {
     await navigator.clipboard.writeText(data.value.suggestedJvmOptions)
     copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
+    setTimeout(() => {
+      copied.value = false
+    }, 2000)
   } catch {
     const ta = document.createElement('textarea')
     ta.value = data.value.suggestedJvmOptions
@@ -86,7 +93,9 @@ async function copyOptions() {
     document.execCommand('copy')
     document.body.removeChild(ta)
     copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
+    setTimeout(() => {
+      copied.value = false
+    }, 2000)
   }
 }
 
@@ -94,12 +103,12 @@ const breakdown = computed(() => {
   const c = data.value?.calculation
   if (!c) return []
   const segments = [
-    { key: 'heap', label: 'Heap', bytes: c.heapBytes, color: '#198754' },
-    { key: 'metaspace', label: 'Metaspace', bytes: c.metaspaceBytes, color: '#0d6efd' },
-    { key: 'codeCache', label: 'Code cache', bytes: c.codeCacheBytes, color: '#6610f2' },
-    { key: 'directMemory', label: 'Direct', bytes: c.directMemoryBytes, color: '#fd7e14' },
-    { key: 'stacks', label: 'Thread stacks', bytes: c.stackBytesTotal, color: '#ffc107' },
-    { key: 'headroom', label: 'Headroom', bytes: c.headRoomBytes, color: '#6c757d' }
+    {key: 'heap', label: 'Heap', bytes: c.heapBytes, color: '#198754'},
+    {key: 'metaspace', label: 'Metaspace', bytes: c.metaspaceBytes, color: '#0d6efd'},
+    {key: 'codeCache', label: 'Code cache', bytes: c.codeCacheBytes, color: '#6610f2'},
+    {key: 'directMemory', label: 'Direct', bytes: c.directMemoryBytes, color: '#fd7e14'},
+    {key: 'stacks', label: 'Thread stacks', bytes: c.stackBytesTotal, color: '#ffc107'},
+    {key: 'headroom', label: 'Headroom', bytes: c.headRoomBytes, color: '#6c757d'}
   ]
   const total = segments.reduce((sum, s) => sum + Math.max(0, s.bytes || 0), 0)
   return segments.map(s => ({
@@ -133,7 +142,7 @@ onBeforeUnmount(() => {
   <div>
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h2 class="mb-0"><i class="bi bi-memory me-2"></i>Memory</h2>
-      <span class="text-muted small" v-if="lastUpdated">
+      <span v-if="lastUpdated" class="text-muted small">
         <i class="bi bi-arrow-repeat me-1"></i>Updated {{ lastUpdatedText() }} · auto-refreshes every 5s
       </span>
     </div>
@@ -142,7 +151,7 @@ onBeforeUnmount(() => {
 
     <template v-if="data">
       <!-- Memory Calculator Panel -->
-      <div class="card mb-4 border-primary" v-if="data.calculation">
+      <div v-if="data.calculation" class="card mb-4 border-primary">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
           <span><i class="bi bi-calculator me-2"></i>JVM memory calculator</span>
           <small class="text-white-50">Plan a container memory limit</small>
@@ -159,16 +168,19 @@ onBeforeUnmount(() => {
             <div class="col-md-5">
               <label class="form-label small fw-semibold">Total container memory (MB)</label>
               <div class="input-group input-group-sm">
-                <button type="button" class="btn btn-outline-secondary" @click="stepTotal(-64)" aria-label="Decrease">−</button>
+                <button aria-label="Decrease" class="btn btn-outline-secondary" type="button" @click="stepTotal(-64)">
+                  −
+                </button>
                 <input
-                  type="number"
-                  class="form-control text-center"
                   v-model.number="totalMemoryMb"
-                  min="128"
+                  class="form-control text-center"
                   max="8192"
+                  min="128"
                   step="64"
+                  type="number"
                 />
-                <button type="button" class="btn btn-outline-secondary" @click="stepTotal(64)" aria-label="Increase">+</button>
+                <button aria-label="Increase" class="btn btn-outline-secondary" type="button" @click="stepTotal(64)">+
+                </button>
                 <span class="input-group-text">MB</span>
               </div>
             </div>
@@ -180,23 +192,23 @@ onBeforeUnmount(() => {
                 </span>
               </label>
               <input
-                type="number"
-                class="form-control form-control-sm"
                 v-model.number="threadCount"
-                min="1"
+                class="form-control form-control-sm"
                 max="10000"
+                min="1"
                 step="10"
+                type="number"
               />
             </div>
             <div class="col-md-3">
               <label class="form-label small fw-semibold">Headroom (%)</label>
               <input
-                type="number"
-                class="form-control form-control-sm"
                 v-model.number="headRoomPercent"
-                min="0"
+                class="form-control form-control-sm"
                 max="30"
+                min="0"
                 step="1"
+                type="number"
               />
             </div>
           </div>
@@ -206,20 +218,20 @@ onBeforeUnmount(() => {
           </div>
 
           <template v-else>
-            <div class="progress breakdown-bar mb-2" style="height: 24px;" role="img" aria-label="Memory breakdown">
+            <div aria-label="Memory breakdown" class="progress breakdown-bar mb-2" role="img" style="height: 24px;">
               <div
                 v-for="seg in breakdown"
                 :key="seg.key"
-                class="progress-bar"
                 :style="{ width: seg.percent + '%', backgroundColor: seg.color }"
                 :title="seg.label + ': ' + formatBytes(seg.bytes)"
+                class="progress-bar"
               >
                 <span v-if="seg.percent >= 8" class="small">{{ seg.label }}</span>
               </div>
             </div>
             <div class="d-flex flex-wrap gap-3 small mb-2">
               <div v-for="seg in breakdown" :key="'leg-' + seg.key" class="d-flex align-items-center">
-                <span class="legend-swatch me-1" :style="{ backgroundColor: seg.color }"></span>
+                <span :style="{ backgroundColor: seg.color }" class="legend-swatch me-1"></span>
                 <span class="text-muted me-1">{{ seg.label }}:</span>
                 <span class="fw-semibold">{{ formatBytes(seg.bytes) }}</span>
               </div>
@@ -237,10 +249,10 @@ onBeforeUnmount(() => {
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
           <span><i class="bi bi-rocket-takeoff me-2"></i>Recommended JVM Options</span>
           <button
-            class="btn btn-sm btn-light"
-            @click="copyOptions"
             :class="{ 'btn-success': copied }"
             :disabled="!data.calculation || !data.calculation.valid"
+            class="btn btn-sm btn-light"
+            @click="copyOptions"
           >
             <i :class="['bi', copied ? 'bi-check-lg' : 'bi-clipboard', 'me-1']"></i>
             {{ copied ? 'Copied!' : 'Copy' }}
@@ -252,8 +264,8 @@ onBeforeUnmount(() => {
             GC picked automatically (G1 below 4 GB, ZGC above).
           </p>
           <pre
-            class="bg-dark text-light rounded p-3 mb-0 options-box"
             :class="{ 'opacity-50': data.calculation && !data.calculation.valid }"
+            class="bg-dark text-light rounded p-3 mb-0 options-box"
           ><code>{{ data.suggestedJvmOptions || '—' }}</code></pre>
           <div class="mt-2">
             <span class="badge text-bg-secondary me-1"><i class="bi bi-shield-check me-1"></i>OOM protection</span>
@@ -276,9 +288,9 @@ onBeforeUnmount(() => {
                 <span class="fw-semibold">{{ formatBytes(data.heap.usedBytes) }}</span>
               </div>
               <div class="progress mb-3" style="height: 10px;">
-                <div class="progress-bar" :class="progressClass(data.heap.usedPercent)"
-                     :style="{ width: data.heap.usedPercent + '%' }" role="progressbar"
-                     :aria-valuenow="data.heap.usedPercent" aria-valuemin="0" aria-valuemax="100"></div>
+                <div :aria-valuenow="data.heap.usedPercent" :class="progressClass(data.heap.usedPercent)"
+                     :style="{ width: data.heap.usedPercent + '%' }" aria-valuemax="100"
+                     aria-valuemin="0" class="progress-bar" role="progressbar"></div>
               </div>
               <div class="row text-center g-2">
                 <div class="col-4">
@@ -313,9 +325,9 @@ onBeforeUnmount(() => {
                 <span class="fw-semibold">{{ formatBytes(data.nonHeap.usedBytes) }}</span>
               </div>
               <div class="progress mb-3" style="height: 10px;">
-                <div class="progress-bar bg-info"
-                     :style="{ width: Math.min(data.nonHeap.usedPercent, 100) + '%' }" role="progressbar"
-                     :aria-valuenow="data.nonHeap.usedPercent" aria-valuemin="0" aria-valuemax="100"></div>
+                <div :aria-valuenow="data.nonHeap.usedPercent"
+                     :style="{ width: Math.min(data.nonHeap.usedPercent, 100) + '%' }" aria-valuemax="100"
+                     aria-valuemin="0" class="progress-bar bg-info" role="progressbar"></div>
               </div>
               <div class="row text-center g-2">
                 <div class="col-4">
@@ -328,7 +340,9 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="col-4">
                   <div class="text-muted small">Max</div>
-                  <div class="fw-semibold">{{ data.nonHeap.maxBytes < 0 ? 'Unlimited' : formatBytes(data.nonHeap.maxBytes) }}</div>
+                  <div class="fw-semibold">
+                    {{ data.nonHeap.maxBytes < 0 ? 'Unlimited' : formatBytes(data.nonHeap.maxBytes) }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -345,48 +359,49 @@ onBeforeUnmount(() => {
         <div class="table-responsive">
           <table class="table table-sm table-hover mb-0">
             <thead class="table-light">
-              <tr>
-                <th>Pool</th>
-                <th class="text-end">Used</th>
-                <th class="text-end">Committed</th>
-                <th class="text-end">Max</th>
-                <th style="width:140px">Usage</th>
-              </tr>
+            <tr>
+              <th>Pool</th>
+              <th class="text-end">Used</th>
+              <th class="text-end">Committed</th>
+              <th class="text-end">Max</th>
+              <th style="width:140px">Usage</th>
+            </tr>
             </thead>
             <tbody>
-              <tr v-for="pool in data.pools" :key="pool.name">
-                <td><code>{{ pool.name }}</code></td>
-                <td class="text-end">{{ formatBytes(pool.usedBytes) }}</td>
-                <td class="text-end">{{ formatBytes(pool.committedBytes) }}</td>
-                <td class="text-end">{{ pool.maxBytes < 0 ? '∞' : formatBytes(pool.maxBytes) }}</td>
-                <td>
-                  <div class="d-flex align-items-center gap-2">
-                    <div class="progress flex-grow-1" style="height: 6px;">
-                      <div class="progress-bar" :class="progressClass(pool.usedPercent)"
-                           :style="{ width: Math.min(pool.usedPercent, 100) + '%' }" role="progressbar"></div>
-                    </div>
-                    <span class="text-muted small" style="width: 32px; text-align: right;">{{ pool.usedPercent }}%</span>
+            <tr v-for="pool in data.pools" :key="pool.name">
+              <td><code>{{ pool.name }}</code></td>
+              <td class="text-end">{{ formatBytes(pool.usedBytes) }}</td>
+              <td class="text-end">{{ formatBytes(pool.committedBytes) }}</td>
+              <td class="text-end">{{ pool.maxBytes < 0 ? '∞' : formatBytes(pool.maxBytes) }}</td>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="progress flex-grow-1" style="height: 6px;">
+                    <div :class="progressClass(pool.usedPercent)" :style="{ width: Math.min(pool.usedPercent, 100) + '%' }"
+                         class="progress-bar" role="progressbar"></div>
                   </div>
-                </td>
-              </tr>
+                  <span class="text-muted small" style="width: 32px; text-align: right;">{{ pool.usedPercent }}%</span>
+                </div>
+              </td>
+            </tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <!-- Current JVM Arguments -->
-      <div class="card" v-if="data.jvmInputArguments && data.jvmInputArguments.length">
+      <div v-if="data.jvmInputArguments && data.jvmInputArguments.length" class="card">
         <div class="card-header"><i class="bi bi-terminal me-2"></i>Current JVM Arguments</div>
         <div class="card-body">
-          <div v-if="data.jvmInputArguments.length === 0" class="text-muted small">No JVM arguments passed at startup.</div>
-          <ul class="list-unstyled mb-0" v-else>
+          <div v-if="data.jvmInputArguments.length === 0" class="text-muted small">No JVM arguments passed at startup.
+          </div>
+          <ul v-else class="list-unstyled mb-0">
             <li v-for="arg in data.jvmInputArguments" :key="arg" class="mb-1">
               <code class="text-secondary">{{ arg }}</code>
             </li>
           </ul>
         </div>
       </div>
-      <div class="card" v-else>
+      <div v-else class="card">
         <div class="card-header"><i class="bi bi-terminal me-2"></i>Current JVM Arguments</div>
         <div class="card-body text-muted small">No explicit JVM arguments were passed at startup.</div>
       </div>
@@ -402,6 +417,7 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
 .breakdown-bar .progress-bar {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -409,6 +425,7 @@ onBeforeUnmount(() => {
   color: #fff;
   font-weight: 500;
 }
+
 .legend-swatch {
   display: inline-block;
   width: 12px;

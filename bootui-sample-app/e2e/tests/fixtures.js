@@ -1,5 +1,5 @@
 // @ts-check
-import { test as base, expect } from '@playwright/test'
+import {expect, test as base} from '@playwright/test'
 
 /**
  * Test fixture that opens a given BootUI view via the hash router and waits
@@ -11,7 +11,7 @@ import { test as base, expect } from '@playwright/test'
  *   })
  */
 export const test = base.extend({
-  openView: async ({ page }, use) => {
+  openView: async ({page}, use) => {
     /**
      * @param {string} route hash route, e.g. 'overview' or 'config'
      * @param {string | RegExp} heading expected <h2> heading text
@@ -21,11 +21,12 @@ export const test = base.extend({
       const matcher = typeof heading === 'string'
         ? new RegExp(heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
         : heading
-      await expect(page.locator('main h2').filter({ hasText: matcher }).first()).toBeVisible()
+      await expect(page.locator('main h2').filter({hasText: matcher}).first()).toBeVisible()
       return page
     }
+
     await use(openView)
   }
 })
 
-export { expect }
+export {expect}

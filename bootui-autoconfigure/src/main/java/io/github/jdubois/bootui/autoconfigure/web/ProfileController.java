@@ -6,18 +6,19 @@ import io.github.jdubois.bootui.core.BootUiDtos.ConfigPropertyDto;
 import io.github.jdubois.bootui.core.BootUiDtos.ProfileSourceDto;
 import io.github.jdubois.bootui.core.BootUiDtos.ProfilesReport;
 import io.github.jdubois.bootui.core.SecretMasker;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Exposes a profile-aware view of the current configuration.
@@ -30,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProfileController {
 
     private static final Pattern PROFILE_SOURCE_PATTERN =
-            Pattern.compile("(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
+        Pattern.compile("(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
 
     private final ConfigurableEnvironment environment;
     private final BootUiProperties properties;
@@ -58,8 +59,8 @@ public class ProfileController {
             for (String key : enumerable.getPropertyNames()) {
                 Object rawValue = enumerable.getProperty(key);
                 String strValue = rawValue == null ? null : rawValue.toString();
-            boolean masked = shouldMask(key);
-            String displayValue = displayValue(key, strValue);
+                boolean masked = shouldMask(key);
+                String displayValue = displayValue(key, strValue);
                 props.add(new ConfigPropertyDto(key, displayValue, source.getName(), null, masked, false, null, null));
             }
             props.sort(Comparator.comparing(ConfigPropertyDto::name, Comparator.nullsLast(String::compareTo)));
@@ -81,8 +82,8 @@ public class ProfileController {
 
     private boolean shouldMask(String key) {
         return properties.getExposeValues() == ValueExposure.MASKED
-                && properties.isMaskSecrets()
-                && masker.isSecret(key);
+            && properties.isMaskSecrets()
+            && masker.isSecret(key);
     }
 
     private String displayValue(String key, String value) {

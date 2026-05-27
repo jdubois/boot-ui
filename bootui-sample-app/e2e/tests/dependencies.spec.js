@@ -1,16 +1,16 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 const inventoryReport = {
   scanningEnabled: true,
   total: 2,
   vulnerable: 0,
   severityCounts: [
-    { severity: 'CRITICAL', count: 0 },
-    { severity: 'HIGH', count: 0 },
-    { severity: 'MEDIUM', count: 0 },
-    { severity: 'LOW', count: 0 },
-    { severity: 'UNKNOWN', count: 0 }
+    {severity: 'CRITICAL', count: 0},
+    {severity: 'HIGH', count: 0},
+    {severity: 'MEDIUM', count: 0},
+    {severity: 'LOW', count: 0},
+    {severity: 'UNKNOWN', count: 0}
   ],
   scan: {
     scanner: 'OSV.dev',
@@ -30,11 +30,11 @@ const scannedReport = {
   ...inventoryReport,
   vulnerable: 1,
   severityCounts: [
-    { severity: 'CRITICAL', count: 0 },
-    { severity: 'HIGH', count: 1 },
-    { severity: 'MEDIUM', count: 0 },
-    { severity: 'LOW', count: 0 },
-    { severity: 'UNKNOWN', count: 0 }
+    {severity: 'CRITICAL', count: 0},
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 0},
+    {severity: 'LOW', count: 0},
+    {severity: 'UNKNOWN', count: 0}
   ],
   scan: {
     scanner: 'OSV.dev',
@@ -68,7 +68,7 @@ const scannedReport = {
 
 test.describe('Vulnerabilities view', () => {
 
-  test('renders inventory and on-demand vulnerability scan results', async ({ page }) => {
+  test('renders inventory and on-demand vulnerability scan results', async ({page}) => {
     await page.route(url => url.pathname === '/bootui/api/dependencies', async route => {
       await route.fulfill({
         contentType: 'application/json',
@@ -83,13 +83,13 @@ test.describe('Vulnerabilities view', () => {
     })
 
     await page.goto('/bootui/#/vulnerabilities')
-    await expect(page.locator('main h2').filter({ hasText: /^Vulnerabilities/ }).first()).toBeVisible()
+    await expect(page.locator('main h2').filter({hasText: /^Vulnerabilities/}).first()).toBeVisible()
     await expect(page.getByText('2 of 2 dependencies')).toBeVisible()
     await expect(page.getByText('NOT_SCANNED')).toBeVisible()
     await expect(page.getByText('No vulnerability scan data yet')).toBeVisible()
     await expect(page.getByText('Run Scan with OSV.dev to populate the severity breakdown.')).toBeVisible()
 
-    await page.getByRole('button', { name: 'Scan with OSV.dev' }).click()
+    await page.getByRole('button', {name: 'Scan with OSV.dev'}).click()
     await expect(page.getByText('SCANNED')).toBeVisible()
     await expect(page.getByText('No vulnerability scan data yet')).toHaveCount(0)
     await expect(page.locator('#vulnerableOnly')).toBeChecked()
@@ -99,7 +99,7 @@ test.describe('Vulnerabilities view', () => {
 
     await page.getByPlaceholder('Search group, artifact, or version').fill('vulnerable')
     await expect(page.getByText('1 of 2 dependencies')).toBeVisible()
-    await expect(page.locator('tbody tr', { hasText: 'org.example:vulnerable-lib' })).toBeVisible()
+    await expect(page.locator('tbody tr', {hasText: 'org.example:vulnerable-lib'})).toBeVisible()
   })
 })
 

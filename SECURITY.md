@@ -5,9 +5,9 @@
 BootUI is currently pre-1.0. Only the latest release on `main` receives
 security fixes.
 
-| Version          | Supported          |
-|------------------|--------------------|
-| 0.1.x (snapshot) | ✅                 |
+| Version          | Supported |
+|------------------|-----------|
+| 0.1.x (snapshot) | ✅         |
 
 ## Reporting a vulnerability
 

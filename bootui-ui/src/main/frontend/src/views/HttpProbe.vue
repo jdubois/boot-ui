@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import {computed, ref} from 'vue'
 
 const method = ref('GET')
 const path = ref('')
@@ -14,7 +14,7 @@ const showRequestBody = computed(() => methodsWithBody.includes(method.value))
 const requestHeaders = computed(() => {
   if (!showRequestBody.value) return {}
   if (!requestBody.value.trim()) return {}
-  return { 'Content-Type': 'application/json' }
+  return {'Content-Type': 'application/json'}
 })
 
 const formattedResponseBody = computed(() => {
@@ -43,7 +43,7 @@ async function sendProbe() {
   try {
     const res = await fetch('api/probe', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         method: method.value,
         path: normalizePath(path.value),
@@ -91,11 +91,11 @@ function clearForm() {
         </p>
       </div>
       <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary" @click="clearForm" :disabled="loading">
+        <button :disabled="loading" class="btn btn-outline-secondary" @click="clearForm">
           <i class="bi bi-x-circle me-1"></i>Clear
         </button>
-        <button class="btn btn-primary" @click="sendProbe" :disabled="loading">
-          <span v-if="loading" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+        <button :disabled="loading" class="btn btn-primary" @click="sendProbe">
+          <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-2"></span>
           <i v-else class="bi bi-send me-1"></i>
           {{ loading ? 'Sending…' : 'Send' }}
         </button>
@@ -107,7 +107,7 @@ function clearForm() {
         <div class="row g-3 align-items-start">
           <div class="col-md-3 col-lg-2">
             <label class="form-label">Method</label>
-            <select class="form-select" v-model="method">
+            <select v-model="method" class="form-select">
               <option value="GET">GET</option>
               <option value="POST">POST</option>
               <option value="PUT">PUT</option>
@@ -134,12 +134,12 @@ function clearForm() {
           <textarea
             v-model="requestBody"
             class="form-control font-monospace"
-            rows="10"
             placeholder='{
   "message": "hello"
 }'
+            rows="10"
           ></textarea>
-          <div class="form-text" v-if="Object.keys(requestHeaders).length">
+          <div v-if="Object.keys(requestHeaders).length" class="form-text">
             Content-Type: <code>application/json</code>
           </div>
         </div>
@@ -150,7 +150,7 @@ function clearForm() {
       <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-center">
         <div class="d-flex align-items-center gap-2">
           <strong>Response</strong>
-          <span class="badge" :class="statusBadgeClass">
+          <span :class="statusBadgeClass" class="badge">
             {{ response.status || 0 }} {{ response.statusText || 'Error' }}
           </span>
         </div>
@@ -172,7 +172,9 @@ function clearForm() {
 
         <div>
           <h6>Body</h6>
-          <pre class="bg-body-tertiary border rounded p-3 mb-0"><code>{{ formattedResponseBody || '(empty response body)' }}</code></pre>
+          <pre class="bg-body-tertiary border rounded p-3 mb-0"><code>{{
+              formattedResponseBody || '(empty response body)'
+            }}</code></pre>
         </div>
       </div>
     </div>

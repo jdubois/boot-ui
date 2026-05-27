@@ -1,15 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Locale;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
 import org.springframework.core.env.Environment;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 import org.springframework.util.ClassUtils;
+
+import java.util.*;
 
 /**
  * Custom condition that controls when {@link BootUiAutoConfiguration} activates.
@@ -30,11 +27,6 @@ public class BootUiActivationCondition implements Condition {
 
     public static final String DEVTOOLS_CLASS = "org.springframework.boot.devtools.restart.RestartScope";
 
-    @Override
-    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
-        return resolve(context.getEnvironment(), context.getClassLoader()).enabled();
-    }
-
     public static BootUiActivation resolve(Environment environment, ClassLoader classLoader) {
         String mode = environment.getProperty("bootui.enabled", "AUTO").trim().toUpperCase(Locale.ROOT);
         List<String> warnings = new ArrayList<>();
@@ -45,8 +37,8 @@ public class BootUiActivationCondition implements Condition {
 
         if (!List.of("AUTO", "ON", "OFF").contains(mode)) {
             return new BootUiActivation(false,
-                    "Disabled: invalid bootui.enabled value '" + mode + "'",
-                    warnings);
+                "Disabled: invalid bootui.enabled value '" + mode + "'",
+                warnings);
         }
 
         for (String profile : disabledProfiles) {
@@ -54,12 +46,12 @@ public class BootUiActivationCondition implements Condition {
                 if ("ON".equals(mode)) {
                     warnings.add("Profile '" + profile + "' is in bootui.disabled-profiles but bootui.enabled=ON forces it on.");
                     return new BootUiActivation(true,
-                            "Explicitly enabled (bootui.enabled=ON) despite disabled profile '" + profile + "'",
-                            warnings);
+                        "Explicitly enabled (bootui.enabled=ON) despite disabled profile '" + profile + "'",
+                        warnings);
                 }
                 return new BootUiActivation(false,
-                        "Disabled because active profile '" + profile + "' is in bootui.disabled-profiles",
-                        warnings);
+                    "Disabled because active profile '" + profile + "' is in bootui.disabled-profiles",
+                    warnings);
             }
         }
 
@@ -73,20 +65,20 @@ public class BootUiActivationCondition implements Condition {
         for (String profile : enabledProfiles) {
             if (activeProfiles.contains(profile)) {
                 return new BootUiActivation(true,
-                        "Enabled by active profile '" + profile + "'",
-                        warnings);
+                    "Enabled by active profile '" + profile + "'",
+                    warnings);
             }
         }
 
         if (ClassUtils.isPresent(DEVTOOLS_CLASS, classLoader)) {
             return new BootUiActivation(true,
-                    "Enabled because spring-boot-devtools is on the classpath",
-                    warnings);
+                "Enabled because spring-boot-devtools is on the classpath",
+                warnings);
         }
 
         return new BootUiActivation(false,
-                "Disabled: no enabled profile and devtools is not on the classpath",
-                warnings);
+            "Disabled: no enabled profile and devtools is not on the classpath",
+            warnings);
     }
 
     private static List<String> listProperty(Environment env, String key, List<String> defaults) {
@@ -95,8 +87,13 @@ public class BootUiActivationCondition implements Condition {
             return defaults;
         }
         return Arrays.stream(raw.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .toList();
+            .map(String::trim)
+            .filter(s -> !s.isBlank())
+            .toList();
+    }
+
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+        return resolve(context.getEnvironment(), context.getClassLoader()).enabled();
     }
 }

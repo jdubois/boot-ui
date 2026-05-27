@@ -1,13 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiActivationCondition;
-import java.util.Map;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
+
+import java.util.Map;
 
 /**
  * Contributes the Actuator endpoint exposure defaults BootUI needs for its
@@ -20,11 +21,11 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
     static final String PROPERTY_SOURCE_NAME = "bootUiActuatorEndpointDefaults";
 
     static final String REQUIRED_ENDPOINTS = "health,info,beans,conditions,configprops,env,loggers,mappings,"
-            + "metrics,startup,scheduledtasks";
+        + "metrics,startup,scheduledtasks";
 
     private static final Map<String, Object> DEFAULTS = Map.of(
-            "management.endpoints.web.exposure.include", REQUIRED_ENDPOINTS,
-            "management.endpoint.health.show-details", "always");
+        "management.endpoints.web.exposure.include", REQUIRED_ENDPOINTS,
+        "management.endpoint.health.show-details", "always");
 
     @Override
     public int getOrder() {

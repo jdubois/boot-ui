@@ -1,18 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.DependencyDto;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.core.io.support.ResourcePatternResolver;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import org.springframework.core.io.support.ResourcePatternResolver;
+import java.util.*;
 
 final class DependencyCatalog implements DependencyProvider {
 
@@ -41,16 +38,15 @@ final class DependencyCatalog implements DependencyProvider {
             dependencies.putIfAbsent(dependency.packageName() + ":" + dependency.version(), dependency);
         }
         return dependencies.values().stream()
-                .sorted(Comparator.comparing(DependencyDto::packageName)
-                        .thenComparing(DependencyDto::version))
-                .toList();
+            .sorted(Comparator.comparing(DependencyDto::packageName)
+                .thenComparing(DependencyDto::version))
+            .toList();
     }
 
     private Resource[] mavenPomProperties() {
         try {
             return resolver.getResources(MAVEN_PROPERTIES_PATTERN);
-        }
-        catch (IOException ex) {
+        } catch (IOException ex) {
             throw new IllegalStateException("Could not inspect classpath Maven metadata", ex);
         }
     }
@@ -59,8 +55,7 @@ final class DependencyCatalog implements DependencyProvider {
         Properties properties = new Properties();
         try (InputStream input = resource.getInputStream()) {
             properties.load(input);
-        }
-        catch (IOException ex) {
+        } catch (IOException ex) {
             throw new IllegalStateException("Could not read Maven metadata from " + resource.getDescription(), ex);
         }
         String groupId = blankToNull(properties.getProperty("groupId"));
@@ -71,7 +66,7 @@ final class DependencyCatalog implements DependencyProvider {
         }
         String packageName = groupId + ":" + artifactId;
         return new DependencyDto(groupId, artifactId, version, packageName, "Maven metadata",
-                0, "NONE", List.of());
+            0, "NONE", List.of());
     }
 
     private List<DependencyDto> javaClassPathDependencies() {
@@ -80,9 +75,9 @@ final class DependencyCatalog implements DependencyProvider {
             return List.of();
         }
         return List.of(classPath.split(java.util.regex.Pattern.quote(File.pathSeparator))).stream()
-                .map(this::dependencyFromClassPathEntry)
-                .filter(dependency -> dependency != null)
-                .toList();
+            .map(this::dependencyFromClassPathEntry)
+            .filter(dependency -> dependency != null)
+            .toList();
     }
 
     private DependencyDto dependencyFromClassPathEntry(String entry) {
@@ -107,7 +102,7 @@ final class DependencyCatalog implements DependencyProvider {
         }
         String packageName = groupId + ":" + artifactId;
         return new DependencyDto(groupId, artifactId, version, packageName, "Java classpath",
-                0, "NONE", List.of());
+            0, "NONE", List.of());
     }
 
     private String groupId(Path groupPath) {

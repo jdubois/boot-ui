@@ -1,5 +1,5 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 const traceId = '0123456789abcdef0123456789abcdef'
 
@@ -62,35 +62,35 @@ const traceDetail = {
 
 test.describe('Traces view', () => {
 
-  test('renders trace summaries and waterfall details', async ({ page }) => {
+  test('renders trace summaries and waterfall details', async ({page}) => {
     await stubShell(page)
     await page.route(url => url.pathname === '/bootui/api/traces', async route => {
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(traceReport) })
+      await route.fulfill({contentType: 'application/json', body: JSON.stringify(traceReport)})
     })
     await page.route(url => url.pathname === `/bootui/api/traces/${traceId}`, async route => {
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(traceDetail) })
+      await route.fulfill({contentType: 'application/json', body: JSON.stringify(traceDetail)})
     })
 
     await page.goto('/bootui/#/traces')
-    await expect(page.locator('main h2').filter({ hasText: /^Traces/ }).first()).toBeVisible()
+    await expect(page.locator('main h2').filter({hasText: /^Traces/}).first()).toBeVisible()
     await expect(page.getByText('1 / 500 retained trace')).toBeVisible()
-    const traceRow = page.locator('tbody tr', { hasText: 'GET /api/sample/hello' })
+    const traceRow = page.locator('tbody tr', {hasText: 'GET /api/sample/hello'})
     await expect(traceRow).toBeVisible()
     await expect(page.getByText('sample-app')).toBeVisible()
-    await expect(traceRow.getByText('AI', { exact: true })).toBeVisible()
+    await expect(traceRow.getByText('AI', {exact: true})).toBeVisible()
 
-    await page.getByRole('button', { name: 'Open' }).click()
+    await page.getByRole('button', {name: 'Open'}).click()
     await expect(page.locator('.trace-drawer')).toContainText(traceId)
     await expect(page.locator('.waterfall-row')).toHaveCount(2)
     await expect(page.locator('.trace-drawer')).toContainText('SELECT sample_products')
   })
 
-  test('shows disabled mode when telemetry is unavailable', async ({ page }) => {
+  test('shows disabled mode when telemetry is unavailable', async ({page}) => {
     await stubShell(page)
     await page.route(url => url.pathname === '/bootui/api/traces', async route => {
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ enabled: false, retained: 0, capacity: 500, traces: [] })
+        body: JSON.stringify({enabled: false, retained: 0, capacity: 500, traces: []})
       })
     })
 
@@ -117,7 +117,7 @@ async function stubShell(page) {
         managementPort: null,
         contextPath: '',
         startupTimeMillis: 1000,
-        activation: { enabled: true, localhostOnly: true, reason: 'test', warnings: [] },
+        activation: {enabled: true, localhostOnly: true, reason: 'test', warnings: []},
         openApiUrl: null
       })
     })
@@ -125,7 +125,7 @@ async function stubShell(page) {
   await page.route(url => url.pathname === '/bootui/api/panels', async route => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ panels: [{ id: 'traces', title: 'Traces', available: true, unavailableReason: null }] })
+      body: JSON.stringify({panels: [{id: 'traces', title: 'Traces', available: true, unavailableReason: null}]})
     })
   })
 }

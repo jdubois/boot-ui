@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 
 const lines = ref([])
 const textFilter = ref('')
@@ -131,7 +131,7 @@ onBeforeUnmount(() => disconnect(false))
   <div>
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
       <h2 class="mb-0"><i class="bi bi-terminal me-2"></i>Log Tail</h2>
-      <span class="badge" :class="statusClass">{{ status }}</span>
+      <span :class="statusClass" class="badge">{{ status }}</span>
     </div>
 
     <div class="row g-3 mb-3 align-items-end">
@@ -140,7 +140,7 @@ onBeforeUnmount(() => disconnect(false))
         <input
           v-model="textFilter"
           class="form-control"
-          placeholder="Logger prefix or message text" />
+          placeholder="Logger prefix or message text"/>
       </div>
       <div class="col-sm-4 col-lg-2">
         <label class="form-label">Level</label>
@@ -153,7 +153,7 @@ onBeforeUnmount(() => disconnect(false))
       </div>
       <div class="col-sm-4 col-lg-2">
         <div class="form-check pt-sm-4">
-          <input id="auto-scroll" v-model="autoScroll" class="form-check-input" type="checkbox" />
+          <input id="auto-scroll" v-model="autoScroll" class="form-check-input" type="checkbox"/>
           <label class="form-check-label" for="auto-scroll">Auto-scroll</label>
         </div>
       </div>
@@ -172,7 +172,10 @@ onBeforeUnmount(() => disconnect(false))
       v-for="(line, index) in visibleLines"
       :key="`${line.timestamp}-${index}`"
       class="d-block"
-    ><span class="text-secondary">[{{ formatTime(line.timestamp) }}]</span> <span :class="levelClass(line.level)">{{ line.level }}</span> <span class="text-info-emphasis">{{ line.logger }}</span> <span class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span></span></code><span v-else class="text-secondary">No log lines to display.</span></pre>
+    ><span class="text-secondary">[{{ formatTime(line.timestamp) }}]</span> <span
+      :class="levelClass(line.level)">{{ line.level }}</span> <span class="text-info-emphasis">{{ line.logger }}</span> <span
+      class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span></span></code><span v-else
+                                                                                                            class="text-secondary">No log lines to display.</span></pre>
   </div>
 </template>
 

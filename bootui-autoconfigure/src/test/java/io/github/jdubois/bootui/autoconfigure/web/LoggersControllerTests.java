@@ -1,16 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
@@ -20,6 +9,13 @@ import org.springframework.boot.logging.LoggerConfiguration;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
 /**
  * HTTP-level tests for {@link LoggersController} mutation behavior.
  *
@@ -28,22 +24,29 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class LoggersControllerTests {
 
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> providerOf(T value) {
+        ObjectProvider<T> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(value);
+        return provider;
+    }
+
     @Test
     void postUpdatesLogLevelAndReturnsRefreshedDto() throws Exception {
         LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
         when(endpoint.loggerLevels("com.example"))
-                .thenReturn(new SingleLoggerLevelsDescriptor(
-                        new LoggerConfiguration("com.example", LogLevel.DEBUG, LogLevel.DEBUG)));
+            .thenReturn(new SingleLoggerLevelsDescriptor(
+                new LoggerConfiguration("com.example", LogLevel.DEBUG, LogLevel.DEBUG)));
 
         MockMvc mvc = standaloneSetup(new LoggersController(providerOf(endpoint))).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"level\":\"DEBUG\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("com.example"))
-                .andExpect(jsonPath("$.configuredLevel").value("DEBUG"))
-                .andExpect(jsonPath("$.effectiveLevel").value("DEBUG"));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"level\":\"DEBUG\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value("com.example"))
+            .andExpect(jsonPath("$.configuredLevel").value("DEBUG"))
+            .andExpect(jsonPath("$.effectiveLevel").value("DEBUG"));
 
         verify(endpoint, times(1)).configureLogLevel(eq("com.example"), eq(LogLevel.DEBUG));
     }
@@ -52,18 +55,18 @@ class LoggersControllerTests {
     void postWithBlankLevelClearsConfiguredLevel() throws Exception {
         LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
         when(endpoint.loggerLevels("com.example"))
-                .thenReturn(new SingleLoggerLevelsDescriptor(
-                        new LoggerConfiguration("com.example", null, LogLevel.INFO)));
+            .thenReturn(new SingleLoggerLevelsDescriptor(
+                new LoggerConfiguration("com.example", null, LogLevel.INFO)));
 
         MockMvc mvc = standaloneSetup(new LoggersController(providerOf(endpoint))).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"level\":\"\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("com.example"))
-                .andExpect(jsonPath("$.configuredLevel").doesNotExist())
-                .andExpect(jsonPath("$.effectiveLevel").value("INFO"));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"level\":\"\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value("com.example"))
+            .andExpect(jsonPath("$.configuredLevel").doesNotExist())
+            .andExpect(jsonPath("$.effectiveLevel").value("INFO"));
 
         verify(endpoint, times(1)).configureLogLevel(eq("com.example"), eq((LogLevel) null));
     }
@@ -74,18 +77,11 @@ class LoggersControllerTests {
         MockMvc mvc = standaloneSetup(new LoggersController(providerOf(endpoint))).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"level\":\"NOT_A_LEVEL\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").exists());
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"level\":\"NOT_A_LEVEL\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").exists());
 
         verify(endpoint, never()).configureLogLevel(eq("com.example"), org.mockito.ArgumentMatchers.any());
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> providerOf(T value) {
-        ObjectProvider<T> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(value);
-        return provider;
     }
 }

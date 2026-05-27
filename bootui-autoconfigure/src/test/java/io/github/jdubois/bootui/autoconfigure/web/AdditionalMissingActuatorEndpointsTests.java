@@ -1,14 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.test.web.servlet.MockMvc;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.ListableBeanFactory;
-import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * Extends missing-actuator/framework endpoint coverage beyond what
@@ -46,6 +46,33 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class AdditionalMissingActuatorEndpointsTests {
 
+    private static final ObjectProvider<Object> EMPTY = new ObjectProvider<>() {
+        @Override
+        public Object getObject(Object... args) {
+            return null;
+        }
+
+        @Override
+        public Object getIfAvailable() {
+            return null;
+        }
+
+        @Override
+        public Object getIfUnique() {
+            return null;
+        }
+
+        @Override
+        public Object getObject() {
+            return null;
+        }
+    };
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> emptyProvider() {
+        return (ObjectProvider<T>) EMPTY;
+    }
+
     /**
      * When no {@link ListableBeanFactory} is available (e.g., DataController
      * is created outside a full application context), {@code GET /bootui/api/data/repositories}
@@ -59,11 +86,11 @@ class AdditionalMissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new DataController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/data/repositories"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.springDataPresent").value(true))
-                .andExpect(jsonPath("$.total").value(0))
-                .andExpect(jsonPath("$.repositories").isArray())
-                .andExpect(jsonPath("$.repositories").isEmpty());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.springDataPresent").value(true))
+            .andExpect(jsonPath("$.total").value(0))
+            .andExpect(jsonPath("$.repositories").isArray())
+            .andExpect(jsonPath("$.repositories").isEmpty());
     }
 
     /**
@@ -75,25 +102,6 @@ class AdditionalMissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new DataController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/data/repositories/MyRepository"))
-                .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound());
     }
-
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> emptyProvider() {
-        return (ObjectProvider<T>) EMPTY;
-    }
-
-    private static final ObjectProvider<Object> EMPTY = new ObjectProvider<>() {
-        @Override
-        public Object getObject(Object... args) { return null; }
-
-        @Override
-        public Object getIfAvailable() { return null; }
-
-        @Override
-        public Object getIfUnique() { return null; }
-
-        @Override
-        public Object getObject() { return null; }
-    };
 }

@@ -1,6 +1,6 @@
 name: Feature request
 description: Suggest an idea for BootUI
-labels: [enhancement, triage]
+labels: [ enhancement, triage ]
 body:
   - type: textarea
     id: problem

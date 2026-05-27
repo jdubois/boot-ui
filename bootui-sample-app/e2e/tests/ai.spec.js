@@ -1,5 +1,5 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 const chatSpanId = '1111111111111111'
 
@@ -9,8 +9,8 @@ const overview = {
   totalChats: 1,
   totalInputTokens: 42,
   totalOutputTokens: 7,
-  tokensByModel: { 'qwen2.5:0.5b': 49 },
-  callsByModel: { 'qwen2.5:0.5b': 1 },
+  tokensByModel: {'qwen2.5:0.5b': 49},
+  callsByModel: {'qwen2.5:0.5b': 1},
   toolCallCount: 1,
   vectorOperationCount: 1,
   embeddingCount: 0,
@@ -39,8 +39,8 @@ const overview = {
 const tokenSeries = {
   minutes: 60,
   buckets: [
-    { epochMinute: 100, inputTokens: 0, outputTokens: 0, callCount: 0 },
-    { epochMinute: 101, inputTokens: 42, outputTokens: 7, callCount: 1 }
+    {epochMinute: 100, inputTokens: 0, outputTokens: 0, callCount: 0},
+    {epochMinute: 101, inputTokens: 42, outputTokens: 7, callCount: 1}
   ]
 }
 
@@ -66,7 +66,7 @@ const detail = {
     }
   ],
   attributes: [
-    { key: 'gen_ai.system', type: 'string', value: 'ollama' }
+    {key: 'gen_ai.system', type: 'string', value: 'ollama'}
   ],
   events: [],
   contentCaptured: false,
@@ -75,25 +75,25 @@ const detail = {
 
 test.describe('AI Usage view', () => {
 
-  test('renders AI token usage, model breakdowns, and chat detail', async ({ page }) => {
+  test('renders AI token usage, model breakdowns, and chat detail', async ({page}) => {
     await stubAi(page, overview)
 
     await page.goto('/bootui/#/ai')
-    await expect(page.locator('main h2').filter({ hasText: /AI Usage/ }).first()).toBeVisible()
+    await expect(page.locator('main h2').filter({hasText: /AI Usage/}).first()).toBeVisible()
     await expect(page.getByText('Spring AI detected')).toBeVisible()
-    await expect(page.locator('.card', { hasText: 'Input tokens' }).getByText('42', { exact: true })).toBeVisible()
-    await expect(page.locator('.card', { hasText: 'Tokens by model' }).getByText('qwen2.5:0.5b')).toBeVisible()
+    await expect(page.locator('.card', {hasText: 'Input tokens'}).getByText('42', {exact: true})).toBeVisible()
+    await expect(page.locator('.card', {hasText: 'Tokens by model'}).getByText('qwen2.5:0.5b')).toBeVisible()
     await expect(page.getByText('Token usage (last 60 min)')).toBeVisible()
 
-    await page.getByRole('button', { name: 'Open' }).click()
-    await expect(page.locator('.card', { hasText: `Chat ${chatSpanId}` })).toBeVisible()
+    await page.getByRole('button', {name: 'Open'}).click()
+    await expect(page.locator('.card', {hasText: `Chat ${chatSpanId}`})).toBeVisible()
     await expect(page.getByText('getWeather')).toBeVisible()
     await expect(page.getByText('docs')).toBeVisible()
     await page.getByText(/Span attributes/).click()
     await expect(page.getByText('gen_ai.system')).toBeVisible()
   })
 
-  test('shows disabled mode when telemetry is unavailable', async ({ page }) => {
+  test('shows disabled mode when telemetry is unavailable', async ({page}) => {
     await stubAi(page, {
       ...overview,
       enabled: false,
@@ -112,7 +112,7 @@ test.describe('AI Usage view', () => {
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })
 
-  test('shows unavailable mode when Spring AI is missing', async ({ page }) => {
+  test('shows unavailable mode when Spring AI is missing', async ({page}) => {
     await stubAi(page, {
       ...overview,
       springAiDetected: false,
@@ -134,13 +134,13 @@ test.describe('AI Usage view', () => {
 async function stubAi(page, overviewResponse) {
   await stubShell(page, overviewResponse.enabled && overviewResponse.springAiDetected)
   await page.route(url => url.pathname === '/bootui/api/ai/overview', async route => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(overviewResponse) })
+    await route.fulfill({contentType: 'application/json', body: JSON.stringify(overviewResponse)})
   })
   await page.route(url => url.pathname === '/bootui/api/ai/tokens', async route => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(tokenSeries) })
+    await route.fulfill({contentType: 'application/json', body: JSON.stringify(tokenSeries)})
   })
   await page.route(url => url.pathname === `/bootui/api/ai/chats/${chatSpanId}`, async route => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(detail) })
+    await route.fulfill({contentType: 'application/json', body: JSON.stringify(detail)})
   })
 }
 
@@ -161,7 +161,7 @@ async function stubShell(page, aiAvailable) {
         managementPort: null,
         contextPath: '',
         startupTimeMillis: 1000,
-        activation: { enabled: true, localhostOnly: true, reason: 'test', warnings: [] },
+        activation: {enabled: true, localhostOnly: true, reason: 'test', warnings: []},
         openApiUrl: null
       })
     })

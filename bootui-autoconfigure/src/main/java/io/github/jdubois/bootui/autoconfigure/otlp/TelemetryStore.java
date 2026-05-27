@@ -1,11 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.otlp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+
+import java.util.*;
 
 /**
  * Bounded in-memory store for OTLP spans received over the BootUI OTLP receiver.
@@ -23,41 +20,24 @@ public class TelemetryStore {
     static final int HARD_MAX_TRACES = 10_000;
 
     static final int HARD_MAX_SPANS_PER_TRACE = 1_000;
-
-    /** Holder for a single trace; the spans list is mutated under the store's monitor. */
-    public static final class TraceBucket {
-
-        private final String traceId;
-
-        private final List<NormalizedSpan> spans;
-
-        private long lastUpdateEpochNanos;
-
-        TraceBucket(String traceId) {
-            this.traceId = traceId;
-            this.spans = new ArrayList<>();
-        }
-
-        public String traceId() {
-            return traceId;
-        }
-
-        public List<NormalizedSpan> spans() {
-            return spans;
-        }
-
-        public long lastUpdateEpochNanos() {
-            return lastUpdateEpochNanos;
-        }
-    }
-
     private final BootUiProperties.Telemetry config;
-
     private final LinkedHashMap<String, TraceBucket> tracesById;
 
     public TelemetryStore(BootUiProperties.Telemetry config) {
         this.config = config;
         this.tracesById = new LinkedHashMap<>(256, 0.75f, false);
+    }
+
+    static int effectiveMaxTraces(BootUiProperties.Telemetry config) {
+        return clamp(config.getMaxTraces(), 1, HARD_MAX_TRACES);
+    }
+
+    static int effectiveMaxSpansPerTrace(BootUiProperties.Telemetry config) {
+        return clamp(config.getMaxSpansPerTrace(), 1, HARD_MAX_SPANS_PER_TRACE);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     /**
@@ -110,7 +90,9 @@ public class TelemetryStore {
         return effectiveMaxTraces(config);
     }
 
-    /** Snapshot of all spans for read-only iteration. */
+    /**
+     * Snapshot of all spans for read-only iteration.
+     */
     public synchronized List<NormalizedSpan> allSpansSnapshot() {
         List<NormalizedSpan> out = new ArrayList<>();
         for (TraceBucket bucket : tracesById.values()) {
@@ -123,15 +105,32 @@ public class TelemetryStore {
         tracesById.clear();
     }
 
-    static int effectiveMaxTraces(BootUiProperties.Telemetry config) {
-        return clamp(config.getMaxTraces(), 1, HARD_MAX_TRACES);
-    }
+    /**
+     * Holder for a single trace; the spans list is mutated under the store's monitor.
+     */
+    public static final class TraceBucket {
 
-    static int effectiveMaxSpansPerTrace(BootUiProperties.Telemetry config) {
-        return clamp(config.getMaxSpansPerTrace(), 1, HARD_MAX_SPANS_PER_TRACE);
-    }
+        private final String traceId;
 
-    private static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
+        private final List<NormalizedSpan> spans;
+
+        private long lastUpdateEpochNanos;
+
+        TraceBucket(String traceId) {
+            this.traceId = traceId;
+            this.spans = new ArrayList<>();
+        }
+
+        public String traceId() {
+            return traceId;
+        }
+
+        public List<NormalizedSpan> spans() {
+            return spans;
+        }
+
+        public long lastUpdateEpochNanos() {
+            return lastUpdateEpochNanos;
+        }
     }
 }

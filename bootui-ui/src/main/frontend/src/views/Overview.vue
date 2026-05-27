@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const data = ref(null)
 const loading = ref(true)
@@ -44,10 +44,30 @@ const stats = computed(() => {
 })
 
 const quickLinks = [
-  { to: '/beans', title: 'Trace bean wiring', detail: 'Find controllers, services, repositories, and dependencies.', icon: 'bi-diagram-3' },
-  { to: '/config', title: 'Audit configuration', detail: 'Inspect effective values, sources, masking, and overrides.', icon: 'bi-sliders' },
-  { to: '/mappings', title: 'Map HTTP routes', detail: 'Understand handlers and request mappings in one place.', icon: 'bi-signpost-2' },
-  { to: '/health', title: 'Check app health', detail: 'Drill into health components without leaving the app.', icon: 'bi-heart-pulse' }
+  {
+    to: '/beans',
+    title: 'Trace bean wiring',
+    detail: 'Find controllers, services, repositories, and dependencies.',
+    icon: 'bi-diagram-3'
+  },
+  {
+    to: '/config',
+    title: 'Audit configuration',
+    detail: 'Inspect effective values, sources, masking, and overrides.',
+    icon: 'bi-sliders'
+  },
+  {
+    to: '/mappings',
+    title: 'Map HTTP routes',
+    detail: 'Understand handlers and request mappings in one place.',
+    icon: 'bi-signpost-2'
+  },
+  {
+    to: '/health',
+    title: 'Check app health',
+    detail: 'Drill into health components without leaving the app.',
+    icon: 'bi-heart-pulse'
+  }
 ]
 
 async function load() {
@@ -90,25 +110,25 @@ onMounted(load)
           <i class="bi bi-house-door me-1"></i>
           Back to homepage
         </a>
-        <a class="btn btn-outline-light" :href="githubProjectUrl" target="_blank" rel="noopener noreferrer">
+        <a :href="githubProjectUrl" class="btn btn-outline-light" rel="noopener noreferrer" target="_blank">
           <i class="bi bi-github me-1"></i>
           BootUI GitHub project
         </a>
-        <button class="btn btn-light hero-refresh" @click="load" :disabled="loading">
-          <i class="bi bi-arrow-clockwise me-1" :class="{ 'spin': loading }"></i>
+        <button :disabled="loading" class="btn btn-light hero-refresh" @click="load">
+          <i :class="{ 'spin': loading }" class="bi bi-arrow-clockwise me-1"></i>
           Refresh snapshot
         </button>
       </div>
     </div>
 
     <div v-if="loading" class="overview-skeleton">
-      <div class="skeleton-card" v-for="n in 4" :key="n"></div>
+      <div v-for="n in 4" :key="n" class="skeleton-card"></div>
     </div>
     <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
     <template v-else-if="data">
       <div class="row g-3 mb-4">
         <div v-for="(stat, index) in stats" :key="stat.label" class="col-xl-3 col-md-6">
-          <div class="metric-card h-100" :style="{ animationDelay: `${index * 70}ms` }">
+          <div :style="{ animationDelay: `${index * 70}ms` }" class="metric-card h-100">
             <span :class="['metric-icon', `metric-${stat.tone}`]">
               <i :class="['bi', stat.icon]"></i>
             </span>
@@ -131,7 +151,7 @@ onMounted(load)
                   <h3 class="h4 fw-bold mb-1">{{ data.applicationName }}</h3>
                   <div class="text-muted">{{ data.webApplicationType }} · context {{ data.contextPath || '/' }}</div>
                 </div>
-                <span class="activation-badge" :class="{ disabled: !data.activation.enabled }">
+                <span :class="{ disabled: !data.activation.enabled }" class="activation-badge">
                   <i :class="['bi', data.activation.enabled ? 'bi-lightning-charge-fill' : 'bi-power']"></i>
                   {{ data.activation.enabled ? 'Enabled' : 'Disabled' }}
                 </span>
@@ -192,21 +212,27 @@ onMounted(load)
                   <span></span>
                   <div>
                     <strong>Development activation</strong>
-                    <p>{{ data.activation.enabled ? 'BootUI is available for this runtime.' : 'BootUI reports disabled state for this runtime.' }}</p>
+                    <p>{{
+                        data.activation.enabled ? 'BootUI is available for this runtime.' : 'BootUI reports disabled state for this runtime.'
+                      }}</p>
                   </div>
                 </div>
-                <div class="timeline-item" :class="{ complete: data.activation.localhostOnly }">
+                <div :class="{ complete: data.activation.localhostOnly }" class="timeline-item">
                   <span></span>
                   <div>
                     <strong>Loopback enforcement</strong>
-                    <p>{{ data.activation.localhostOnly ? 'Non-local requests are rejected by default.' : 'Non-local access is explicitly allowed.' }}</p>
+                    <p>{{
+                        data.activation.localhostOnly ? 'Non-local requests are rejected by default.' : 'Non-local access is explicitly allowed.'
+                      }}</p>
                   </div>
                 </div>
-                <div class="timeline-item" :class="{ warning: warningCount }">
+                <div :class="{ warning: warningCount }" class="timeline-item">
                   <span></span>
                   <div>
                     <strong>Warnings</strong>
-                    <p>{{ warningCount ? `${warningCount} warning(s) need review.` : 'No activation warnings reported.' }}</p>
+                    <p>{{
+                        warningCount ? `${warningCount} warning(s) need review.` : 'No activation warnings reported.'
+                      }}</p>
                   </div>
                 </div>
               </div>
@@ -237,7 +263,7 @@ onMounted(load)
           <strong><i class="bi bi-file-earmark-code me-1"></i>OpenAPI detected</strong>
           <span>Jump from BootUI diagnostics to Swagger UI.</span>
         </div>
-        <a :href="data.openApiUrl" target="_blank" rel="noopener" class="btn btn-outline-primary">
+        <a :href="data.openApiUrl" class="btn btn-outline-primary" rel="noopener" target="_blank">
           Open Swagger UI
           <i class="bi bi-box-arrow-up-right ms-1"></i>
         </a>
@@ -249,9 +275,8 @@ onMounted(load)
 <style scoped>
 .overview-hero {
   align-items: flex-start;
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.38), transparent 18rem),
-    linear-gradient(135deg, #16794c, #0d6efd);
+  background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.38), transparent 18rem),
+  linear-gradient(135deg, #16794c, #0d6efd);
   border-radius: 1.4rem;
   box-shadow: 0 1.5rem 3.5rem rgba(13, 110, 253, 0.22);
   color: #fff;
@@ -416,9 +441,8 @@ onMounted(load)
 }
 
 .app-map-card {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74)),
-    radial-gradient(circle at top right, rgba(25, 135, 84, 0.12), transparent 18rem);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74)),
+  radial-gradient(circle at top right, rgba(25, 135, 84, 0.12), transparent 18rem);
 }
 
 .activation-badge {

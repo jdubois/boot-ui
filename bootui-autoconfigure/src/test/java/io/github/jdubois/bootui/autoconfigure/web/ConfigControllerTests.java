@@ -1,22 +1,21 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
-import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.MediaType;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.nio.file.Path;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * HTTP-level tests for {@link ConfigController}.
@@ -47,27 +46,27 @@ class ConfigControllerTests {
         overrideService = new ConfigOverrideService(environment, properties);
 
         ConfigController controller = new ConfigController(environment, overrideService, properties,
-                new ConfigMetadataCatalog(getClass().getClassLoader()));
+            new ConfigMetadataCatalog(getClass().getClassLoader()));
         mvc = standaloneSetup(controller).build();
     }
 
     @Test
     void listReturnsActiveProfilesPropertiesAndSources() throws Exception {
         mvc.perform(get("/bootui/api/config"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.activeProfiles[0]").value("dev"))
-                .andExpect(jsonPath("$.sources").isArray())
-                .andExpect(jsonPath("$.properties[?(@.name=='server.port')].value").value("8080"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.activeProfiles[0]").value("dev"))
+            .andExpect(jsonPath("$.sources").isArray())
+            .andExpect(jsonPath("$.properties[?(@.name=='server.port')].value").value("8080"));
     }
 
     @Test
     void listMasksSecretValuesByDefault() throws Exception {
         mvc.perform(get("/bootui/api/config"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].masked")
-                        .value(true))
-                .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].value")
-                        .value("******"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].masked")
+                .value(true))
+            .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].value")
+                .value("******"));
     }
 
     @Test
@@ -75,8 +74,8 @@ class ConfigControllerTests {
         properties.setExposeValues(ValueExposure.METADATA_ONLY);
 
         mvc.perform(get("/bootui/api/config"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.properties[?(@.name=='server.port')].value[0]").doesNotExist());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.properties[?(@.name=='server.port')].value[0]").doesNotExist());
     }
 
     @Test
@@ -84,36 +83,36 @@ class ConfigControllerTests {
         properties.setExposeValues(ValueExposure.FULL);
 
         mvc.perform(get("/bootui/api/config"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].masked")
-                        .value(false))
-                .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].value")
-                        .value("s3cret"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].masked")
+                .value(false))
+            .andExpect(jsonPath("$.properties[?(@.name=='spring.datasource.password')].value")
+                .value("s3cret"));
     }
 
     @Test
     void postCreatesOverrideAndDeleteRemovesIt() throws Exception {
         // First write to establish a previous override value.
         mvc.perform(post("/bootui/api/config/overrides")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"server.port\",\"value\":\"9090\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("server.port"))
-                .andExpect(jsonPath("$.value").value("9090"))
-                .andExpect(jsonPath("$.persisted").value(true))
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("until restart")));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"server.port\",\"value\":\"9090\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value("server.port"))
+            .andExpect(jsonPath("$.value").value("9090"))
+            .andExpect(jsonPath("$.persisted").value(true))
+            .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("until restart")));
 
         // Second write should report the previous override value.
         mvc.perform(post("/bootui/api/config/overrides")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"server.port\",\"value\":\"9191\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.previousValue").value("9090"))
-                .andExpect(jsonPath("$.value").value("9191"));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"server.port\",\"value\":\"9191\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.previousValue").value("9090"))
+            .andExpect(jsonPath("$.value").value("9191"));
 
         mvc.perform(delete("/bootui/api/config/overrides/server.port"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("server.port"))
-                .andExpect(jsonPath("$.value").doesNotExist());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value("server.port"))
+            .andExpect(jsonPath("$.value").doesNotExist());
     }
 }

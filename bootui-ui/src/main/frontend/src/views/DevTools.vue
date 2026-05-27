@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import {computed, onMounted, onUnmounted, ref} from 'vue'
 
 const status = ref(null)
 const loading = ref(true)
@@ -27,7 +27,7 @@ async function load() {
 async function triggerLiveReload() {
   actionLoading.value = 'livereload'
   try {
-    const res = await fetch('api/devtools/livereload', { method: 'POST' })
+    const res = await fetch('api/devtools/livereload', {method: 'POST'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
       flash(result.message || result.error || ('HTTP ' + res.status), 'warning')
@@ -50,8 +50,8 @@ async function restart() {
   try {
     const res = await fetch('api/devtools/restart', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirm: true })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true})
     })
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -73,7 +73,7 @@ function pollUntilOnline() {
   clearReconnectTimer()
   reconnectTimer = setTimeout(async () => {
     try {
-      const res = await fetch('api/devtools', { cache: 'no-store' })
+      const res = await fetch('api/devtools', {cache: 'no-store'})
       if (res.ok) {
         status.value = await res.json()
         restarting.value = false
@@ -95,8 +95,10 @@ function clearReconnectTimer() {
 }
 
 function flash(text, type) {
-  banner.value = { text, type }
-  setTimeout(() => { banner.value = null }, 8000)
+  banner.value = {text, type}
+  setTimeout(() => {
+    banner.value = null
+  }, 8000)
 }
 
 onMounted(load)
@@ -112,14 +114,14 @@ onUnmounted(clearReconnectTimer)
           Trigger Spring Boot DevTools LiveReload notifications or restart the local application.
         </p>
       </div>
-      <button class="btn btn-outline-secondary" @click="load" :disabled="loading || restarting" title="Refresh">
-        <i class="bi bi-arrow-clockwise" :class="{ 'spin': loading }"></i>
+      <button :disabled="loading || restarting" class="btn btn-outline-secondary" title="Refresh" @click="load">
+        <i :class="{ 'spin': loading }" class="bi bi-arrow-clockwise"></i>
       </button>
     </div>
 
-    <div v-if="banner" class="alert d-flex justify-content-between align-items-center" :class="'alert-' + banner.type">
+    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
       <div>
-        <i class="bi" :class="banner.type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-info-circle-fill'"></i>
+        <i :class="banner.type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-info-circle-fill'" class="bi"></i>
         <span class="ms-2">{{ banner.text }}</span>
       </div>
       <button class="btn-close" @click="banner = null"></button>
@@ -151,7 +153,7 @@ onUnmounted(clearReconnectTimer)
                   Sends a LiveReload event to browsers connected to Spring Boot DevTools.
                 </p>
               </div>
-              <span class="badge" :class="liveReloadReady ? 'text-bg-success' : 'text-bg-secondary'">
+              <span :class="liveReloadReady ? 'text-bg-success' : 'text-bg-secondary'" class="badge">
                 {{ liveReloadReady ? 'Available' : 'Unavailable' }}
               </span>
             </div>
@@ -161,7 +163,7 @@ onUnmounted(clearReconnectTimer)
               <span v-else>{{ status.liveReloadUnavailableReason || 'No LiveReload port reported.' }}</span>
             </div>
 
-            <button class="btn btn-primary" @click="triggerLiveReload" :disabled="!liveReloadReady || actionLoading">
+            <button :disabled="!liveReloadReady || actionLoading" class="btn btn-primary" @click="triggerLiveReload">
               <span v-if="actionLoading === 'livereload'" class="spinner-border spinner-border-sm me-2"></span>
               <i v-else class="bi bi-broadcast me-1"></i>
               Trigger LiveReload
@@ -183,7 +185,7 @@ onUnmounted(clearReconnectTimer)
                   Schedules a DevTools restart after the API response is sent.
                 </p>
               </div>
-              <span class="badge" :class="restartReady ? 'text-bg-success' : 'text-bg-secondary'">
+              <span :class="restartReady ? 'text-bg-success' : 'text-bg-secondary'" class="badge">
                 {{ status.restartPending ? 'Pending' : (restartReady ? 'Available' : 'Unavailable') }}
               </span>
             </div>
@@ -192,7 +194,7 @@ onUnmounted(clearReconnectTimer)
               {{ status.restartUnavailableReason || 'Spring Boot DevTools restart is initialized.' }}
             </div>
 
-            <button class="btn btn-warning" @click="restart" :disabled="!restartReady || actionLoading || restarting">
+            <button :disabled="!restartReady || actionLoading || restarting" class="btn btn-warning" @click="restart">
               <span v-if="actionLoading === 'restart'" class="spinner-border spinner-border-sm me-2"></span>
               <i v-else class="bi bi-arrow-clockwise me-1"></i>
               Restart app

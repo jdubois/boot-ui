@@ -2,10 +2,6 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.LoggerDto;
 import io.github.jdubois.bootui.core.BootUiDtos.LoggersReport;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint.LoggerLevelsDescriptor;
@@ -14,13 +10,12 @@ import org.springframework.boot.actuate.logging.LoggersEndpoint.SingleLoggerLeve
 import org.springframework.boot.logging.LogLevel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/bootui/api/loggers")
@@ -68,8 +63,8 @@ public class LoggersController {
             throw new IllegalStateException("LoggersEndpoint is not available");
         }
         LogLevel level = request == null || request.level() == null || request.level().isBlank()
-                ? null
-                : LogLevel.valueOf(request.level().toUpperCase());
+            ? null
+            : LogLevel.valueOf(request.level().toUpperCase());
         le.configureLogLevel(name, level);
         LoggerLevelsDescriptor descriptor = le.loggerLevels(name);
         String configured = descriptor.getConfiguredLevel();
@@ -80,12 +75,12 @@ public class LoggersController {
         return new LoggerDto(name, configured, effective);
     }
 
-    public record LevelUpdateRequest(String level) {
-    }
-
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
+            .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
+    }
+
+    public record LevelUpdateRequest(String level) {
     }
 }

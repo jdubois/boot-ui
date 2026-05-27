@@ -1,8 +1,8 @@
-import { chromium } from '@playwright/test'
-import { spawn } from 'node:child_process'
+import {chromium} from '@playwright/test'
+import {spawn} from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import {fileURLToPath} from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const e2eDir = path.resolve(__dirname, '..')
@@ -12,7 +12,7 @@ const imagesDir = path.join(repoRoot, 'docs', 'images')
 
 const port = Number(process.env.BOOTUI_SCREENSHOT_PORT || 5173)
 const baseUrl = process.env.BOOTUI_SCREENSHOT_BASE_URL || `http://127.0.0.1:${port}`
-const viewport = { width: 1600, height: 900 }
+const viewport = {width: 1600, height: 900}
 const nowMillis = Date.now()
 const nowNanos = nowMillis * 1_000_000
 const traceId = '0123456789abcdef0123456789abcdef'
@@ -67,12 +67,48 @@ const overview = {
 
 const startup = {
   steps: [
-    { id: 1, parentId: null, name: 'spring.boot.application.starting', durationMs: 24, tags: [{ key: 'mainApplicationClass', value: 'BootUiSampleApplication' }] },
-    { id: 2, parentId: null, name: 'spring.context.refresh', durationMs: 860, tags: [{ key: 'context', value: 'bootui-sample' }] },
-    { id: 3, parentId: 2, name: 'spring.beans.instantiate', durationMs: 380, tags: [{ key: 'beanName', value: 'sampleCatalog' }] },
-    { id: 4, parentId: 2, name: 'spring.data.repositories.bootstrap', durationMs: 145, tags: [{ key: 'store', value: 'jpa' }] },
-    { id: 5, parentId: 2, name: 'spring.cache.redis.initialize', durationMs: 210, tags: [{ key: 'cacheManager', value: 'redisCacheManager' }] },
-    { id: 6, parentId: null, name: 'spring.boot.application.ready', durationMs: 18, tags: [{ key: 'profiles', value: 'dev,local' }] }
+    {
+      id: 1,
+      parentId: null,
+      name: 'spring.boot.application.starting',
+      durationMs: 24,
+      tags: [{key: 'mainApplicationClass', value: 'BootUiSampleApplication'}]
+    },
+    {
+      id: 2,
+      parentId: null,
+      name: 'spring.context.refresh',
+      durationMs: 860,
+      tags: [{key: 'context', value: 'bootui-sample'}]
+    },
+    {
+      id: 3,
+      parentId: 2,
+      name: 'spring.beans.instantiate',
+      durationMs: 380,
+      tags: [{key: 'beanName', value: 'sampleCatalog'}]
+    },
+    {
+      id: 4,
+      parentId: 2,
+      name: 'spring.data.repositories.bootstrap',
+      durationMs: 145,
+      tags: [{key: 'store', value: 'jpa'}]
+    },
+    {
+      id: 5,
+      parentId: 2,
+      name: 'spring.cache.redis.initialize',
+      durationMs: 210,
+      tags: [{key: 'cacheManager', value: 'redisCacheManager'}]
+    },
+    {
+      id: 6,
+      parentId: null,
+      name: 'spring.boot.application.ready',
+      durationMs: 18,
+      tags: [{key: 'profiles', value: 'dev,local'}]
+    }
   ]
 }
 
@@ -95,13 +131,13 @@ const memory = {
     loadedClasses: 18590
   },
   suggestedJvmOptions: '-Xms438m -Xmx438m -XX:MaxMetaspaceSize=94m -XX:ReservedCodeCacheSize=96m -XX:MaxDirectMemorySize=64m -XX:+UseG1GC',
-  heap: { usedBytes: 172 * MB, committedBytes: 256 * MB, maxBytes: 438 * MB, usedPercent: 39 },
-  nonHeap: { usedBytes: 116 * MB, committedBytes: 148 * MB, maxBytes: -1, usedPercent: 78 },
+  heap: {usedBytes: 172 * MB, committedBytes: 256 * MB, maxBytes: 438 * MB, usedPercent: 39},
+  nonHeap: {usedBytes: 116 * MB, committedBytes: 148 * MB, maxBytes: -1, usedPercent: 78},
   pools: [
-    { name: 'G1 Eden Space', usedBytes: 56 * MB, committedBytes: 96 * MB, maxBytes: -1, usedPercent: 58 },
-    { name: 'G1 Old Gen', usedBytes: 108 * MB, committedBytes: 150 * MB, maxBytes: 438 * MB, usedPercent: 25 },
-    { name: 'Metaspace', usedBytes: 82 * MB, committedBytes: 94 * MB, maxBytes: 94 * MB, usedPercent: 87 },
-    { name: 'CodeCache', usedBytes: 34 * MB, committedBytes: 48 * MB, maxBytes: 96 * MB, usedPercent: 35 }
+    {name: 'G1 Eden Space', usedBytes: 56 * MB, committedBytes: 96 * MB, maxBytes: -1, usedPercent: 58},
+    {name: 'G1 Old Gen', usedBytes: 108 * MB, committedBytes: 150 * MB, maxBytes: 438 * MB, usedPercent: 25},
+    {name: 'Metaspace', usedBytes: 82 * MB, committedBytes: 94 * MB, maxBytes: 94 * MB, usedPercent: 87},
+    {name: 'CodeCache', usedBytes: 34 * MB, committedBytes: 48 * MB, maxBytes: 96 * MB, usedPercent: 35}
   ],
   jvmInputArguments: ['-Dspring.profiles.active=dev,local', '-XX:+UseG1GC']
 }
@@ -109,11 +145,11 @@ const memory = {
 const health = {
   name: 'application',
   status: 'UP',
-  details: { uptime: '23m', region: 'local' },
+  details: {uptime: '23m', region: 'local'},
   components: [
-    { name: 'db', status: 'UP', details: { database: 'PostgreSQL', validationQuery: 'isValid()' }, components: [] },
-    { name: 'redis', status: 'UP', details: { version: '8.0', mode: 'standalone' }, components: [] },
-    { name: 'diskSpace', status: 'UP', details: { total: '494 GB', free: '128 GB', threshold: '10 MB' }, components: [] }
+    {name: 'db', status: 'UP', details: {database: 'PostgreSQL', validationQuery: 'isValid()'}, components: []},
+    {name: 'redis', status: 'UP', details: {version: '8.0', mode: 'standalone'}, components: []},
+    {name: 'diskSpace', status: 'UP', details: {total: '494 GB', free: '128 GB', threshold: '10 MB'}, components: []}
   ]
 }
 
@@ -122,11 +158,11 @@ const metrics = {
   metricsAvailable: true,
   total: 5,
   meters: [
-    { name: 'jvm.memory.used', type: 'GAUGE', description: 'The amount of used memory' },
-    { name: 'http.server.requests', type: 'TIMER', description: 'HTTP server request latency' },
-    { name: 'cache.gets', type: 'FUNCTION_COUNTER', description: 'Cache lookup count' },
-    { name: 'process.uptime', type: 'TIME_GAUGE', description: 'The uptime of the Java virtual machine' },
-    { name: 'spring.ai.chat.client', type: 'TIMER', description: 'Spring AI chat client latency' }
+    {name: 'jvm.memory.used', type: 'GAUGE', description: 'The amount of used memory'},
+    {name: 'http.server.requests', type: 'TIMER', description: 'HTTP server request latency'},
+    {name: 'cache.gets', type: 'FUNCTION_COUNTER', description: 'Cache lookup count'},
+    {name: 'process.uptime', type: 'TIME_GAUGE', description: 'The uptime of the Java virtual machine'},
+    {name: 'spring.ai.chat.client', type: 'TIMER', description: 'Spring AI chat client latency'}
   ]
 }
 
@@ -139,20 +175,20 @@ function metricDetail(name) {
     type: metrics.meters.find(meter => meter.name === name)?.type || 'GAUGE',
     baseUnit: name.includes('memory') ? 'bytes' : null,
     measurements: [
-      { statistic: 'VALUE', value }
+      {statistic: 'VALUE', value}
     ],
     availableTags: [
-      { key: 'area', values: ['heap', 'nonheap'], truncated: false },
-      { key: 'id', values: ['G1 Old Gen', 'Metaspace'], truncated: false }
+      {key: 'area', values: ['heap', 'nonheap'], truncated: false},
+      {key: 'id', values: ['G1 Old Gen', 'Metaspace'], truncated: false}
     ],
     samples: [
       {
-        tags: [{ key: 'area', value: 'heap' }, { key: 'id', value: 'G1 Old Gen' }],
-        measurements: [{ statistic: 'VALUE', value }]
+        tags: [{key: 'area', value: 'heap'}, {key: 'id', value: 'G1 Old Gen'}],
+        measurements: [{statistic: 'VALUE', value}]
       },
       {
-        tags: [{ key: 'area', value: 'nonheap' }, { key: 'id', value: 'Metaspace' }],
-        measurements: [{ statistic: 'VALUE', value: 86_200_000 }]
+        tags: [{key: 'area', value: 'nonheap'}, {key: 'id', value: 'Metaspace'}],
+        measurements: [{statistic: 'VALUE', value: 86_200_000}]
       }
     ]
   }
@@ -192,12 +228,48 @@ const conditions = {
 const beans = {
   total: 6,
   beans: [
-    { name: 'sampleController', type: 'io.github.jdubois.bootui.sample.BootUiSampleApplication$SampleController', scope: 'singleton', classification: 'APPLICATION', dependencies: ['sampleSettings', 'sampleCatalog'] },
-    { name: 'sampleCatalog', type: 'io.github.jdubois.bootui.sample.BootUiSampleApplication$SampleCatalog', scope: 'singleton', classification: 'APPLICATION', dependencies: ['productRepository'] },
-    { name: 'productRepository', type: 'io.github.jdubois.bootui.sample.ProductRepository', scope: 'singleton', classification: 'APPLICATION', dependencies: ['jpaSharedEM_entityManagerFactory'] },
-    { name: 'bootUiAutoConfiguration', type: 'io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration', scope: 'singleton', classification: 'BOOTUI', dependencies: [] },
-    { name: 'redisCacheManager', type: 'org.springframework.data.redis.cache.RedisCacheManager', scope: 'singleton', classification: 'FRAMEWORK', dependencies: ['redisConnectionFactory'] },
-    { name: 'dispatcherServlet', type: 'org.springframework.web.servlet.DispatcherServlet', scope: 'singleton', classification: 'FRAMEWORK', dependencies: [] }
+    {
+      name: 'sampleController',
+      type: 'io.github.jdubois.bootui.sample.BootUiSampleApplication$SampleController',
+      scope: 'singleton',
+      classification: 'APPLICATION',
+      dependencies: ['sampleSettings', 'sampleCatalog']
+    },
+    {
+      name: 'sampleCatalog',
+      type: 'io.github.jdubois.bootui.sample.BootUiSampleApplication$SampleCatalog',
+      scope: 'singleton',
+      classification: 'APPLICATION',
+      dependencies: ['productRepository']
+    },
+    {
+      name: 'productRepository',
+      type: 'io.github.jdubois.bootui.sample.ProductRepository',
+      scope: 'singleton',
+      classification: 'APPLICATION',
+      dependencies: ['jpaSharedEM_entityManagerFactory']
+    },
+    {
+      name: 'bootUiAutoConfiguration',
+      type: 'io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration',
+      scope: 'singleton',
+      classification: 'BOOTUI',
+      dependencies: []
+    },
+    {
+      name: 'redisCacheManager',
+      type: 'org.springframework.data.redis.cache.RedisCacheManager',
+      scope: 'singleton',
+      classification: 'FRAMEWORK',
+      dependencies: ['redisConnectionFactory']
+    },
+    {
+      name: 'dispatcherServlet',
+      type: 'org.springframework.web.servlet.DispatcherServlet',
+      scope: 'singleton',
+      classification: 'FRAMEWORK',
+      dependencies: []
+    }
   ]
 }
 
@@ -223,16 +295,61 @@ const configuration = {
   activeProfiles: ['dev', 'local'],
   sources: ['applicationConfig: [classpath:/application.properties]', '.bootui/application-bootui.properties', 'systemProperties'],
   propertySuggestions: [
-    { name: 'server.port', type: 'java.lang.Integer', defaultValue: 8080, description: 'Server HTTP port.' },
-    { name: 'bootui.expose-values', type: 'ExposeValues', defaultValue: 'MASKED', description: 'Controls browser-visible configuration values.' },
-    { name: 'spring.cache.type', type: 'CacheType', defaultValue: null, description: 'Cache provider to use.' }
+    {name: 'server.port', type: 'java.lang.Integer', defaultValue: 8080, description: 'Server HTTP port.'},
+    {
+      name: 'bootui.expose-values',
+      type: 'ExposeValues',
+      defaultValue: 'MASKED',
+      description: 'Controls browser-visible configuration values.'
+    },
+    {name: 'spring.cache.type', type: 'CacheType', defaultValue: null, description: 'Cache provider to use.'}
   ],
   properties: [
-    { name: 'spring.application.name', value: 'bootui-sample', masked: false, source: 'applicationConfig: [classpath:/application.properties]', description: 'Application name.', defaultValue: null, override: false },
-    { name: 'server.port', value: '8080', masked: false, source: 'applicationConfig: [classpath:/application.properties]', description: 'Server HTTP port.', defaultValue: '8080', override: false },
-    { name: 'sample.greeting', value: 'Bonjour', masked: false, source: '.bootui/application-bootui.properties', description: 'Greeting prefix used by the sample app.', defaultValue: 'Hello', override: true },
-    { name: 'spring.datasource.password', value: '******', masked: true, source: 'systemProperties', description: 'Database password.', defaultValue: null, override: false },
-    { name: 'spring.cache.type', value: 'redis', masked: false, source: 'applicationConfig: [classpath:/application.properties]', description: 'Cache provider to use.', defaultValue: null, override: false }
+    {
+      name: 'spring.application.name',
+      value: 'bootui-sample',
+      masked: false,
+      source: 'applicationConfig: [classpath:/application.properties]',
+      description: 'Application name.',
+      defaultValue: null,
+      override: false
+    },
+    {
+      name: 'server.port',
+      value: '8080',
+      masked: false,
+      source: 'applicationConfig: [classpath:/application.properties]',
+      description: 'Server HTTP port.',
+      defaultValue: '8080',
+      override: false
+    },
+    {
+      name: 'sample.greeting',
+      value: 'Bonjour',
+      masked: false,
+      source: '.bootui/application-bootui.properties',
+      description: 'Greeting prefix used by the sample app.',
+      defaultValue: 'Hello',
+      override: true
+    },
+    {
+      name: 'spring.datasource.password',
+      value: '******',
+      masked: true,
+      source: 'systemProperties',
+      description: 'Database password.',
+      defaultValue: null,
+      override: false
+    },
+    {
+      name: 'spring.cache.type',
+      value: 'redis',
+      masked: false,
+      source: 'applicationConfig: [classpath:/application.properties]',
+      description: 'Cache provider to use.',
+      defaultValue: null,
+      override: false
+    }
   ]
 }
 
@@ -243,17 +360,17 @@ const profileDiff = {
       profile: 'dev',
       sourceName: 'classpath:/application-dev.properties',
       properties: [
-        { name: 'logging.level.io.github.jdubois.bootui', value: 'DEBUG', masked: false },
-        { name: 'sample.retries', value: '3', masked: false },
-        { name: 'spring.datasource.password', value: '******', masked: true }
+        {name: 'logging.level.io.github.jdubois.bootui', value: 'DEBUG', masked: false},
+        {name: 'sample.retries', value: '3', masked: false},
+        {name: 'spring.datasource.password', value: '******', masked: true}
       ]
     },
     {
       profile: 'local',
       sourceName: 'file:.bootui/application-bootui.properties',
       properties: [
-        { name: 'sample.greeting', value: 'Bonjour', masked: false },
-        { name: 'bootui.cache.clear-enabled', value: 'true', masked: false }
+        {name: 'sample.greeting', value: 'Bonjour', masked: false},
+        {name: 'bootui.cache.clear-enabled', value: 'true', masked: false}
       ]
     }
   ]
@@ -262,11 +379,11 @@ const profileDiff = {
 const loggers = {
   availableLevels: ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'OFF'],
   loggers: [
-    { name: 'ROOT', configuredLevel: 'INFO', effectiveLevel: 'INFO' },
-    { name: 'io.github.jdubois.bootui', configuredLevel: 'DEBUG', effectiveLevel: 'DEBUG' },
-    { name: 'io.github.jdubois.bootui.sample', configuredLevel: 'INFO', effectiveLevel: 'INFO' },
-    { name: 'org.springframework.web', configuredLevel: null, effectiveLevel: 'INFO' },
-    { name: 'org.hibernate.SQL', configuredLevel: 'DEBUG', effectiveLevel: 'DEBUG' }
+    {name: 'ROOT', configuredLevel: 'INFO', effectiveLevel: 'INFO'},
+    {name: 'io.github.jdubois.bootui', configuredLevel: 'DEBUG', effectiveLevel: 'DEBUG'},
+    {name: 'io.github.jdubois.bootui.sample', configuredLevel: 'INFO', effectiveLevel: 'INFO'},
+    {name: 'org.springframework.web', configuredLevel: null, effectiveLevel: 'INFO'},
+    {name: 'org.hibernate.SQL', configuredLevel: 'DEBUG', effectiveLevel: 'DEBUG'}
   ]
 }
 
@@ -317,8 +434,8 @@ const aiOverview = {
   totalChats: 8,
   totalInputTokens: 2674,
   totalOutputTokens: 812,
-  tokensByModel: { 'qwen2.5:0.5b': 2386, 'llama3.2:1b': 1100 },
-  callsByModel: { 'qwen2.5:0.5b': 6, 'llama3.2:1b': 2 },
+  tokensByModel: {'qwen2.5:0.5b': 2386, 'llama3.2:1b': 1100},
+  callsByModel: {'qwen2.5:0.5b': 6, 'llama3.2:1b': 2},
   toolCallCount: 5,
   vectorOperationCount: 3,
   embeddingCount: 2,
@@ -333,28 +450,47 @@ const aiOverview = {
 const aiTokens = {
   minutes: 60,
   buckets: [
-    { epochMinute: 100, inputTokens: 0, outputTokens: 0, callCount: 0 },
-    { epochMinute: 101, inputTokens: 220, outputTokens: 75, callCount: 1 },
-    { epochMinute: 102, inputTokens: 180, outputTokens: 64, callCount: 1 },
-    { epochMinute: 103, inputTokens: 420, outputTokens: 130, callCount: 2 },
-    { epochMinute: 104, inputTokens: 310, outputTokens: 91, callCount: 1 },
-    { epochMinute: 105, inputTokens: 560, outputTokens: 182, callCount: 2 },
-    { epochMinute: 106, inputTokens: 250, outputTokens: 88, callCount: 1 }
+    {epochMinute: 100, inputTokens: 0, outputTokens: 0, callCount: 0},
+    {epochMinute: 101, inputTokens: 220, outputTokens: 75, callCount: 1},
+    {epochMinute: 102, inputTokens: 180, outputTokens: 64, callCount: 1},
+    {epochMinute: 103, inputTokens: 420, outputTokens: 130, callCount: 2},
+    {epochMinute: 104, inputTokens: 310, outputTokens: 91, callCount: 1},
+    {epochMinute: 105, inputTokens: 560, outputTokens: 182, callCount: 2},
+    {epochMinute: 106, inputTokens: 250, outputTokens: 88, callCount: 1}
   ]
 }
 
 const aiDetail = {
   summary: aiOverview.recent[0],
   toolCalls: [
-    { spanId: '4444444444444444', name: 'lookupProductCatalog', startEpochNanos: nowNanos, durationNanos: 42_000_000, statusCode: 'OK' },
-    { spanId: '5555555555555555', name: 'summarizeCacheStats', startEpochNanos: nowNanos, durationNanos: 28_000_000, statusCode: 'OK' }
+    {
+      spanId: '4444444444444444',
+      name: 'lookupProductCatalog',
+      startEpochNanos: nowNanos,
+      durationNanos: 42_000_000,
+      statusCode: 'OK'
+    },
+    {
+      spanId: '5555555555555555',
+      name: 'summarizeCacheStats',
+      startEpochNanos: nowNanos,
+      durationNanos: 28_000_000,
+      statusCode: 'OK'
+    }
   ],
   vectorOperations: [
-    { spanId: '6666666666666666', operation: 'query', collectionName: 'bootui-docs', startEpochNanos: nowNanos, durationNanos: 35_000_000, statusCode: 'OK' }
+    {
+      spanId: '6666666666666666',
+      operation: 'query',
+      collectionName: 'bootui-docs',
+      startEpochNanos: nowNanos,
+      durationNanos: 35_000_000,
+      statusCode: 'OK'
+    }
   ],
   attributes: [
-    { key: 'gen_ai.system', type: 'string', value: 'ollama' },
-    { key: 'gen_ai.request.model', type: 'string', value: 'qwen2.5:0.5b' }
+    {key: 'gen_ai.system', type: 'string', value: 'ollama'},
+    {key: 'gen_ai.request.model', type: 'string', value: 'qwen2.5:0.5b'}
   ],
   events: [],
   contentCaptured: false,
@@ -384,8 +520,8 @@ const devServices = {
       image: 'postgres:18-alpine',
       status: 'READY_AT_STARTUP',
       host: 'localhost',
-      ports: [{ containerPort: 5432, hostPort: 15432, protocol: 'tcp' }],
-      connectionDetails: { database: 'bootui_sample', username: 'bootui', password: 'masked' },
+      ports: [{containerPort: 5432, hostPort: 15432, protocol: 'tcp'}],
+      connectionDetails: {database: 'bootui_sample', username: 'bootui', password: 'masked'},
       restartable: false,
       logsAvailable: false,
       note: 'Docker Compose status is a startup snapshot.'
@@ -398,8 +534,8 @@ const devServices = {
       image: 'redis:8-alpine',
       status: 'READY_AT_STARTUP',
       host: 'localhost',
-      ports: [{ containerPort: 6379, hostPort: 16379, protocol: 'tcp' }],
-      connectionDetails: { cacheNames: 'sample-products,sample-greetings' },
+      ports: [{containerPort: 6379, hostPort: 16379, protocol: 'tcp'}],
+      connectionDetails: {cacheNames: 'sample-products,sample-greetings'},
       restartable: false,
       logsAvailable: true,
       note: 'Bounded logs are available for supported local services.'
@@ -412,8 +548,8 @@ const devServices = {
       image: 'ollama/ollama:latest',
       status: 'READY_AT_STARTUP',
       host: 'localhost',
-      ports: [{ containerPort: 11434, hostPort: 11434, protocol: 'tcp' }],
-      connectionDetails: { model: 'qwen2.5:0.5b' },
+      ports: [{containerPort: 11434, hostPort: 11434, protocol: 'tcp'}],
+      connectionDetails: {model: 'qwen2.5:0.5b'},
       restartable: false,
       logsAvailable: true,
       note: 'Spring AI uses this local model endpoint.'
@@ -425,9 +561,21 @@ const scheduled = {
   schedulingPresent: true,
   total: 3,
   tasks: [
-    { runnable: 'EchoScheduler.echo', triggerType: 'FIXED_RATE', expression: '30000', initialDelayMs: 0, timeUnit: 'ms' },
-    { runnable: 'ProductWarmup.refreshCatalog', triggerType: 'CRON', expression: '0 */5 * * * *', initialDelayMs: null, timeUnit: 'ms' },
-    { runnable: 'AiUsageRollup.aggregateMinute', triggerType: 'FIXED_DELAY', expression: '60000', initialDelayMs: 10000, timeUnit: 'ms' }
+    {runnable: 'EchoScheduler.echo', triggerType: 'FIXED_RATE', expression: '30000', initialDelayMs: 0, timeUnit: 'ms'},
+    {
+      runnable: 'ProductWarmup.refreshCatalog',
+      triggerType: 'CRON',
+      expression: '0 */5 * * * *',
+      initialDelayMs: null,
+      timeUnit: 'ms'
+    },
+    {
+      runnable: 'AiUsageRollup.aggregateMinute',
+      triggerType: 'FIXED_DELAY',
+      expression: '60000',
+      initialDelayMs: 10000,
+      timeUnit: 'ms'
+    }
   ]
 }
 
@@ -463,9 +611,27 @@ const dataDetail = {
   storeModule: 'JPA',
   customImplementation: 'org.springframework.data.jpa.repository.support.SimpleJpaRepository',
   methods: [
-    { origin: 'DERIVED', signature: 'List<Product> findByActiveTrueOrderByNameAsc()', query: null, namedQuery: null, nativeQuery: false },
-    { origin: 'QUERY', signature: 'List<Product> findFeaturedProducts()', query: 'select p from Product p where p.active = true and p.category = :category', namedQuery: null, nativeQuery: false },
-    { origin: 'CRUD', signature: 'Optional<Product> findById(Long id)', query: null, namedQuery: null, nativeQuery: false }
+    {
+      origin: 'DERIVED',
+      signature: 'List<Product> findByActiveTrueOrderByNameAsc()',
+      query: null,
+      namedQuery: null,
+      nativeQuery: false
+    },
+    {
+      origin: 'QUERY',
+      signature: 'List<Product> findFeaturedProducts()',
+      query: 'select p from Product p where p.active = true and p.category = :category',
+      namedQuery: null,
+      nativeQuery: false
+    },
+    {
+      origin: 'CRUD',
+      signature: 'Optional<Product> findById(Long id)',
+      query: null,
+      namedQuery: null,
+      nativeQuery: false
+    }
   ]
 }
 
@@ -489,10 +655,54 @@ const cache = {
     }
   ],
   operations: [
-    { operation: '@Cacheable', beanName: 'sampleCatalog', targetType: 'io.github.jdubois.bootui.sample.SampleCatalog', method: 'activeProducts()', caches: ['sample-products'], key: "'active'", condition: null, unless: '#result.isEmpty()', allEntries: false, beforeInvocation: false },
-    { operation: '@Cacheable', beanName: 'sampleCatalog', targetType: 'io.github.jdubois.bootui.sample.SampleCatalog', method: 'greeting(String,int)', caches: ['sample-greetings'], key: '#greeting + ":" + #retries', condition: null, unless: null, allEntries: false, beforeInvocation: false },
-    { operation: '@CacheEvict', beanName: 'sampleCatalog', targetType: 'io.github.jdubois.bootui.sample.SampleCatalog', method: 'evictProducts()', caches: ['sample-products'], key: null, condition: null, unless: null, allEntries: true, beforeInvocation: false },
-    { operation: '@CachePut', beanName: 'aiUsageService', targetType: 'io.github.jdubois.bootui.sample.AiUsageService', method: 'rememberSnippet(String)', caches: ['ai-response-snippets'], key: '#conversationId', condition: null, unless: null, allEntries: false, beforeInvocation: false }
+    {
+      operation: '@Cacheable',
+      beanName: 'sampleCatalog',
+      targetType: 'io.github.jdubois.bootui.sample.SampleCatalog',
+      method: 'activeProducts()',
+      caches: ['sample-products'],
+      key: "'active'",
+      condition: null,
+      unless: '#result.isEmpty()',
+      allEntries: false,
+      beforeInvocation: false
+    },
+    {
+      operation: '@Cacheable',
+      beanName: 'sampleCatalog',
+      targetType: 'io.github.jdubois.bootui.sample.SampleCatalog',
+      method: 'greeting(String,int)',
+      caches: ['sample-greetings'],
+      key: '#greeting + ":" + #retries',
+      condition: null,
+      unless: null,
+      allEntries: false,
+      beforeInvocation: false
+    },
+    {
+      operation: '@CacheEvict',
+      beanName: 'sampleCatalog',
+      targetType: 'io.github.jdubois.bootui.sample.SampleCatalog',
+      method: 'evictProducts()',
+      caches: ['sample-products'],
+      key: null,
+      condition: null,
+      unless: null,
+      allEntries: true,
+      beforeInvocation: false
+    },
+    {
+      operation: '@CachePut',
+      beanName: 'aiUsageService',
+      targetType: 'io.github.jdubois.bootui.sample.AiUsageService',
+      method: 'rememberSnippet(String)',
+      caches: ['ai-response-snippets'],
+      key: '#conversationId',
+      condition: null,
+      unless: null,
+      allEntries: false,
+      beforeInvocation: false
+    }
   ]
 }
 
@@ -529,11 +739,56 @@ const securityEndpoints = {
   handlerMappingAvailable: true,
   total: 5,
   endpoints: [
-    { method: 'GET', pattern: '/bootui/**', handler: 'BootUiForwardingController', chainIndex: 0, rule: 'permitAll', roles: [], bestEffort: false, description: 'LocalhostOnlyFilter enforces loopback access before security.' },
-    { method: 'GET', pattern: '/api/sample/hello', handler: 'SampleController#hello', chainIndex: 1, rule: 'permitAll', roles: [], bestEffort: false, description: 'Public sample endpoint.' },
-    { method: 'GET', pattern: '/admin', handler: 'AdminController#admin', chainIndex: 1, rule: 'hasRole', roles: ['ADMIN'], bestEffort: false, description: 'Admin-only sample route.' },
-    { method: 'POST', pattern: '/api/chat', handler: 'ChatController#chat', chainIndex: 1, rule: 'authenticated', roles: [], bestEffort: true, description: 'Requires authenticated local user.' },
-    { method: 'GET', pattern: '/api/secure', handler: 'HelloController#secure', chainIndex: 1, rule: 'authenticated', roles: [], bestEffort: false, description: 'Protected sample endpoint.' }
+    {
+      method: 'GET',
+      pattern: '/bootui/**',
+      handler: 'BootUiForwardingController',
+      chainIndex: 0,
+      rule: 'permitAll',
+      roles: [],
+      bestEffort: false,
+      description: 'LocalhostOnlyFilter enforces loopback access before security.'
+    },
+    {
+      method: 'GET',
+      pattern: '/api/sample/hello',
+      handler: 'SampleController#hello',
+      chainIndex: 1,
+      rule: 'permitAll',
+      roles: [],
+      bestEffort: false,
+      description: 'Public sample endpoint.'
+    },
+    {
+      method: 'GET',
+      pattern: '/admin',
+      handler: 'AdminController#admin',
+      chainIndex: 1,
+      rule: 'hasRole',
+      roles: ['ADMIN'],
+      bestEffort: false,
+      description: 'Admin-only sample route.'
+    },
+    {
+      method: 'POST',
+      pattern: '/api/chat',
+      handler: 'ChatController#chat',
+      chainIndex: 1,
+      rule: 'authenticated',
+      roles: [],
+      bestEffort: true,
+      description: 'Requires authenticated local user.'
+    },
+    {
+      method: 'GET',
+      pattern: '/api/secure',
+      handler: 'HelloController#secure',
+      chainIndex: 1,
+      rule: 'authenticated',
+      roles: [],
+      bestEffort: false,
+      description: 'Protected sample endpoint.'
+    }
   ]
 }
 
@@ -548,11 +803,11 @@ const dependencies = {
     scannedAt: new Date(nowMillis - 90_000).toISOString()
   },
   severityCounts: [
-    { severity: 'CRITICAL', count: 0 },
-    { severity: 'HIGH', count: 1 },
-    { severity: 'MEDIUM', count: 2 },
-    { severity: 'LOW', count: 0 },
-    { severity: 'UNKNOWN', count: 0 }
+    {severity: 'CRITICAL', count: 0},
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 2},
+    {severity: 'LOW', count: 0},
+    {severity: 'UNKNOWN', count: 0}
   ],
   dependencies: [
     dependency('pkg:maven/org.springframework.boot/spring-boot-starter-web', '4.0.6', 'NONE', []),
@@ -588,7 +843,7 @@ const screenshots = [
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
   ['http-probe', 'HTTP Probe', 'bootui-http-probe.png', async page => {
     await page.getByPlaceholder('/api/sample/hello').fill('/api/sample/products')
-    await page.getByRole('button', { name: 'Send' }).click()
+    await page.getByRole('button', {name: 'Send'}).click()
     await page.getByText('200 OK').waitFor()
   }],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
@@ -596,7 +851,7 @@ const screenshots = [
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   ['data', 'Data', 'bootui-data.png', async page => {
     await page.getByText('ProductRepository').waitFor()
-    await page.getByRole('button', { name: /ProductRepository/ }).click()
+    await page.getByRole('button', {name: /ProductRepository/}).click()
     await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
   }],
   ['cache', 'Cache', 'bootui-cache.png', waitForText('sample-products')],
@@ -609,7 +864,7 @@ let viteProcess
 let browser
 
 try {
-  await fs.mkdir(imagesDir, { recursive: true })
+  await fs.mkdir(imagesDir, {recursive: true})
   if (process.env.BOOTUI_SCREENSHOT_BASE_URL) {
     await waitForServer(`${baseUrl}/bootui/`)
   } else if (await isServerReady(`${baseUrl}/bootui/`)) {
@@ -625,7 +880,7 @@ try {
     deviceScaleFactor: 1
   })
 
-  await page.addInitScript(({ logLines }) => {
+  await page.addInitScript(({logLines}) => {
     const styleText = `
       *, *::before, *::after {
         animation-duration: 0s !important;
@@ -647,9 +902,9 @@ try {
         this.readyState = 0
         setTimeout(() => {
           this.readyState = 1
-          this.emit('open', { type: 'open' })
+          this.emit('open', {type: 'open'})
           logLines.forEach((line, index) => {
-            setTimeout(() => this.emit('log', { type: 'log', data: JSON.stringify(line) }), 40 + index * 50)
+            setTimeout(() => this.emit('log', {type: 'log', data: JSON.stringify(line)}), 40 + index * 50)
           })
         }, 20)
       }
@@ -679,13 +934,13 @@ try {
     }
 
     window.EventSource = FakeEventSource
-  }, { logLines: sampleLogLines() })
+  }, {logLines: sampleLogLines()})
 
   await page.route('**/bootui/api/**', handleApiRoute)
 
   for (const [route, title, fileName, prepare] of screenshots) {
     await page.goto(`${baseUrl}/bootui/#/${route}`)
-    await page.locator('.page-heading h2').filter({ hasText: title }).first().waitFor()
+    await page.locator('.page-heading h2').filter({hasText: title}).first().waitFor()
     await prepare(page)
     await page.waitForTimeout(250)
     await page.screenshot({
@@ -707,7 +962,7 @@ function startVite() {
   const child = spawn(process.execPath, [viteBin, '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
     cwd: frontendDir,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, BROWSER: 'none' }
+    env: {...process.env, BROWSER: 'none'}
   })
   child.stdout.on('data', data => process.stdout.write(data))
   child.stderr.on('data', data => process.stderr.write(data))
@@ -744,7 +999,7 @@ async function handleApiRoute(route) {
 
   if (endpoint === 'overview') return fulfillJson(route, overview)
   if (endpoint === 'panels') return fulfillJson(route, {
-    panels: panelOrder.map(([id, title]) => ({ id, title, available: true, unavailableReason: null }))
+    panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
   })
   if (endpoint === 'startup') return fulfillJson(route, startup)
   if (endpoint.startsWith('memory')) return fulfillJson(route, memory)
@@ -766,7 +1021,12 @@ async function handleApiRoute(route) {
   if (endpoint === 'devtools') return fulfillJson(route, devTools)
   if (endpoint === 'dev-services') return fulfillJson(route, devServices)
   if (endpoint === 'dev-services/compose:redis/logs') {
-    return fulfillJson(route, { id: 'compose:redis', logs: 'Redis ready to accept connections\nCache hit sample-products::active', truncated: false, maxBytes: 65536 })
+    return fulfillJson(route, {
+      id: 'compose:redis',
+      logs: 'Redis ready to accept connections\nCache hit sample-products::active',
+      truncated: false,
+      maxBytes: 65536
+    })
   }
   if (endpoint === 'scheduled') return fulfillJson(route, scheduled)
   if (endpoint === 'data/repositories') return fulfillJson(route, dataReport)
@@ -784,7 +1044,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'dependencies') return fulfillJson(route, dependencies)
   if (endpoint === 'dependencies/scan') return fulfillJson(route, dependencies)
 
-  return fulfillJson(route, { error: `No screenshot fixture for ${endpoint}` }, 404)
+  return fulfillJson(route, {error: `No screenshot fixture for ${endpoint}`}, 404)
 }
 
 function waitForText(text) {
@@ -887,10 +1147,30 @@ function vulnerability(id, severity, summary, aliases, fixedVersions) {
 
 function sampleLogLines() {
   return [
-    { timestamp: nowMillis - 12_000, level: 'INFO', logger: 'io.github.jdubois.bootui.sample.BootUiSampleApplication', message: 'Started BootUI sample application in 1.28 seconds' },
-    { timestamp: nowMillis - 8_000, level: 'DEBUG', logger: 'io.github.jdubois.bootui.autoconfigure.web.CacheController', message: 'Discovered 3 caches across 1 cache manager' },
-    { timestamp: nowMillis - 4_000, level: 'INFO', logger: 'io.github.jdubois.bootui.sample.EchoScheduler', message: 'echo' },
-    { timestamp: nowMillis - 2_000, level: 'WARN', logger: 'io.github.jdubois.bootui.sample.ChatController', message: 'Ollama latency above local threshold: 820 ms' }
+    {
+      timestamp: nowMillis - 12_000,
+      level: 'INFO',
+      logger: 'io.github.jdubois.bootui.sample.BootUiSampleApplication',
+      message: 'Started BootUI sample application in 1.28 seconds'
+    },
+    {
+      timestamp: nowMillis - 8_000,
+      level: 'DEBUG',
+      logger: 'io.github.jdubois.bootui.autoconfigure.web.CacheController',
+      message: 'Discovered 3 caches across 1 cache manager'
+    },
+    {
+      timestamp: nowMillis - 4_000,
+      level: 'INFO',
+      logger: 'io.github.jdubois.bootui.sample.EchoScheduler',
+      message: 'echo'
+    },
+    {
+      timestamp: nowMillis - 2_000,
+      level: 'WARN',
+      logger: 'io.github.jdubois.bootui.sample.ChatController',
+      message: 'Ollama latency above local threshold: 820 ms'
+    }
   ]
 }
 
@@ -905,8 +1185,8 @@ function probeResponse(request) {
     body: JSON.stringify({
       path: request.path || '/api/sample/products',
       products: [
-        { id: 1, name: 'BootUI Starter', category: 'library' },
-        { id: 2, name: 'Sample Console', category: 'demo' }
+        {id: 1, name: 'BootUI Starter', category: 'library'},
+        {id: 2, name: 'Sample Console', category: 'demo'}
       ]
     }, null, 2),
     durationMs: 18,

@@ -1,10 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import io.github.jdubois.bootui.autoconfigure.web.MemoryCalculator.JdkVersion;
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
 import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for the Paketo {@code libjvm}-style {@link MemoryCalculator}.
@@ -24,19 +24,19 @@ class MemoryCalculatorTests {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
 
         MemoryCalculationDto result = calc.calculate(
-                1024 * MB,
-                250,
-                10_000,
-                0,
-                42,
-                10_000);
+            1024 * MB,
+            250,
+            10_000,
+            0,
+            42,
+            10_000);
 
         long expectedMetaspace = (long) Math.ceil(
-                (14_000_000L + 5_800L * 10_000L) * MemoryCalculator.META_SAFETY_FACTOR);
+            (14_000_000L + 5_800L * 10_000L) * MemoryCalculator.META_SAFETY_FACTOR);
         long expectedFixed = MemoryCalculator.DIRECT_MEMORY_BYTES
-                + expectedMetaspace
-                + MemoryCalculator.CODE_CACHE_BYTES
-                + MemoryCalculator.STACK_BYTES_PER_THREAD * 250L;
+            + expectedMetaspace
+            + MemoryCalculator.CODE_CACHE_BYTES
+            + MemoryCalculator.STACK_BYTES_PER_THREAD * 250L;
         long expectedHeap = 1024 * MB - 0 - expectedFixed;
 
         assertThat(result.valid()).isTrue();
@@ -66,7 +66,7 @@ class MemoryCalculatorTests {
 
         MemoryCalculationDto b = calc.calculate(1024 * MB, 250, 1_000, 0, 1, 1_000);
         long expected1k = (long) Math.ceil(
-                (14_000_000L + 5_800L * 1_000L) * MemoryCalculator.META_SAFETY_FACTOR);
+            (14_000_000L + 5_800L * 1_000L) * MemoryCalculator.META_SAFETY_FACTOR);
         assertThat(b.metaspaceBytes()).isEqualTo(expected1k);
     }
 
@@ -101,8 +101,8 @@ class MemoryCalculatorTests {
 
         long heapMb = Math.round(result.heapBytes() / (double) MB);
         assertThat(result.jvmOptions())
-                .contains("-Xms" + heapMb + "m")
-                .contains("-Xmx" + heapMb + "m");
+            .contains("-Xms" + heapMb + "m")
+            .contains("-Xmx" + heapMb + "m");
     }
 
     @Test
@@ -120,9 +120,9 @@ class MemoryCalculatorTests {
 
         long metaMb = Math.round(result.metaspaceBytes() / (double) MB);
         assertThat(result.jvmOptions())
-                .contains("-XX:ReservedCodeCacheSize=240m")
-                .contains("-XX:MaxDirectMemorySize=10m")
-                .contains("-XX:MaxMetaspaceSize=" + metaMb + "m");
+            .contains("-XX:ReservedCodeCacheSize=240m")
+            .contains("-XX:MaxDirectMemorySize=10m")
+            .contains("-XX:MaxMetaspaceSize=" + metaMb + "m");
     }
 
     @Test
@@ -142,12 +142,12 @@ class MemoryCalculatorTests {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
 
         MemoryCalculationDto result = calc.calculate(
-                256 * MB,
-                5_000,
-                100_000,
-                0,
-                10,
-                100_000);
+            256 * MB,
+            5_000,
+            100_000,
+            0,
+            10,
+            100_000);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.error()).isNotNull().contains("No room for heap");
@@ -160,12 +160,12 @@ class MemoryCalculatorTests {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
 
         MemoryCalculationDto result = calc.calculate(
-                -1,
-                -1,
-                -1,
-                -50,
-                10,
-                0);
+            -1,
+            -1,
+            -1,
+            -50,
+            10,
+            0);
 
         assertThat(result.totalMemoryBytes()).isGreaterThanOrEqualTo(MemoryCalculator.MIN_TOTAL_MEMORY_BYTES);
         assertThat(result.threadCount()).isGreaterThanOrEqualTo(MemoryCalculator.MIN_THREAD_COUNT);
@@ -178,12 +178,12 @@ class MemoryCalculatorTests {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
 
         MemoryCalculationDto result = calc.calculate(
-                Long.MAX_VALUE,
-                Integer.MAX_VALUE,
-                10_000,
-                1_000,
-                10,
-                10_000);
+            Long.MAX_VALUE,
+            Integer.MAX_VALUE,
+            10_000,
+            1_000,
+            10,
+            10_000);
 
         assertThat(result.totalMemoryBytes()).isLessThanOrEqualTo(MemoryCalculator.MAX_TOTAL_MEMORY_BYTES);
         assertThat(result.threadCount()).isLessThanOrEqualTo(MemoryCalculator.MAX_THREAD_COUNT);
@@ -195,16 +195,16 @@ class MemoryCalculatorTests {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
 
         long onLargeMac = calc.defaultTotalMemoryBytes(
-                2L * 1024 * MB,
-                300L * MB,
-                40,
-                15_000);
+            2L * 1024 * MB,
+            300L * MB,
+            40,
+            15_000);
 
         long onTinyApp = calc.defaultTotalMemoryBytes(
-                32L * MB,
-                16L * MB,
-                10,
-                500);
+            32L * MB,
+            16L * MB,
+            10,
+            500);
 
         assertThat(onLargeMac).isLessThanOrEqualTo(2048L * MB);
         assertThat(onLargeMac).isGreaterThanOrEqualTo(384L * MB);
@@ -217,10 +217,10 @@ class MemoryCalculatorTests {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
 
         long result = calc.defaultTotalMemoryBytes(
-                200L * MB,
-                100L * MB,
-                40,
-                10_000);
+            200L * MB,
+            100L * MB,
+            40,
+            10_000);
 
         assertThat(result % (64L * MB)).isZero();
     }
@@ -238,9 +238,9 @@ class MemoryCalculatorTests {
         MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
 
         assertThat(result.jvmOptions())
-                .contains("-XX:+UseStringDeduplication")
-                .contains("-XX:+ExitOnOutOfMemoryError")
-                .contains("-XX:+HeapDumpOnOutOfMemoryError")
-                .contains("-XX:HeapDumpPath=/tmp");
+            .contains("-XX:+UseStringDeduplication")
+            .contains("-XX:+ExitOnOutOfMemoryError")
+            .contains("-XX:+HeapDumpOnOutOfMemoryError")
+            .contains("-XX:HeapDumpPath=/tmp");
     }
 }

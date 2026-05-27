@@ -61,7 +61,8 @@ npx playwright install chromium
 npm test
 ```
 
-Playwright can start the sample app automatically. If you already have the sample app running on port 8080, it will reuse that server.
+Playwright can start the sample app automatically. If you already have the sample app running on port 8080, it will
+reuse that server.
 
 ## Run the sample app
 
@@ -110,12 +111,12 @@ The GitHub Actions release workflow (`.github/workflows/release.yml`) runs on
 `v*` tags or manually through `workflow_dispatch`. Configure these repository or
 environment secrets before running it:
 
-| Secret | Value |
-|---|---|
-| `MAVEN_CENTRAL_USERNAME` | Sonatype Central Portal user token username |
-| `MAVEN_CENTRAL_PASSWORD` | Sonatype Central Portal user token password |
-| `GPG_PRIVATE_KEY` | ASCII-armored private key used to sign artifacts |
-| `MAVEN_GPG_PASSPHRASE` | Passphrase for the GPG private key |
+| Secret                   | Value                                            |
+|--------------------------|--------------------------------------------------|
+| `MAVEN_CENTRAL_USERNAME` | Sonatype Central Portal user token username      |
+| `MAVEN_CENTRAL_PASSWORD` | Sonatype Central Portal user token password      |
+| `GPG_PRIVATE_KEY`        | ASCII-armored private key used to sign artifacts |
+| `MAVEN_GPG_PASSPHRASE`   | Passphrase for the GPG private key               |
 
 For a tag release, create a tag that matches the Maven project version, for
 example `v0.1.0-alpha.1`. Manual runs publish automatically by default; disable

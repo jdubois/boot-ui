@@ -4,12 +4,13 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.core.BootUiDtos.ConfigOverrideResult;
 import io.github.jdubois.bootui.core.SecretMasker;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.MutablePropertySources;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.core.env.ConfigurableEnvironment;
-import org.springframework.core.env.MutablePropertySources;
 
 /**
  * Reads, writes, and persists BootUI runtime configuration overrides.
@@ -62,16 +63,16 @@ public class ConfigOverrideService {
         BootUiOverridesPropertySource src = source();
         Object previous = src.getProperty(name);
         String previousDisplay = previous == null
-                ? null
-                : displayValue(name, previous);
+            ? null
+            : displayValue(name, previous);
         src.put(name, value);
         store.save(src.mutableSource());
         String message = describeRebindCaveat(name);
         return new ConfigOverrideResult(name,
-                displayValue(name, value),
-                previousDisplay,
-                true,
-                message);
+            displayValue(name, value),
+            previousDisplay,
+            true,
+            message);
     }
 
     public ConfigOverrideResult remove(String name) {
@@ -81,7 +82,7 @@ public class ConfigOverrideService {
         store.save(src.mutableSource());
         String previousDisplay = previous == null ? null : displayValue(name, previous);
         return new ConfigOverrideResult(name, null, previousDisplay, true,
-                describeRebindCaveat(name));
+            describeRebindCaveat(name));
     }
 
     private BootUiOverridesPropertySource source() {
@@ -105,8 +106,8 @@ public class ConfigOverrideService {
             return null;
         }
         if (properties.getExposeValues() == ValueExposure.MASKED
-                && properties.isMaskSecrets()
-                && masker.isSecret(name)) {
+            && properties.isMaskSecrets()
+            && masker.isSecret(name)) {
             return SecretMasker.MASKED_VALUE;
         }
         return value == null ? null : String.valueOf(value);
@@ -114,6 +115,6 @@ public class ConfigOverrideService {
 
     private String describeRebindCaveat(String name) {
         return "Override stored at " + store.file()
-                + ". Already-bound @ConfigurationProperties beans may keep their previous value until restart.";
+            + ". Already-bound @ConfigurationProperties beans may keep their previous value until restart.";
     }
 }

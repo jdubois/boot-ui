@@ -38,12 +38,12 @@ Open <http://localhost:8080/bootui> in a browser running on the same machine.
 
 Useful URLs:
 
-| URL | What you see |
-|---|---|
-| <http://localhost:8080/> | Sample application welcome page |
-| <http://localhost:8080/bootui> | BootUI console |
-| <http://localhost:8080/bootui/api/overview> | Stable BootUI JSON DTO for the Overview panel |
-| <http://localhost:8080/api/echo> | Sample REST endpoint surfaced by the Mappings panel |
+| URL                                         | What you see                                        |
+|---------------------------------------------|-----------------------------------------------------|
+| <http://localhost:8080/>                    | Sample application welcome page                     |
+| <http://localhost:8080/bootui>              | BootUI console                                      |
+| <http://localhost:8080/bootui/api/overview> | Stable BootUI JSON DTO for the Overview panel       |
+| <http://localhost:8080/api/echo>            | Sample REST endpoint surfaced by the Mappings panel |
 
 ## Suggested walkthrough
 
@@ -69,8 +69,8 @@ Useful URLs:
    `sample-greetings` caches are listed, inspect cache annotations, and clear a
    cache after confirming the action.
 10. **Dev Services** — verify the Postgres and Redis Docker Compose entries are
-   present and their service-connection metadata matches the actual mapped
-   ports.
+    present and their service-connection metadata matches the actual mapped
+    ports.
 11. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
     external host and confirm it is rejected as non-loopback.
 12. **Log Tail** — generate a few log lines from the sample endpoints and watch
