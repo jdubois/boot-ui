@@ -40,6 +40,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         properties = {
                 "spring.profiles.active=dev",
                 "spring.docker.compose.enabled=false",
+                "spring.cache.type=simple",
+                "spring.autoconfigure.exclude="
+                        + "org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,"
+                        + "org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,"
+                        + "org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration,"
+                        + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,"
+                        + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration",
                 "bootui.show-banner=false",
                 "bootui.overrides-file=target/bootui-test-overrides.properties"
         })
@@ -443,6 +450,39 @@ class BootUiSampleApplicationIntegrationTests {
                     assertThat(dto.get("origin")).isEqualTo("ANNOTATED");
                     assertThat((String) dto.get("query")).contains("select p from Product p");
                 });
+    }
+
+    @Test
+    void cacheEndpointFindsSampleCachesAndClearsOneCache() {
+        getList("/api/sample/products");
+
+        ResponseEntity<Map> response = getMap("/bootui/api/cache");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("cacheAvailable")).isEqualTo(true);
+        assertThat(body.get("clearEnabled")).isEqualTo(true);
+        assertThat((Iterable<?>) body.get("managers"))
+                .anySatisfy(manager -> {
+                    Map<?, ?> dto = (Map<?, ?>) manager;
+                    assertThat(dto.get("type")).asString().contains("ConcurrentMapCacheManager");
+                    assertThat((Iterable<?>) dto.get("caches"))
+                            .anySatisfy(cache -> assertThat(((Map<?, ?>) cache).get("name"))
+                                    .isEqualTo("sample-products"));
+                });
+        assertThat((Iterable<?>) body.get("operations"))
+                .anySatisfy(operation -> {
+                    Map<?, ?> dto = (Map<?, ?>) operation;
+                    assertThat(dto.get("operation")).isEqualTo("@Cacheable");
+                    assertThat((Iterable<Object>) dto.get("caches")).contains("sample-products");
+                });
+
+        ResponseEntity<Map> clear = postMap("/bootui/api/cache/clear",
+                Map.of("managerName", "cacheManager", "cacheName", "sample-products", "confirm", true));
+        assertThat(clear.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(clear.getBody()).isNotNull();
+        assertThat(clear.getBody().get("status")).isEqualTo("cleared");
     }
 
     @Test

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
+import io.github.jdubois.bootui.autoconfigure.web.CacheController;
 import io.github.jdubois.bootui.autoconfigure.web.DataController;
 import io.github.jdubois.bootui.autoconfigure.web.DependenciesController;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsBridge;
@@ -100,6 +101,7 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(5));
                     assertThat(properties.getDevServices().isRestartEnabled()).isFalse();
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(64 * 1024);
+                    assertThat(properties.getCache().isClearEnabled()).isTrue();
                 });
     }
 
@@ -115,6 +117,7 @@ class BootUiAutoConfigurationTests {
                         "bootui.endpoint-timeout=2s",
                         "bootui.dev-services.restart-enabled=true",
                         "bootui.dev-services.log-tail-bytes=2048",
+                        "bootui.cache.clear-enabled=false",
                         "bootui.dependencies.osv-enabled=false",
                         "bootui.dependencies.max-packages=42",
                         "bootui.dependencies.max-advisories=24")
@@ -129,6 +132,7 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(2));
                     assertThat(properties.getDevServices().isRestartEnabled()).isTrue();
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
+                    assertThat(properties.getCache().isClearEnabled()).isFalse();
                     assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
                     assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
                     assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
@@ -139,6 +143,7 @@ class BootUiAutoConfigurationTests {
     void optionalClasspathPanelsAreRegisteredWhenDependenciesArePresent() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .run(context -> assertThat(context)
+                        .hasSingleBean(CacheController.class)
                         .hasSingleBean(DataController.class)
                         .hasSingleBean(LogTailController.class)
                         .hasSingleBean(ScheduledController.class)

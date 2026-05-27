@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.web.BeansController;
 import io.github.jdubois.bootui.autoconfigure.web.BootUiIndexController;
+import io.github.jdubois.bootui.autoconfigure.web.CacheController;
 import io.github.jdubois.bootui.autoconfigure.web.ConditionsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
 import io.github.jdubois.bootui.autoconfigure.web.DataController;
@@ -62,6 +63,7 @@ import org.springframework.core.env.Environment;
         LoggersController.class,
         StartupController.class,
         DataController.class,
+        CacheController.class,
         DevServicesController.class,
         DependenciesController.class,
         ScheduledController.class,

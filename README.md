@@ -35,6 +35,7 @@ BootUI exposes these panels in the same order as the application menu. See the [
 | [Dev Services](docs/FEATURES.md#dev-services) | Inspect Docker Compose snapshots, Testcontainers beans, service connection metadata, and bounded logs. |
 | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks) | View registered scheduled tasks and their trigger metadata. |
 | [Data](docs/FEATURES.md#data) | Explore Spring Data repositories, domain types, IDs, and query methods. |
+| [Cache](docs/FEATURES.md#cache) | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions. |
 | [Security](docs/FEATURES.md#security) | Inspect Spring Security filter chains and best-effort endpoint rule explanations. |
 | [Vulnerabilities](docs/FEATURES.md#vulnerabilities) | Review dependency inventory and local OSV vulnerability scan results. |
 
@@ -99,6 +100,7 @@ Common properties:
 | `bootui.allow-non-localhost` | `false` | Explicit opt-out of loopback-only protection. |
 | `bootui.expose-values` | `MASKED` | `MASKED`, `METADATA_ONLY`, or `FULL`; `FULL` can disclose secrets and should stay local. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | Runtime override persistence file. |
+| `bootui.cache.clear-enabled` | `true` | Enables Spring Cache clear actions after explicit browser confirmation. |
 | `bootui.dev-services.restart-enabled` | `false` | Enables restart controls for bean-backed Testcontainers services. Disabled by default. |
 | `bootui.dev-services.log-tail-bytes` | `65536` | Maximum bytes returned by one Dev Services log request. |
 

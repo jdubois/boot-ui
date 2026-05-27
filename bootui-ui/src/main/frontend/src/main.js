@@ -17,6 +17,7 @@ import Scheduled from './views/Scheduled.vue'
 import HttpProbe from './views/HttpProbe.vue'
 import LogTail from './views/LogTail.vue'
 import ProfileDiff from './views/ProfileDiff.vue'
+import Cache from './views/Cache.vue'
 import Security from './views/Security.vue'
 import Memory from './views/Memory.vue'
 import Metrics from './views/Metrics.vue'
@@ -45,6 +46,7 @@ const router = createRouter({
     { path: '/dev-services', name: 'dev-services', component: DevServices, meta: { icon: 'bi-box-seam', title: 'Dev Services' } },
     { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },
     { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
+    { path: '/cache', name: 'cache', component: Cache, meta: { icon: 'bi-hdd-stack', title: 'Cache' } },
     { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-person-lock', title: 'Security' } },
     { path: '/vulnerabilities', name: 'vulnerabilities', component: Vulnerabilities, meta: { icon: 'bi-bug', title: 'Vulnerabilities' } },
     { path: '/dependencies', redirect: '/vulnerabilities' }

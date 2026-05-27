@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.sample;
 
+import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -9,12 +10,17 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootApplication
+@EnableCaching
 @EnableScheduling
 @EnableConfigurationProperties(BootUiSampleApplication.SampleSettings.class)
 public class BootUiSampleApplication {
@@ -67,27 +73,51 @@ public class BootUiSampleApplication {
     public static class SampleController {
 
         private final SampleSettings settings;
-        private final ProductRepository products;
+        private final SampleCatalog catalog;
 
-        public SampleController(SampleSettings settings, ProductRepository products) {
+        public SampleController(SampleSettings settings, SampleCatalog catalog) {
             this.settings = settings;
-            this.products = products;
+            this.catalog = catalog;
         }
 
         @GetMapping("/hello")
         public String hello() {
-            return settings.getGreeting() + ", BootUI! (retries=" + settings.getRetries() + ")";
+            return catalog.greeting(settings.getGreeting(), settings.getRetries());
         }
 
         @GetMapping("/products")
         public List<ProductSummary> products() {
+            return catalog.activeProducts();
+        }
+    }
+
+    @Service
+    public static class SampleCatalog {
+
+        private final ProductRepository products;
+
+        public SampleCatalog(ProductRepository products) {
+            this.products = products;
+        }
+
+        @Cacheable(cacheNames = "sample-greetings", key = "#greeting + ':' + #retries")
+        public String greeting(String greeting, int retries) {
+            return greeting + ", BootUI! (retries=" + retries + ")";
+        }
+
+        @Cacheable(cacheNames = "sample-products", key = "'active'", unless = "#result.isEmpty()")
+        public List<ProductSummary> activeProducts() {
             return products.findByActiveTrueOrderByNameAsc().stream()
                     .map(ProductSummary::from)
                     .toList();
         }
+
+        @CacheEvict(cacheNames = "sample-products", allEntries = true)
+        public void evictProducts() {
+        }
     }
 
-    public record ProductSummary(Long id, String name, String category, boolean active) {
+    public record ProductSummary(Long id, String name, String category, boolean active) implements Serializable {
 
         static ProductSummary from(Product product) {
             return new ProductSummary(product.getId(), product.getName(), product.getCategory(), product.isActive());
