@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.BeanList;
 import io.github.jdubois.bootui.core.BootUiDtos.BeanSummary;
 import java.util.ArrayList;
@@ -23,15 +24,23 @@ public class BeansController {
 
     private final ObjectProvider<BeansEndpoint> endpoint;
 
+    private final int maxBeans;
+
     public BeansController(ObjectProvider<BeansEndpoint> endpoint) {
+        this(endpoint, new BootUiProperties());
+    }
+
+    @Autowired
+    public BeansController(ObjectProvider<BeansEndpoint> endpoint, BootUiProperties properties) {
         this.endpoint = endpoint;
+        this.maxBeans = Math.max(0, properties.getLimits().getMaxBeans());
     }
 
     @GetMapping
     public BeanList beans() {
         BeansEndpoint be = endpoint.getIfAvailable();
         if (be == null) {
-            return new BeanList(0, List.of());
+            return new BeanList(0, false, List.of());
         }
         BeansDescriptor descriptor = be.beans();
         List<BeanSummary> summaries = new ArrayList<>();
@@ -41,7 +50,12 @@ public class BeansController {
             }
         }
         summaries.sort(Comparator.comparing(BeanSummary::name));
-        return new BeanList(summaries.size(), summaries);
+        int total = summaries.size();
+        boolean truncated = total > maxBeans;
+        if (truncated) {
+            summaries = new ArrayList<>(summaries.subList(0, maxBeans));
+        }
+        return new BeanList(total, truncated, summaries);
     }
 
     private BeanSummary toSummary(String name, BeanDescriptor descriptor) {

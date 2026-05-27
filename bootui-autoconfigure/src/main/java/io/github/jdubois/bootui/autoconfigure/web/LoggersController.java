@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.LoggerDto;
 import io.github.jdubois.bootui.core.BootUiDtos.LoggersReport;
 import java.util.ArrayList;
@@ -29,15 +30,23 @@ public class LoggersController {
 
     private final ObjectProvider<LoggersEndpoint> endpoint;
 
+    private final int maxLoggers;
+
     public LoggersController(ObjectProvider<LoggersEndpoint> endpoint) {
+        this(endpoint, new BootUiProperties());
+    }
+
+    @Autowired
+    public LoggersController(ObjectProvider<LoggersEndpoint> endpoint, BootUiProperties properties) {
         this.endpoint = endpoint;
+        this.maxLoggers = Math.max(0, properties.getLimits().getMaxLoggers());
     }
 
     @GetMapping
     public LoggersReport loggers() {
         LoggersEndpoint le = endpoint.getIfAvailable();
         if (le == null) {
-            return new LoggersReport(List.of(), List.of());
+            return new LoggersReport(List.of(), false, List.of());
         }
         LoggersDescriptor descriptor = le.loggers();
         List<String> levels = new ArrayList<>();
@@ -59,7 +68,11 @@ public class LoggersController {
             }
         }
         loggers.sort(Comparator.comparing(LoggerDto::name));
-        return new LoggersReport(levels, loggers);
+        boolean truncated = loggers.size() > maxLoggers;
+        if (truncated) {
+            loggers = new ArrayList<>(loggers.subList(0, maxLoggers));
+        }
+        return new LoggersReport(levels, truncated, loggers);
     }
 
     @PostMapping("/{name}")
