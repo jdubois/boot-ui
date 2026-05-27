@@ -582,4 +582,144 @@ public final class BootUiDtos {
             String status,
             String message) {
     }
+
+    // ----- OTLP traces + AI panel ----------------------------------------------------------
+
+    /** Summary describing a span attribute, normalized to a JSON-friendly value type. */
+    public record SpanAttributeDto(
+            String key,
+            String type,
+            Object value) {
+    }
+
+    /** Discrete event recorded inside a span. */
+    public record SpanEventDto(
+            String name,
+            long timeOffsetNanos,
+            List<SpanAttributeDto> attributes) {
+    }
+
+    /** Detailed span record returned by the Traces detail endpoint. */
+    public record SpanDto(
+            String traceId,
+            String spanId,
+            String parentSpanId,
+            String name,
+            String kind,
+            String serviceName,
+            String scope,
+            long startEpochNanos,
+            long endEpochNanos,
+            long durationNanos,
+            String statusCode,
+            String statusMessage,
+            List<SpanAttributeDto> attributes,
+            List<SpanEventDto> events) {
+    }
+
+    /** Summary used by the Traces list view. */
+    public record TraceSummaryDto(
+            String traceId,
+            String rootSpanName,
+            List<String> services,
+            long startEpochNanos,
+            long endEpochNanos,
+            long durationNanos,
+            int spanCount,
+            boolean hasError,
+            boolean hasAi) {
+    }
+
+    /** Top-level Traces list payload. */
+    public record TracesReport(
+            boolean enabled,
+            int retained,
+            int capacity,
+            List<TraceSummaryDto> traces) {
+    }
+
+    /** Top-level Trace detail payload. */
+    public record TraceDetailDto(
+            String traceId,
+            List<SpanDto> spans) {
+    }
+
+    /** Summary of a single AI chat completion span. */
+    public record AiChatSummaryDto(
+            String traceId,
+            String spanId,
+            long startEpochNanos,
+            long durationNanos,
+            String provider,
+            String requestModel,
+            String responseModel,
+            Long inputTokens,
+            Long outputTokens,
+            Long totalTokens,
+            String finishReason,
+            String statusCode,
+            String operation,
+            int toolCallCount,
+            int vectorOperationCount) {
+    }
+
+    /** Tool call (function call) emitted by Spring AI advisors. */
+    public record AiToolCallDto(
+            String spanId,
+            String name,
+            long startEpochNanos,
+            long durationNanos,
+            String statusCode) {
+    }
+
+    /** Vector store operation linked to the same trace. */
+    public record AiVectorOpDto(
+            String spanId,
+            String operation,
+            String collectionName,
+            long startEpochNanos,
+            long durationNanos,
+            String statusCode) {
+    }
+
+    /** Detail of a single AI chat span, including linked tool calls and vector operations from the same trace. */
+    public record AiChatDetailDto(
+            AiChatSummaryDto summary,
+            List<AiToolCallDto> toolCalls,
+            List<AiVectorOpDto> vectorOperations,
+            List<SpanAttributeDto> attributes,
+            List<SpanEventDto> events,
+            boolean contentCaptured,
+            String contentBanner) {
+    }
+
+    /** Per-minute token usage bucket. */
+    public record AiTokenBucketDto(
+            long epochMinute,
+            long inputTokens,
+            long outputTokens,
+            int callCount) {
+    }
+
+    /** Token usage time series payload. */
+    public record AiTokenSeriesDto(
+            int minutes,
+            List<AiTokenBucketDto> buckets) {
+    }
+
+    /** AI Usage overview payload. */
+    public record AiOverviewDto(
+            boolean enabled,
+            boolean springAiDetected,
+            int totalChats,
+            long totalInputTokens,
+            long totalOutputTokens,
+            Map<String, Long> tokensByModel,
+            Map<String, Integer> callsByModel,
+            int toolCallCount,
+            int vectorOperationCount,
+            int embeddingCount,
+            List<AiChatSummaryDto> recent,
+            String contentBanner) {
+    }
 }

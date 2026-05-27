@@ -110,6 +110,18 @@ The Cache panel inspects Spring Cache infrastructure. It lists cache manager bea
 
 ![BootUI Cache panel](images/bootui-cache.png)
 
+## Traces
+
+The Traces panel shows distributed tracing spans collected by BootUI's embedded OTLP/HTTP receiver at `/bootui/api/otlp/v1/traces`. Any Spring Boot service that uses Micrometer Tracing with the OpenTelemetry bridge — including the host application itself when self-tracing is enabled — can export to this endpoint and have its traces appear here. The list shows the most recent traces with service name, root span name, status, duration, and span count; opening a trace renders a waterfall view of its spans so you can see latency contributions, errors, and parent/child relationships across services. Spans emitted by BootUI's own API are filtered out by default to keep the view focused on application traffic; this can be tuned with `bootui.telemetry.exclude-self-spans=false`. The in-memory trace buffer is bounded by `bootui.telemetry.max-traces` and is reset on application restart or via the panel's clear action.
+
+![BootUI Traces panel](images/bootui-traces.png)
+
+## AI Usage
+
+The AI Usage panel summarizes Spring AI activity collected from OpenTelemetry spans emitted by Spring AI's built-in observability. It groups chat client and chat model spans by conversation so you can see request count, token usage (prompt, completion, total), latency, model, and the prompt/response snippet when Spring AI is configured to capture content (`spring.ai.chat.client.observations.log-prompt`, `spring.ai.chat.observations.log-prompt`, `spring.ai.chat.observations.log-completion`). A small inline chart shows total token usage over recent calls so you can spot expensive interactions during local development. Vector store and embedding spans appear alongside chat spans when present. As with the Traces panel, data is sourced from the embedded OTLP receiver, is in-memory only, and is cleared on restart.
+
+![BootUI AI Usage panel](images/bootui-ai.png)
+
 ## Security
 
 The Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is meant to explain local security wiring without exposing credentials or replacing a full security audit.

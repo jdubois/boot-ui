@@ -53,6 +53,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Micrometer metrics
   - dependency inventory and OSV vulnerability scan
   - DevTools reload/restart
+  - OTLP traces receiver (`/bootui/api/otlp/v1/traces`), Traces panel API, and AI Usage panel API
 - Vue 3 UI shell with routes for:
   - Overview
   - Beans
@@ -74,6 +75,8 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Vulnerabilities
   - DevTools
   - Dev Services
+  - Traces
+  - AI Usage
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 - Backend tests covering activation, auto-configuration activation cases, localhost filtering, config override persistence, override property sources, override file storage, environment post-processing, config metadata loading, selected web controllers, missing Actuator behavior, and sample-app integration.
 - Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API, every visible BootUI route, and focused flows for the current panel set, including Metrics, Redis-backed Cache, Vulnerabilities, DevTools, and Dev Services.
@@ -90,6 +93,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests. |
 | 6. Post-MVP diagnostic panels | Implemented and covered | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
 | 7. Documentation and release hardening | Validated for the current alpha; ongoing | User-facing docs are reconciled with current behavior, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-27. Keep release checks current as v0.2 work lands. |
+| 8. In-app OTLP sink + Traces + AI Usage | In progress | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`. |
 
 ## 4. Current status and next work
 
@@ -237,13 +241,20 @@ Already implemented beyond the original MVP surface:
 - Spring Security panel.
 - Micrometer metrics browser with live values.
 - DevTools reload/restart controls.
+- In-app OTLP/HTTP traces receiver, Traces panel, and AI Usage panel.
+
+Newly in scope (added 2026-06):
+
+- **In-app OTLP/HTTP receiver**. BootUI exposes `POST /bootui/api/otlp/v1/traces` and accepts protobuf-encoded `ExportTraceServiceRequest` payloads from the host JVM (and from any cooperating local service that points its OTLP exporter there). Traces are buffered in memory only; nothing is forwarded.
+- **Traces panel**. Lists recent traces with a service swim-lane chip strip and per-trace waterfall, including span attributes and events.
+- **AI Usage panel**. Aggregates Spring AI's `gen_ai.client.operation`, `spring.ai.tool`, `db.vector.client.operation`, and embedding spans. Shows recent completions, token usage, tool calls, and (when content capture is enabled) a conversation drawer with messages.
+- **Multi-service dev orchestration (sink-only)**. Multiple cooperating local processes can each export OTLP to BootUI and their spans show up in the same waterfall. This is the dev-time equivalent of Aspire's distributed-tracing view; BootUI does not run, schedule, or restart the other services.
 
 Still excluded:
 
-- Multi-service orchestration.
-- Live Docker Compose lifecycle control.
+- Live Docker Compose lifecycle control beyond the existing snapshot view.
+- Production-grade tracing or APM replacement. The OTLP receiver is dev-only and bounded in memory.
 - Request history.
-- Distributed tracing.
 - Extension SPI.
 - CLI.
 - Gradle plugin.

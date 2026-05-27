@@ -39,11 +39,11 @@ Make a running Spring Boot application understandable in minutes.
 ### 2.3 Non-goals for MVP
 
 - Production monitoring.
-- Multi-application orchestration.
+- Multi-application *runtime* orchestration. BootUI accepts OTLP traces from cooperating local services as a dev-time sink, but it does not run, schedule, restart, or supervise other processes the way .NET Aspire's AppHost does.
 - Kubernetes workflow management.
 - Hosted dashboards.
 - Authentication and user management.
-- Full APM/tracing replacement.
+- Full APM/tracing replacement. The OTLP receiver is dev-only, bounded in memory, and never forwards data anywhere.
 - Upgrade automation.
 - Code editing.
 - Replacing Spring Boot Admin.
