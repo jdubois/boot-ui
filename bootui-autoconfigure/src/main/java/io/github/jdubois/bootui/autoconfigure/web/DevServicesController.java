@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -45,6 +47,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/bootui/api/dev-services")
 public class DevServicesController implements ApplicationListener<ApplicationEvent> {
 
+    private static final Logger log = LoggerFactory.getLogger(DevServicesController.class);
+
     private static final String DOCKER_COMPOSE_EVENT =
             "org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent";
 
@@ -55,6 +59,8 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
 
     private static final Pattern URL_CREDENTIALS = Pattern.compile("([a-z][a-z0-9+.-]*://)([^:/@\\s]+):([^@\\s]+)@",
             Pattern.CASE_INSENSITIVE);
+
+    private static final int MAX_SERVICES = 200;
 
     private final ConfigurableApplicationContext applicationContext;
 
@@ -79,8 +85,13 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         List<?> runningServices = invokeList(event, "getRunningServices");
         Map<String, DevServiceDto> snapshot = new LinkedHashMap<>();
         for (Object runningService : runningServices) {
-            DevServiceDto dto = dockerComposeDto(runningService);
-            snapshot.put(dto.id(), dto);
+            try {
+                DevServiceDto dto = dockerComposeDto(runningService);
+                snapshot.put(dto.id(), dto);
+            }
+            catch (RuntimeException ex) {
+                log.warn("Skipping Docker Compose running-service entry due to inspection failure", ex);
+            }
         }
         this.dockerComposeServices.clear();
         this.dockerComposeServices.putAll(snapshot);
@@ -98,6 +109,10 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         List<DevServiceDto> sorted = services.values().stream()
                 .sorted(Comparator.comparing(DevServiceDto::source).thenComparing(DevServiceDto::name))
                 .toList();
+        if (sorted.size() > MAX_SERVICES) {
+            log.warn("Discovered {} dev services; truncating response to {} entries", sorted.size(), MAX_SERVICES);
+            sorted = sorted.stream().limit(MAX_SERVICES).toList();
+        }
         return new DevServicesReport(
                 isPresent("org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent"),
                 isPresent("org.testcontainers.lifecycle.Startable"),
@@ -109,17 +124,36 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
     @GetMapping("/{id}/logs")
     public DevServiceLogReport logs(@PathVariable String id) {
         Object bean = findBeanBackedService(id);
-        if (bean == null || findNoArgMethod(bean.getClass(), "getLogs") == null) {
+        Method getLogs = findNoArgMethod(bean.getClass(), "getLogs");
+        if (getLogs == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Logs are not available for this service");
         }
-        Object logs = invoke(bean, "getLogs");
-        String text = logs == null ? "" : String.valueOf(logs);
         int maxBytes = Math.max(1024, properties.getDevServices().getLogTailBytes());
-        boolean truncated = text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxBytes;
-        if (truncated) {
-            text = tailByBytes(text, maxBytes);
+        Method isRunning = findNoArgMethod(bean.getClass(), "isRunning");
+        if (isRunning != null) {
+            try {
+                if (!Boolean.TRUE.equals(invokeOrThrow(bean, isRunning))) {
+                    return errorLogReport(id, maxBytes, "Logs are not available because the service is not running.");
+                }
+            }
+            catch (RuntimeException ex) {
+                return errorLogReport(id, maxBytes, "Unable to inspect service state: " + message(ex));
+            }
         }
-        return new DevServiceLogReport(id, text, truncated, maxBytes);
+        try {
+            String text = safeString(invokeOrThrow(bean, getLogs));
+            if (text == null) {
+                text = "";
+            }
+            boolean truncated = text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxBytes;
+            if (truncated) {
+                text = tailByBytes(text, maxBytes);
+            }
+            return new DevServiceLogReport(id, text, truncated, maxBytes);
+        }
+        catch (RuntimeException ex) {
+            return errorLogReport(id, maxBytes, "Unable to read logs: " + message(ex));
+        }
     }
 
     @PostMapping("/{id}/restart")
@@ -164,16 +198,21 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         }
         ListableBeanFactory beanFactory = applicationContext.getBeanFactory();
         for (String beanName : BeanFactoryUtils.beanNamesIncludingAncestors(beanFactory)) {
-            Class<?> type = safeGetType(beanFactory, beanName);
-            if (type == null || !isTestcontainerType(type)) {
-                continue;
+            try {
+                Class<?> type = safeGetType(beanFactory, beanName);
+                if (type == null || !isTestcontainerType(type)) {
+                    continue;
+                }
+                Object bean = safeGetBean(beanFactory, beanName);
+                if (bean == null) {
+                    continue;
+                }
+                DevServiceDto dto = testcontainersDto(beanName, bean);
+                services.put(dto.id(), dto);
             }
-            Object bean = safeGetBean(beanFactory, beanName);
-            if (bean == null) {
-                continue;
+            catch (RuntimeException ex) {
+                log.warn("Skipping Testcontainers bean '{}' due to inspection failure", beanName, ex);
             }
-            DevServiceDto dto = testcontainersDto(beanName, bean);
-            services.put(dto.id(), dto);
         }
     }
 
@@ -181,22 +220,52 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         ListableBeanFactory beanFactory = applicationContext.getBeanFactory();
         String[] names = beanFactory.getBeanNamesForType(ConnectionDetails.class, false, false);
         for (String beanName : names) {
-            ConnectionDetails details = safeGetBean(beanFactory, beanName, ConnectionDetails.class);
-            if (details == null) {
-                continue;
+            try {
+                ConnectionDetails details = safeGetBean(beanFactory, beanName, ConnectionDetails.class);
+                if (details == null) {
+                    continue;
+                }
+                DevServiceDto dto = connectionDetailsDto(beanFactory, beanName, details);
+                services.put(dto.id(), dto);
             }
-            DevServiceDto dto = connectionDetailsDto(beanFactory, beanName, details);
-            services.put(dto.id(), dto);
+            catch (RuntimeException ex) {
+                log.warn("Skipping connection details bean '{}' due to inspection failure", beanName, ex);
+            }
         }
     }
 
     private DevServiceDto dockerComposeDto(Object runningService) {
-        String name = stringValue(invoke(runningService, "name"));
-        String image = stringValue(invoke(runningService, "image"));
-        String host = stringValue(invoke(runningService, "host"));
+        Object imageValue = invokeOrThrow(runningService, "getImage");
+        if (imageValue == null) {
+            imageValue = invokeOrThrow(runningService, "image");
+        }
+        String image = safeString(imageValue);
+
+        Object serviceNameValue = invokeOrThrow(runningService, "getServiceName");
+        if (serviceNameValue == null) {
+            serviceNameValue = invokeOrThrow(runningService, "name");
+        }
+        String name = firstNonBlank(safeString(serviceNameValue), image, "service");
+
+        Object hostValue = invokeOrThrow(runningService, "getHost");
+        if (hostValue == null) {
+            hostValue = invokeOrThrow(runningService, "host");
+        }
+        String host = safeString(hostValue);
+
+        Object labelsValue = invokeOrThrow(runningService, "getLabels");
+        if (labelsValue == null) {
+            labelsValue = invokeOrThrow(runningService, "labels");
+        }
+
+        Object portsValue = invokeOrThrow(runningService, "getPorts");
+        if (portsValue == null) {
+            portsValue = invokeOrThrow(runningService, "ports");
+        }
+
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("snapshot", "Captured when Spring Boot reported Docker Compose services ready");
-        Map<?, ?> labels = asMap(invoke(runningService, "labels"));
+        Map<?, ?> labels = asMap(labelsValue);
         String type = inferType(name, image, labels);
         return new DevServiceDto(
                 "compose:" + slug(name),
@@ -206,7 +275,7 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
                 image,
                 "READY_AT_STARTUP",
                 host,
-                composePorts(invoke(runningService, "ports")),
+                composePorts(portsValue),
                 sanitizeDetails(details),
                 false,
                 false,
@@ -214,15 +283,25 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
     }
 
     private DevServiceDto testcontainersDto(String beanName, Object bean) {
-        String image = stringValue(invoke(bean, "getDockerImageName"));
-        String host = firstNonBlank(stringValue(invoke(bean, "getHost")),
-                stringValue(invoke(bean, "getTestHostIpAddress")));
-        boolean running = Boolean.TRUE.equals(invoke(bean, "isRunning"));
-        String name = firstNonBlank(stringValue(invoke(bean, "getContainerName")), beanName);
+        String image = safeString(invokeOrThrow(bean, "getDockerImageName"));
+
+        String host = safeString(invokeOrThrow(bean, "getHost"));
+        if (host == null || host.isBlank()) {
+            host = safeString(invokeOrThrow(bean, "getTestHostIpAddress"));
+        }
+
+        boolean running = Boolean.TRUE.equals(invokeOrThrow(bean, "isRunning"));
+
+        String name = safeString(invokeOrThrow(bean, "getServiceName"));
+        if (name == null || name.isBlank()) {
+            name = safeString(invokeOrThrow(bean, "getContainerName"));
+        }
+        name = firstNonBlank(name, beanName, image, "service");
+
         Map<String, Object> details = new LinkedHashMap<>();
-        addIfPresent(details, "containerId", invoke(bean, "getContainerId"));
-        addIfPresent(details, "networkMode", invoke(bean, "getNetworkMode"));
-        addIfPresent(details, "reuse", invoke(bean, "isShouldBeReused"));
+        addIfPresent(details, "containerId", invokeOrThrow(bean, "getContainerId"));
+        addIfPresent(details, "networkMode", invokeOrThrow(bean, "getNetworkMode"));
+        addIfPresent(details, "reuse", invokeOrThrow(bean, "isShouldBeReused"));
         boolean restartable = properties.getDevServices().isRestartEnabled()
                 && findNoArgMethod(bean.getClass(), "start") != null
                 && findNoArgMethod(bean.getClass(), "stop") != null;
@@ -291,7 +370,7 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
             if (SKIPPED_DETAIL_PROPERTIES.contains(property)) {
                 continue;
             }
-            Object value = invoke(source, method);
+            Object value = invokeOrThrow(source, method);
             if (value == null) {
                 continue;
             }
@@ -480,12 +559,17 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         }
     }
 
-    private String firstNonBlank(String first, String second) {
-        return first == null || first.isBlank() ? second : first;
+    private String firstNonBlank(String... candidates) {
+        for (String candidate : candidates) {
+            if (candidate != null && !candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
-    private String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
+    private String safeString(Object value) {
+        return value == null ? null : value.toString();
     }
 
     private Map<?, ?> asMap(Object value) {
@@ -554,6 +638,33 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         }
     }
 
+    private Object invokeOrThrow(Object target, String methodName, Object... args) {
+        if (target == null) {
+            return null;
+        }
+        Method method = findMethod(target.getClass(), methodName, args);
+        if (method == null) {
+            return null;
+        }
+        return invokeOrThrow(target, method, args);
+    }
+
+    private Object invokeOrThrow(Object target, Method method, Object... args) {
+        try {
+            return method.invoke(target, args);
+        }
+        catch (IllegalAccessException ex) {
+            throw new IllegalStateException("Unable to invoke " + method.getName(), ex);
+        }
+        catch (InvocationTargetException ex) {
+            Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException(message(cause), cause);
+        }
+    }
+
     private List<?> invokeList(Object target, String methodName) {
         Object value = invoke(target, methodName);
         if (value instanceof List<?> list) {
@@ -565,6 +676,19 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
             return values;
         }
         return List.of();
+    }
+
+    private DevServiceLogReport errorLogReport(String id, int maxBytes, String message) {
+        return new DevServiceLogReport(id, message, false, maxBytes);
+    }
+
+    private String message(Throwable throwable) {
+        Throwable cause = throwable instanceof IllegalStateException illegalStateException && illegalStateException.getCause() != null
+                ? illegalStateException.getCause()
+                : throwable;
+        return cause.getMessage() == null || cause.getMessage().isBlank()
+                ? cause.getClass().getSimpleName()
+                : cause.getMessage();
     }
 
     private Method findNoArgMethod(Class<?> type, String methodName) {
