@@ -23,6 +23,8 @@ import java.util.Map;
  */
 public final class OtlpSpanDecoder {
 
+    static final int HARD_MAX_ATTRIBUTE_VALUE_CHARS = 64 * 1024;
+
     private final BootUiProperties.Telemetry config;
 
     public OtlpSpanDecoder(BootUiProperties.Telemetry config) {
@@ -66,14 +68,14 @@ public final class OtlpSpanDecoder {
                 hex(span.getTraceId()),
                 hex(span.getSpanId()),
                 emptyToNull(hex(span.getParentSpanId())),
-                span.getName(),
+                truncate(span.getName()),
                 spanKindToString(span.getKind()),
-                serviceName,
-                scopeName,
+                truncate(serviceName),
+                truncate(scopeName),
                 startNs,
                 span.getEndTimeUnixNano(),
                 statusCode,
-                status.getMessage(),
+                truncate(status.getMessage()),
                 attrs,
                 events);
     }
@@ -124,7 +126,7 @@ public final class OtlpSpanDecoder {
         if (value == null) {
             return null;
         }
-        int max = Math.max(64, config.getMaxAttributeValueBytes());
+        int max = Math.max(64, Math.min(HARD_MAX_ATTRIBUTE_VALUE_CHARS, config.getMaxAttributeValueBytes()));
         if (value.length() <= max) {
             return value;
         }

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.PanelDto;
 import io.github.jdubois.bootui.core.BootUiDtos.PanelsReport;
 import java.util.List;
@@ -34,10 +35,12 @@ public class PanelsController {
 
     private final ApplicationContext applicationContext;
     private final Environment environment;
+    private final BootUiProperties properties;
 
-    public PanelsController(ApplicationContext applicationContext, Environment environment) {
+    public PanelsController(ApplicationContext applicationContext, Environment environment, BootUiProperties properties) {
         this.applicationContext = applicationContext;
         this.environment = environment;
+        this.properties = properties;
     }
 
     @GetMapping
@@ -75,6 +78,9 @@ public class PanelsController {
                         "Spring Data not on the classpath"),
                 panel("cache", "Cache", beanPresent(CacheManager.class),
                         "No CacheManager beans are available"),
+                panel("traces", "Traces", properties.getTelemetry().isEnabled(),
+                        "Telemetry receiver is disabled"),
+                panel("ai", "AI Usage", aiAvailable(), aiUnavailableReason()),
                 panel("security", "Security", classPresent("org.springframework.security.web.SecurityFilterChain"),
                         "Spring Security not on the classpath"),
                 panel("vulnerabilities", "Vulnerabilities", true, null)));
@@ -122,5 +128,17 @@ public class PanelsController {
     private boolean scheduledAvailable() {
         return beanPresent(ScheduledTaskHolder.class)
                 || beanPresent(ScheduledAnnotationBeanPostProcessor.class);
+    }
+
+    private boolean aiAvailable() {
+        return properties.getTelemetry().isEnabled()
+                && classPresent("org.springframework.ai.chat.client.ChatClient");
+    }
+
+    private String aiUnavailableReason() {
+        if (!properties.getTelemetry().isEnabled()) {
+            return "Telemetry receiver is disabled";
+        }
+        return "Spring AI ChatClient is not on the classpath";
     }
 }
