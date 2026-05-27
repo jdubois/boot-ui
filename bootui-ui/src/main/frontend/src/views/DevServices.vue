@@ -10,14 +10,17 @@ const logs = ref(null)
 const actionMessage = ref(null)
 const busyService = ref(null)
 
-async function load() {
+async function load(options = {}) {
   loading.value = true
   error.value = null
-  actionMessage.value = null
+  if (!options.preserveActionMessage) {
+    actionMessage.value = null
+  }
   try {
     const res = await fetch('api/dev-services')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
+    syncSelectedService()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -32,7 +35,7 @@ const filtered = computed(() => {
   return report.value.services.filter(service =>
     (service.name || '').toLowerCase().includes(value)
     || (service.type || '').toLowerCase().includes(value)
-    || (service.source || '').toLowerCase().includes(value)
+    || (service.status || '').toLowerCase().includes(value)
     || (service.image || '').toLowerCase().includes(value)
   )
 })
@@ -79,13 +82,53 @@ function detailEntries(service) {
   return Object.entries(service.connectionDetails || {})
 }
 
+function syncSelectedService() {
+  const services = report.value?.services || []
+  if (services.length === 0) {
+    selected.value = null
+    logs.value = null
+    return
+  }
+  if (!selected.value) {
+    selected.value = services[0]
+    logs.value = null
+    return
+  }
+  const updated = services.find(service => service.id === selected.value.id)
+  if (updated) {
+    selected.value = updated
+    return
+  }
+  selected.value = services[0]
+  logs.value = null
+}
+
+function selectService(service) {
+  if (selected.value?.id !== service.id) {
+    logs.value = null
+  }
+  selected.value = service
+  actionMessage.value = null
+}
+
+function isSelected(service) {
+  return selected.value?.id === service.id
+}
+
+function serviceActionUrl(service, action) {
+  return `api/dev-services/${encodeURIComponent(service.id)}/${action}`
+}
+
 async function openLogs(service) {
+  if (selected.value?.id !== service.id) {
+    logs.value = null
+  }
   selected.value = service
   logs.value = null
   actionMessage.value = null
   busyService.value = service.id
   try {
-    const res = await fetch(`api/dev-services/${encodeURIComponent(service.id)}/logs`)
+    const res = await fetch(serviceActionUrl(service, 'logs'))
     if (!res.ok) throw new Error(await responseMessage(res))
     logs.value = await res.json()
   } catch (e) {
@@ -96,15 +139,19 @@ async function openLogs(service) {
 }
 
 async function restart(service) {
+  if (selected.value?.id !== service.id) {
+    logs.value = null
+  }
   selected.value = service
+  logs.value = null
   actionMessage.value = null
   busyService.value = service.id
   try {
-    const res = await fetch(`api/dev-services/${encodeURIComponent(service.id)}/restart`, { method: 'POST' })
+    const res = await fetch(serviceActionUrl(service, 'restart'), { method: 'POST' })
     if (!res.ok) throw new Error(await responseMessage(res))
     const result = await res.json()
+    await load({ preserveActionMessage: true })
     actionMessage.value = { type: 'success', text: result.message }
-    await load()
   } catch (e) {
     actionMessage.value = { type: 'danger', text: e.message }
   } finally {
@@ -141,8 +188,8 @@ onMounted(load)
     </div>
 
     <div class="alert alert-info">
-      Docker Compose services are shown from Spring Boot's startup snapshot. Restart is intentionally disabled by default
-      because service ports can change and already-created client beans may not reconnect.
+      Docker Compose services are shown from Spring Boot's startup snapshot. Restart controls appear only for
+      bean-backed Testcontainers services when <code>bootui.dev-services.restart-enabled=true</code>.
     </div>
 
     <div v-if="loading" class="text-muted">Loading…</div>
@@ -157,7 +204,7 @@ onMounted(load)
           <input
             v-model="filter"
             class="form-control"
-            placeholder="Filter by name, type, source, or image…" />
+            placeholder="Filter by name, type, status, or image…" />
         </div>
         <div class="col-md-4 text-end small text-muted align-self-center">
           {{ filtered.length }} / {{ report.total }} services
@@ -175,14 +222,13 @@ onMounted(load)
               <thead>
                 <tr>
                   <th>Service</th>
-                  <th>Source</th>
                   <th>Status</th>
                   <th>Host / ports</th>
                   <th class="text-end">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="service in filtered" :key="service.id">
+                <tr v-for="service in filtered" :key="service.id" :class="{ 'selected-row': isSelected(service) }">
                   <td data-label="Service">
                     <div class="fw-semibold">{{ service.name }}</div>
                     <div class="small text-muted">
@@ -190,27 +236,35 @@ onMounted(load)
                       <span v-if="service.image"> · <code>{{ service.image }}</code></span>
                     </div>
                   </td>
-                  <td data-label="Source"><span class="badge" :class="sourceClass(service.source)">{{ service.source }}</span></td>
                   <td data-label="Status"><span class="badge" :class="statusClass(service.status)">{{ service.status }}</span></td>
                   <td data-label="Host / ports" class="small">
                     <div>{{ service.host || '—' }}</div>
                     <code>{{ formatPorts(service) }}</code>
                   </td>
                   <td data-label="Actions" class="text-end">
-                    <div class="btn-group btn-group-sm service-actions">
-                      <button class="btn btn-outline-secondary" @click="selected = service">
-                        Details
+                    <div class="d-flex flex-wrap justify-content-end gap-1 service-actions">
+                      <button
+                        class="btn btn-sm"
+                        :class="isSelected(service) ? 'btn-primary' : 'btn-outline-primary'"
+                        :aria-pressed="isSelected(service)"
+                        @click="selectService(service)">
+                        <i class="bi bi-info-circle me-1"></i>
+                        {{ isSelected(service) ? 'Details shown' : 'View details' }}
                       </button>
                       <button
-                        class="btn btn-outline-secondary"
-                        :disabled="!service.logsAvailable || busyService === service.id"
+                        v-if="service.logsAvailable"
+                        class="btn btn-sm btn-outline-secondary"
+                        :disabled="busyService === service.id"
                         @click="openLogs(service)">
-                        Logs
+                        <i class="bi bi-card-text me-1"></i>
+                        View logs
                       </button>
                       <button
-                        class="btn btn-outline-danger"
-                        :disabled="!service.restartable || busyService === service.id"
+                        v-if="service.restartable"
+                        class="btn btn-sm btn-outline-danger"
+                        :disabled="busyService === service.id"
                         @click="restart(service)">
+                        <i class="bi bi-arrow-repeat me-1"></i>
                         Restart
                       </button>
                     </div>
@@ -263,7 +317,12 @@ onMounted(load)
                   <h6 class="mb-0">Logs</h6>
                   <span v-if="logs.truncated" class="badge text-bg-warning">Tail {{ logs.maxBytes }} bytes</span>
                 </div>
-                <pre class="logs rounded border p-2 mt-2 mb-0"><code>{{ logs.logs || 'No logs returned.' }}</code></pre>
+                <pre class="logs rounded border p-2 mt-2 mb-0"><code>{{ logs.logs || 'No log output yet.' }}</code></pre>
+              </template>
+              <template v-else-if="selected.logsAvailable">
+                <div class="text-muted small mt-3">
+                  Use <strong>View logs</strong> to load the bounded log tail for this service.
+                </div>
               </template>
             </div>
           </div>
@@ -286,6 +345,10 @@ onMounted(load)
 td code {
   white-space: normal;
   word-break: break-word;
+}
+
+.selected-row > td {
+  --bs-table-bg: rgba(13, 110, 253, 0.08);
 }
 
 @media (max-width: 991.98px) {
@@ -341,6 +404,7 @@ td code {
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
+    justify-content: flex-start !important;
   }
 
   .service-actions > .btn {

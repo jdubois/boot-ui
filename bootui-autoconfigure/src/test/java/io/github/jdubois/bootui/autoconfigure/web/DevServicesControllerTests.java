@@ -85,6 +85,20 @@ class DevServicesControllerTests {
     }
 
     @Test
+    void logsSupportsTestcontainersVarargsLogMethod() throws Exception {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("redisTestcontainer", FakeVarargsLogTestcontainer.class);
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties())).build();
+
+        mvc.perform(get("/bootui/api/dev-services/bean:redisTestcontainer/logs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.logs").value("Redis container started"));
+
+        context.close();
+    }
+
+    @Test
     void restartIsDisabledByDefault() throws Exception {
         GenericApplicationContext context = new GenericApplicationContext();
         context.registerBean("postgresTestcontainer", FakeTestcontainer.class);
@@ -159,6 +173,25 @@ class DevServicesControllerTests {
 
         String restartCalls() {
             return restartCalls.toString();
+        }
+    }
+
+    static class FakeVarargsLogTestcontainer {
+
+        public String getDockerImageName() {
+            return "redis:7";
+        }
+
+        public String getContainerName() {
+            return "redis";
+        }
+
+        public boolean isRunning() {
+            return true;
+        }
+
+        public String getLogs(String... outputTypes) {
+            return "Redis container started";
         }
     }
 }
