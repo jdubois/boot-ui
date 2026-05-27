@@ -80,12 +80,6 @@ The Traces panel shows distributed tracing spans collected by BootUI's embedded 
 
 ![BootUI Traces panel](images/bootui-traces.png)
 
-## AI Usage
-
-The AI Usage panel summarizes Spring AI activity collected from OpenTelemetry spans emitted by Spring AI's built-in observability. It groups chat client and chat model spans by conversation so you can see request count, token usage (prompt, completion, total), latency, model, and the prompt/response snippet when Spring AI is configured to capture content (`spring.ai.chat.client.observations.log-prompt`, `spring.ai.chat.observations.log-prompt`, `spring.ai.chat.observations.log-completion`). A small inline chart shows total token usage over recent calls so you can spot expensive interactions during local development. Vector store and embedding spans appear alongside chat spans when present. The sidebar dims the panel when telemetry is disabled or Spring AI is not on the classpath, and the view explains the unavailable state. Recent chats, model breakdowns, token-series windows, spans, and attributes are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from the embedded OTLP receiver, is in-memory only, and is cleared on restart.
-
-![BootUI AI Usage panel](images/bootui-ai.png)
-
 ## HTTP Probe
 
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers, duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
@@ -121,6 +115,12 @@ The Data panel inspects Spring Data repositories. It shows repository interfaces
 The Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native implementations, safe local sizes, Micrometer cache metrics when registered, and discovered `@Cacheable`, `@CachePut`, and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
 ![BootUI Cache panel](images/bootui-cache.png)
+
+## AI Usage
+
+The AI Usage panel summarizes Spring AI activity collected from OpenTelemetry spans emitted by Spring AI's built-in observability. It groups chat client and chat model spans by conversation so you can see request count, token usage (prompt, completion, total), latency, model, and the prompt/response snippet when Spring AI is configured to capture content (`spring.ai.chat.client.observations.log-prompt`, `spring.ai.chat.observations.log-prompt`, `spring.ai.chat.observations.log-completion`). A small inline chart shows total token usage over recent calls so you can spot expensive interactions during local development. Vector store and embedding spans appear alongside chat spans when present. The sidebar dims the panel when telemetry is disabled or Spring AI is not on the classpath, and the view explains the unavailable state. Recent chats, model breakdowns, token-series windows, spans, and attributes are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from the embedded OTLP receiver, is in-memory only, and is cleared on restart.
+
+![BootUI AI Usage panel](images/bootui-ai.png)
 
 ## Security
 

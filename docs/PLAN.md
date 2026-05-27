@@ -68,13 +68,13 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Loggers
   - Log Tail
   - Traces
-  - AI Usage
   - HTTP Probe
   - DevTools
   - Dev Services
   - Scheduled Tasks
   - Data
   - Cache
+  - AI Usage
   - Security
   - Vulnerabilities
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
@@ -129,13 +129,13 @@ The visible-route parity check is current. On 2026-05-27, the sample-app Playwri
 11. Loggers.
 12. Log Tail.
 13. Traces.
-14. AI Usage.
-15. HTTP Probe.
-16. DevTools.
-17. Dev Services.
-18. Scheduled Tasks.
-19. Data.
-20. Cache.
+14. HTTP Probe.
+15. DevTools.
+16. Dev Services.
+17. Scheduled Tasks.
+18. Data.
+19. Cache.
+20. AI Usage.
 21. Security.
 22. Vulnerabilities.
 
