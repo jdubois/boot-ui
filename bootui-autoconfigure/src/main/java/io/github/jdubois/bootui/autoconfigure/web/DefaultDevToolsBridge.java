@@ -7,6 +7,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -30,13 +32,13 @@ public class DefaultDevToolsBridge implements DevToolsBridge, ApplicationListene
      * Epoch-millisecond timestamp of the most recent restart request; 0 if no restart has been
      * requested yet. Declared {@code static} so the value survives a DevTools context restart.
      */
-    private static volatile long restartInitiatedAt = 0L;
+    private static final AtomicLong restartInitiatedAt = new AtomicLong(0L);
 
     /**
      * Duration of the most recent completed restart in milliseconds.  {@code null} while a restart
      * is in-flight or no restart has completed yet.  Also {@code static} for the same reason.
      */
-    private static volatile Long lastRestartDurationMs = null;
+    private static final AtomicReference<Long> lastRestartDurationMs = new AtomicReference<>(null);
 
     private final ApplicationContext applicationContext;
 
@@ -55,7 +57,7 @@ public class DefaultDevToolsBridge implements DevToolsBridge, ApplicationListene
     public DevToolsStatus status() {
         Availability restart = restartAvailability();
         LiveReloadHandle liveReload = liveReloadHandle();
-        long initiatedAt = restartInitiatedAt;
+        long initiatedAt = restartInitiatedAt.get();
         return new DevToolsStatus(
                 restart.available(),
                 restart.reason(),
@@ -64,7 +66,7 @@ public class DefaultDevToolsBridge implements DevToolsBridge, ApplicationListene
                 liveReload.port(),
                 liveReload.reason(),
                 initiatedAt != 0L ? initiatedAt : null,
-                lastRestartDurationMs);
+                lastRestartDurationMs.get());
     }
 
     @Override
@@ -95,8 +97,8 @@ public class DefaultDevToolsBridge implements DevToolsBridge, ApplicationListene
                     "A DevTools restart is already pending.");
         }
 
-        restartInitiatedAt = System.currentTimeMillis();
-        lastRestartDurationMs = null;
+        restartInitiatedAt.set(System.currentTimeMillis());
+        lastRestartDurationMs.set(null);
 
         Object restarter = restarter();
         Thread restartThread = new Thread(() -> restartAfterResponse(restarter), "bootui-devtools-restart");
@@ -125,9 +127,9 @@ public class DefaultDevToolsBridge implements DevToolsBridge, ApplicationListene
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
-        long initiated = restartInitiatedAt;
+        long initiated = restartInitiatedAt.get();
         if (initiated != 0L) {
-            lastRestartDurationMs = System.currentTimeMillis() - initiated;
+            lastRestartDurationMs.set(System.currentTimeMillis() - initiated);
         }
     }
 

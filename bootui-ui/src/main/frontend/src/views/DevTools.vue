@@ -14,7 +14,7 @@ const liveReloadReady = computed(() => status.value?.liveReloadAvailable)
 const lastRestartTime = computed(() => {
   const ts = status.value?.lastRestartInitiatedAt
   if (!ts) return null
-  return new Date(ts).toLocaleTimeString()
+  return new Date(ts).toLocaleString()
 })
 
 const lastRestartDuration = computed(() => {
