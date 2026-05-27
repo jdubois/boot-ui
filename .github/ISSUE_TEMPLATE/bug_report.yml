@@ -1,6 +1,6 @@
 name: Bug report
 description: Report a bug in BootUI
-labels: [bug, triage]
+labels: [ bug, triage ]
 body:
   - type: markdown
     attributes:

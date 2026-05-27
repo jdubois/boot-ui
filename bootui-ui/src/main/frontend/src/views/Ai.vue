@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const overview = ref(null)
 const series = ref(null)
@@ -38,7 +38,7 @@ async function openChat(spanId) {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
   } catch (e) {
-    detail.value = { error: e.message }
+    detail.value = {error: e.message}
   } finally {
     detailLoading.value = false
   }
@@ -103,7 +103,7 @@ const sparkline = computed(() => {
     const y = height - (t / maxTokens) * height
     return `${x},${y}`
   })
-  return { width, height, polyline: points.join(' '), maxTokens, buckets }
+  return {width, height, polyline: points.join(' '), maxTokens, buckets}
 })
 
 const hasAnyData = computed(() => overview.value && overview.value.totalChats > 0)
@@ -122,7 +122,7 @@ onMounted(load)
           <span v-if="!overview.enabled" class="badge text-bg-warning me-1">Telemetry disabled</span>
         </div>
       </div>
-      <button class="btn btn-sm btn-outline-secondary" :disabled="loading" @click="load">
+      <button :disabled="loading" class="btn btn-sm btn-outline-secondary" @click="load">
         <i class="bi bi-arrow-clockwise"></i> Refresh
       </button>
     </div>
@@ -145,39 +145,49 @@ onMounted(load)
       </div>
 
       <div v-else-if="!hasAnyData" class="alert alert-secondary">
-        No AI chat completions recorded yet. Make sure your application uses Spring AI with OpenTelemetry tracing enabled
-        and exports OTLP to <code>/bootui/api/otlp/v1/traces</code>, then exercise a chat endpoint to populate this panel.
+        No AI chat completions recorded yet. Make sure your application uses Spring AI with OpenTelemetry tracing
+        enabled
+        and exports OTLP to <code>/bootui/api/otlp/v1/traces</code>, then exercise a chat endpoint to populate this
+        panel.
       </div>
 
       <template v-else>
         <div class="row g-3 mb-3">
           <div class="col-md-3 col-6">
-            <div class="card h-100"><div class="card-body">
-              <div class="text-muted small">Chats</div>
-              <div class="fs-3 fw-semibold">{{ formatNumber(overview.totalChats) }}</div>
-            </div></div>
-          </div>
-          <div class="col-md-3 col-6">
-            <div class="card h-100"><div class="card-body">
-              <div class="text-muted small">Input tokens</div>
-              <div class="fs-3 fw-semibold">{{ formatNumber(overview.totalInputTokens) }}</div>
-            </div></div>
-          </div>
-          <div class="col-md-3 col-6">
-            <div class="card h-100"><div class="card-body">
-              <div class="text-muted small">Output tokens</div>
-              <div class="fs-3 fw-semibold">{{ formatNumber(overview.totalOutputTokens) }}</div>
-            </div></div>
-          </div>
-          <div class="col-md-3 col-6">
-            <div class="card h-100"><div class="card-body">
-              <div class="text-muted small">Tool calls · Vector ops · Embeddings</div>
-              <div class="fs-5 fw-semibold">
-                {{ formatNumber(overview.toolCallCount) }} ·
-                {{ formatNumber(overview.vectorOperationCount) }} ·
-                {{ formatNumber(overview.embeddingCount) }}
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="text-muted small">Chats</div>
+                <div class="fs-3 fw-semibold">{{ formatNumber(overview.totalChats) }}</div>
               </div>
-            </div></div>
+            </div>
+          </div>
+          <div class="col-md-3 col-6">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="text-muted small">Input tokens</div>
+                <div class="fs-3 fw-semibold">{{ formatNumber(overview.totalInputTokens) }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3 col-6">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="text-muted small">Output tokens</div>
+                <div class="fs-3 fw-semibold">{{ formatNumber(overview.totalOutputTokens) }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3 col-6">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="text-muted small">Tool calls · Vector ops · Embeddings</div>
+                <div class="fs-5 fw-semibold">
+                  {{ formatNumber(overview.toolCallCount) }} ·
+                  {{ formatNumber(overview.vectorOperationCount) }} ·
+                  {{ formatNumber(overview.embeddingCount) }}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -193,30 +203,34 @@ onMounted(load)
 
         <div class="row g-3 mb-3">
           <div class="col-md-6">
-            <div class="card h-100"><div class="card-body">
-              <h6>Tokens by model</h6>
-              <table class="table table-sm mb-0">
-                <tbody>
+            <div class="card h-100">
+              <div class="card-body">
+                <h6>Tokens by model</h6>
+                <table class="table table-sm mb-0">
+                  <tbody>
                   <tr v-for="[model, tokens] in tokensByModelEntries" :key="model">
                     <td><code>{{ model }}</code></td>
                     <td class="text-end">{{ formatNumber(tokens) }}</td>
                   </tr>
-                </tbody>
-              </table>
-            </div></div>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
           <div class="col-md-6">
-            <div class="card h-100"><div class="card-body">
-              <h6>Calls by model</h6>
-              <table class="table table-sm mb-0">
-                <tbody>
+            <div class="card h-100">
+              <div class="card-body">
+                <h6>Calls by model</h6>
+                <table class="table table-sm mb-0">
+                  <tbody>
                   <tr v-for="[model, calls] in callsByModelEntries" :key="model">
                     <td><code>{{ model }}</code></td>
                     <td class="text-end">{{ formatNumber(calls) }}</td>
                   </tr>
-                </tbody>
-              </table>
-            </div></div>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -224,102 +238,112 @@ onMounted(load)
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle">
             <thead>
-              <tr>
-                <th>Started</th>
-                <th>Provider</th>
-                <th>Model</th>
-                <th>Tokens in/out</th>
-                <th>Duration</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
+            <tr>
+              <th>Started</th>
+              <th>Provider</th>
+              <th>Model</th>
+              <th>Tokens in/out</th>
+              <th>Duration</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
             </thead>
             <tbody>
-              <template v-for="chat in overview.recent" :key="chat.spanId">
-                <tr :class="{ 'table-active': chat.spanId === selectedSpanId }">
-                  <td class="text-muted small">{{ formatTime(chat.startEpochNanos) }}</td>
-                  <td>{{ chat.provider || '—' }}</td>
-                  <td><code>{{ chat.requestModel || '—' }}</code></td>
-                  <td>{{ formatNumber(chat.inputTokens) }} / {{ formatNumber(chat.outputTokens) }}</td>
-                  <td>{{ formatDuration(chat.durationNanos) }}</td>
-                  <td>
-                    <span v-if="chat.statusCode === 'ERROR'" class="badge text-bg-danger">error</span>
-                    <span v-else class="badge text-bg-success">{{ chat.finishReason || 'ok' }}</span>
-                  </td>
-                  <td class="text-end">
-                    <button
-                      class="btn btn-sm btn-outline-primary"
-                      :aria-expanded="chat.spanId === selectedSpanId"
-                      @click="toggleChat(chat.spanId)">
-                      {{ chat.spanId === selectedSpanId ? 'Close' : 'Open' }}
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="chat.spanId === selectedSpanId" class="chat-detail-row">
-                  <td colspan="7" class="p-0">
-                    <div class="card m-2">
-                      <div class="card-header d-flex justify-content-between align-items-center">
-                        <div><i class="bi bi-stars me-2"></i>Chat <code>{{ selectedSpanId }}</code></div>
-                        <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
-                      </div>
-                      <div class="card-body">
-                        <div v-if="detailLoading" class="text-muted">Loading…</div>
-                        <template v-else-if="detail && detail.summary">
-                          <div v-if="detail.contentBanner && !detail.contentCaptured" class="alert alert-info small">
-                            <i class="bi bi-info-circle me-1"></i>{{ detail.contentBanner }}
-                          </div>
-                          <dl class="row mb-3">
-                            <dt class="col-sm-3">Provider</dt><dd class="col-sm-9">{{ detail.summary.provider || '—' }}</dd>
-                            <dt class="col-sm-3">Request model</dt><dd class="col-sm-9"><code>{{ detail.summary.requestModel || '—' }}</code></dd>
-                            <dt class="col-sm-3">Response model</dt><dd class="col-sm-9"><code>{{ detail.summary.responseModel || '—' }}</code></dd>
-                            <dt class="col-sm-3">Tokens</dt><dd class="col-sm-9">
-                              in {{ formatNumber(detail.summary.inputTokens) }} ·
-                              out {{ formatNumber(detail.summary.outputTokens) }} ·
-                              total {{ formatNumber(detail.summary.totalTokens) }}
-                            </dd>
-                            <dt class="col-sm-3">Duration</dt><dd class="col-sm-9">{{ formatDuration(detail.summary.durationNanos) }}</dd>
-                            <dt class="col-sm-3">Finish reason</dt><dd class="col-sm-9">{{ detail.summary.finishReason || '—' }}</dd>
-                          </dl>
-
-                          <div v-if="detail.toolCalls && detail.toolCalls.length" class="mb-3">
-                            <h6>Tool calls</h6>
-                            <ul class="list-group">
-                              <li v-for="tc in detail.toolCalls" :key="tc.spanId" class="list-group-item d-flex justify-content-between">
-                                <span><i class="bi bi-tools me-1"></i><code>{{ tc.name || '(unnamed)' }}</code></span>
-                                <span class="text-muted small">{{ formatDuration(tc.durationNanos) }}</span>
-                              </li>
-                            </ul>
-                          </div>
-
-                          <div v-if="detail.vectorOperations && detail.vectorOperations.length" class="mb-3">
-                            <h6>Vector operations</h6>
-                            <ul class="list-group">
-                              <li v-for="vo in detail.vectorOperations" :key="vo.spanId" class="list-group-item d-flex justify-content-between">
-                                <span><i class="bi bi-database me-1"></i><code>{{ vo.collectionName || '?' }}</code> · {{ vo.operation || '—' }}</span>
-                                <span class="text-muted small">{{ formatDuration(vo.durationNanos) }}</span>
-                              </li>
-                            </ul>
-                          </div>
-
-                          <details v-if="detail.attributes && detail.attributes.length">
-                            <summary class="text-muted">Span attributes ({{ detail.attributes.length }})</summary>
-                            <table class="table table-sm mt-2">
-                              <tbody>
-                                <tr v-for="a in detail.attributes" :key="a.key">
-                                  <td><code>{{ a.key }}</code></td>
-                                  <td><code>{{ a.value }}</code></td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </details>
-                        </template>
-                        <div v-else-if="detail && detail.error" class="alert alert-danger small">{{ detail.error }}</div>
-                        <div v-else class="text-muted small">No detail available.</div>
-                      </div>
+            <template v-for="chat in overview.recent" :key="chat.spanId">
+              <tr :class="{ 'table-active': chat.spanId === selectedSpanId }">
+                <td class="text-muted small">{{ formatTime(chat.startEpochNanos) }}</td>
+                <td>{{ chat.provider || '—' }}</td>
+                <td><code>{{ chat.requestModel || '—' }}</code></td>
+                <td>{{ formatNumber(chat.inputTokens) }} / {{ formatNumber(chat.outputTokens) }}</td>
+                <td>{{ formatDuration(chat.durationNanos) }}</td>
+                <td>
+                  <span v-if="chat.statusCode === 'ERROR'" class="badge text-bg-danger">error</span>
+                  <span v-else class="badge text-bg-success">{{ chat.finishReason || 'ok' }}</span>
+                </td>
+                <td class="text-end">
+                  <button
+                    :aria-expanded="chat.spanId === selectedSpanId"
+                    class="btn btn-sm btn-outline-primary"
+                    @click="toggleChat(chat.spanId)">
+                    {{ chat.spanId === selectedSpanId ? 'Close' : 'Open' }}
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="chat.spanId === selectedSpanId" class="chat-detail-row">
+                <td class="p-0" colspan="7">
+                  <div class="card m-2">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                      <div><i class="bi bi-stars me-2"></i>Chat <code>{{ selectedSpanId }}</code></div>
+                      <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
                     </div>
-                  </td>
-                </tr>
-              </template>
+                    <div class="card-body">
+                      <div v-if="detailLoading" class="text-muted">Loading…</div>
+                      <template v-else-if="detail && detail.summary">
+                        <div v-if="detail.contentBanner && !detail.contentCaptured" class="alert alert-info small">
+                          <i class="bi bi-info-circle me-1"></i>{{ detail.contentBanner }}
+                        </div>
+                        <dl class="row mb-3">
+                          <dt class="col-sm-3">Provider</dt>
+                          <dd class="col-sm-9">{{ detail.summary.provider || '—' }}</dd>
+                          <dt class="col-sm-3">Request model</dt>
+                          <dd class="col-sm-9"><code>{{ detail.summary.requestModel || '—' }}</code></dd>
+                          <dt class="col-sm-3">Response model</dt>
+                          <dd class="col-sm-9"><code>{{ detail.summary.responseModel || '—' }}</code></dd>
+                          <dt class="col-sm-3">Tokens</dt>
+                          <dd class="col-sm-9">
+                            in {{ formatNumber(detail.summary.inputTokens) }} ·
+                            out {{ formatNumber(detail.summary.outputTokens) }} ·
+                            total {{ formatNumber(detail.summary.totalTokens) }}
+                          </dd>
+                          <dt class="col-sm-3">Duration</dt>
+                          <dd class="col-sm-9">{{ formatDuration(detail.summary.durationNanos) }}</dd>
+                          <dt class="col-sm-3">Finish reason</dt>
+                          <dd class="col-sm-9">{{ detail.summary.finishReason || '—' }}</dd>
+                        </dl>
+
+                        <div v-if="detail.toolCalls && detail.toolCalls.length" class="mb-3">
+                          <h6>Tool calls</h6>
+                          <ul class="list-group">
+                            <li v-for="tc in detail.toolCalls" :key="tc.spanId"
+                                class="list-group-item d-flex justify-content-between">
+                              <span><i class="bi bi-tools me-1"></i><code>{{ tc.name || '(unnamed)' }}</code></span>
+                              <span class="text-muted small">{{ formatDuration(tc.durationNanos) }}</span>
+                            </li>
+                          </ul>
+                        </div>
+
+                        <div v-if="detail.vectorOperations && detail.vectorOperations.length" class="mb-3">
+                          <h6>Vector operations</h6>
+                          <ul class="list-group">
+                            <li v-for="vo in detail.vectorOperations" :key="vo.spanId"
+                                class="list-group-item d-flex justify-content-between">
+                              <span><i class="bi bi-database me-1"></i><code>{{
+                                  vo.collectionName || '?'
+                                }}</code> · {{ vo.operation || '—' }}</span>
+                              <span class="text-muted small">{{ formatDuration(vo.durationNanos) }}</span>
+                            </li>
+                          </ul>
+                        </div>
+
+                        <details v-if="detail.attributes && detail.attributes.length">
+                          <summary class="text-muted">Span attributes ({{ detail.attributes.length }})</summary>
+                          <table class="table table-sm mt-2">
+                            <tbody>
+                            <tr v-for="a in detail.attributes" :key="a.key">
+                              <td><code>{{ a.key }}</code></td>
+                              <td><code>{{ a.value }}</code></td>
+                            </tr>
+                            </tbody>
+                          </table>
+                        </details>
+                      </template>
+                      <div v-else-if="detail && detail.error" class="alert alert-danger small">{{ detail.error }}</div>
+                      <div v-else class="text-muted small">No detail available.</div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
             </tbody>
           </table>
         </div>

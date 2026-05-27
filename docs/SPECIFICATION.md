@@ -2,9 +2,13 @@
 
 ## 1. Overview
 
-BootUI is a **Spring Boot 4 Starter** that adds an embedded, local-only developer console to Spring Boot 4 applications. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard, Laravel Telescope, Micronaut Control Panel, and Spring Boot Admin, but is focused specifically on the inner development loop of a single Spring Boot 4 application.
+BootUI is a **Spring Boot 4 Starter** that adds an embedded, local-only developer console to Spring Boot 4 applications.
+It is inspired by Quarkus Dev UI, .NET Aspire Dashboard, Laravel Telescope, Micronaut Control Panel, and Spring Boot
+Admin, but is focused specifically on the inner development loop of a single Spring Boot 4 application.
 
-BootUI is not a standalone application, production monitoring tool, APM product, cloud service, IDE plugin, or replacement for Actuator. It is a Spring-native visualization and explanation layer loaded into the user's running Spring Boot 4 application through a starter dependency.
+BootUI is not a standalone application, production monitoring tool, APM product, cloud service, IDE plugin, or
+replacement for Actuator. It is a Spring-native visualization and explanation layer loaded into the user's running
+Spring Boot 4 application through a starter dependency.
 
 ## 1.1 Target platform
 
@@ -39,7 +43,8 @@ Make a running Spring Boot application understandable in minutes.
 ### 2.3 Non-goals for MVP
 
 - Production monitoring.
-- Multi-application *runtime* orchestration. BootUI accepts OTLP traces from cooperating local services as a dev-time sink, but it does not run, schedule, restart, or supervise other processes the way .NET Aspire's AppHost does.
+- Multi-application *runtime* orchestration. BootUI accepts OTLP traces from cooperating local services as a dev-time
+  sink, but it does not run, schedule, restart, or supervise other processes the way .NET Aspire's AppHost does.
 - Kubernetes workflow management.
 - Hosted dashboards.
 - Authentication and user management.
@@ -50,12 +55,12 @@ Make a running Spring Boot application understandable in minutes.
 
 ## 3. Target users
 
-| Persona | Needs | BootUI value |
-|---|---|---|
-| Solo/backend developer | Understand a project quickly, configure it correctly, inspect endpoints | One local URL with beans, config, mappings, health, and logs |
-| Enterprise service onboarder | Understand inherited profiles, conditional beans, and dependencies | Explains effective runtime state without reading the whole codebase first |
-| Platform engineer | Standardize inspection across many Spring Boot services | Common diagnostic surface for all teams |
-| Microservices developer | Debug local service wiring and environment issues | Shows local service health, connection details, mappings, and config sources |
+| Persona                      | Needs                                                                   | BootUI value                                                                 |
+|------------------------------|-------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| Solo/backend developer       | Understand a project quickly, configure it correctly, inspect endpoints | One local URL with beans, config, mappings, health, and logs                 |
+| Enterprise service onboarder | Understand inherited profiles, conditional beans, and dependencies      | Explains effective runtime state without reading the whole codebase first    |
+| Platform engineer            | Standardize inspection across many Spring Boot services                 | Common diagnostic surface for all teams                                      |
+| Microservices developer      | Debug local service wiring and environment issues                       | Shows local service health, connection details, mappings, and config sources |
 
 ## 4. User experience
 
@@ -65,7 +70,8 @@ BootUI activates only in development contexts.
 
 Default activation rules:
 
-- Enabled when the `bootui-spring-boot-starter` dependency is present in a Spring Boot 4 application and at least one of these is true:
+- Enabled when the `bootui-spring-boot-starter` dependency is present in a Spring Boot 4 application and at least one of
+  these is true:
   - `spring-boot-devtools` is present.
   - Active profile is `dev` or `local`.
   - `bootui.enabled=ON`.
@@ -73,9 +79,12 @@ Default activation rules:
   - `bootui.enabled=OFF`.
   - Active profile is `prod` or `production`, unless `bootui.enabled=ON` is set.
 
-`bootui.enabled=AUTO` is the default. BootUI must fail closed: if no enabled profile is active and DevTools is not on the classpath, it should not expose the UI.
+`bootui.enabled=AUTO` is the default. BootUI must fail closed: if no enabled profile is active and DevTools is not on
+the classpath, it should not expose the UI.
 
-When BootUI is active, the starter should contribute low-precedence Actuator defaults for the local panels, including `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host applications can override those `management.*` settings explicitly.
+When BootUI is active, the starter should contribute low-precedence Actuator defaults for the local panels, including
+`beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host
+applications can override those `management.*` settings explicitly.
 
 ### 4.2 URL
 
@@ -85,7 +94,9 @@ Default UI URL inside the host Spring Boot 4 application:
 http://localhost:${server.port}/bootui
 ```
 
-The current implementation serves the UI at `/bootui/` and APIs at `/bootui/api/**`. Configuration properties for the UI/API paths exist, but v0.1 should treat `/bootui` as the supported route until path customization is wired through every controller and packaged asset:
+The current implementation serves the UI at `/bootui/` and APIs at `/bootui/api/**`. Configuration properties for the
+UI/API paths exist, but v0.1 should treat `/bootui` as the supported route until path customization is wired through
+every controller and packaged asset:
 
 ```properties
 bootui.path=/bootui
@@ -192,7 +203,8 @@ Acceptance criteria:
 
 ### 5.4 Configuration Properties Explorer
 
-Purpose: answer "Which Spring Boot configuration properties exist, which values are active, where did they come from, and can I modify them safely during local development?"
+Purpose: answer "Which Spring Boot configuration properties exist, which values are active, where did they come from,
+and can I modify them safely during local development?"
 
 Data sources:
 
@@ -222,9 +234,11 @@ Features:
 - Edit a runtime override.
 - Remove a runtime override.
 - Show whether a displayed value comes from a BootUI runtime override.
-- Clearly label modified values as local, runtime-only, and not persisted to `application.properties`, environment variables, or config server.
+- Clearly label modified values as local, runtime-only, and not persisted to `application.properties`, environment
+  variables, or config server.
 - Persist overrides to BootUI's override file by default so they can be reapplied on restart.
-- Explain when a modified property may not affect already-created beans or already-bound `@ConfigurationProperties` without restart or explicit rebind support.
+- Explain when a modified property may not affect already-created beans or already-bound `@ConfigurationProperties`
+  without restart or explicit rebind support.
 
 Acceptance criteria:
 
@@ -234,8 +248,10 @@ Acceptance criteria:
 - Custom `@ConfigurationProperties` metadata is displayed when available.
 - Developers can create, update, and remove local runtime overrides for Spring Boot configuration properties.
 - BootUI never writes secrets or modified values back to source files by default.
-- Every property mutation is local-development-only and is persisted only to BootUI's override file, `.bootui/application-bootui.properties` by default.
-- Mutating a property returns a clear result that states whether the new value is visible in the Spring `Environment` and whether restart/rebind may be required.
+- Every property mutation is local-development-only and is persisted only to BootUI's override file,
+  `.bootui/application-bootui.properties` by default.
+- Mutating a property returns a clear result that states whether the new value is visible in the Spring `Environment`
+  and whether restart/rebind may be required.
 
 ### 5.5 Mappings Browser
 
@@ -387,7 +403,8 @@ Purpose: answer "How much heap/non-heap memory is this app using, and what JVM o
 
 Data sources:
 
-- Java management beans (`MemoryMXBean`, `MemoryPoolMXBean`, `ClassLoadingMXBean`, `ThreadMXBean`, runtime input arguments).
+- Java management beans (`MemoryMXBean`, `MemoryPoolMXBean`, `ClassLoadingMXBean`, `ThreadMXBean`, runtime input
+  arguments).
 
 Features:
 
@@ -425,7 +442,8 @@ Features:
 - List runtime Maven dependencies by group, artifact, and version.
 - Keep the initial inventory local-only; no external vulnerability lookup runs on page load.
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
-- Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed versions when available.
+- Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
+  versions when available.
 - Support disabling OSV scans with `bootui.dependencies.osv-enabled=false`.
 
 Acceptance criteria:
@@ -541,16 +559,19 @@ Acceptance criteria:
 
 ### 5.17 Spring Data Explorer
 
-Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they expose?"
+Purpose: answer "Which Spring Data repositories does this app declare, against which store, and what queries do they
+expose?"
 
 Data sources:
 
 - Spring Data `RepositoryFactoryInformation` beans discovered in the application context.
-- Each repository's `RepositoryInformation` (domain type, ID type, repository interface, custom implementation class, query methods, fragment methods).
+- Each repository's `RepositoryInformation` (domain type, ID type, repository interface, custom implementation class,
+  query methods, fragment methods).
 
 Features:
 
-- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, Redis, R2DBC, Cassandra, Neo4j, generic).
+- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, Redis, R2DBC, Cassandra, Neo4j,
+  generic).
 - For each repository, show:
   - Repository interface name and package.
   - Domain type and ID type.
@@ -574,26 +595,32 @@ Acceptance criteria:
 
 ### 5.18 Spring Cache Panel
 
-Purpose: answer "Which Spring Cache managers and caches exist, how are they used, and can I clear them during local development?"
+Purpose: answer "Which Spring Cache managers and caches exist, how are they used, and can I clear them during local
+development?"
 
 Data sources:
 
 - Spring `CacheManager` beans discovered in the application context.
-- Spring Cache `CacheOperationSource` metadata for `@Cacheable`, `@CachePut`, `@CacheEvict`, and composed `@Caching` operations.
+- Spring Cache `CacheOperationSource` metadata for `@Cacheable`, `@CachePut`, `@CacheEvict`, and composed `@Caching`
+  operations.
 - Micrometer cache meters when the host application has cache metrics registered.
 
 Features:
 
 - List detected cache managers, their implementation types, and currently known cache names.
-- For each cache, show the native implementation type, safe local size when it can be read without remote enumeration, and Micrometer metrics such as hits, misses, hit ratio, puts, evictions, removals, and size.
-- List discovered cache annotation operations by bean, target type, method signature, operation type, cache names, key/condition/unless expressions, and eviction flags.
-- Clear one known cache or every known cache when `bootui.cache.clear-enabled=true` and the browser sends an explicit confirmation.
+- For each cache, show the native implementation type, safe local size when it can be read without remote enumeration,
+  and Micrometer metrics such as hits, misses, hit ratio, puts, evictions, removals, and size.
+- List discovered cache annotation operations by bean, target type, method signature, operation type, cache names,
+  key/condition/unless expressions, and eviction flags.
+- Clear one known cache or every known cache when `bootui.cache.clear-enabled=true` and the browser sends an explicit
+  confirmation.
 
 Acceptance criteria:
 
 - When no `CacheManager` beans are present, the panel shows a clear empty state.
 - Cache size inspection must avoid enumerating remote or distributed cache stores.
-- Cache clear actions are enabled by default for local development, still require explicit confirmation, and return a clear disabled response when `bootui.cache.clear-enabled=false`.
+- Cache clear actions are enabled by default for local development, still require explicit confirmation, and return a
+  clear disabled response when `bootui.cache.clear-enabled=false`.
 - Clearing unknown cache names must not create dynamic caches as a side effect.
 - Annotation discovery must not eagerly initialize lazy application beans.
 
@@ -633,7 +660,8 @@ Status: implemented and supported for `0.1.0-alpha.1` as part of the harden-all-
 Acceptance criteria:
 
 - Secrets are never displayed.
-- `bootui.expose-values=FULL` is the only mode that may reveal secret-like service connection values, and should be used only in trusted local sessions.
+- `bootui.expose-values=FULL` is the only mode that may reveal secret-like service connection values, and should be used
+  only in trusted local sessions.
 - Unknown services are represented generically.
 - Works even when Docker is not installed.
 - Docker Compose services are clearly identified as startup snapshots because
@@ -712,15 +740,19 @@ Responsibilities:
 - Provide browser UI.
 - Consume BootUI internal API.
 - Avoid needing Node.js at runtime.
-- Package the compiled assets into the BootUI Java artifact so applications using the starter do not need a separate frontend build or dev server.
+- Package the compiled assets into the BootUI Java artifact so applications using the starter do not need a separate
+  frontend build or dev server.
 
 Build requirements:
 
 - The Maven build must install/use the configured Node.js and npm versions for reproducible frontend builds.
 - The frontend build must run before Java resources are packaged.
-- The generated Vue assets must be copied into a classpath location served by `bootui-autoconfigure`, such as `META-INF/resources/bootui/`.
-- `./mvnw clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue UI.
-- Consumer Spring Boot 4 applications should only need the `bootui-spring-boot-starter` dependency; they must not run `npm install` or `npm run build` themselves.
+- The generated Vue assets must be copied into a classpath location served by `bootui-autoconfigure`, such as
+  `META-INF/resources/bootui/`.
+- `./mvnw clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue
+  UI.
+- Consumer Spring Boot 4 applications should only need the `bootui-spring-boot-starter` dependency; they must not run
+  `npm install` or `npm run build` themselves.
 
 #### `bootui-sample-app`
 
@@ -729,8 +761,10 @@ Sample Spring Boot app used for demos and integration tests.
 Responsibilities:
 
 - Demonstrate common Spring Boot features.
-- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, Redis-backed Spring Cache, scheduling, and Spring Security.
-- Provide enough beans, mappings, config, health, repositories, scheduled tasks, security chains, and logs to test BootUI.
+- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, Redis-backed Spring Cache, scheduling, and
+  Spring Security.
+- Provide enough beans, mappings, config, health, repositories, scheduled tasks, security chains, and logs to test
+  BootUI.
 - Host Playwright end-to-end tests for every visible BootUI route and the sample REST API.
 
 ### 6.3 Runtime architecture
@@ -762,46 +796,47 @@ BootUI should expose its own development-only API under:
 /bootui/api/**
 ```
 
-The browser UI should not depend directly on raw Actuator response shapes. BootUI should normalize them into stable DTOs.
+The browser UI should not depend directly on raw Actuator response shapes. BootUI should normalize them into stable
+DTOs.
 
 Initial endpoints:
 
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/bootui/api/overview` | GET | App, runtime, Spring Boot, profile, and BootUI status |
-| `/bootui/api/beans` | GET | Searchable bean summary |
-| `/bootui/api/conditions` | GET | Auto-configuration conditions |
-| `/bootui/api/config` | GET | Effective configuration values |
-| `/bootui/api/config/overrides` | POST | Create or update a local runtime configuration property override |
-| `/bootui/api/config/overrides/{name}` | DELETE | Remove a local runtime configuration property override |
-| `/bootui/api/mappings` | GET | HTTP mappings |
-| `/bootui/api/health` | GET | Health tree |
-| `/bootui/api/loggers` | GET | Logger levels |
-| `/bootui/api/loggers/{name}` | POST | Change logger level |
-| `/bootui/api/startup` | GET | Startup timeline |
-| `/bootui/api/metrics` | GET | Browseable Micrometer meter list |
-| `/bootui/api/metrics/detail` | GET | Micrometer meter detail and live measurements |
-| `/bootui/api/dependencies` | GET | Runtime Maven dependency inventory without external scanning |
-| `/bootui/api/dependencies/scan` | POST | Explicit on-demand OSV.dev vulnerability scan |
-| `/bootui/api/devtools` | GET | Spring Boot DevTools status |
-| `/bootui/api/devtools/livereload` | POST | Trigger a DevTools LiveReload notification when available |
-| `/bootui/api/devtools/restart` | POST | Schedule a DevTools restart after explicit confirmation |
-| `/bootui/api/memory` | GET | JVM memory report |
-| `/bootui/api/scheduled` | GET | Scheduled tasks |
-| `/bootui/api/probe` | POST | Local HTTP probe |
-| `/bootui/api/logs/recent` | GET | Recent log lines |
-| `/bootui/api/logs/stream` | GET | Log stream over Server-Sent Events |
-| `/bootui/api/profiles` | GET | Profile-specific property sources |
-| `/bootui/api/dev-services` | GET | Docker Compose, Testcontainers, and service connection entries |
-| `/bootui/api/dev-services/{id}/logs` | GET | Bounded log tail for a bean-backed service when available |
-| `/bootui/api/dev-services/{id}/restart` | POST | Restart a bean-backed service only when explicitly enabled |
-| `/bootui/api/data/repositories` | GET | Detected Spring Data repositories (summary) |
-| `/bootui/api/data/repositories/{name}` | GET | Spring Data repository detail with query methods |
-| `/bootui/api/cache` | GET | Spring Cache managers, caches, metrics, and annotation operations |
-| `/bootui/api/cache/clear` | POST | Clear one or all known caches only when explicitly enabled and confirmed |
-| `/bootui/api/security` | GET | Spring Security filter chain report |
-| `/bootui/api/security/explain` | GET | Best-effort chain match for a method/path |
-| `/bootui/api/security/endpoints` | GET | Best-effort per-endpoint authorization report |
+| Endpoint                                | Method | Purpose                                                                  |
+|-----------------------------------------|--------|--------------------------------------------------------------------------|
+| `/bootui/api/overview`                  | GET    | App, runtime, Spring Boot, profile, and BootUI status                    |
+| `/bootui/api/beans`                     | GET    | Searchable bean summary                                                  |
+| `/bootui/api/conditions`                | GET    | Auto-configuration conditions                                            |
+| `/bootui/api/config`                    | GET    | Effective configuration values                                           |
+| `/bootui/api/config/overrides`          | POST   | Create or update a local runtime configuration property override         |
+| `/bootui/api/config/overrides/{name}`   | DELETE | Remove a local runtime configuration property override                   |
+| `/bootui/api/mappings`                  | GET    | HTTP mappings                                                            |
+| `/bootui/api/health`                    | GET    | Health tree                                                              |
+| `/bootui/api/loggers`                   | GET    | Logger levels                                                            |
+| `/bootui/api/loggers/{name}`            | POST   | Change logger level                                                      |
+| `/bootui/api/startup`                   | GET    | Startup timeline                                                         |
+| `/bootui/api/metrics`                   | GET    | Browseable Micrometer meter list                                         |
+| `/bootui/api/metrics/detail`            | GET    | Micrometer meter detail and live measurements                            |
+| `/bootui/api/dependencies`              | GET    | Runtime Maven dependency inventory without external scanning             |
+| `/bootui/api/dependencies/scan`         | POST   | Explicit on-demand OSV.dev vulnerability scan                            |
+| `/bootui/api/devtools`                  | GET    | Spring Boot DevTools status                                              |
+| `/bootui/api/devtools/livereload`       | POST   | Trigger a DevTools LiveReload notification when available                |
+| `/bootui/api/devtools/restart`          | POST   | Schedule a DevTools restart after explicit confirmation                  |
+| `/bootui/api/memory`                    | GET    | JVM memory report                                                        |
+| `/bootui/api/scheduled`                 | GET    | Scheduled tasks                                                          |
+| `/bootui/api/probe`                     | POST   | Local HTTP probe                                                         |
+| `/bootui/api/logs/recent`               | GET    | Recent log lines                                                         |
+| `/bootui/api/logs/stream`               | GET    | Log stream over Server-Sent Events                                       |
+| `/bootui/api/profiles`                  | GET    | Profile-specific property sources                                        |
+| `/bootui/api/dev-services`              | GET    | Docker Compose, Testcontainers, and service connection entries           |
+| `/bootui/api/dev-services/{id}/logs`    | GET    | Bounded log tail for a bean-backed service when available                |
+| `/bootui/api/dev-services/{id}/restart` | POST   | Restart a bean-backed service only when explicitly enabled               |
+| `/bootui/api/data/repositories`         | GET    | Detected Spring Data repositories (summary)                              |
+| `/bootui/api/data/repositories/{name}`  | GET    | Spring Data repository detail with query methods                         |
+| `/bootui/api/cache`                     | GET    | Spring Cache managers, caches, metrics, and annotation operations        |
+| `/bootui/api/cache/clear`               | POST   | Clear one or all known caches only when explicitly enabled and confirmed |
+| `/bootui/api/security`                  | GET    | Spring Security filter chain report                                      |
+| `/bootui/api/security/explain`          | GET    | Best-effort chain match for a method/path                                |
+| `/bootui/api/security/endpoints`        | GET    | Best-effort per-endpoint authorization report                            |
 
 ### 6.5 Configuration properties
 
@@ -813,36 +848,36 @@ bootui.*
 
 Initial properties:
 
-| Property | Default | Description |
-|---|---|---|
-| `bootui.enabled` | `AUTO` | Enables BootUI. Values: `AUTO`, `ON`, `OFF`. |
-| `bootui.path` | `/bootui` | UI base path used by the banner and safety filter; `/bootui` is the supported v0.1 route. |
-| `bootui.api-path` | `/bootui/api` | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`. |
-| `bootui.localhost-only` | `true` | Reject non-local requests. |
-| `bootui.allow-non-localhost` | `false` | Explicitly allow non-loopback requests. |
-| `bootui.mask-secrets` | `true` | Mask secret-like config values. |
-| `bootui.expose-values` | `MASKED` | One of `MASKED`, `METADATA_ONLY`, `FULL`. |
-| `bootui.show-banner` | `true` | Print BootUI URL on startup. |
-| `bootui.enabled-profiles` | `dev,local` | Profiles that activate BootUI. |
-| `bootui.disabled-profiles` | `prod,production` | Profiles that disable BootUI unless `bootui.enabled=ON`. |
-| `bootui.overrides-file` | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides. |
-| `bootui.endpoint-timeout` | `5s` | Timeout for endpoint-related calls. |
-| `bootui.cache.clear-enabled` | `true` | Enable Spring Cache clear actions after explicit browser confirmation. |
-| `bootui.dependencies.osv-enabled` | `true` | Allow the user-initiated OSV.dev vulnerability scan action. |
-| `bootui.dependencies.request-timeout` | `10s` | Timeout applied to each OSV request. |
-| `bootui.dependencies.max-packages` | `250` | Maximum packages sent in one OSV batch query. |
-| `bootui.dependencies.max-advisories` | `200` | Maximum advisory detail documents fetched after a query. |
-| `bootui.dev-services.restart-enabled` | `false` | Enables restart controls for bean-backed Testcontainers services. |
-| `bootui.dev-services.log-tail-bytes` | `65536` | Maximum bytes returned by one Dev Services log request. |
-| `bootui.telemetry.enabled` | `true` | Enables the local OTLP/HTTP trace receiver used by the Traces and AI Usage panels. |
-| `bootui.telemetry.max-traces` | `500` | Maximum distinct traces retained in memory; internally capped for UI safety. |
-| `bootui.telemetry.max-spans-per-trace` | `500` | Maximum spans retained for one trace; internally capped for UI safety. |
-| `bootui.telemetry.max-attribute-value-bytes` | `4096` | Maximum attribute string length before truncation; internally capped for UI safety. |
-| `bootui.telemetry.exclude-self-spans` | `true` | Drops spans for BootUI's own API routes from the retained trace data. |
-| `bootui.telemetry.max-request-bytes` | `8388608` | Maximum OTLP payload size accepted by the local receiver. |
-| `bootui.ai.token-series-minutes` | `60` | Default token-usage chart window for the AI Usage panel, capped by the API. |
-| `bootui.ai.max-recent-chats` | `100` | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API. |
-| `bootui.ai.show-content-capture-banner` | `true` | Shows guidance when Spring AI prompt/completion content is not captured in spans. |
+| Property                                     | Default                                 | Description                                                                                     |
+|----------------------------------------------|-----------------------------------------|-------------------------------------------------------------------------------------------------|
+| `bootui.enabled`                             | `AUTO`                                  | Enables BootUI. Values: `AUTO`, `ON`, `OFF`.                                                    |
+| `bootui.path`                                | `/bootui`                               | UI base path used by the banner and safety filter; `/bootui` is the supported v0.1 route.       |
+| `bootui.api-path`                            | `/bootui/api`                           | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`. |
+| `bootui.localhost-only`                      | `true`                                  | Reject non-local requests.                                                                      |
+| `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                         |
+| `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                 |
+| `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                       |
+| `bootui.show-banner`                         | `true`                                  | Print BootUI URL on startup.                                                                    |
+| `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                  |
+| `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                        |
+| `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                     |
+| `bootui.endpoint-timeout`                    | `5s`                                    | Timeout for endpoint-related calls.                                                             |
+| `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                          |
+| `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                     |
+| `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                            |
+| `bootui.dependencies.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                   |
+| `bootui.dependencies.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                        |
+| `bootui.dev-services.restart-enabled`        | `false`                                 | Enables restart controls for bean-backed Testcontainers services.                               |
+| `bootui.dev-services.log-tail-bytes`         | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                         |
+| `bootui.telemetry.enabled`                   | `true`                                  | Enables the local OTLP/HTTP trace receiver used by the Traces and AI Usage panels.              |
+| `bootui.telemetry.max-traces`                | `500`                                   | Maximum distinct traces retained in memory; internally capped for UI safety.                    |
+| `bootui.telemetry.max-spans-per-trace`       | `500`                                   | Maximum spans retained for one trace; internally capped for UI safety.                          |
+| `bootui.telemetry.max-attribute-value-bytes` | `4096`                                  | Maximum attribute string length before truncation; internally capped for UI safety.             |
+| `bootui.telemetry.exclude-self-spans`        | `true`                                  | Drops spans for BootUI's own API routes from the retained trace data.                           |
+| `bootui.telemetry.max-request-bytes`         | `8388608`                               | Maximum OTLP payload size accepted by the local receiver.                                       |
+| `bootui.ai.token-series-minutes`             | `60`                                    | Default token-usage chart window for the AI Usage panel, capped by the API.                     |
+| `bootui.ai.max-recent-chats`                 | `100`                                   | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API.                     |
+| `bootui.ai.show-content-capture-banner`      | `true`                                  | Shows guidance when Spring AI prompt/completion content is not captured in spans.               |
 
 ### 6.6 Security model
 
@@ -982,7 +1017,9 @@ Future compatibility:
 BootUI v0.1 is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile Diff, Loggers, Log Tail, Traces, HTTP Probe, DevTools, Dev Services, Scheduled Tasks, Data, Cache, AI Usage, Security, and Vulnerabilities.
+- The UI shows Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile
+  Diff, Loggers, Log Tail, Traces, HTTP Probe, DevTools, Dev Services, Scheduled Tasks, Data, Cache, AI Usage, Security,
+  and Vulnerabilities.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.
@@ -995,4 +1032,5 @@ Resolved for `0.1.0-alpha.1`:
 1. Harden every visible panel and ship the full current route set as supported alpha functionality.
 2. Publish the alpha artifacts to Maven Central.
 3. Keep optional panels visible and show clear unavailable/empty states when their classpath or data source is absent.
-4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for v0.1; revisit broader metadata abstractions after the alpha.
+4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for v0.1; revisit broader metadata
+   abstractions after the alpha.

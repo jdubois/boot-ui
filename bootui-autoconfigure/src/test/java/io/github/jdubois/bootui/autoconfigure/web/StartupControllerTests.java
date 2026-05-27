@@ -1,15 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.withSettings;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
-import java.time.Duration;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
@@ -20,6 +10,15 @@ import org.springframework.boot.context.metrics.buffering.StartupTimeline.Timeli
 import org.springframework.core.metrics.StartupStep;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.Duration;
+import java.util.List;
+
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Controller-level tests for {@link StartupController}.
@@ -33,14 +32,28 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class StartupControllerTests {
 
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<StartupEndpoint> providerOf(StartupEndpoint endpoint) {
+        ObjectProvider<StartupEndpoint> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(endpoint);
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<StartupEndpoint> emptyProvider() {
+        ObjectProvider<StartupEndpoint> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        return provider;
+    }
+
     @Test
     void startupReturnsEmptyWhenActuatorUnavailable() throws Exception {
         MockMvc mvc = standaloneSetup(new StartupController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/startup").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.steps").isArray())
-                .andExpect(jsonPath("$.steps").isEmpty());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.steps").isArray())
+            .andExpect(jsonPath("$.steps").isEmpty());
     }
 
     @Test
@@ -54,15 +67,22 @@ class StartupControllerTests {
         MockMvc mvc = standaloneSetup(new StartupController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/startup").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.steps").isEmpty());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.steps").isEmpty());
     }
 
     @Test
     void startupReturnsStepsFromTimeline() throws Exception {
         StartupStep.Tag tag = new StartupStep.Tag() {
-            @Override public String getKey() { return "bean.name"; }
-            @Override public String getValue() { return "dataSource"; }
+            @Override
+            public String getKey() {
+                return "bean.name";
+            }
+
+            @Override
+            public String getValue() {
+                return "dataSource";
+            }
         };
 
         StartupStep step = mock(StartupStep.class);
@@ -87,14 +107,14 @@ class StartupControllerTests {
         MockMvc mvc = standaloneSetup(new StartupController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/startup").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.steps.length()").value(1))
-                .andExpect(jsonPath("$.steps[0].id").value(1))
-                .andExpect(jsonPath("$.steps[0].parentId").doesNotExist())
-                .andExpect(jsonPath("$.steps[0].name").value("spring.beans.instantiate"))
-                .andExpect(jsonPath("$.steps[0].durationMs").value(42))
-                .andExpect(jsonPath("$.steps[0].tags[0].key").value("bean.name"))
-                .andExpect(jsonPath("$.steps[0].tags[0].value").value("dataSource"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.steps.length()").value(1))
+            .andExpect(jsonPath("$.steps[0].id").value(1))
+            .andExpect(jsonPath("$.steps[0].parentId").doesNotExist())
+            .andExpect(jsonPath("$.steps[0].name").value("spring.beans.instantiate"))
+            .andExpect(jsonPath("$.steps[0].durationMs").value(42))
+            .andExpect(jsonPath("$.steps[0].tags[0].key").value("bean.name"))
+            .andExpect(jsonPath("$.steps[0].tags[0].value").value("dataSource"));
     }
 
     @Test
@@ -121,22 +141,8 @@ class StartupControllerTests {
         MockMvc mvc = standaloneSetup(new StartupController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/startup").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.steps[0].durationMs").value(0))
-                .andExpect(jsonPath("$.steps[0].parentId").value(1));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<StartupEndpoint> providerOf(StartupEndpoint endpoint) {
-        ObjectProvider<StartupEndpoint> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(endpoint);
-        return provider;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<StartupEndpoint> emptyProvider() {
-        ObjectProvider<StartupEndpoint> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.steps[0].durationMs").value(0))
+            .andExpect(jsonPath("$.steps[0].parentId").value(1));
     }
 }

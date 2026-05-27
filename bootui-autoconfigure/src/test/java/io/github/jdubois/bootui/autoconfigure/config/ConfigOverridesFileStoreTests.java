@@ -1,14 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ConfigOverridesFileStoreTests {
 
@@ -32,8 +33,8 @@ class ConfigOverridesFileStoreTests {
         assertThat(Files.exists(file)).isTrue();
         Map<String, Object> reloaded = new ConfigOverridesFileStore(file).load();
         assertThat(reloaded)
-                .containsEntry("server.port", "9090")
-                .containsEntry("sample.greeting", "Bonjour");
+            .containsEntry("server.port", "9090")
+            .containsEntry("sample.greeting", "Bonjour");
     }
 
     @Test

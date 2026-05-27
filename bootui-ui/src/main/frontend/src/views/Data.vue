@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const report = ref(null)
 const detail = ref(null)
@@ -46,8 +46,8 @@ const filtered = computed(() => {
     if (storeFilter.value && r.storeModule !== storeFilter.value) return false
     if (!f) return true
     return (r.repositoryInterface || '').toLowerCase().includes(f)
-        || (r.domainType || '').toLowerCase().includes(f)
-        || (r.beanName || '').toLowerCase().includes(f)
+      || (r.domainType || '').toLowerCase().includes(f)
+      || (r.beanName || '').toLowerCase().includes(f)
   })
 })
 
@@ -102,10 +102,10 @@ onMounted(load)
     <template v-else-if="report">
       <div class="row g-2 mb-3">
         <div class="col-md-6">
-          <input class="form-control" v-model="filter" placeholder="Filter by interface, entity, or bean name…" />
+          <input v-model="filter" class="form-control" placeholder="Filter by interface, entity, or bean name…"/>
         </div>
         <div class="col-md-3">
-          <select class="form-select" v-model="storeFilter">
+          <select v-model="storeFilter" class="form-select">
             <option value="">All stores</option>
             <option v-for="s in stores" :key="s" :value="s">{{ s }}</option>
           </select>
@@ -121,9 +121,9 @@ onMounted(load)
             <button
               v-for="r in filtered"
               :key="r.beanName"
-              type="button"
-              class="list-group-item list-group-item-action"
               :class="{ active: selected === r.repositoryInterface }"
+              class="list-group-item list-group-item-action"
+              type="button"
               @click="open(r)">
               <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -133,7 +133,7 @@ onMounted(load)
                     <span v-if="r.idType"> · id: {{ shortName(r.idType) }}</span>
                   </div>
                 </div>
-                <span class="badge" :class="storeClass(r.storeModule)">{{ r.storeModule }}</span>
+                <span :class="storeClass(r.storeModule)" class="badge">{{ r.storeModule }}</span>
               </div>
               <div class="small mt-1">
                 <span class="me-2"><i class="bi bi-search me-1"></i>{{ r.queryMethodCount }} queries</span>
@@ -156,7 +156,7 @@ onMounted(load)
               <dl class="row mb-3 small">
                 <dt class="col-sm-3">Store module</dt>
                 <dd class="col-sm-9">
-                  <span class="badge" :class="storeClass(detail.storeModule)">{{ detail.storeModule }}</span>
+                  <span :class="storeClass(detail.storeModule)" class="badge">{{ detail.storeModule }}</span>
                 </dd>
                 <dt class="col-sm-3">Domain type</dt>
                 <dd class="col-sm-9"><code>{{ detail.domainType }}</code></dd>
@@ -173,25 +173,25 @@ onMounted(load)
               <h6 class="mb-2">Methods <span class="badge bg-secondary">{{ detail.methods.length }}</span></h6>
               <table class="table table-sm table-hover">
                 <thead>
-                  <tr>
-                    <th style="width:110px">Origin</th>
-                    <th>Signature</th>
-                    <th>Query</th>
-                  </tr>
+                <tr>
+                  <th style="width:110px">Origin</th>
+                  <th>Signature</th>
+                  <th>Query</th>
+                </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="m in detail.methods" :key="m.signature">
-                    <td>
-                      <span class="badge" :class="originClass(m.origin)">{{ m.origin }}</span>
-                    </td>
-                    <td><code>{{ m.signature }}</code></td>
-                    <td>
-                      <code v-if="m.query" class="small">{{ m.query }}</code>
-                      <span v-else-if="m.namedQuery" class="small text-muted">named: {{ m.namedQuery }}</span>
-                      <span v-else class="text-muted small">—</span>
-                      <span v-if="m.nativeQuery" class="badge bg-warning text-dark ms-1">native</span>
-                    </td>
-                  </tr>
+                <tr v-for="m in detail.methods" :key="m.signature">
+                  <td>
+                    <span :class="originClass(m.origin)" class="badge">{{ m.origin }}</span>
+                  </td>
+                  <td><code>{{ m.signature }}</code></td>
+                  <td>
+                    <code v-if="m.query" class="small">{{ m.query }}</code>
+                    <span v-else-if="m.namedQuery" class="small text-muted">named: {{ m.namedQuery }}</span>
+                    <span v-else class="text-muted small">—</span>
+                    <span v-if="m.nativeQuery" class="badge bg-warning text-dark ms-1">native</span>
+                  </td>
+                </tr>
                 </tbody>
               </table>
             </div>

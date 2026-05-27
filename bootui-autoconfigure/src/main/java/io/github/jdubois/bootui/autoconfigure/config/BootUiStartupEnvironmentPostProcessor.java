@@ -64,7 +64,7 @@ public class BootUiStartupEnvironmentPostProcessor implements EnvironmentPostPro
      * Spring Boot's auto-configured {@code StartupEndpoint} can be exposed.
      */
     static final class BufferingApplicationStartupRegistrar
-            implements ApplicationContextInitializer<ConfigurableApplicationContext>, Ordered {
+        implements ApplicationContextInitializer<ConfigurableApplicationContext>, Ordered {
 
         private final BufferingApplicationStartup startup;
 

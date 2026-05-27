@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const data = ref(null)
 const tab = ref('positive')
@@ -28,20 +28,20 @@ onMounted(load)
     <h2><i class="bi bi-check2-circle me-2"></i>Auto-configuration conditions</h2>
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item">
-        <a class="nav-link" :class="{ active: tab === 'positive' }" href="#" @click.prevent="tab = 'positive'">
+        <a :class="{ active: tab === 'positive' }" class="nav-link" href="#" @click.prevent="tab = 'positive'">
           Positive ({{ data ? data.positiveMatches.length : 0 }})
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link" :class="{ active: tab === 'negative' }" href="#" @click.prevent="tab = 'negative'">
+        <a :class="{ active: tab === 'negative' }" class="nav-link" href="#" @click.prevent="tab = 'negative'">
           Negative ({{ data ? data.negativeMatches.length : 0 }})
         </a>
       </li>
     </ul>
-    <input class="form-control mb-3" v-model="filter" placeholder="Filter…" />
+    <input v-model="filter" class="form-control mb-3" placeholder="Filter…"/>
     <div v-for="e in entries" :key="e.autoConfigurationClass + e.condition" class="mb-2">
       <div class="d-flex">
-        <span class="badge me-2" :class="tab === 'positive' ? 'bg-success' : 'bg-secondary'">{{ e.outcome }}</span>
+        <span :class="tab === 'positive' ? 'bg-success' : 'bg-secondary'" class="badge me-2">{{ e.outcome }}</span>
         <div>
           <strong>{{ e.autoConfigurationClass }}</strong>
           <div class="small text-muted">{{ e.condition }}</div>

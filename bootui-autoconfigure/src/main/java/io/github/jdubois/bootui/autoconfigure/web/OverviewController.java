@@ -5,13 +5,14 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.ActivationStatus;
 import io.github.jdubois.bootui.core.BootUiDtos.OverviewDto;
 import io.github.jdubois.bootui.core.BootUiInfo;
-import java.util.Arrays;
-import java.util.List;
 import org.springframework.boot.SpringBootVersion;
 import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Arrays;
+import java.util.List;
 
 @RestController
 @RequestMapping("/bootui/api/overview")
@@ -35,29 +36,29 @@ public class OverviewController {
         String name = environment.getProperty("spring.application.name", "application");
         String webType = detectWebType();
         Integer port = parseInt(environment.getProperty("local.server.port",
-                environment.getProperty("server.port", "8080")));
+            environment.getProperty("server.port", "8080")));
         Integer managementPort = parseInt(environment.getProperty("management.server.port"));
         Long startupMs = parseLong(environment.getProperty("spring.boot.application.startup.time"));
 
         return new OverviewDto(
-                BootUiInfo.VERSION,
-                name,
-                SpringBootVersion.getVersion(),
-                System.getProperty("java.version"),
-                System.getProperty("java.vendor"),
-                Arrays.asList(environment.getActiveProfiles()),
-                Arrays.asList(environment.getDefaultProfiles()),
-                webType,
-                port,
-                managementPort,
-                environment.getProperty("server.servlet.context-path", ""),
-                startupMs,
-                new ActivationStatus(
-                        activation.enabled(),
-                        properties.isLocalhostOnly() && !properties.isAllowNonLocalhost(),
-                        activation.reason(),
-                        activation.warnings() == null ? List.of() : activation.warnings()),
-                detectOpenApiUrl());
+            BootUiInfo.VERSION,
+            name,
+            SpringBootVersion.getVersion(),
+            System.getProperty("java.version"),
+            System.getProperty("java.vendor"),
+            Arrays.asList(environment.getActiveProfiles()),
+            Arrays.asList(environment.getDefaultProfiles()),
+            webType,
+            port,
+            managementPort,
+            environment.getProperty("server.servlet.context-path", ""),
+            startupMs,
+            new ActivationStatus(
+                activation.enabled(),
+                properties.isLocalhostOnly() && !properties.isAllowNonLocalhost(),
+                activation.reason(),
+                activation.warnings() == null ? List.of() : activation.warnings()),
+            detectOpenApiUrl());
     }
 
     private String detectOpenApiUrl() {

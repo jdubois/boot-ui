@@ -7,7 +7,6 @@ import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -17,6 +16,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * OTLP/HTTP receiver mounted under {@code /bootui/api/otlp}.
@@ -51,47 +52,6 @@ public class OtlpReceiverController {
         this.properties = properties;
     }
 
-    @PostMapping(path = "/v1/traces",
-            consumes = { "application/x-protobuf", "application/octet-stream" })
-    public ResponseEntity<byte[]> receiveTraces(@RequestBody byte[] body,
-                                                HttpServletRequest request) {
-        BootUiProperties.Telemetry telemetry = properties.getTelemetry();
-        if (!telemetry.isEnabled()) {
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
-        }
-        if (body == null || body.length == 0) {
-            return okResponse();
-        }
-        if (body.length > telemetry.getMaxRequestBytes()) {
-            log.warn("Rejecting OTLP payload exceeding bootui.telemetry.max-request-bytes ({} > {})",
-                    body.length, telemetry.getMaxRequestBytes());
-            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).build();
-        }
-        try {
-            List<NormalizedSpan> spans = decoder.decode(body);
-            String apiPath = properties.getApiPath();
-            int kept = 0;
-            for (NormalizedSpan span : spans) {
-                if (telemetry.isExcludeSelfSpans() && isSelfSpan(span, apiPath)) {
-                    continue;
-                }
-                store.add(span);
-                kept++;
-            }
-            if (log.isDebugEnabled()) {
-                log.debug("OTLP receiver stored {} spans (of {} received)", kept, spans.size());
-            }
-            return okResponse();
-        } catch (InvalidProtocolBufferException ex) {
-            log.warn("Rejecting invalid OTLP protobuf payload from {}: {}",
-                    request.getRemoteAddr(), ex.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-        } catch (RuntimeException ex) {
-            log.warn("OTLP receiver failed to handle payload", ex);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
     private static boolean isSelfSpan(NormalizedSpan span, String apiPath) {
         if (apiPath == null || apiPath.isEmpty()) {
             return false;
@@ -121,7 +81,48 @@ public class OtlpReceiverController {
 
     private static ResponseEntity<byte[]> okResponse() {
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/x-protobuf"))
-                .body(EMPTY_RESPONSE);
+            .contentType(MediaType.parseMediaType("application/x-protobuf"))
+            .body(EMPTY_RESPONSE);
+    }
+
+    @PostMapping(path = "/v1/traces",
+        consumes = {"application/x-protobuf", "application/octet-stream"})
+    public ResponseEntity<byte[]> receiveTraces(@RequestBody byte[] body,
+                                                HttpServletRequest request) {
+        BootUiProperties.Telemetry telemetry = properties.getTelemetry();
+        if (!telemetry.isEnabled()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        if (body == null || body.length == 0) {
+            return okResponse();
+        }
+        if (body.length > telemetry.getMaxRequestBytes()) {
+            log.warn("Rejecting OTLP payload exceeding bootui.telemetry.max-request-bytes ({} > {})",
+                body.length, telemetry.getMaxRequestBytes());
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).build();
+        }
+        try {
+            List<NormalizedSpan> spans = decoder.decode(body);
+            String apiPath = properties.getApiPath();
+            int kept = 0;
+            for (NormalizedSpan span : spans) {
+                if (telemetry.isExcludeSelfSpans() && isSelfSpan(span, apiPath)) {
+                    continue;
+                }
+                store.add(span);
+                kept++;
+            }
+            if (log.isDebugEnabled()) {
+                log.debug("OTLP receiver stored {} spans (of {} received)", kept, spans.size());
+            }
+            return okResponse();
+        } catch (InvalidProtocolBufferException ex) {
+            log.warn("Rejecting invalid OTLP protobuf payload from {}: {}",
+                request.getRemoteAddr(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        } catch (RuntimeException ex) {
+            log.warn("OTLP receiver failed to handle payload", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 }

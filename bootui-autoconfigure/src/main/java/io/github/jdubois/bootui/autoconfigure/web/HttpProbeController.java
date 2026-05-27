@@ -2,6 +2,12 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.HttpProbeRequest;
 import io.github.jdubois.bootui.core.BootUiDtos.HttpProbeResponse;
+import org.springframework.core.env.Environment;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -12,11 +18,6 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import org.springframework.core.env.Environment;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/bootui/api/probe")
@@ -31,8 +32,8 @@ public class HttpProbeController {
     public HttpProbeController(Environment environment) {
         this.environment = environment;
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(REQUEST_TIMEOUT)
-                .build();
+            .connectTimeout(REQUEST_TIMEOUT)
+            .build();
     }
 
     @PostMapping
@@ -47,21 +48,21 @@ public class HttpProbeController {
 
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(REQUEST_TIMEOUT);
+                .timeout(REQUEST_TIMEOUT);
             applyHeaders(builder, request == null ? null : request.headers());
             builder.method(method, requestBodyPublisher(method, request == null ? null : request.body()));
 
             HttpResponse<String> response = httpClient.send(
-                    builder.build(),
-                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                builder.build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             long durationMs = System.currentTimeMillis() - start;
             return new HttpProbeResponse(
-                    response.statusCode(),
-                    statusText(response.statusCode()),
-                    filterHeaders(response.headers().map()),
-                    response.body(),
-                    durationMs,
-                    null);
+                response.statusCode(),
+                statusText(response.statusCode()),
+                filterHeaders(response.headers().map()),
+                response.body(),
+                durationMs,
+                null);
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
@@ -102,7 +103,7 @@ public class HttpProbeController {
 
     private String resolveServerPort() {
         return environment.getProperty("local.server.port",
-                environment.getProperty("server.port", "8080"));
+            environment.getProperty("server.port", "8080"));
     }
 
     private String normalizeMethod(String method) {
@@ -127,8 +128,8 @@ public class HttpProbeController {
             }
             String normalized = name.toLowerCase(Locale.ROOT);
             if (!"content-type".equals(normalized)
-                    && !"content-length".equals(normalized)
-                    && !"location".equals(normalized)) {
+                && !"content-length".equals(normalized)
+                && !"location".equals(normalized)) {
                 return;
             }
             filtered.put(normalized, String.join(", ", values));

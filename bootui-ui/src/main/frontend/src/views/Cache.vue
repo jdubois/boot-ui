@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 import { apiFetch } from '../api.js'
 
 const report = ref(null)
@@ -98,7 +98,7 @@ async function clearOne(cache) {
 async function clearAll() {
   if (!report.value) return
   if (!confirm(`Clear all ${report.value.cacheCount} known caches across ${report.value.managerCount} cache manager(s)?`)) return
-  await clearCaches({ all: true, confirm: true }, '__all__')
+  await clearCaches({all: true, confirm: true}, '__all__')
 }
 
 async function clearCaches(payload, busyKey) {
@@ -107,7 +107,7 @@ async function clearCaches(payload, busyKey) {
   try {
     const res = await apiFetch('api/cache/clear', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
     })
     const result = await res.json().catch(() => ({}))
@@ -125,8 +125,10 @@ async function clearCaches(payload, busyKey) {
 }
 
 function flash(text, type) {
-  banner.value = { text, type }
-  setTimeout(() => { banner.value = null }, 6000)
+  banner.value = {text, type}
+  setTimeout(() => {
+    banner.value = null
+  }, 6000)
 }
 
 onMounted(load)
@@ -145,20 +147,20 @@ onMounted(load)
       </div>
       <div class="d-flex gap-2">
         <button
-          class="btn btn-sm btn-outline-danger"
           :disabled="!report || !report.clearEnabled || report.cacheCount === 0 || busy"
+          class="btn btn-sm btn-outline-danger"
           @click="clearAll">
           <span v-if="busy === '__all__'" class="spinner-border spinner-border-sm me-1"></span>
           <i v-else class="bi bi-trash me-1"></i>
           Clear all
         </button>
-        <button class="btn btn-sm btn-outline-secondary" :disabled="loading" @click="load">
+        <button :disabled="loading" class="btn btn-sm btn-outline-secondary" @click="load">
           <i class="bi bi-arrow-clockwise"></i> Refresh
         </button>
       </div>
     </div>
 
-    <div v-if="banner" class="alert d-flex justify-content-between align-items-center" :class="'alert-' + banner.type">
+    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
       <div>{{ banner.text }}</div>
       <button class="btn-close" @click="banner = null"></button>
     </div>
@@ -186,7 +188,7 @@ onMounted(load)
           <input
             v-model="cacheFilter"
             class="form-control form-control-sm cache-filter"
-            placeholder="Filter by manager, cache, or implementation…" />
+            placeholder="Filter by manager, cache, or implementation…"/>
         </div>
 
         <div v-if="report.cacheAvailable && report.cacheCount === 0" class="alert alert-secondary small">
@@ -197,48 +199,48 @@ onMounted(load)
         <div v-else-if="filteredCaches.length" class="table-responsive">
           <table class="table table-sm table-hover align-middle">
             <thead>
-              <tr>
-                <th>Manager</th>
-                <th>Cache</th>
-                <th>Implementation</th>
-                <th>Size</th>
-                <th>Metrics</th>
-                <th class="text-end">Actions</th>
-              </tr>
+            <tr>
+              <th>Manager</th>
+              <th>Cache</th>
+              <th>Implementation</th>
+              <th>Size</th>
+              <th>Metrics</th>
+              <th class="text-end">Actions</th>
+            </tr>
             </thead>
             <tbody>
-              <tr v-for="cache in filteredCaches" :key="cacheKey(cache)">
-                <td>
-                  <code>{{ cache.managerName }}</code>
-                  <span v-if="cache.managerNoOp" class="badge text-bg-secondary ms-1">No-op</span>
-                </td>
-                <td class="fw-semibold">{{ cache.name }}</td>
-                <td>
-                  <code>{{ shortName(cache.nativeType) }}</code>
-                  <div class="small text-muted">{{ cache.nativeType || 'No native cache reported' }}</div>
-                </td>
-                <td>{{ formatNumber(cache.size ?? cache.metrics?.size) }}</td>
-                <td>
-                  <div v-if="cache.metrics && cache.metrics.available" class="cache-metrics">
-                    <span class="badge text-bg-success">hits {{ formatNumber(cache.metrics.hits) }}</span>
-                    <span class="badge text-bg-warning">misses {{ formatNumber(cache.metrics.misses) }}</span>
-                    <span class="badge text-bg-info">ratio {{ formatRatio(cache.metrics.hitRatio) }}</span>
-                    <span class="badge text-bg-secondary">puts {{ formatNumber(cache.metrics.puts) }}</span>
-                    <span class="badge text-bg-secondary">evictions {{ formatNumber(cache.metrics.evictions) }}</span>
-                    <span class="badge text-bg-secondary">removals {{ formatNumber(cache.metrics.removals) }}</span>
-                  </div>
-                  <span v-else class="text-muted small">No cache metrics registered</span>
-                </td>
-                <td class="text-end">
-                  <button
-                    class="btn btn-sm btn-outline-danger"
-                    :disabled="!report.clearEnabled || busy"
-                    @click="clearOne(cache)">
-                    <span v-if="busy === cacheKey(cache)" class="spinner-border spinner-border-sm me-1"></span>
-                    Clear
-                  </button>
-                </td>
-              </tr>
+            <tr v-for="cache in filteredCaches" :key="cacheKey(cache)">
+              <td>
+                <code>{{ cache.managerName }}</code>
+                <span v-if="cache.managerNoOp" class="badge text-bg-secondary ms-1">No-op</span>
+              </td>
+              <td class="fw-semibold">{{ cache.name }}</td>
+              <td>
+                <code>{{ shortName(cache.nativeType) }}</code>
+                <div class="small text-muted">{{ cache.nativeType || 'No native cache reported' }}</div>
+              </td>
+              <td>{{ formatNumber(cache.size ?? cache.metrics?.size) }}</td>
+              <td>
+                <div v-if="cache.metrics && cache.metrics.available" class="cache-metrics">
+                  <span class="badge text-bg-success">hits {{ formatNumber(cache.metrics.hits) }}</span>
+                  <span class="badge text-bg-warning">misses {{ formatNumber(cache.metrics.misses) }}</span>
+                  <span class="badge text-bg-info">ratio {{ formatRatio(cache.metrics.hitRatio) }}</span>
+                  <span class="badge text-bg-secondary">puts {{ formatNumber(cache.metrics.puts) }}</span>
+                  <span class="badge text-bg-secondary">evictions {{ formatNumber(cache.metrics.evictions) }}</span>
+                  <span class="badge text-bg-secondary">removals {{ formatNumber(cache.metrics.removals) }}</span>
+                </div>
+                <span v-else class="text-muted small">No cache metrics registered</span>
+              </td>
+              <td class="text-end">
+                <button
+                  :disabled="!report.clearEnabled || busy"
+                  class="btn btn-sm btn-outline-danger"
+                  @click="clearOne(cache)">
+                  <span v-if="busy === cacheKey(cache)" class="spinner-border spinner-border-sm me-1"></span>
+                  Clear
+                </button>
+              </td>
+            </tr>
             </tbody>
           </table>
         </div>
@@ -256,7 +258,7 @@ onMounted(load)
           <input
             v-model="operationFilter"
             class="form-control form-control-sm cache-filter"
-            placeholder="Filter by bean, method, operation, or cache…" />
+            placeholder="Filter by bean, method, operation, or cache…"/>
         </div>
 
         <div v-if="report.operationCount === 0" class="alert alert-secondary small">
@@ -266,42 +268,43 @@ onMounted(load)
         <div v-else-if="filteredOperations.length" class="table-responsive">
           <table class="table table-sm table-hover align-middle">
             <thead>
-              <tr>
-                <th>Operation</th>
-                <th>Bean / method</th>
-                <th>Caches</th>
-                <th>Expressions</th>
-              </tr>
+            <tr>
+              <th>Operation</th>
+              <th>Bean / method</th>
+              <th>Caches</th>
+              <th>Expressions</th>
+            </tr>
             </thead>
             <tbody>
-              <tr v-for="operation in filteredOperations" :key="operation.beanName + operation.method + operation.operation">
-                <td><span class="badge" :class="operationClass(operation.operation)">{{ operation.operation }}</span></td>
-                <td>
-                  <div><code>{{ operation.beanName }}</code></div>
-                  <div class="small">
-                    <code>{{ operation.method }}</code>
-                    <span class="text-muted"> · {{ shortName(operation.targetType) }}</span>
-                  </div>
-                </td>
-                <td>
+            <tr v-for="operation in filteredOperations"
+                :key="operation.beanName + operation.method + operation.operation">
+              <td><span :class="operationClass(operation.operation)" class="badge">{{ operation.operation }}</span></td>
+              <td>
+                <div><code>{{ operation.beanName }}</code></div>
+                <div class="small">
+                  <code>{{ operation.method }}</code>
+                  <span class="text-muted"> · {{ shortName(operation.targetType) }}</span>
+                </div>
+              </td>
+              <td>
                   <span
                     v-for="cache in operation.caches"
                     :key="cache"
                     class="badge text-bg-light border text-dark me-1">
                     {{ cache }}
                   </span>
-                </td>
-                <td class="small">
-                  <div v-if="operation.key">key: <code>{{ operation.key }}</code></div>
-                  <div v-if="operation.condition">condition: <code>{{ operation.condition }}</code></div>
-                  <div v-if="operation.unless">unless: <code>{{ operation.unless }}</code></div>
-                  <div v-if="operation.allEntries" class="text-danger">all entries</div>
-                  <div v-if="operation.beforeInvocation" class="text-muted">before invocation</div>
-                  <span
-                    v-if="!operation.key && !operation.condition && !operation.unless && !operation.allEntries && !operation.beforeInvocation"
-                    class="text-muted">—</span>
-                </td>
-              </tr>
+              </td>
+              <td class="small">
+                <div v-if="operation.key">key: <code>{{ operation.key }}</code></div>
+                <div v-if="operation.condition">condition: <code>{{ operation.condition }}</code></div>
+                <div v-if="operation.unless">unless: <code>{{ operation.unless }}</code></div>
+                <div v-if="operation.allEntries" class="text-danger">all entries</div>
+                <div v-if="operation.beforeInvocation" class="text-muted">before invocation</div>
+                <span
+                  v-if="!operation.key && !operation.condition && !operation.unless && !operation.allEntries && !operation.beforeInvocation"
+                  class="text-muted">—</span>
+              </td>
+            </tr>
             </tbody>
           </table>
         </div>

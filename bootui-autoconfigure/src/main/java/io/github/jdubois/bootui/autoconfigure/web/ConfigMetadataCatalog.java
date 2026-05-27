@@ -1,18 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.ConfigPropertySuggestionDto;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Enumeration;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
+import java.util.*;
 
 final class ConfigMetadataCatalog {
 
@@ -28,18 +23,10 @@ final class ConfigMetadataCatalog {
         this.properties = Collections.unmodifiableMap(load(classLoader, objectMapper));
     }
 
-    ConfigPropertySuggestionDto get(String name) {
-        return properties.get(name);
-    }
-
-    List<ConfigPropertySuggestionDto> suggestions() {
-        return new ArrayList<>(properties.values());
-    }
-
     private static Map<String, ConfigPropertySuggestionDto> load(ClassLoader classLoader, ObjectMapper objectMapper) {
         ClassLoader effectiveClassLoader = classLoader != null
-                ? classLoader
-                : Thread.currentThread().getContextClassLoader();
+            ? classLoader
+            : Thread.currentThread().getContextClassLoader();
         if (effectiveClassLoader == null) {
             effectiveClassLoader = ConfigMetadataCatalog.class.getClassLoader();
         }
@@ -71,10 +58,10 @@ final class ConfigMetadataCatalog {
             return;
         }
         ConfigPropertySuggestionDto candidate = new ConfigPropertySuggestionDto(
-                name,
-                text(propertyNode, "type"),
-                text(propertyNode, "description"),
-                toObject(propertyNode.get("defaultValue"), objectMapper));
+            name,
+            text(propertyNode, "type"),
+            text(propertyNode, "description"),
+            toObject(propertyNode.get("defaultValue"), objectMapper));
         ConfigPropertySuggestionDto current = result.get(name);
         if (current == null || isRicher(candidate, current)) {
             result.put(name, candidate);
@@ -100,11 +87,11 @@ final class ConfigMetadataCatalog {
     }
 
     private static Map<String, ConfigPropertySuggestionDto> sortByName(
-            Map<String, ConfigPropertySuggestionDto> unsorted) {
+        Map<String, ConfigPropertySuggestionDto> unsorted) {
         Map<String, ConfigPropertySuggestionDto> sorted = new LinkedHashMap<>();
         unsorted.values().stream()
-                .sorted(Comparator.comparing(ConfigPropertySuggestionDto::name))
-                .forEach(suggestion -> sorted.put(suggestion.name(), suggestion));
+            .sorted(Comparator.comparing(ConfigPropertySuggestionDto::name))
+            .forEach(suggestion -> sorted.put(suggestion.name(), suggestion));
         return sorted;
     }
 
@@ -121,5 +108,13 @@ final class ConfigMetadataCatalog {
             return null;
         }
         return objectMapper.treeToValue(node, Object.class);
+    }
+
+    ConfigPropertySuggestionDto get(String name) {
+        return properties.get(name);
+    }
+
+    List<ConfigPropertySuggestionDto> suggestions() {
+        return new ArrayList<>(properties.values());
     }
 }

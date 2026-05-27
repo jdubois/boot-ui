@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const data = ref(null)
 const filter = ref('')
@@ -25,7 +25,7 @@ const flat = computed(() => {
         const methods = conds.methods || ['ANY']
         for (const pattern of (patterns.length ? patterns : ['(any)'])) {
           for (const method of (methods.length ? methods : ['ANY'])) {
-            rows.push({ method, pattern, handler: h.handler, predicate: h.predicate })
+            rows.push({method, pattern, handler: h.handler, predicate: h.predicate})
           }
         }
       }
@@ -50,22 +50,22 @@ onMounted(load)
 <template>
   <div>
     <h2><i class="bi bi-signpost-2 me-2"></i>HTTP mappings</h2>
-    <input class="form-control mb-3" v-model="filter" placeholder="Filter…" />
+    <input v-model="filter" class="form-control mb-3" placeholder="Filter…"/>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
         <thead>
-          <tr>
-            <th style="width:90px">Method</th>
-            <th>Pattern</th>
-            <th>Handler</th>
-          </tr>
+        <tr>
+          <th style="width:90px">Method</th>
+          <th>Pattern</th>
+          <th>Handler</th>
+        </tr>
         </thead>
         <tbody>
-          <tr v-for="(r, i) in flat" :key="i">
-            <td><span class="badge" :class="methodClass(r.method)">{{ r.method }}</span></td>
-            <td><code>{{ r.pattern }}</code></td>
-            <td><small>{{ r.handler }}</small></td>
-          </tr>
+        <tr v-for="(r, i) in flat" :key="i">
+          <td><span :class="methodClass(r.method)" class="badge">{{ r.method }}</span></td>
+          <td><code>{{ r.pattern }}</code></td>
+          <td><small>{{ r.handler }}</small></td>
+        </tr>
         </tbody>
       </table>
     </div>

@@ -7,7 +7,7 @@ import java.util.Map;
  * attribute map coerced to JSON-friendly types.
  */
 public record NormalizedEvent(
-        String name,
-        long timeOffsetNanos,
-        Map<String, AttributeValue> attributes) {
+    String name,
+    long timeOffsetNanos,
+    Map<String, AttributeValue> attributes) {
 }

@@ -1,19 +1,18 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.hamcrest.Matchers.hasItem;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
 import io.github.jdubois.bootui.autoconfigure.BootUiActivation;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.List;
+
+import static org.hamcrest.Matchers.hasItem;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Controller-level tests for {@link OverviewController}.
@@ -34,28 +33,28 @@ class OverviewControllerTests {
         environment.setDefaultProfiles("default");
 
         BootUiActivation activation = new BootUiActivation(true,
-                "activated by spring.profiles.active=dev",
-                List.of());
+            "activated by spring.profiles.active=dev",
+            List.of());
         BootUiProperties properties = new BootUiProperties();
 
         OverviewController controller = new OverviewController(environment, activation, properties);
         MockMvc mockMvc = standaloneSetup(controller).build();
 
         mockMvc.perform(get("/bootui/api/overview").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.applicationName").value("sample-app"))
-                .andExpect(jsonPath("$.serverPort").value(8080))
-                .andExpect(jsonPath("$.contextPath").value("/app"))
-                .andExpect(jsonPath("$.activeProfiles", hasItem("dev")))
-                .andExpect(jsonPath("$.defaultProfiles", hasItem("default")))
-                .andExpect(jsonPath("$.activation.enabled").value(true))
-                .andExpect(jsonPath("$.activation.localhostOnly").value(true))
-                .andExpect(jsonPath("$.activation.reason")
-                        .value("activated by spring.profiles.active=dev"))
-                .andExpect(jsonPath("$.springBootVersion").exists())
-                .andExpect(jsonPath("$.javaVersion").exists())
-                .andExpect(jsonPath("$.bootUiVersion").exists());
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.applicationName").value("sample-app"))
+            .andExpect(jsonPath("$.serverPort").value(8080))
+            .andExpect(jsonPath("$.contextPath").value("/app"))
+            .andExpect(jsonPath("$.activeProfiles", hasItem("dev")))
+            .andExpect(jsonPath("$.defaultProfiles", hasItem("default")))
+            .andExpect(jsonPath("$.activation.enabled").value(true))
+            .andExpect(jsonPath("$.activation.localhostOnly").value(true))
+            .andExpect(jsonPath("$.activation.reason")
+                .value("activated by spring.profiles.active=dev"))
+            .andExpect(jsonPath("$.springBootVersion").exists())
+            .andExpect(jsonPath("$.javaVersion").exists())
+            .andExpect(jsonPath("$.bootUiVersion").exists());
     }
 
     @Test
@@ -69,8 +68,8 @@ class OverviewControllerTests {
         MockMvc mockMvc = standaloneSetup(controller).build();
 
         mockMvc.perform(get("/bootui/api/overview"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.activation.localhostOnly").value(false));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.activation.localhostOnly").value(false));
     }
 
     @Test
@@ -87,9 +86,9 @@ class OverviewControllerTests {
         MockMvc mockMvc = standaloneSetup(controller).build();
 
         mockMvc.perform(get("/bootui/api/overview"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.serverPort").doesNotExist())
-                .andExpect(jsonPath("$.managementPort").doesNotExist())
-                .andExpect(jsonPath("$.startupTimeMillis").doesNotExist());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.serverPort").doesNotExist())
+            .andExpect(jsonPath("$.managementPort").doesNotExist())
+            .andExpect(jsonPath("$.startupTimeMillis").doesNotExist());
     }
 }

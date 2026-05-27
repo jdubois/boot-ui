@@ -16,7 +16,7 @@ services:
     ports:
       - "11434:11434"
     healthcheck:
-      test: ["CMD", "ollama", "--version"]
+      test: [ "CMD", "ollama", "--version" ]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const report = ref(null)
 const error = ref(null)
@@ -50,12 +50,17 @@ async function explain() {
   explainLoading.value = true
   explainResult.value = null
   try {
-    const params = new URLSearchParams({ method: explainMethod.value, path: explainPath.value })
+    const params = new URLSearchParams({method: explainMethod.value, path: explainPath.value})
     const res = await fetch('api/security/explain?' + params)
     if (res.ok) {
       explainResult.value = await res.json()
     } else {
-      explainResult.value = { matched: false, bestEffort: false, matcherDescription: 'Error: HTTP ' + res.status, filters: [] }
+      explainResult.value = {
+        matched: false,
+        bestEffort: false,
+        matcherDescription: 'Error: HTTP ' + res.status,
+        filters: []
+      }
     }
   } finally {
     explainLoading.value = false
@@ -76,26 +81,37 @@ const filterBadgeClass = name => {
 
 const ruleBadgeClass = rule => {
   switch (rule) {
-    case 'permitAll': return 'bg-success'
-    case 'authenticated': return 'bg-primary'
+    case 'permitAll':
+      return 'bg-success'
+    case 'authenticated':
+      return 'bg-primary'
     case 'hasRole':
-    case 'hasAuthority': return 'bg-warning text-dark'
-    case 'denyAll': return 'bg-danger'
-    case 'unsecured': return 'bg-secondary'
+    case 'hasAuthority':
+      return 'bg-warning text-dark'
+    case 'denyAll':
+      return 'bg-danger'
+    case 'unsecured':
+      return 'bg-secondary'
     case 'custom':
     case 'unknown':
-    default: return 'bg-dark'
+    default:
+      return 'bg-dark'
   }
 }
 
 const methodBadgeClass = method => {
   switch (method) {
-    case 'GET': return 'bg-info text-dark'
-    case 'POST': return 'bg-success'
+    case 'GET':
+      return 'bg-info text-dark'
+    case 'POST':
+      return 'bg-success'
     case 'PUT':
-    case 'PATCH': return 'bg-warning text-dark'
-    case 'DELETE': return 'bg-danger'
-    default: return 'bg-light text-dark border'
+    case 'PATCH':
+      return 'bg-warning text-dark'
+    case 'DELETE':
+      return 'bg-danger'
+    default:
+      return 'bg-light text-dark border'
   }
 }
 
@@ -143,17 +159,17 @@ onMounted(() => {
         No filter chains detected. Spring Security may be present but not configured.
       </div>
 
-      <div v-else class="accordion mb-4" id="chains-accordion">
+      <div v-else id="chains-accordion" class="accordion mb-4">
         <div
           v-for="chain in report.chains"
           :key="chain.order"
           class="accordion-item">
           <h2 class="accordion-header">
             <button
+              :data-bs-target="'#chain-' + chain.order"
               class="accordion-button collapsed"
-              type="button"
               data-bs-toggle="collapse"
-              :data-bs-target="'#chain-' + chain.order">
+              type="button">
               <div class="d-flex align-items-center gap-2 flex-wrap">
                 <span class="badge bg-secondary">#{{ chain.order }}</span>
                 <code class="small">{{ chain.requestMatcher }}</code>
@@ -176,8 +192,8 @@ onMounted(() => {
                 <span
                   v-for="filter in chain.filters"
                   :key="filter"
-                  class="badge"
-                  :class="filterBadgeClass(filter)">
+                  :class="filterBadgeClass(filter)"
+                  class="badge">
                   {{ filter }}
                 </span>
               </div>
@@ -231,7 +247,7 @@ onMounted(() => {
       <h5 class="mt-4 mb-2">
         Endpoints
         <span v-if="endpoints" class="badge bg-secondary">{{ endpoints.total }}</span>
-        <button class="btn btn-sm btn-outline-secondary ms-2" @click="loadEndpoints" :disabled="endpointsLoading">
+        <button :disabled="endpointsLoading" class="btn btn-sm btn-outline-secondary ms-2" @click="loadEndpoints">
           <span v-if="endpointsLoading" class="spinner-border spinner-border-sm me-1"></span>
           Reload
         </button>
@@ -249,47 +265,48 @@ onMounted(() => {
       </div>
       <template v-else-if="endpoints">
         <input
-          class="form-control form-control-sm mb-2"
           v-model="endpointFilter"
-          placeholder="Filter by pattern, method, handler, or rule…" />
+          class="form-control form-control-sm mb-2"
+          placeholder="Filter by pattern, method, handler, or rule…"/>
 
         <div class="table-responsive">
           <table class="table table-sm table-hover small align-middle">
             <thead>
-              <tr>
-                <th style="width:5rem">Method</th>
-                <th>Pattern</th>
-                <th>Handler</th>
-                <th>Chain</th>
-                <th>Rule</th>
-              </tr>
+            <tr>
+              <th style="width:5rem">Method</th>
+              <th>Pattern</th>
+              <th>Handler</th>
+              <th>Chain</th>
+              <th>Rule</th>
+            </tr>
             </thead>
             <tbody>
-              <tr v-for="(ep, idx) in filteredEndpoints" :key="idx">
-                <td>
-                  <span class="badge" :class="methodBadgeClass(ep.method)">{{ ep.method }}</span>
-                </td>
-                <td><code>{{ ep.pattern }}</code></td>
-                <td class="text-muted">{{ ep.handler }}</td>
-                <td>
-                  <span v-if="ep.chainIndex != null" class="badge bg-light text-dark border">#{{ ep.chainIndex }}</span>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td>
-                  <span class="badge me-1" :class="ruleBadgeClass(ep.rule)">{{ ep.rule }}</span>
-                  <span
-                    v-for="role in (ep.roles || [])"
-                    :key="role"
-                    class="badge bg-light text-dark border me-1">{{ role }}</span>
-                  <span v-if="ep.bestEffort" class="badge bg-warning text-dark ms-1" title="Best effort: header- or session-based matchers may not be accurate">
+            <tr v-for="(ep, idx) in filteredEndpoints" :key="idx">
+              <td>
+                <span :class="methodBadgeClass(ep.method)" class="badge">{{ ep.method }}</span>
+              </td>
+              <td><code>{{ ep.pattern }}</code></td>
+              <td class="text-muted">{{ ep.handler }}</td>
+              <td>
+                <span v-if="ep.chainIndex != null" class="badge bg-light text-dark border">#{{ ep.chainIndex }}</span>
+                <span v-else class="text-muted">—</span>
+              </td>
+              <td>
+                <span :class="ruleBadgeClass(ep.rule)" class="badge me-1">{{ ep.rule }}</span>
+                <span
+                  v-for="role in (ep.roles || [])"
+                  :key="role"
+                  class="badge bg-light text-dark border me-1">{{ role }}</span>
+                <span v-if="ep.bestEffort" class="badge bg-warning text-dark ms-1"
+                      title="Best effort: header- or session-based matchers may not be accurate">
                     <i class="bi bi-exclamation-triangle"></i>
                   </span>
-                  <div v-if="ep.description" class="text-muted small">{{ ep.description }}</div>
-                </td>
-              </tr>
-              <tr v-if="filteredEndpoints.length === 0">
-                <td colspan="5" class="text-muted text-center">No endpoints match the filter.</td>
-              </tr>
+                <div v-if="ep.description" class="text-muted small">{{ ep.description }}</div>
+              </td>
+            </tr>
+            <tr v-if="filteredEndpoints.length === 0">
+              <td class="text-muted text-center" colspan="5">No endpoints match the filter.</td>
+            </tr>
             </tbody>
           </table>
         </div>
@@ -304,19 +321,19 @@ onMounted(() => {
       </p>
       <div class="row g-2 mb-3">
         <div class="col-auto">
-          <select class="form-select form-select-sm" v-model="explainMethod" style="width:auto">
+          <select v-model="explainMethod" class="form-select form-select-sm" style="width:auto">
             <option v-for="m in httpMethods" :key="m" :value="m">{{ m }}</option>
           </select>
         </div>
         <div class="col">
           <input
-            class="form-control form-control-sm"
             v-model="explainPath"
+            class="form-control form-control-sm"
             placeholder="/api/example"
-            @keyup.enter="explain" />
+            @keyup.enter="explain"/>
         </div>
         <div class="col-auto">
-          <button class="btn btn-sm btn-primary" @click="explain" :disabled="explainLoading">
+          <button :disabled="explainLoading" class="btn btn-sm btn-primary" @click="explain">
             <span v-if="explainLoading" class="spinner-border spinner-border-sm me-1"></span>
             Explain
           </button>
@@ -329,7 +346,9 @@ onMounted(() => {
             <span v-if="explainResult.matched" class="badge bg-success me-2">Matched</span>
             <span v-else class="badge bg-danger me-2">No match</span>
             <span v-if="explainResult.bestEffort" class="badge bg-warning text-dark me-2">Best effort</span>
-            <span v-if="explainResult.chainIndex != null" class="text-muted">Chain #{{ explainResult.chainIndex }}</span>
+            <span v-if="explainResult.chainIndex != null" class="text-muted">Chain #{{
+                explainResult.chainIndex
+              }}</span>
           </div>
           <div v-if="explainResult.matcherDescription" class="mb-2">
             <strong>Matcher:</strong> <code>{{ explainResult.matcherDescription }}</code>
@@ -340,8 +359,8 @@ onMounted(() => {
               <span
                 v-for="filter in explainResult.filters"
                 :key="filter"
-                class="badge"
-                :class="filterBadgeClass(filter)">
+                :class="filterBadgeClass(filter)"
+                class="badge">
                 {{ filter }}
               </span>
             </div>

@@ -12,19 +12,19 @@ import java.util.Map;
  * Spring Boot.</p>
  */
 public record NormalizedSpan(
-        String traceId,
-        String spanId,
-        String parentSpanId,
-        String name,
-        String kind,
-        String serviceName,
-        String scope,
-        long startEpochNanos,
-        long endEpochNanos,
-        String statusCode,
-        String statusMessage,
-        Map<String, AttributeValue> attributes,
-        List<NormalizedEvent> events) {
+    String traceId,
+    String spanId,
+    String parentSpanId,
+    String name,
+    String kind,
+    String serviceName,
+    String scope,
+    long startEpochNanos,
+    long endEpochNanos,
+    String statusCode,
+    String statusMessage,
+    Map<String, AttributeValue> attributes,
+    List<NormalizedEvent> events) {
 
     public long durationNanos() {
         return Math.max(0L, endEpochNanos - startEpochNanos);

@@ -1,18 +1,19 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.core.BootUiDtos.ConfigOverrideResult;
 import io.github.jdubois.bootui.core.SecretMasker;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ConfigOverrideServiceTests {
 
@@ -97,9 +98,9 @@ class ConfigOverrideServiceTests {
     @Test
     void putBlankNameThrows() {
         assertThatThrownBy(() -> service.put("  ", "x"))
-                .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.put(null, "x"))
-                .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -137,6 +138,6 @@ class ConfigOverrideServiceTests {
         ConfigOverrideService fallback = new ConfigOverrideService(new MockEnvironment(), properties);
 
         assertThat(fallback.overridesFile().toString())
-                .endsWith("application-bootui.properties");
+            .endsWith("application-bootui.properties");
     }
 }

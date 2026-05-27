@@ -1,18 +1,18 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.service.connection.ConnectionDetails;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.test.web.servlet.MockMvc;
+
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class DevServicesControllerTests {
 
@@ -23,9 +23,9 @@ class DevServicesControllerTests {
         MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties())).build();
 
         mvc.perform(get("/bootui/api/dev-services"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.total").value(0))
-                .andExpect(jsonPath("$.services").isEmpty());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.total").value(0))
+            .andExpect(jsonPath("$.services").isEmpty());
 
         context.close();
     }
@@ -38,13 +38,13 @@ class DevServicesControllerTests {
         MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties())).build();
 
         mvc.perform(get("/bootui/api/dev-services"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.total").value(1))
-                .andExpect(jsonPath("$.services[0].id").value("connection:postgresConnectionDetails"))
-                .andExpect(jsonPath("$.services[0].type").value("PostgreSQL"))
-                .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl")
-                        .value("jdbc:postgresql://******@localhost:5432/app"))
-                .andExpect(jsonPath("$.services[0].connectionDetails.password").value("******"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.total").value(1))
+            .andExpect(jsonPath("$.services[0].id").value("connection:postgresConnectionDetails"))
+            .andExpect(jsonPath("$.services[0].type").value("PostgreSQL"))
+            .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl")
+                .value("jdbc:postgresql://******@localhost:5432/app"))
+            .andExpect(jsonPath("$.services[0].connectionDetails.password").value("******"));
 
         context.close();
     }
@@ -59,10 +59,10 @@ class DevServicesControllerTests {
         MockMvc mvc = standaloneSetup(new DevServicesController(context, properties)).build();
 
         mvc.perform(get("/bootui/api/dev-services"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl")
-                        .value("jdbc:postgresql://dbuser:secret@localhost:5432/app"))
-                .andExpect(jsonPath("$.services[0].connectionDetails.password").value("secret"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl")
+                .value("jdbc:postgresql://dbuser:secret@localhost:5432/app"))
+            .andExpect(jsonPath("$.services[0].connectionDetails.password").value("secret"));
 
         context.close();
     }
@@ -77,9 +77,9 @@ class DevServicesControllerTests {
         MockMvc mvc = standaloneSetup(new DevServicesController(context, properties)).build();
 
         mvc.perform(get("/bootui/api/dev-services/bean:postgresTestcontainer/logs"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.truncated").value(true))
-                .andExpect(jsonPath("$.logs").value(containsString("3456789-end")));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.truncated").value(true))
+            .andExpect(jsonPath("$.logs").value(containsString("3456789-end")));
 
         context.close();
     }
@@ -92,8 +92,8 @@ class DevServicesControllerTests {
         MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties())).build();
 
         mvc.perform(get("/bootui/api/dev-services/bean:redisTestcontainer/logs"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.logs").value("Redis container started"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.logs").value("Redis container started"));
 
         context.close();
     }
@@ -106,7 +106,7 @@ class DevServicesControllerTests {
         MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties())).build();
 
         mvc.perform(post("/bootui/api/dev-services/bean:postgresTestcontainer/restart"))
-                .andExpect(status().isConflict());
+            .andExpect(status().isConflict());
 
         context.close();
     }
@@ -121,8 +121,8 @@ class DevServicesControllerTests {
         MockMvc mvc = standaloneSetup(new DevServicesController(context, properties)).build();
 
         mvc.perform(post("/bootui/api/dev-services/bean:postgresTestcontainer/restart"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("restarted"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("restarted"));
 
         FakeTestcontainer container = context.getBean(FakeTestcontainer.class);
         org.assertj.core.api.Assertions.assertThat(container.restartCalls()).isEqualTo("stop,start");

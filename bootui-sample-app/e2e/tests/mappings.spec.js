@@ -1,9 +1,9 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 test.describe('HTTP mappings view', () => {
 
-  test('lists the sample app endpoints and filters them', async ({ openView, page }) => {
+  test('lists the sample app endpoints and filters them', async ({openView, page}) => {
     await openView('mappings', 'HTTP mappings')
 
     const rows = page.locator('table tbody tr')

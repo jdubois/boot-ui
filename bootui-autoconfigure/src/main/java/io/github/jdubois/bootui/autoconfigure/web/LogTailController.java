@@ -1,16 +1,17 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.LogLineDto;
-import java.io.IOException;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 @RestController
 @RequestMapping("/bootui/api/logs")
@@ -24,11 +25,15 @@ public class LogTailController {
         this.appender = BootUiLogAppender.install();
     }
 
+    private static LogLineDto toDto(BootUiLogAppender.LogLineDto line) {
+        return new LogLineDto(line.timestamp(), line.level(), line.logger(), line.message(), line.thread());
+    }
+
     @GetMapping("/recent")
     public List<LogLineDto> recent() {
         return appender.getRecentLines().stream()
-                .map(LogTailController::toDto)
-                .toList();
+            .map(LogTailController::toDto)
+            .toList();
     }
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -46,8 +51,7 @@ public class LogTailController {
             for (BootUiLogAppender.LogLineDto line : appender.getRecentLines()) {
                 sendLog(emitter, toDto(line));
             }
-        }
-        catch (IOException ex) {
+        } catch (IOException ex) {
             cleanup(emitter, unsubscribeRef.get());
             emitter.completeWithError(ex);
             return emitter;
@@ -56,8 +60,7 @@ public class LogTailController {
         Runnable unsubscribe = appender.subscribe(line -> {
             try {
                 sendLog(emitter, toDto(line));
-            }
-            catch (IOException ex) {
+            } catch (IOException ex) {
                 cleanup(emitter, unsubscribeRef.get());
                 emitter.completeWithError(ex);
             }
@@ -74,11 +77,7 @@ public class LogTailController {
 
     private void sendLog(SseEmitter emitter, LogLineDto line) throws IOException {
         emitter.send(SseEmitter.event()
-                .name("log")
-                .data(line, MediaType.APPLICATION_JSON));
-    }
-
-    private static LogLineDto toDto(BootUiLogAppender.LogLineDto line) {
-        return new LogLineDto(line.timestamp(), line.level(), line.logger(), line.message(), line.thread());
+            .name("log")
+            .data(line, MediaType.APPLICATION_JSON));
     }
 }

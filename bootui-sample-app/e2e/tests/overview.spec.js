@@ -1,9 +1,9 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 test.describe('Overview view', () => {
 
-  test('renders the application, runtime and activation cards', async ({ openView }) => {
+  test('renders the application, runtime and activation cards', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
     await expect(page.locator('.topbar-title')).toContainText('bootui-sample')
@@ -16,24 +16,24 @@ test.describe('Overview view', () => {
     await expect(appCard).toContainText('SERVLET')
     await expect(appCard).toContainText(/Spring Boot/)
 
-    const safetyCard = page.locator('.card', { hasText: 'Safety posture' })
+    const safetyCard = page.locator('.card', {hasText: 'Safety posture'})
     await expect(safetyCard).toContainText(/Development activation/)
     await expect(safetyCard).toContainText(/Loopback enforcement/)
   })
 
-  test('refresh button re-fetches the overview', async ({ openView, page }) => {
+  test('refresh button re-fetches the overview', async ({openView, page}) => {
     await openView('overview', 'Overview')
     const requestPromise = page.waitForResponse(res =>
       res.url().endsWith('/bootui/api/overview') && res.request().method() === 'GET')
-    await page.getByRole('button', { name: /Refresh/ }).click()
+    await page.getByRole('button', {name: /Refresh/}).click()
     const response = await requestPromise
     expect(response.ok()).toBeTruthy()
   })
 
-  test('hero links to the BootUI GitHub project', async ({ openView }) => {
+  test('hero links to the BootUI GitHub project', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
-    await expect(page.getByRole('link', { name: /BootUI GitHub project/ }))
+    await expect(page.getByRole('link', {name: /BootUI GitHub project/}))
       .toHaveAttribute('href', 'https://github.com/jdubois/boot-ui')
   })
 })

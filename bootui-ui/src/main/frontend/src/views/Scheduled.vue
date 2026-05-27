@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 const report = ref(null)
 const loading = ref(true)
@@ -89,22 +89,23 @@ onMounted(load)
       <div class="table-responsive">
         <table class="table table-sm table-hover align-middle">
           <thead>
-            <tr>
-              <th>Runnable</th>
-              <th style="width: 150px">Trigger Type</th>
-              <th style="width: 180px">Expression/Interval</th>
-              <th style="width: 160px">Initial Delay</th>
-            </tr>
+          <tr>
+            <th>Runnable</th>
+            <th style="width: 150px">Trigger Type</th>
+            <th style="width: 180px">Expression/Interval</th>
+            <th style="width: 160px">Initial Delay</th>
+          </tr>
           </thead>
           <tbody>
-            <tr v-for="(task, index) in filtered" :key="`${task.runnable}-${task.triggerType}-${task.expression}-${index}`">
-              <td><code>{{ task.runnable }}</code></td>
-              <td>
-                <span class="badge" :class="triggerBadgeClass(task.triggerType)">{{ task.triggerType }}</span>
-              </td>
-              <td>{{ formatExpression(task) }}</td>
-              <td>{{ formatDuration(task.initialDelayMs, task.timeUnit) }}</td>
-            </tr>
+          <tr v-for="(task, index) in filtered"
+              :key="`${task.runnable}-${task.triggerType}-${task.expression}-${index}`">
+            <td><code>{{ task.runnable }}</code></td>
+            <td>
+              <span :class="triggerBadgeClass(task.triggerType)" class="badge">{{ task.triggerType }}</span>
+            </td>
+            <td>{{ formatExpression(task) }}</td>
+            <td>{{ formatDuration(task.initialDelayMs, task.timeUnit) }}</td>
+          </tr>
           </tbody>
         </table>
       </div>

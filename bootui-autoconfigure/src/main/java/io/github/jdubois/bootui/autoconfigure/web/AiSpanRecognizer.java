@@ -121,7 +121,7 @@ public final class AiSpanRecognizer {
 
     public static String finishReason(NormalizedSpan span) {
         AttributeValue av = span.attributes() != null
-                ? span.attributes().get("gen_ai.response.finish_reasons") : null;
+            ? span.attributes().get("gen_ai.response.finish_reasons") : null;
         if (av == null) {
             return stringAttr(span, "gen_ai.response.finish_reason");
         }

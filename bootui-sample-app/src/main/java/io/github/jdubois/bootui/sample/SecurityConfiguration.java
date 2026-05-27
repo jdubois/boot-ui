@@ -1,9 +1,5 @@
 package io.github.jdubois.bootui.sample;
 
-import static org.springframework.security.config.Customizer.withDefaults;
-
-import java.io.IOException;
-
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,6 +20,10 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import java.io.IOException;
+
+import static org.springframework.security.config.Customizer.withDefaults;
+
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration {
 
@@ -31,46 +31,46 @@ class SecurityConfiguration {
     @Order(1)
     SecurityFilterChain bootUiSecurity(HttpSecurity http) throws Exception {
         return http
-                .securityMatcher("/bootui/**")
-                .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-                .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .csrfTokenRequestHandler(csrfTokenRequestHandler())
-                        .ignoringRequestMatchers("/bootui/api/otlp/**"))
-                .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
-                .build();
+            .securityMatcher("/bootui/**")
+            .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRequestHandler(csrfTokenRequestHandler())
+                .ignoringRequestMatchers("/bootui/api/otlp/**"))
+            .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
+            .build();
     }
 
     @Bean
     @Order(2)
     SecurityFilterChain adminSecurity(HttpSecurity http) throws Exception {
         return http
-                .securityMatcher("/admin/**", "/api/secure")
-                .authorizeHttpRequests(authorize -> authorize.anyRequest().hasRole("ADMIN"))
-                .httpBasic(withDefaults())
-                .build();
+            .securityMatcher("/admin/**", "/api/secure")
+            .authorizeHttpRequests(authorize -> authorize.anyRequest().hasRole("ADMIN"))
+            .httpBasic(withDefaults())
+            .build();
     }
 
     @Bean
     @Order(3)
     SecurityFilterChain applicationSecurity(HttpSecurity http) throws Exception {
         return http
-                .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/chat"))
-                .build();
+            .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/chat"))
+            .build();
     }
 
     @Bean
     UserDetailsService users(PasswordEncoder passwordEncoder) {
         return new InMemoryUserDetailsManager(
-                User.withUsername("developer")
-                        .password(passwordEncoder.encode("developer"))
-                        .roles("USER")
-                        .build(),
-                User.withUsername("admin")
-                        .password(passwordEncoder.encode("admin"))
-                        .roles("ADMIN")
-                        .build());
+            User.withUsername("developer")
+                .password(passwordEncoder.encode("developer"))
+                .roles("USER")
+                .build(),
+            User.withUsername("admin")
+                .password(passwordEncoder.encode("admin"))
+                .roles("ADMIN")
+                .build());
     }
 
     @Bean
@@ -88,7 +88,7 @@ class SecurityConfiguration {
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-                throws ServletException, IOException {
+            throws ServletException, IOException {
             CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
             if (csrfToken != null) {
                 csrfToken.getToken();

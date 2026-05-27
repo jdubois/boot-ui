@@ -12,6 +12,7 @@ import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.ScopeSpans;
 import io.opentelemetry.proto.trace.v1.Span;
 import io.opentelemetry.proto.trace.v1.Status;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,6 +30,41 @@ public final class OtlpSpanDecoder {
 
     public OtlpSpanDecoder(BootUiProperties.Telemetry config) {
         this.config = config;
+    }
+
+    private static String spanKindToString(Span.SpanKind kind) {
+        if (kind == null) {
+            return "INTERNAL";
+        }
+        return switch (kind) {
+            case SPAN_KIND_SERVER -> "SERVER";
+            case SPAN_KIND_CLIENT -> "CLIENT";
+            case SPAN_KIND_PRODUCER -> "PRODUCER";
+            case SPAN_KIND_CONSUMER -> "CONSUMER";
+            case SPAN_KIND_INTERNAL -> "INTERNAL";
+            default -> "UNSPECIFIED";
+        };
+    }
+
+    private static String hex(ByteString bytes) {
+        if (bytes == null || bytes.isEmpty()) {
+            return "";
+        }
+        return bytesToHex(bytes);
+    }
+
+    private static String bytesToHex(ByteString bytes) {
+        StringBuilder sb = new StringBuilder(bytes.size() * 2);
+        for (int i = 0; i < bytes.size(); i++) {
+            int b = bytes.byteAt(i) & 0xFF;
+            sb.append(Character.forDigit(b >>> 4, 16));
+            sb.append(Character.forDigit(b & 0x0F, 16));
+        }
+        return sb.toString();
+    }
+
+    private static String emptyToNull(String s) {
+        return (s == null || s.isEmpty()) ? null : s;
     }
 
     public List<NormalizedSpan> decode(byte[] body) throws InvalidProtocolBufferException {
@@ -54,9 +90,9 @@ public final class OtlpSpanDecoder {
         long startNs = span.getStartTimeUnixNano();
         for (Span.Event event : span.getEventsList()) {
             events.add(new NormalizedEvent(
-                    event.getName(),
-                    Math.max(0L, event.getTimeUnixNano() - startNs),
-                    toAttributeMap(event.getAttributesList())));
+                event.getName(),
+                Math.max(0L, event.getTimeUnixNano() - startNs),
+                toAttributeMap(event.getAttributesList())));
         }
         Status status = span.getStatus();
         String statusCode = switch (status.getCode()) {
@@ -65,19 +101,19 @@ public final class OtlpSpanDecoder {
             default -> "UNSET";
         };
         return new NormalizedSpan(
-                hex(span.getTraceId()),
-                hex(span.getSpanId()),
-                emptyToNull(hex(span.getParentSpanId())),
-                truncate(span.getName()),
-                spanKindToString(span.getKind()),
-                truncate(serviceName),
-                truncate(scopeName),
-                startNs,
-                span.getEndTimeUnixNano(),
-                statusCode,
-                truncate(status.getMessage()),
-                attrs,
-                events);
+            hex(span.getTraceId()),
+            hex(span.getSpanId()),
+            emptyToNull(hex(span.getParentSpanId())),
+            truncate(span.getName()),
+            spanKindToString(span.getKind()),
+            truncate(serviceName),
+            truncate(scopeName),
+            startNs,
+            span.getEndTimeUnixNano(),
+            statusCode,
+            truncate(status.getMessage()),
+            attrs,
+            events);
     }
 
     private Map<String, AttributeValue> toAttributeMap(List<KeyValue> keyValues) {
@@ -101,7 +137,7 @@ public final class OtlpSpanDecoder {
             case INT_VALUE -> AttributeValue.ofNumber(value.getIntValue());
             case DOUBLE_VALUE -> AttributeValue.ofNumber(value.getDoubleValue());
             case BYTES_VALUE -> AttributeValue.ofString(
-                    truncate("0x" + bytesToHex(value.getBytesValue())));
+                truncate("0x" + bytesToHex(value.getBytesValue())));
             case ARRAY_VALUE -> {
                 List<Object> arr = new ArrayList<>(value.getArrayValue().getValuesCount());
                 for (AnyValue v : value.getArrayValue().getValuesList()) {
@@ -146,40 +182,5 @@ public final class OtlpSpanDecoder {
             }
         }
         return "unknown_service";
-    }
-
-    private static String spanKindToString(Span.SpanKind kind) {
-        if (kind == null) {
-            return "INTERNAL";
-        }
-        return switch (kind) {
-            case SPAN_KIND_SERVER -> "SERVER";
-            case SPAN_KIND_CLIENT -> "CLIENT";
-            case SPAN_KIND_PRODUCER -> "PRODUCER";
-            case SPAN_KIND_CONSUMER -> "CONSUMER";
-            case SPAN_KIND_INTERNAL -> "INTERNAL";
-            default -> "UNSPECIFIED";
-        };
-    }
-
-    private static String hex(ByteString bytes) {
-        if (bytes == null || bytes.isEmpty()) {
-            return "";
-        }
-        return bytesToHex(bytes);
-    }
-
-    private static String bytesToHex(ByteString bytes) {
-        StringBuilder sb = new StringBuilder(bytes.size() * 2);
-        for (int i = 0; i < bytes.size(); i++) {
-            int b = bytes.byteAt(i) & 0xFF;
-            sb.append(Character.forDigit(b >>> 4, 16));
-            sb.append(Character.forDigit(b & 0x0F, 16));
-        }
-        return sb.toString();
-    }
-
-    private static String emptyToNull(String s) {
-        return (s == null || s.isEmpty()) ? null : s;
     }
 }

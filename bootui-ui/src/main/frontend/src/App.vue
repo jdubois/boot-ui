@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import {computed, onMounted, ref} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
 
 const router = useRouter()
 const route = useRoute()
@@ -57,7 +57,7 @@ onMounted(loadShellData)
     <div class="ambient-orb ambient-orb-two"></div>
 
     <aside class="bootui-sidebar">
-      <router-link to="/overview" class="brand-card text-decoration-none">
+      <router-link class="brand-card text-decoration-none" to="/overview">
         <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
         <span>
           <span class="brand-name">BootUI</span>
@@ -69,12 +69,12 @@ onMounted(loadShellData)
         <router-link
           v-for="r in routes"
           :key="r.name"
-          :to="r.path"
-          class="nav-link bootui-nav-link"
           :class="{
             active: route.name === r.name,
             'bootui-nav-link--unavailable': panelLookup.get(r.name)?.available === false
-          }">
+          }"
+          :to="r.path"
+          class="nav-link bootui-nav-link">
           <i :class="['bi', r.meta.icon]"></i>
           <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
         </router-link>
@@ -82,10 +82,10 @@ onMounted(loadShellData)
 
       <div class="sidebar-bottom mt-auto">
         <a
-          class="contribute-card text-decoration-none"
           :href="githubProjectUrl"
-          target="_blank"
-          rel="noopener noreferrer">
+          class="contribute-card text-decoration-none"
+          rel="noopener noreferrer"
+          target="_blank">
           <span class="contribute-icon">
             <i class="bi bi-github"></i>
           </span>
@@ -129,8 +129,8 @@ onMounted(loadShellData)
         </div>
 
         <router-view v-slot="{ Component }">
-          <transition name="page-slide" mode="out-in">
-            <component :is="Component" :key="route.fullPath" class="page-panel" />
+          <transition mode="out-in" name="page-slide">
+            <component :is="Component" :key="route.fullPath" class="page-panel"/>
           </transition>
         </router-view>
       </main>
@@ -144,9 +144,8 @@ onMounted(loadShellData)
 
 <style scoped>
 :global(body) {
-  background:
-    radial-gradient(circle at top left, rgba(25, 135, 84, 0.18), transparent 34rem),
-    linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
+  background: radial-gradient(circle at top left, rgba(25, 135, 84, 0.18), transparent 34rem),
+  linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
 }
 
 :global(.card) {

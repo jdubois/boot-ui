@@ -1,8 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
+import org.springframework.core.env.MapPropertySource;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.core.env.MapPropertySource;
 
 /**
  * Mutable Spring property source that holds BootUI runtime overrides.

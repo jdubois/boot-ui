@@ -1,13 +1,13 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 test.describe('Auto-configuration conditions view', () => {
 
-  test('shows positive matches by default and lets the user switch to negative ones', async ({ openView }) => {
+  test('shows positive matches by default and lets the user switch to negative ones', async ({openView}) => {
     const page = await openView('conditions', 'Auto-configuration conditions')
 
-    const positiveTab = page.locator('.nav-tabs .nav-link', { hasText: /Positive/ })
-    const negativeTab = page.locator('.nav-tabs .nav-link', { hasText: /Negative/ })
+    const positiveTab = page.locator('.nav-tabs .nav-link', {hasText: /Positive/})
+    const negativeTab = page.locator('.nav-tabs .nav-link', {hasText: /Negative/})
 
     await expect(positiveTab).toHaveClass(/active/)
     await expect(positiveTab).toContainText(/Positive \(\d+\)/)
@@ -20,7 +20,7 @@ test.describe('Auto-configuration conditions view', () => {
     await expect(page.locator('.badge.bg-secondary').first()).toBeVisible()
   })
 
-  test('filter narrows the visible auto-configuration entries', async ({ openView }) => {
+  test('filter narrows the visible auto-configuration entries', async ({openView}) => {
     const page = await openView('conditions', 'Auto-configuration conditions')
     const entries = page.locator('h2 ~ div.mb-2')
 

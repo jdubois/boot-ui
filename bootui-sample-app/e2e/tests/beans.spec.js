@@ -1,9 +1,9 @@
 // @ts-check
-import { test, expect } from './fixtures.js'
+import {expect, test} from './fixtures.js'
 
 test.describe('Beans view', () => {
 
-  test('lists beans and supports filtering by name and classification', async ({ openView }) => {
+  test('lists beans and supports filtering by name and classification', async ({openView}) => {
     const page = await openView('beans', 'Beans')
 
     const rows = page.locator('table tbody tr')

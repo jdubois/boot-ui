@@ -1,14 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.net.URLClassLoader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
+
+import javax.tools.ToolProvider;
+import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Additional coverage for {@link BootUiActivationCondition} targeting scenarios not
@@ -27,6 +28,28 @@ class BootUiActivationConditionAdditionalTests {
     // -------------------------------------------------------------------------
     // devtools interactions
     // -------------------------------------------------------------------------
+
+    /**
+     * Compiles a stub {@code RestartScope} class into {@code tempDir} and returns a
+     * {@link URLClassLoader} whose parent is {@code null} (isolated from the test
+     * classpath), so {@link BootUiActivationCondition} sees it as "devtools present".
+     */
+    private static URLClassLoader buildDevtoolsClassLoader(Path tempDir) throws Exception {
+        Path source = tempDir.resolve("org/springframework/boot/devtools/restart/RestartScope.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, """
+            package org.springframework.boot.devtools.restart;
+
+            public class RestartScope {
+            }
+            """);
+        int result = ToolProvider.getSystemJavaCompiler()
+            .run(null, null, null, "-d", tempDir.toString(), source.toString());
+        if (result != 0) {
+            throw new IllegalStateException("Failed to compile stub RestartScope");
+        }
+        return new URLClassLoader(new java.net.URL[]{tempDir.toUri().toURL()}, null);
+    }
 
     @Test
     void devtoolsDoesNotOverrideExplicitOff(@TempDir Path tempDir) throws Exception {
@@ -88,15 +111,15 @@ class BootUiActivationConditionAdditionalTests {
         assertThat(activation.reason()).contains("no enabled profile");
     }
 
-    @Test
-    void devtoolsClassNameConstantIsCorrect() {
-        assertThat(BootUiActivationCondition.DEVTOOLS_CLASS)
-                .isEqualTo("org.springframework.boot.devtools.restart.RestartScope");
-    }
-
     // -------------------------------------------------------------------------
     // Custom disabled-profiles edge cases
     // -------------------------------------------------------------------------
+
+    @Test
+    void devtoolsClassNameConstantIsCorrect() {
+        assertThat(BootUiActivationCondition.DEVTOOLS_CLASS)
+            .isEqualTo("org.springframework.boot.devtools.restart.RestartScope");
+    }
 
     @Test
     void multipleCustomDisabledProfilesFirstMatchDisables() {
@@ -146,6 +169,10 @@ class BootUiActivationConditionAdditionalTests {
         assertThat(activation.reason()).contains("prod");
     }
 
+    // -------------------------------------------------------------------------
+    // Invalid bootui.enabled values — fail closed
+    // -------------------------------------------------------------------------
+
     @Test
     void customDisabledProfileWithOnModeRecordsWarningAndActivates() {
         MockEnvironment env = new MockEnvironment();
@@ -158,10 +185,6 @@ class BootUiActivationConditionAdditionalTests {
         assertThat(activation.enabled()).isTrue();
         assertThat(activation.warnings()).anyMatch(w -> w.contains("nightly"));
     }
-
-    // -------------------------------------------------------------------------
-    // Invalid bootui.enabled values — fail closed
-    // -------------------------------------------------------------------------
 
     @Test
     void invalidEnabledValueFailsClosedWithNoActiveProfile() {
@@ -218,6 +241,10 @@ class BootUiActivationConditionAdditionalTests {
         assertThat(activation.reason()).contains("OFF");
     }
 
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
     @Test
     void onModeWithNoProfilesActivates() {
         MockEnvironment env = new MockEnvironment();
@@ -226,31 +253,5 @@ class BootUiActivationConditionAdditionalTests {
         BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
 
         assertThat(activation.enabled()).isTrue();
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Compiles a stub {@code RestartScope} class into {@code tempDir} and returns a
-     * {@link URLClassLoader} whose parent is {@code null} (isolated from the test
-     * classpath), so {@link BootUiActivationCondition} sees it as "devtools present".
-     */
-    private static URLClassLoader buildDevtoolsClassLoader(Path tempDir) throws Exception {
-        Path source = tempDir.resolve("org/springframework/boot/devtools/restart/RestartScope.java");
-        Files.createDirectories(source.getParent());
-        Files.writeString(source, """
-                package org.springframework.boot.devtools.restart;
-
-                public class RestartScope {
-                }
-                """);
-        int result = ToolProvider.getSystemJavaCompiler()
-                .run(null, null, null, "-d", tempDir.toString(), source.toString());
-        if (result != 0) {
-            throw new IllegalStateException("Failed to compile stub RestartScope");
-        }
-        return new URLClassLoader(new java.net.URL[] { tempDir.toUri().toURL() }, null);
     }
 }

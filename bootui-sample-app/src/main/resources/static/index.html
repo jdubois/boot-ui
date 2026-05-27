@@ -1,328 +1,330 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BootUI Sample App</title>
-    <style>
-      :root {
-        color-scheme: light;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.5;
-        color: #172033;
-        background: #f5f7fb;
-      }
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1" name="viewport">
+  <title>BootUI Sample App</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+      color: #172033;
+      background: #f5f7fb;
+    }
 
-      body {
-        margin: 0;
-      }
+    body {
+      margin: 0;
+    }
 
-      main {
-        max-width: 1040px;
-        margin: 0 auto;
-        padding: 56px 24px;
-      }
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 56px 24px;
+    }
 
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 24px;
+      padding: 40px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, #ffffff 0%, #eef4ff 100%);
+      box-shadow: 0 24px 70px rgba(23, 32, 51, 0.12);
+    }
+
+    .eyebrow {
+      margin: 0;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #3451b2;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 760px;
+      font-size: clamp(2.25rem, 6vw, 4.5rem);
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin: 0;
+      font-size: 1.2rem;
+      color: #4a5568;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    a {
+      color: #3451b2;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 999px;
+      background: #3451b2;
+      color: #ffffff;
+      box-shadow: 0 10px 24px rgba(52, 81, 178, 0.25);
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .button:hover {
+      text-decoration: none;
+      background: #2b459f;
+    }
+
+    .button:disabled {
+      cursor: progress;
+      opacity: 0.65;
+    }
+
+    .button.secondary {
+      background: #ffffff;
+      color: #3451b2;
+      box-shadow: inset 0 0 0 1px rgba(52, 81, 178, 0.22);
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-top: 28px;
+    }
+
+    section {
+      padding: 24px;
+      border-radius: 20px;
+      background: #ffffff;
+      box-shadow: 0 12px 36px rgba(23, 32, 51, 0.08);
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.1rem;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    label {
+      font-weight: 700;
+    }
+
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 14px 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      color: #172033;
+      font: inherit;
+      resize: vertical;
+    }
+
+    textarea:focus {
+      border-color: #3451b2;
+      box-shadow: 0 0 0 3px rgba(52, 81, 178, 0.16);
+      outline: none;
+    }
+
+    .form-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .chat-status {
+      color: #4a5568;
+      font-size: 0.95rem;
+    }
+
+    .chat-result {
+      margin: 16px 0 0;
+      padding: 16px;
+      overflow: auto;
+      white-space: pre-wrap;
+      border-radius: 14px;
+      background: #172033;
+      color: #f8fafc;
+      font: 0.95rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 1.2rem;
+    }
+
+    li + li {
+      margin-top: 8px;
+    }
+
+    code {
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.4rem;
+      background: #eef2f7;
+      color: #263245;
+    }
+
+    @media (min-width: 860px) {
       .hero {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        gap: 24px;
-        padding: 40px;
-        border-radius: 28px;
-        background: linear-gradient(135deg, #ffffff 0%, #eef4ff 100%);
-        box-shadow: 0 24px 70px rgba(23, 32, 51, 0.12);
-      }
-
-      .eyebrow {
-        margin: 0;
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #3451b2;
-      }
-
-      h1 {
-        margin: 0;
-        max-width: 760px;
-        font-size: clamp(2.25rem, 6vw, 4.5rem);
-        line-height: 1;
-        letter-spacing: -0.05em;
-      }
-
-      .lead {
-        max-width: 760px;
-        margin: 0;
-        font-size: 1.2rem;
-        color: #4a5568;
-      }
-
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-      }
-
-      a {
-        color: #3451b2;
-        font-weight: 650;
-        text-decoration: none;
-      }
-
-      a:hover {
-        text-decoration: underline;
-      }
-
-      .button {
-        display: inline-flex;
+        grid-template-columns: minmax(0, 1fr) 280px;
         align-items: center;
-        justify-content: center;
-        min-height: 44px;
-        padding: 0 18px;
-        border: 0;
-        border-radius: 999px;
-        background: #3451b2;
-        color: #ffffff;
-        box-shadow: 0 10px 24px rgba(52, 81, 178, 0.25);
-        cursor: pointer;
-        font: inherit;
       }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Spring Boot 4 demo</p>
+      <h1>Welcome to the BootUI sample app</h1>
+      <p class="lead">
+        This app demonstrates a small Spring Boot service with public endpoints,
+        secured admin routes, scheduled work, JPA data, and enough runtime state
+        for BootUI to inspect.
+      </p>
+      <div aria-label="Primary links" class="actions">
+        <a class="button" href="/bootui/">Open BootUI</a>
+        <a class="button secondary" href="/api/sample/products">View sample products</a>
+      </div>
+    </div>
+    <section aria-labelledby="bootui-heading">
+      <h2 id="bootui-heading">BootUI console</h2>
+      <p>
+        Open <a href="/bootui/">BootUI</a> to explore the running application,
+        including beans, conditions, configuration, mappings, health, loggers,
+        data repositories, scheduled tasks, log tailing, profiles, security, and JVM memory.
+      </p>
+    </section>
+  </div>
 
-      .button:hover {
-        text-decoration: none;
-        background: #2b459f;
-      }
-
-      .button:disabled {
-        cursor: progress;
-        opacity: 0.65;
-      }
-
-      .button.secondary {
-        background: #ffffff;
-        color: #3451b2;
-        box-shadow: inset 0 0 0 1px rgba(52, 81, 178, 0.22);
-      }
-
-      .content-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 20px;
-        margin-top: 28px;
-      }
-
-      section {
-        padding: 24px;
-        border-radius: 20px;
-        background: #ffffff;
-        box-shadow: 0 12px 36px rgba(23, 32, 51, 0.08);
-      }
-
-      .wide {
-        grid-column: 1 / -1;
-      }
-
-      h2 {
-        margin: 0 0 12px;
-        font-size: 1.1rem;
-      }
-
-      form {
-        display: grid;
-        gap: 12px;
-        margin-top: 16px;
-      }
-
-      label {
-        font-weight: 700;
-      }
-
-      textarea {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 14px 16px;
-        border: 1px solid #cbd5e1;
-        border-radius: 14px;
-        color: #172033;
-        font: inherit;
-        resize: vertical;
-      }
-
-      textarea:focus {
-        border-color: #3451b2;
-        box-shadow: 0 0 0 3px rgba(52, 81, 178, 0.16);
-        outline: none;
-      }
-
-      .form-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .chat-status {
-        color: #4a5568;
-        font-size: 0.95rem;
-      }
-
-      .chat-result {
-        margin: 16px 0 0;
-        padding: 16px;
-        overflow: auto;
-        white-space: pre-wrap;
-        border-radius: 14px;
-        background: #172033;
-        color: #f8fafc;
-        font: 0.95rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      }
-
-      ul {
-        margin: 0;
-        padding-left: 1.2rem;
-      }
-
-      li + li {
-        margin-top: 8px;
-      }
-
-      code {
-        padding: 0.15rem 0.35rem;
-        border-radius: 0.4rem;
-        background: #eef2f7;
-        color: #263245;
-      }
-
-      @media (min-width: 860px) {
-        .hero {
-          grid-template-columns: minmax(0, 1fr) 280px;
-          align-items: center;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <div class="hero">
-        <div>
-          <p class="eyebrow">Spring Boot 4 demo</p>
-          <h1>Welcome to the BootUI sample app</h1>
-          <p class="lead">
-            This app demonstrates a small Spring Boot service with public endpoints,
-            secured admin routes, scheduled work, JPA data, and enough runtime state
-            for BootUI to inspect.
-          </p>
-          <div class="actions" aria-label="Primary links">
-            <a class="button" href="/bootui/">Open BootUI</a>
-            <a class="button secondary" href="/api/sample/products">View sample products</a>
-          </div>
+  <div class="content-grid">
+    <section aria-labelledby="ai-prompt-heading" class="wide">
+      <h2 id="ai-prompt-heading">Ask Spring AI</h2>
+      <p>
+        Send a prompt through the sample app's Spring AI <code>ChatClient</code>
+        using <code>POST /api/chat</code>. Then open BootUI's
+        <a href="/bootui/#/ai">AI Usage</a> panel to inspect the generated
+        observations, spans, and token usage.
+      </p>
+      <form id="ai-chat-form">
+        <label for="ai-chat-message">Question for the LLM</label>
+        <textarea id="ai-chat-message" name="message" required
+                  rows="4">What can BootUI show me about this app?</textarea>
+        <div class="form-row">
+          <button class="button" type="submit">Ask the LLM</button>
+          <span aria-live="polite" class="chat-status" id="ai-chat-status" role="status"></span>
         </div>
-        <section aria-labelledby="bootui-heading">
-          <h2 id="bootui-heading">BootUI console</h2>
-          <p>
-            Open <a href="/bootui/">BootUI</a> to explore the running application,
-            including beans, conditions, configuration, mappings, health, loggers,
-            data repositories, scheduled tasks, log tailing, profiles, security, and JVM memory.
-          </p>
-        </section>
-      </div>
+      </form>
+      <pre class="chat-result" hidden id="ai-chat-result"></pre>
+    </section>
 
-      <div class="content-grid">
-        <section class="wide" aria-labelledby="ai-prompt-heading">
-          <h2 id="ai-prompt-heading">Ask Spring AI</h2>
-          <p>
-            Send a prompt through the sample app's Spring AI <code>ChatClient</code>
-            using <code>POST /api/chat</code>. Then open BootUI's
-            <a href="/bootui/#/ai">AI Usage</a> panel to inspect the generated
-            observations, spans, and token usage.
-          </p>
-          <form id="ai-chat-form">
-            <label for="ai-chat-message">Question for the LLM</label>
-            <textarea id="ai-chat-message" name="message" rows="4" required>What can BootUI show me about this app?</textarea>
-            <div class="form-row">
-              <button class="button" type="submit">Ask the LLM</button>
-              <span id="ai-chat-status" class="chat-status" role="status" aria-live="polite"></span>
-            </div>
-          </form>
-          <pre id="ai-chat-result" class="chat-result" hidden></pre>
-        </section>
+    <section aria-labelledby="api-heading">
+      <h2 id="api-heading">Try the sample API</h2>
+      <ul>
+        <li><a href="/api/hello"><code>GET /api/hello</code></a> returns a basic greeting.</li>
+        <li><a href="/api/sample/hello"><code>GET /api/sample/hello</code></a> uses live configuration properties.</li>
+        <li><a href="/api/sample/products"><code>GET /api/sample/products</code></a> returns active JPA-backed products.
+        </li>
+      </ul>
+    </section>
 
-        <section aria-labelledby="api-heading">
-          <h2 id="api-heading">Try the sample API</h2>
-          <ul>
-            <li><a href="/api/hello"><code>GET /api/hello</code></a> returns a basic greeting.</li>
-            <li><a href="/api/sample/hello"><code>GET /api/sample/hello</code></a> uses live configuration properties.</li>
-            <li><a href="/api/sample/products"><code>GET /api/sample/products</code></a> returns active JPA-backed products.</li>
-          </ul>
-        </section>
+    <section aria-labelledby="security-heading">
+      <h2 id="security-heading">See security rules in action</h2>
+      <p>
+        The sample keeps <code>/admin</code> and <code>/api/secure</code>
+        protected with HTTP Basic authentication. Use <code>admin/admin</code>
+        for the admin role or <code>developer/developer</code> to see a forbidden user.
+      </p>
+    </section>
 
-        <section aria-labelledby="security-heading">
-          <h2 id="security-heading">See security rules in action</h2>
-          <p>
-            The sample keeps <code>/admin</code> and <code>/api/secure</code>
-            protected with HTTP Basic authentication. Use <code>admin/admin</code>
-            for the admin role or <code>developer/developer</code> to see a forbidden user.
-          </p>
-        </section>
+    <section aria-labelledby="probe-heading">
+      <h2 id="probe-heading">Use BootUI to inspect it</h2>
+      <p>
+        The BootUI panels can probe these endpoints, explain Spring Security
+        matching, inspect repository methods, edit local configuration overrides,
+        and show how the app was auto-configured.
+      </p>
+    </section>
+  </div>
+</main>
+<script>
+  const chatForm = document.getElementById('ai-chat-form')
+  const chatMessage = document.getElementById('ai-chat-message')
+  const chatStatus = document.getElementById('ai-chat-status')
+  const chatResult = document.getElementById('ai-chat-result')
 
-        <section aria-labelledby="probe-heading">
-          <h2 id="probe-heading">Use BootUI to inspect it</h2>
-          <p>
-            The BootUI panels can probe these endpoints, explain Spring Security
-            matching, inspect repository methods, edit local configuration overrides,
-            and show how the app was auto-configured.
-          </p>
-        </section>
-      </div>
-    </main>
-    <script>
-      const chatForm = document.getElementById('ai-chat-form')
-      const chatMessage = document.getElementById('ai-chat-message')
-      const chatStatus = document.getElementById('ai-chat-status')
-      const chatResult = document.getElementById('ai-chat-result')
+  chatForm.addEventListener('submit', async event => {
+    event.preventDefault()
 
-      chatForm.addEventListener('submit', async event => {
-        event.preventDefault()
+    const message = chatMessage.value.trim()
+    if (!message) {
+      chatStatus.textContent = 'Enter a question first.'
+      chatResult.hidden = true
+      return
+    }
 
-        const message = chatMessage.value.trim()
-        if (!message) {
-          chatStatus.textContent = 'Enter a question first.'
-          chatResult.hidden = true
-          return
-        }
+    const submitButton = chatForm.querySelector('button[type="submit"]')
+    submitButton.disabled = true
+    chatStatus.textContent = 'Asking Spring AI...'
+    chatResult.textContent = ''
+    chatResult.hidden = true
 
-        const submitButton = chatForm.querySelector('button[type="submit"]')
-        submitButton.disabled = true
-        chatStatus.textContent = 'Asking Spring AI...'
-        chatResult.textContent = ''
-        chatResult.hidden = true
-
-        try {
-          const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
-          })
-          const contentType = response.headers.get('content-type') || ''
-          const body = contentType.includes('application/json')
-            ? await response.json()
-            : { error: await response.text() }
-
-          if (!response.ok) {
-            throw new Error(body.error || `Request failed with HTTP ${response.status}`)
-          }
-
-          chatStatus.textContent = 'Response from Spring AI'
-          chatResult.textContent = body.reply || '(empty response)'
-          chatResult.hidden = false
-        } catch (error) {
-          chatStatus.textContent = 'Unable to ask the LLM'
-          chatResult.textContent = error instanceof Error ? error.message : String(error)
-          chatResult.hidden = false
-        } finally {
-          submitButton.disabled = false
-        }
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message})
       })
-    </script>
-  </body>
+      const contentType = response.headers.get('content-type') || ''
+      const body = contentType.includes('application/json')
+        ? await response.json()
+        : {error: await response.text()}
+
+      if (!response.ok) {
+        throw new Error(body.error || `Request failed with HTTP ${response.status}`)
+      }
+
+      chatStatus.textContent = 'Response from Spring AI'
+      chatResult.textContent = body.reply || '(empty response)'
+      chatResult.hidden = false
+    } catch (error) {
+      chatStatus.textContent = 'Unable to ask the LLM'
+      chatResult.textContent = error instanceof Error ? error.message : String(error)
+      chatResult.hidden = false
+    } finally {
+      submitButton.disabled = false
+    }
+  })
+</script>
+</body>
 </html>

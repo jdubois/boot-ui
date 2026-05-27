@@ -1,14 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.net.URLClassLoader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
+
+import javax.tools.ToolProvider;
+import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class BootUiActivationConditionTests {
 
@@ -135,16 +136,16 @@ class BootUiActivationConditionTests {
         Path source = tempDir.resolve("org/springframework/boot/devtools/restart/RestartScope.java");
         Files.createDirectories(source.getParent());
         Files.writeString(source, """
-                package org.springframework.boot.devtools.restart;
+            package org.springframework.boot.devtools.restart;
 
-                public class RestartScope {
-                }
-                """);
+            public class RestartScope {
+            }
+            """);
         int result = ToolProvider.getSystemJavaCompiler()
-                .run(null, null, null, "-d", tempDir.toString(), source.toString());
+            .run(null, null, null, "-d", tempDir.toString(), source.toString());
         assertThat(result).isZero();
 
-        try (URLClassLoader devtoolsClassLoader = new URLClassLoader(new java.net.URL[] { tempDir.toUri().toURL() }, null)) {
+        try (URLClassLoader devtoolsClassLoader = new URLClassLoader(new java.net.URL[]{tempDir.toUri().toURL()}, null)) {
             BootUiActivation activation = BootUiActivationCondition.resolve(new MockEnvironment(), devtoolsClassLoader);
 
             assertThat(activation.enabled()).isTrue();

@@ -1,15 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.withSettings;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
-
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
@@ -19,6 +9,14 @@ import org.springframework.boot.actuate.beans.BeansEndpoint.BeansDescriptor;
 import org.springframework.boot.actuate.beans.BeansEndpoint.ContextBeansDescriptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.Map;
+
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Controller-level tests for {@link BeansController}.
@@ -31,15 +29,33 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class BeansControllerTests {
 
+    private static <T> T inlineMock(Class<T> cls) {
+        return mock(cls, withSettings().mockMaker(MockMakers.INLINE));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<BeansEndpoint> providerOf(BeansEndpoint endpoint) {
+        ObjectProvider<BeansEndpoint> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(endpoint);
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<BeansEndpoint> emptyProvider() {
+        ObjectProvider<BeansEndpoint> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        return provider;
+    }
+
     @Test
     void beansReturnsEmptyListWhenActuatorUnavailable() throws Exception {
         MockMvc mvc = standaloneSetup(new BeansController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.total").value(0))
-                .andExpect(jsonPath("$.beans").isArray())
-                .andExpect(jsonPath("$.beans").isEmpty());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.total").value(0))
+            .andExpect(jsonPath("$.beans").isArray())
+            .andExpect(jsonPath("$.beans").isEmpty());
     }
 
     @Test
@@ -69,16 +85,16 @@ class BeansControllerTests {
         MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.total").value(2))
-                // results are sorted by name, so alphaBean comes before betaBean
-                .andExpect(jsonPath("$.beans[0].name").value("alphaBean"))
-                .andExpect(jsonPath("$.beans[0].type").value(String.class.getName()))
-                .andExpect(jsonPath("$.beans[0].scope").value("singleton"))
-                .andExpect(jsonPath("$.beans[0].classification").value("PLATFORM"))
-                .andExpect(jsonPath("$.beans[1].name").value("betaBean"))
-                .andExpect(jsonPath("$.beans[1].dependencies[0]").value("dep1"))
-                .andExpect(jsonPath("$.beans[1].aliases[0]").value("listAlias"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.total").value(2))
+            // results are sorted by name, so alphaBean comes before betaBean
+            .andExpect(jsonPath("$.beans[0].name").value("alphaBean"))
+            .andExpect(jsonPath("$.beans[0].type").value(String.class.getName()))
+            .andExpect(jsonPath("$.beans[0].scope").value("singleton"))
+            .andExpect(jsonPath("$.beans[0].classification").value("PLATFORM"))
+            .andExpect(jsonPath("$.beans[1].name").value("betaBean"))
+            .andExpect(jsonPath("$.beans[1].dependencies[0]").value("dep1"))
+            .andExpect(jsonPath("$.beans[1].aliases[0]").value("listAlias"));
     }
 
     @Test
@@ -100,9 +116,9 @@ class BeansControllerTests {
 
         ContextBeansDescriptor ctx = inlineMock(ContextBeansDescriptor.class);
         when(ctx.getBeans()).thenReturn(Map.of(
-                "aFrameworkBean", frameworkBean,
-                "bPlatformBean", platformBean,
-                "zNullBean", nullTypeBean));
+            "aFrameworkBean", frameworkBean,
+            "bPlatformBean", platformBean,
+            "zNullBean", nullTypeBean));
 
         BeansDescriptor descriptor = inlineMock(BeansDescriptor.class);
         when(descriptor.getContexts()).thenReturn(Map.of("root", ctx));
@@ -113,13 +129,13 @@ class BeansControllerTests {
         MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.beans[0].name").value("aFrameworkBean"))
-                .andExpect(jsonPath("$.beans[0].classification").value("FRAMEWORK"))
-                .andExpect(jsonPath("$.beans[1].name").value("bPlatformBean"))
-                .andExpect(jsonPath("$.beans[1].classification").value("PLATFORM"))
-                .andExpect(jsonPath("$.beans[2].name").value("zNullBean"))
-                .andExpect(jsonPath("$.beans[2].classification").value("OTHER"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.beans[0].name").value("aFrameworkBean"))
+            .andExpect(jsonPath("$.beans[0].classification").value("FRAMEWORK"))
+            .andExpect(jsonPath("$.beans[1].name").value("bPlatformBean"))
+            .andExpect(jsonPath("$.beans[1].classification").value("PLATFORM"))
+            .andExpect(jsonPath("$.beans[2].name").value("zNullBean"))
+            .andExpect(jsonPath("$.beans[2].classification").value("OTHER"));
     }
 
     @Test
@@ -146,26 +162,8 @@ class BeansControllerTests {
         MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.beans[0].name").value("apple"))
-                .andExpect(jsonPath("$.beans[1].name").value("zebra"));
-    }
-
-    private static <T> T inlineMock(Class<T> cls) {
-        return mock(cls, withSettings().mockMaker(MockMakers.INLINE));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<BeansEndpoint> providerOf(BeansEndpoint endpoint) {
-        ObjectProvider<BeansEndpoint> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(endpoint);
-        return provider;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<BeansEndpoint> emptyProvider() {
-        ObjectProvider<BeansEndpoint> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.beans[0].name").value("apple"))
+            .andExpect(jsonPath("$.beans[1].name").value("zebra"));
     }
 }

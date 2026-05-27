@@ -10,28 +10,28 @@ console against a running Spring Boot application.
 Each Playwright spec file targets one of the BootUI views (or a cross-cutting
 flow) exposed by the sample app:
 
-| Spec                       | Verifies                                                                                |
-| -------------------------- | --------------------------------------------------------------------------------------- |
-| `app-shell.spec.js`        | Top navbar, sidebar links, deep-linking, navigation between every section              |
-| `overview.spec.js`         | Application / Runtime / Activation cards, refresh button                               |
-| `beans.spec.js`            | Bean list rendering, name filter, classification filter                                |
-| `conditions.spec.js`       | Positive / negative auto-config tabs, filtering                                        |
-| `config.spec.js`           | Property search, add an override (`sample.greeting`), confirm + delete it              |
-| `mappings.spec.js`         | HTTP mappings include the sample app routes, filter narrows the list                   |
-| `health.spec.js`           | Health tree renders with an overall status badge                                       |
-| `loggers.spec.js`          | Logger search, change `io.github.jdubois.bootui.sample` to `WARN`, reset                       |
-| `data.spec.js`             | `ProductRepository` is listed, detail panel shows `searchByName`                       |
-| `startup.spec.js`          | Startup timeline displays step rows                                                    |
-| `scheduled.spec.js`        | Scheduled tasks view lists the sample echo scheduler                                  |
-| `http-probe.spec.js`       | Probe `/api/hello` and assert the response body is shown                              |
-| `log-tail.spec.js`         | Log Tail connects, streams new events, pause / resume / clear controls work           |
-| `profile-diff.spec.js`     | Profile sources & properties render with filtering                                     |
-| `security.spec.js`         | Filter chains list `/api/secure`, explain endpoint returns a match                     |
-| `memory.spec.js`           | Heap / non-heap cards render, JVM options copy button                                  |
-| `metrics.spec.js`          | Micrometer meter browser, live graph, measurements, and type filtering                 |
-| `devtools.spec.js`         | DevTools LiveReload / restart status cards and guarded action feedback                 |
-| `dev-services.spec.js`     | Dev Services snapshot, filtering, details, log viewing, and disabled restart controls  |
-| `sample-api.spec.js`       | Sample REST API (`/api/hello`, `/api/secure`, `/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
+| Spec                   | Verifies                                                                                                              |
+|------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| `app-shell.spec.js`    | Top navbar, sidebar links, deep-linking, navigation between every section                                             |
+| `overview.spec.js`     | Application / Runtime / Activation cards, refresh button                                                              |
+| `beans.spec.js`        | Bean list rendering, name filter, classification filter                                                               |
+| `conditions.spec.js`   | Positive / negative auto-config tabs, filtering                                                                       |
+| `config.spec.js`       | Property search, add an override (`sample.greeting`), confirm + delete it                                             |
+| `mappings.spec.js`     | HTTP mappings include the sample app routes, filter narrows the list                                                  |
+| `health.spec.js`       | Health tree renders with an overall status badge                                                                      |
+| `loggers.spec.js`      | Logger search, change `io.github.jdubois.bootui.sample` to `WARN`, reset                                              |
+| `data.spec.js`         | `ProductRepository` is listed, detail panel shows `searchByName`                                                      |
+| `startup.spec.js`      | Startup timeline displays step rows                                                                                   |
+| `scheduled.spec.js`    | Scheduled tasks view lists the sample echo scheduler                                                                  |
+| `http-probe.spec.js`   | Probe `/api/hello` and assert the response body is shown                                                              |
+| `log-tail.spec.js`     | Log Tail connects, streams new events, pause / resume / clear controls work                                           |
+| `profile-diff.spec.js` | Profile sources & properties render with filtering                                                                    |
+| `security.spec.js`     | Filter chains list `/api/secure`, explain endpoint returns a match                                                    |
+| `memory.spec.js`       | Heap / non-heap cards render, JVM options copy button                                                                 |
+| `metrics.spec.js`      | Micrometer meter browser, live graph, measurements, and type filtering                                                |
+| `devtools.spec.js`     | DevTools LiveReload / restart status cards and guarded action feedback                                                |
+| `dev-services.spec.js` | Dev Services snapshot, filtering, details, log viewing, and disabled restart controls                                 |
+| `sample-api.spec.js`   | Sample REST API (`/api/hello`, `/api/secure`, `/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
 
 ## Prerequisites
 

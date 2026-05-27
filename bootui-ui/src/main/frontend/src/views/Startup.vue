@@ -1,7 +1,7 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
-const report = ref({ steps: [] })
+const report = ref({steps: []})
 const filter = ref('')
 const selectedDurationBand = ref('all')
 const expandedStepIds = ref(new Set())
@@ -9,11 +9,11 @@ const loading = ref(true)
 const error = ref('')
 
 const durationBands = [
-  { id: 'fastest', label: 'Fastest', className: 'startup-duration-label--fastest' },
-  { id: 'fast', label: 'Fast', className: 'startup-duration-label--fast' },
-  { id: 'medium', label: 'Medium', className: 'startup-duration-label--medium' },
-  { id: 'slow', label: 'Slow', className: 'startup-duration-label--slow' },
-  { id: 'slowest', label: 'Slowest', className: 'startup-duration-label--slowest' }
+  {id: 'fastest', label: 'Fastest', className: 'startup-duration-label--fastest'},
+  {id: 'fast', label: 'Fast', className: 'startup-duration-label--fast'},
+  {id: 'medium', label: 'Medium', className: 'startup-duration-label--medium'},
+  {id: 'slow', label: 'Slow', className: 'startup-duration-label--slow'},
+  {id: 'slowest', label: 'Slowest', className: 'startup-duration-label--slowest'}
 ]
 
 function normalizedDuration(durationMs) {
@@ -24,7 +24,7 @@ function normalizedDuration(durationMs) {
 const durationScale = computed(() => {
   const durations = report.value.steps.map(step => normalizedDuration(step.durationMs))
   if (durations.length === 0) {
-    return { min: 0, max: 0, minLog: 0, span: 0 }
+    return {min: 0, max: 0, minLog: 0, span: 0}
   }
 
   const min = Math.min(...durations)
@@ -54,7 +54,7 @@ function buildTree(steps) {
   const roots = []
 
   steps.forEach(step => {
-    byId.set(step.id, { ...step, children: [] })
+    byId.set(step.id, {...step, children: []})
   })
 
   steps.forEach(step => {
@@ -86,7 +86,7 @@ async function load() {
     }
     expandedStepIds.value = new Set(buildTree(steps).map(step => step.id))
   } catch (err) {
-    report.value = { steps: [] }
+    report.value = {steps: []}
     expandedStepIds.value = new Set()
     error.value = err instanceof Error ? err.message : 'Unable to load startup data'
   } finally {
@@ -124,7 +124,7 @@ function filterTree(nodes, query, durationBandId) {
     if (!matches && children.length === 0) {
       return []
     }
-    return [{ ...node, children }]
+    return [{...node, children}]
   })
 }
 
@@ -132,7 +132,7 @@ function flattenVisible(nodes, hasActiveFilter, depth = 0) {
   return nodes.flatMap(node => {
     const expanded = hasActiveFilter || expandedStepIds.value.has(node.id)
     return [
-      { ...node, depth, expanded },
+      {...node, depth, expanded},
       ...(expanded ? flattenVisible(node.children, hasActiveFilter, depth + 1) : [])
     ]
   })
@@ -186,7 +186,8 @@ onMounted(load)
       <div>
         <h2 class="mb-1"><i class="bi bi-clock-history me-2"></i>Startup timeline</h2>
         <p class="text-muted mb-0">
-          {{ report.steps.length }} steps · {{ branchStepCount }} nested<span v-if="filter || selectedDurationBand !== 'all'"> · {{ visibleSteps.length }} shown</span>
+          {{ report.steps.length }} steps · {{ branchStepCount }} nested<span
+          v-if="filter || selectedDurationBand !== 'all'"> · {{ visibleSteps.length }} shown</span>
         </p>
       </div>
       <div class="col-12 col-md-7 col-lg-6 px-0">
@@ -199,17 +200,17 @@ onMounted(load)
             type="search"
           />
           <button
+            :disabled="loading || report.steps.length === 0"
             class="btn btn-outline-secondary"
             type="button"
-            :disabled="loading || report.steps.length === 0"
             @click="expandAll"
           >
             Expand all
           </button>
           <button
+            :disabled="loading || report.steps.length === 0"
             class="btn btn-outline-secondary"
             type="button"
-            :disabled="loading || report.steps.length === 0"
             @click="collapseAll"
           >
             Collapse all
@@ -217,12 +218,12 @@ onMounted(load)
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
           <span class="text-muted small">Duration color:</span>
-          <div class="btn-group flex-wrap" role="group" aria-label="Filter startup steps by duration color">
+          <div aria-label="Filter startup steps by duration color" class="btn-group flex-wrap" role="group">
             <button
+              :aria-pressed="selectedDurationBand === 'all'"
+              :class="{ active: selectedDurationBand === 'all' }"
               class="btn btn-sm btn-outline-secondary"
               type="button"
-              :class="{ active: selectedDurationBand === 'all' }"
-              :aria-pressed="selectedDurationBand === 'all'"
               @click="selectedDurationBand = 'all'"
             >
               All
@@ -230,14 +231,14 @@ onMounted(load)
             <button
               v-for="band in durationBandCounts"
               :key="band.id"
+              :aria-pressed="selectedDurationBand === band.id"
+              :class="{ active: selectedDurationBand === band.id }"
+              :title="`Show ${band.label.toLowerCase()} startup steps`"
               class="btn btn-sm btn-outline-secondary startup-duration-filter"
               type="button"
-              :class="{ active: selectedDurationBand === band.id }"
-              :aria-pressed="selectedDurationBand === band.id"
-              :title="`Show ${band.label.toLowerCase()} startup steps`"
               @click="selectedDurationBand = band.id"
             >
-              <span class="startup-duration-filter__swatch" :class="band.className"></span>
+              <span :class="band.className" class="startup-duration-filter__swatch"></span>
               {{ band.label }}
               <span class="badge text-bg-light ms-1">{{ band.count }}</span>
             </button>
@@ -262,21 +263,21 @@ onMounted(load)
       <div
         v-for="step in visibleSteps"
         :key="step.id"
-        class="list-group-item py-3"
         :style="{ paddingLeft: `${1 + step.depth * 1.25}rem` }"
+        class="list-group-item py-3"
       >
         <div class="d-flex align-items-start justify-content-between gap-3">
           <div class="flex-grow-1 min-w-0">
             <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
               <button
-                class="btn btn-sm btn-link text-decoration-none p-0 startup-tree-toggle"
-                type="button"
-                :class="{ 'invisible': !step.children?.length }"
                 :aria-expanded="step.expanded"
                 :aria-label="`${step.expanded ? 'Collapse' : 'Expand'} ${step.name}`"
+                :class="{ 'invisible': !step.children?.length }"
+                class="btn btn-sm btn-link text-decoration-none p-0 startup-tree-toggle"
+                type="button"
                 @click="toggleStep(step)"
               >
-                <i class="bi" :class="step.expanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                <i :class="step.expanded ? 'bi-chevron-down' : 'bi-chevron-right'" class="bi"></i>
               </button>
               <span class="fw-semibold text-break">{{ step.name }}</span>
               <span class="badge text-bg-light">#{{ step.id }}</span>
@@ -295,9 +296,9 @@ onMounted(load)
             </div>
           </div>
           <span
-            class="badge ms-auto startup-duration-label"
             :class="durationBandFor(step.durationMs).className"
             :title="`${durationBandFor(step.durationMs).label} startup step`"
+            class="badge ms-auto startup-duration-label"
           >
             {{ step.durationMs }} ms
           </span>

@@ -1,12 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.BindResult;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.mock.env.MockEnvironment;
+
+import java.time.Duration;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies {@link BootUiProperties} default values and binding from environment
@@ -17,6 +18,10 @@ class BootUiPropertiesTests {
     // -------------------------------------------------------------------------
     // Defaults (no properties set)
     // -------------------------------------------------------------------------
+
+    private static BootUiProperties bind(MockEnvironment env) {
+        return Binder.get(env).bind("bootui", BootUiProperties.class).get();
+    }
 
     @Test
     void defaultEnabledModeIsAuto() {
@@ -126,15 +131,15 @@ class BootUiPropertiesTests {
         assertThat(props.getDependencies().getMaxPackages()).isEqualTo(250);
     }
 
+    // -------------------------------------------------------------------------
+    // Binder — parsing from environment properties
+    // -------------------------------------------------------------------------
+
     @Test
     void defaultDependenciesMaxAdvisoriesIs200() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getDependencies().getMaxAdvisories()).isEqualTo(200);
     }
-
-    // -------------------------------------------------------------------------
-    // Binder — parsing from environment properties
-    // -------------------------------------------------------------------------
 
     @Test
     void bindsEnabledModeOn() {
@@ -306,6 +311,10 @@ class BootUiPropertiesTests {
         assertThat(props.getDependencies().getMaxAdvisories()).isEqualTo(50);
     }
 
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
     @Test
     void noPropertiesSetYieldsAllDefaults() {
         MockEnvironment env = new MockEnvironment();
@@ -320,13 +329,5 @@ class BootUiPropertiesTests {
         assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.MASKED);
         assertThat(props.getOverridesFile()).isEqualTo(".bootui/application-bootui.properties");
         assertThat(props.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(5));
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static BootUiProperties bind(MockEnvironment env) {
-        return Binder.get(env).bind("bootui", BootUiProperties.class).get();
     }
 }

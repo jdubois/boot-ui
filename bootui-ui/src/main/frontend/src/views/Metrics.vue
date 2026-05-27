@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 
 const data = ref(null)
 const detail = ref(null)
@@ -54,9 +54,9 @@ const chartPath = computed(() => {
 
 function formatNumber(value) {
   if (value == null || Number.isNaN(value)) return 'N/A'
-  if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 1 })
-  if (Math.abs(value) >= 1) return value.toLocaleString(undefined, { maximumFractionDigits: 3 })
-  return value.toLocaleString(undefined, { maximumSignificantDigits: 4 })
+  if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, {maximumFractionDigits: 1})
+  if (Math.abs(value) >= 1) return value.toLocaleString(undefined, {maximumFractionDigits: 3})
+  return value.toLocaleString(undefined, {maximumSignificantDigits: 4})
 }
 
 function tagLabel(tag) {
@@ -65,7 +65,12 @@ function tagLabel(tag) {
 
 function lastUpdatedText() {
   if (!lastUpdated.value) return ''
-  return lastUpdated.value.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return lastUpdated.value.toLocaleTimeString([], {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 }
 
 function resetHistory() {
@@ -132,7 +137,7 @@ async function loadDetail() {
   if (!selectedName.value || loadingDetail) return
   loadingDetail = true
   try {
-    const params = new URLSearchParams({ name: selectedName.value })
+    const params = new URLSearchParams({name: selectedName.value})
     for (const tag of selectedTags.value) {
       params.append('tag', tag)
     }
@@ -157,7 +162,7 @@ function appendHistoryPoint() {
   if (!selectedMeasurement.value) return
   history.value = [
     ...history.value,
-    { timestamp: Date.now(), value: selectedMeasurement.value.value }
+    {timestamp: Date.now(), value: selectedMeasurement.value.value}
   ].slice(-60)
 }
 
@@ -188,7 +193,7 @@ onBeforeUnmount(() => {
         <h3 class="h4 mb-1"><i class="bi bi-activity me-2"></i>Micrometer metrics</h3>
         <p class="text-muted mb-0">Browse meters, filter tag sets, and watch live values update every 2 seconds.</p>
       </div>
-      <span class="text-muted small" v-if="lastUpdated">
+      <span v-if="lastUpdated" class="text-muted small">
         <i class="bi bi-arrow-repeat me-1"></i>Updated {{ lastUpdatedText() }}
       </span>
     </div>
@@ -218,9 +223,9 @@ onBeforeUnmount(() => {
               <button
                 v-for="meter in filteredMeters"
                 :key="meter.name"
-                type="button"
-                class="list-group-item list-group-item-action"
                 :class="{ active: meter.name === selectedName }"
+                class="list-group-item list-group-item-action"
+                type="button"
                 @click="selectMeter(meter.name)">
                 <div class="d-flex justify-content-between align-items-start gap-2">
                   <code class="meter-name">{{ meter.name }}</code>
@@ -239,7 +244,7 @@ onBeforeUnmount(() => {
             <div class="card-header d-flex flex-wrap justify-content-between align-items-start gap-2">
               <div>
                 <code class="fs-6">{{ detail.name }}</code>
-                <div class="text-muted small" v-if="detail.description">{{ detail.description }}</div>
+                <div v-if="detail.description" class="text-muted small">{{ detail.description }}</div>
               </div>
               <div class="d-flex gap-2">
                 <span class="badge text-bg-secondary">{{ detail.type || 'UNKNOWN' }}</span>
@@ -251,7 +256,8 @@ onBeforeUnmount(() => {
                 <div class="col-md-4">
                   <label class="form-label small text-muted">Statistic</label>
                   <select :value="selectedStatistic" class="form-select" @change="changeStatistic">
-                    <option v-for="measurement in detail.measurements" :key="measurement.statistic" :value="measurement.statistic">
+                    <option v-for="measurement in detail.measurements" :key="measurement.statistic"
+                            :value="measurement.statistic">
                       {{ measurement.statistic }}
                     </option>
                   </select>
@@ -260,11 +266,13 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="col-md-8">
                   <div class="chart-box">
-                    <svg viewBox="0 0 100 48" preserveAspectRatio="none" role="img" aria-label="Live metric value graph">
-                      <line x1="0" y1="44" x2="100" y2="44" class="chart-axis" />
-                      <path v-if="chartPath" :d="chartPath" class="chart-line" />
+                    <svg aria-label="Live metric value graph" preserveAspectRatio="none" role="img"
+                         viewBox="0 0 100 48">
+                      <line class="chart-axis" x1="0" x2="100" y1="44" y2="44"/>
+                      <path v-if="chartPath" :d="chartPath" class="chart-line"/>
                     </svg>
-                    <div v-if="history.length < 2" class="chart-empty text-muted small">Waiting for another sample…</div>
+                    <div v-if="history.length < 2" class="chart-empty text-muted small">Waiting for another sample…
+                    </div>
                   </div>
                 </div>
               </div>
@@ -274,7 +282,9 @@ onBeforeUnmount(() => {
           <div v-if="detail" class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
               <span>Tag filters</span>
-              <button v-if="selectedTags.length" class="btn btn-sm btn-outline-secondary" @click="clearTags">Clear filters</button>
+              <button v-if="selectedTags.length" class="btn btn-sm btn-outline-secondary" @click="clearTags">Clear
+                filters
+              </button>
             </div>
             <div class="card-body">
               <div v-if="!detail.availableTags.length" class="text-muted small">This meter has no tags.</div>
@@ -284,9 +294,9 @@ onBeforeUnmount(() => {
                   <button
                     v-for="value in tag.values"
                     :key="value"
-                    type="button"
-                    class="btn btn-sm"
                     :class="isTagSelected(tag.key, value) ? 'btn-primary' : 'btn-outline-primary'"
+                    class="btn btn-sm"
+                    type="button"
                     @click="toggleTag(tag.key, value)">
                     {{ value || '(empty)' }}
                   </button>
@@ -304,29 +314,29 @@ onBeforeUnmount(() => {
             <div class="table-responsive">
               <table class="table table-sm table-hover mb-0">
                 <thead class="table-light">
-                  <tr>
-                    <th>Tags</th>
-                    <th>Measurements</th>
-                  </tr>
+                <tr>
+                  <th>Tags</th>
+                  <th>Measurements</th>
+                </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(sample, index) in detail.samples" :key="index">
-                    <td>
-                      <span v-if="!sample.tags.length" class="text-muted">none</span>
-                      <span v-for="tag in sample.tags" :key="tagLabel(tag)" class="badge text-bg-light me-1">
+                <tr v-for="(sample, index) in detail.samples" :key="index">
+                  <td>
+                    <span v-if="!sample.tags.length" class="text-muted">none</span>
+                    <span v-for="tag in sample.tags" :key="tagLabel(tag)" class="badge text-bg-light me-1">
                         {{ tag.key }}={{ tag.value || '(empty)' }}
                       </span>
-                    </td>
-                    <td>
+                  </td>
+                  <td>
                       <span v-for="measurement in sample.measurements" :key="measurement.statistic" class="me-3">
                         <span class="text-muted">{{ measurement.statistic }}</span>
                         <code>{{ formatNumber(measurement.value) }}</code>
                       </span>
-                    </td>
-                  </tr>
-                  <tr v-if="!detail.samples.length">
-                    <td colspan="2" class="text-muted">No samples match the selected tag filters.</td>
-                  </tr>
+                  </td>
+                </tr>
+                <tr v-if="!detail.samples.length">
+                  <td class="text-muted" colspan="2">No samples match the selected tag filters.</td>
+                </tr>
                 </tbody>
               </table>
             </div>

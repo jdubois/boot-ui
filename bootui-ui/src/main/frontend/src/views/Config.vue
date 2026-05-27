@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import {computed, nextTick, onMounted, ref} from 'vue'
 import { apiFetch } from '../api.js'
 
 const data = ref(null)
@@ -51,9 +51,9 @@ const filtered = computed(() => {
     if (filter.value) {
       const f = filter.value.toLowerCase()
       return p.name.toLowerCase().includes(f) ||
-             String(p.value ?? '').toLowerCase().includes(f) ||
-             String(p.description ?? '').toLowerCase().includes(f) ||
-             String(p.defaultValue ?? '').toLowerCase().includes(f)
+        String(p.value ?? '').toLowerCase().includes(f) ||
+        String(p.description ?? '').toLowerCase().includes(f) ||
+        String(p.defaultValue ?? '').toLowerCase().includes(f)
     }
     return true
   })
@@ -80,7 +80,7 @@ async function saveEdit(p) {
 
 function startCreate() {
   editingName.value = null
-  newRow.value = { name: '', value: '' }
+  newRow.value = {name: '', value: ''}
   newRowName.value = ''
   newRowValue.value = ''
   newRowError.value = null
@@ -142,8 +142,8 @@ async function postOverride(name, value, onSuccess) {
   try {
     const res = await apiFetch('api/config/overrides', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, value })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, value})
     })
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -166,7 +166,7 @@ async function removeOverride(name) {
   if (!confirm('Remove override "' + name + '"? The property will fall back to its underlying value.')) return
   saving.value = true
   try {
-    const res = await apiFetch('api/config/overrides/' + encodeURIComponent(name), { method: 'DELETE' })
+    const res = await apiFetch('api/config/overrides/' + encodeURIComponent(name), {method: 'DELETE'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
       flash('Could not remove override: ' + (result.message || ('HTTP ' + res.status)), 'danger')
@@ -180,8 +180,10 @@ async function removeOverride(name) {
 }
 
 function flash(text, type) {
-  banner.value = { text, type }
-  setTimeout(() => { banner.value = null }, 8000)
+  banner.value = {text, type}
+  setTimeout(() => {
+    banner.value = null
+  }, 8000)
 }
 
 onMounted(load)
@@ -197,10 +199,10 @@ onMounted(load)
         </p>
       </div>
       <div class="d-flex gap-2">
-        <button class="btn btn-success" @click="startCreate" :disabled="!!newRow">
+        <button :disabled="!!newRow" class="btn btn-success" @click="startCreate">
           <i class="bi bi-plus-lg me-1"></i> Add override
         </button>
-        <button class="btn btn-outline-secondary" @click="load" title="Refresh">
+        <button class="btn btn-outline-secondary" title="Refresh" @click="load">
           <i class="bi bi-arrow-clockwise"></i>
         </button>
       </div>
@@ -223,8 +225,9 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="banner" class="alert d-flex justify-content-between align-items-center" :class="'alert-' + banner.type">
-      <div><i class="bi" :class="banner.type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill'"></i>
+    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
+      <div><i :class="banner.type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill'"
+              class="bi"></i>
         <span class="ms-2">{{ banner.text }}</span>
       </div>
       <button class="btn-close" @click="banner = null"></button>
@@ -234,18 +237,18 @@ onMounted(load)
       <div class="col-md-6">
         <div class="input-group">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
-          <input class="form-control" v-model="filter" placeholder="Filter by name or value…" />
+          <input v-model="filter" class="form-control" placeholder="Filter by name or value…"/>
         </div>
       </div>
       <div class="col-md-4">
-        <select class="form-select" v-model="sourceFilter" v-if="data">
+        <select v-if="data" v-model="sourceFilter" class="form-select">
           <option value="">All property sources</option>
           <option v-for="s in data.sources" :key="s" :value="s">{{ s }}</option>
         </select>
       </div>
       <div class="col-md-2">
         <div class="form-check form-switch mt-2">
-          <input class="form-check-input" type="checkbox" id="onlyOverrides" v-model="showOnlyOverrides" />
+          <input id="onlyOverrides" v-model="showOnlyOverrides" class="form-check-input" type="checkbox"/>
           <label class="form-check-label small" for="onlyOverrides">
             Only overrides ({{ overrideCount }})
           </label>
@@ -262,134 +265,134 @@ onMounted(load)
     <div class="table-responsive">
       <table class="table table-sm align-middle">
         <thead class="table-light">
-          <tr>
-            <th style="width:30%">Property</th>
-            <th style="width:25%">Value</th>
-            <th style="width:20%">Default</th>
-            <th style="width:13%">Source</th>
-            <th style="width:12%" class="text-end">Actions</th>
-          </tr>
+        <tr>
+          <th style="width:30%">Property</th>
+          <th style="width:25%">Value</th>
+          <th style="width:20%">Default</th>
+          <th style="width:13%">Source</th>
+          <th class="text-end" style="width:12%">Actions</th>
+        </tr>
         </thead>
         <tbody>
-          <!-- New override row -->
-          <tr v-if="newRow" class="table-warning">
-            <td>
-              <input ref="newNameInput" class="form-control form-control-sm font-monospace"
-                     v-model="newRowName"
-                     list="bootPropertySuggestions"
-                     placeholder="spring.application.name"
-                     @keyup.enter="saveCreate"
-                     @keyup.esc="cancelCreate" />
-              <datalist id="bootPropertySuggestions">
-                <option v-for="s in propertySuggestions"
-                        :key="s.name"
-                        :value="s.name"
-                        :label="suggestionLabel(s)"></option>
-              </datalist>
-              <div v-if="selectedNewSuggestion" class="small text-muted mt-1">
-                <div v-if="selectedNewSuggestion.description">{{ selectedNewSuggestion.description }}</div>
-                <div>
-                  <span v-if="selectedNewSuggestion.type">Type: <code>{{ selectedNewSuggestion.type }}</code></span>
-                  <span v-if="selectedNewSuggestion.type && hasDefaultValue(selectedNewSuggestion)" class="mx-1">·</span>
-                  <span v-if="hasDefaultValue(selectedNewSuggestion)">
+        <!-- New override row -->
+        <tr v-if="newRow" class="table-warning">
+          <td>
+            <input ref="newNameInput" v-model="newRowName"
+                   class="form-control form-control-sm font-monospace"
+                   list="bootPropertySuggestions"
+                   placeholder="spring.application.name"
+                   @keyup.enter="saveCreate"
+                   @keyup.esc="cancelCreate"/>
+            <datalist id="bootPropertySuggestions">
+              <option v-for="s in propertySuggestions"
+                      :key="s.name"
+                      :label="suggestionLabel(s)"
+                      :value="s.name"></option>
+            </datalist>
+            <div v-if="selectedNewSuggestion" class="small text-muted mt-1">
+              <div v-if="selectedNewSuggestion.description">{{ selectedNewSuggestion.description }}</div>
+              <div>
+                <span v-if="selectedNewSuggestion.type">Type: <code>{{ selectedNewSuggestion.type }}</code></span>
+                <span v-if="selectedNewSuggestion.type && hasDefaultValue(selectedNewSuggestion)" class="mx-1">·</span>
+                <span v-if="hasDefaultValue(selectedNewSuggestion)">
                     Default: <code>{{ formatDefaultValue(selectedNewSuggestion.defaultValue) }}</code>
                   </span>
-                </div>
               </div>
-              <div v-if="newRowError" class="text-danger small mt-1">
-                <i class="bi bi-exclamation-circle"></i> {{ newRowError }}
-              </div>
-            </td>
-            <td>
-              <div class="input-group input-group-sm">
-                <input class="form-control font-monospace"
-                       v-model="newRowValue"
-                       :placeholder="hasDefaultValue(selectedNewSuggestion)
+            </div>
+            <div v-if="newRowError" class="text-danger small mt-1">
+              <i class="bi bi-exclamation-circle"></i> {{ newRowError }}
+            </div>
+          </td>
+          <td>
+            <div class="input-group input-group-sm">
+              <input v-model="newRowValue"
+                     :placeholder="hasDefaultValue(selectedNewSuggestion)
                          ? 'default: ' + formatDefaultValue(selectedNewSuggestion.defaultValue)
                          : 'new value'"
-                       @keyup.enter="saveCreate"
-                       @keyup.esc="cancelCreate" />
-                <button v-if="hasDefaultValue(selectedNewSuggestion)"
-                        class="btn btn-outline-secondary"
-                        type="button"
-                        @click="useSelectedDefault">
-                  Use default
-                </button>
-              </div>
-            </td>
-            <td>
-              <code v-if="hasDefaultValue(selectedNewSuggestion)" class="text-body">
-                {{ formatDefaultValue(selectedNewSuggestion.defaultValue) }}
-              </code>
-              <span v-else class="text-muted">—</span>
-            </td>
-            <td><span class="badge bg-warning text-dark">new override</span></td>
-            <td class="text-end">
-              <button class="btn btn-sm btn-success" @click="saveCreate" :disabled="saving">
-                <i class="bi bi-check-lg"></i> Save
+                     class="form-control font-monospace"
+                     @keyup.enter="saveCreate"
+                     @keyup.esc="cancelCreate"/>
+              <button v-if="hasDefaultValue(selectedNewSuggestion)"
+                      class="btn btn-outline-secondary"
+                      type="button"
+                      @click="useSelectedDefault">
+                Use default
               </button>
-              <button class="btn btn-sm btn-outline-secondary ms-1" @click="cancelCreate" :disabled="saving">
-                Cancel
-              </button>
-            </td>
-          </tr>
+            </div>
+          </td>
+          <td>
+            <code v-if="hasDefaultValue(selectedNewSuggestion)" class="text-body">
+              {{ formatDefaultValue(selectedNewSuggestion.defaultValue) }}
+            </code>
+            <span v-else class="text-muted">—</span>
+          </td>
+          <td><span class="badge bg-warning text-dark">new override</span></td>
+          <td class="text-end">
+            <button :disabled="saving" class="btn btn-sm btn-success" @click="saveCreate">
+              <i class="bi bi-check-lg"></i> Save
+            </button>
+            <button :disabled="saving" class="btn btn-sm btn-outline-secondary ms-1" @click="cancelCreate">
+              Cancel
+            </button>
+          </td>
+        </tr>
 
-          <!-- Existing rows -->
-          <tr v-for="p in filtered" :key="p.name + ':' + p.source"
-              :class="{ 'table-warning': p.override, 'table-active': editingName === p.name }">
-            <td class="align-top pt-2">
-              <code class="text-body">{{ p.name }}</code>
-              <span v-if="p.override" class="badge bg-warning text-dark ms-2">override</span>
-              <div v-if="p.description" class="small text-muted mt-1">{{ p.description }}</div>
-            </td>
-            <td>
-              <template v-if="editingName === p.name">
-                <input ref="editInput" class="form-control form-control-sm font-monospace"
-                       v-model="editedValue"
-                       @keyup.enter="saveEdit(p)"
-                       @keyup.esc="cancelEdit" />
-              </template>
-              <template v-else>
-                <code v-if="!p.masked" class="text-body">{{ p.value }}</code>
-                <span v-else class="text-muted"><i class="bi bi-lock-fill"></i> masked</span>
-              </template>
-            </td>
-            <td class="align-top pt-2">
-              <code v-if="p.defaultValue !== null && p.defaultValue !== undefined" class="text-body">
-                {{ formatDefaultValue(p.defaultValue) }}
-              </code>
-              <span v-else-if="metadataFor(p.name)?.type" class="text-muted small">
+        <!-- Existing rows -->
+        <tr v-for="p in filtered" :key="p.name + ':' + p.source"
+            :class="{ 'table-warning': p.override, 'table-active': editingName === p.name }">
+          <td class="align-top pt-2">
+            <code class="text-body">{{ p.name }}</code>
+            <span v-if="p.override" class="badge bg-warning text-dark ms-2">override</span>
+            <div v-if="p.description" class="small text-muted mt-1">{{ p.description }}</div>
+          </td>
+          <td>
+            <template v-if="editingName === p.name">
+              <input ref="editInput" v-model="editedValue"
+                     class="form-control form-control-sm font-monospace"
+                     @keyup.enter="saveEdit(p)"
+                     @keyup.esc="cancelEdit"/>
+            </template>
+            <template v-else>
+              <code v-if="!p.masked" class="text-body">{{ p.value }}</code>
+              <span v-else class="text-muted"><i class="bi bi-lock-fill"></i> masked</span>
+            </template>
+          </td>
+          <td class="align-top pt-2">
+            <code v-if="p.defaultValue !== null && p.defaultValue !== undefined" class="text-body">
+              {{ formatDefaultValue(p.defaultValue) }}
+            </code>
+            <span v-else-if="metadataFor(p.name)?.type" class="text-muted small">
                 {{ metadataFor(p.name).type }}
               </span>
-              <span v-else class="text-muted">—</span>
-            </td>
-            <td class="align-top pt-2"><small class="text-muted">{{ p.source }}</small></td>
-            <td class="text-end align-top pt-1">
-              <template v-if="editingName === p.name">
-                <button class="btn btn-sm btn-success" @click="saveEdit(p)" :disabled="saving">
-                  <i class="bi bi-check-lg"></i> Save
-                </button>
-                <button class="btn btn-sm btn-outline-secondary ms-1" @click="cancelEdit" :disabled="saving">
-                  Cancel
-                </button>
-              </template>
-              <template v-else>
-                <button class="btn btn-sm btn-primary" @click="startEdit(p)" :disabled="saving">
-                  <i class="bi bi-pencil"></i> Edit
-                </button>
-                <button v-if="p.override" class="btn btn-sm btn-outline-danger ms-1"
-                        @click="removeOverride(p.name)" :disabled="saving" title="Remove override">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </template>
-            </td>
-          </tr>
+            <span v-else class="text-muted">—</span>
+          </td>
+          <td class="align-top pt-2"><small class="text-muted">{{ p.source }}</small></td>
+          <td class="text-end align-top pt-1">
+            <template v-if="editingName === p.name">
+              <button :disabled="saving" class="btn btn-sm btn-success" @click="saveEdit(p)">
+                <i class="bi bi-check-lg"></i> Save
+              </button>
+              <button :disabled="saving" class="btn btn-sm btn-outline-secondary ms-1" @click="cancelEdit">
+                Cancel
+              </button>
+            </template>
+            <template v-else>
+              <button :disabled="saving" class="btn btn-sm btn-primary" @click="startEdit(p)">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
+              <button v-if="p.override" :disabled="saving"
+                      class="btn btn-sm btn-outline-danger ms-1" title="Remove override" @click="removeOverride(p.name)">
+                <i class="bi bi-trash"></i>
+              </button>
+            </template>
+          </td>
+        </tr>
 
-          <tr v-if="!loading && filtered.length === 0 && !newRow">
-            <td colspan="5" class="text-center text-muted py-4">
-              No properties match your filters.
-            </td>
-          </tr>
+        <tr v-if="!loading && filtered.length === 0 && !newRow">
+          <td class="text-center text-muted py-4" colspan="5">
+            No properties match your filters.
+          </td>
+        </tr>
         </tbody>
       </table>
     </div>
@@ -400,6 +403,7 @@ onMounted(load)
 code.text-body {
   word-break: break-all;
 }
+
 .table-active input {
   background: #fffbe6;
 }

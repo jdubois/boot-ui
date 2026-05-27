@@ -1,7 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Configuration properties bound under the {@code bootui.*} prefix.
@@ -12,264 +13,74 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "bootui")
 public class BootUiProperties {
 
-    /** Mode selector: AUTO (dev detection), ON (force enable), OFF (force disable). */
-    public enum Mode {
-        AUTO,
-        ON,
-        OFF
-    }
-
-    /** How configuration values are displayed in the Config panel. */
-    public enum ValueExposure {
-        /** Replace secret-like values with stars. Default. */
-        MASKED,
-        /** Hide values entirely and only show metadata. */
-        METADATA_ONLY,
-        /** Show all values, including secrets. Discouraged. */
-        FULL
-    }
-
-    /** Enable BootUI. AUTO activates only in dev/local contexts. */
+    /**
+     * Enable BootUI. AUTO activates only in dev/local contexts.
+     */
     private Mode enabled = Mode.AUTO;
-
-    /** UI base path. */
+    /**
+     * UI base path.
+     */
     private String path = "/bootui";
-
-    /** Internal API base path. */
+    /**
+     * Internal API base path.
+     */
     private String apiPath = "/bootui/api";
-
-    /** Reject non-loopback requests. */
+    /**
+     * Reject non-loopback requests.
+     */
     private boolean localhostOnly = true;
-
-    /** Allow non-loopback requests (explicit opt-out of safety). */
+    /**
+     * Allow non-loopback requests (explicit opt-out of safety).
+     */
     private boolean allowNonLocalhost = false;
-
-    /** Mask secret-like configuration values. */
+    /**
+     * Mask secret-like configuration values.
+     */
     private boolean maskSecrets = true;
-
-    /** How configuration values are exposed in the Config panel. */
+    /**
+     * How configuration values are exposed in the Config panel.
+     */
     private ValueExposure exposeValues = ValueExposure.MASKED;
-
-    /** Print the BootUI URL on application startup. */
+    /**
+     * Print the BootUI URL on application startup.
+     */
     private boolean showBanner = true;
-
-    /** Profiles that trigger auto-activation. */
-    private String[] enabledProfiles = { "dev", "local" };
-
-    /** Profiles that force BootUI off, even when enabled by other rules. */
-    private String[] disabledProfiles = { "prod", "production" };
-
-    /** Where local runtime overrides are persisted. */
+    /**
+     * Profiles that trigger auto-activation.
+     */
+    private String[] enabledProfiles = {"dev", "local"};
+    /**
+     * Profiles that force BootUI off, even when enabled by other rules.
+     */
+    private String[] disabledProfiles = {"prod", "production"};
+    /**
+     * Where local runtime overrides are persisted.
+     */
     private String overridesFile = ".bootui/application-bootui.properties";
-
-    /** Timeout applied to Actuator endpoint calls. */
+    /**
+     * Timeout applied to Actuator endpoint calls.
+     */
     private Duration endpointTimeout = Duration.ofSeconds(5);
-
-    /** Dev Services panel settings. */
+    /**
+     * Dev Services panel settings.
+     */
     private DevServices devServices = new DevServices();
-
-    /** Spring Cache panel settings. */
+    /**
+     * Spring Cache panel settings.
+     */
     private Cache cache = new Cache();
-
-    /** Dependency inventory and vulnerability scanning settings. */
+    /**
+     * Dependency inventory and vulnerability scanning settings.
+     */
     private Dependencies dependencies = new Dependencies();
-
-    /** OTLP-based telemetry receiver and trace store settings. */
+    /**
+     * OTLP-based telemetry receiver and trace store settings.
+     */
     private Telemetry telemetry = new Telemetry();
-
-    /** AI Usage panel settings. */
+    /**
+     * AI Usage panel settings.
+     */
     private Ai ai = new Ai();
-
-    public static class DevServices {
-
-        /** Allow BootUI to restart Testcontainers-backed services. */
-        private boolean restartEnabled = false;
-
-        /** Maximum bytes returned by a single Dev Services log request. */
-        private int logTailBytes = 64 * 1024;
-
-        public boolean isRestartEnabled() {
-            return restartEnabled;
-        }
-
-        public void setRestartEnabled(boolean restartEnabled) {
-            this.restartEnabled = restartEnabled;
-        }
-
-        public int getLogTailBytes() {
-            return logTailBytes;
-        }
-
-        public void setLogTailBytes(int logTailBytes) {
-            this.logTailBytes = logTailBytes;
-        }
-    }
-
-    public static class Cache {
-
-        /** Allow BootUI to clear application caches from the Spring Cache panel. */
-        private boolean clearEnabled = true;
-
-        public boolean isClearEnabled() {
-            return clearEnabled;
-        }
-
-        public void setClearEnabled(boolean clearEnabled) {
-            this.clearEnabled = clearEnabled;
-        }
-    }
-
-    public static class Dependencies {
-
-        /** Allow on-demand vulnerability scans against OSV.dev. */
-        private boolean osvEnabled = true;
-
-        /** Timeout applied to each OSV request. */
-        private Duration requestTimeout = Duration.ofSeconds(10);
-
-        /** Maximum number of dependency packages included in one OSV batch query. */
-        private int maxPackages = 250;
-
-        /** Maximum number of advisory details fetched after the package query. */
-        private int maxAdvisories = 200;
-
-        public boolean isOsvEnabled() {
-            return osvEnabled;
-        }
-
-        public void setOsvEnabled(boolean osvEnabled) {
-            this.osvEnabled = osvEnabled;
-        }
-
-        public Duration getRequestTimeout() {
-            return requestTimeout;
-        }
-
-        public void setRequestTimeout(Duration requestTimeout) {
-            this.requestTimeout = requestTimeout;
-        }
-
-        public int getMaxPackages() {
-            return maxPackages;
-        }
-
-        public void setMaxPackages(int maxPackages) {
-            this.maxPackages = maxPackages;
-        }
-
-        public int getMaxAdvisories() {
-            return maxAdvisories;
-        }
-
-        public void setMaxAdvisories(int maxAdvisories) {
-            this.maxAdvisories = maxAdvisories;
-        }
-    }
-
-    public static class Telemetry {
-
-        /** Accept OTLP/HTTP trace payloads at the BootUI OTLP endpoint. */
-        private boolean enabled = true;
-
-        /** Maximum number of distinct traces retained in memory. Oldest are evicted. */
-        private int maxTraces = 500;
-
-        /** Maximum number of spans retained per trace. */
-        private int maxSpansPerTrace = 500;
-
-        /** Maximum length of a single attribute string value before truncation. */
-        private int maxAttributeValueBytes = 4 * 1024;
-
-        /** Drop spans whose route/path attribute starts with the BootUI API path. */
-        private boolean excludeSelfSpans = true;
-
-        /** Maximum payload size (bytes) accepted by the OTLP receiver. */
-        private int maxRequestBytes = 8 * 1024 * 1024;
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
-
-        public int getMaxTraces() {
-            return maxTraces;
-        }
-
-        public void setMaxTraces(int maxTraces) {
-            this.maxTraces = maxTraces;
-        }
-
-        public int getMaxSpansPerTrace() {
-            return maxSpansPerTrace;
-        }
-
-        public void setMaxSpansPerTrace(int maxSpansPerTrace) {
-            this.maxSpansPerTrace = maxSpansPerTrace;
-        }
-
-        public int getMaxAttributeValueBytes() {
-            return maxAttributeValueBytes;
-        }
-
-        public void setMaxAttributeValueBytes(int maxAttributeValueBytes) {
-            this.maxAttributeValueBytes = maxAttributeValueBytes;
-        }
-
-        public boolean isExcludeSelfSpans() {
-            return excludeSelfSpans;
-        }
-
-        public void setExcludeSelfSpans(boolean excludeSelfSpans) {
-            this.excludeSelfSpans = excludeSelfSpans;
-        }
-
-        public int getMaxRequestBytes() {
-            return maxRequestBytes;
-        }
-
-        public void setMaxRequestBytes(int maxRequestBytes) {
-            this.maxRequestBytes = maxRequestBytes;
-        }
-    }
-
-    public static class Ai {
-
-        /** Number of minutes retained in the per-minute token-usage series. */
-        private int tokenSeriesMinutes = 60;
-
-        /** Maximum number of recent chat completions surfaced by the AI panel. */
-        private int maxRecentChats = 100;
-
-        /** When true, BootUI surfaces a banner explaining that prompt/completion content is not captured by default. */
-        private boolean showContentCaptureBanner = true;
-
-        public int getTokenSeriesMinutes() {
-            return tokenSeriesMinutes;
-        }
-
-        public void setTokenSeriesMinutes(int tokenSeriesMinutes) {
-            this.tokenSeriesMinutes = tokenSeriesMinutes;
-        }
-
-        public int getMaxRecentChats() {
-            return maxRecentChats;
-        }
-
-        public void setMaxRecentChats(int maxRecentChats) {
-            this.maxRecentChats = maxRecentChats;
-        }
-
-        public boolean isShowContentCaptureBanner() {
-            return showContentCaptureBanner;
-        }
-
-        public void setShowContentCaptureBanner(boolean showContentCaptureBanner) {
-            this.showContentCaptureBanner = showContentCaptureBanner;
-        }
-    }
 
     public Mode getEnabled() {
         return enabled;
@@ -405,5 +216,255 @@ public class BootUiProperties {
 
     public void setAi(Ai ai) {
         this.ai = ai;
+    }
+
+    /**
+     * Mode selector: AUTO (dev detection), ON (force enable), OFF (force disable).
+     */
+    public enum Mode {
+        AUTO,
+        ON,
+        OFF
+    }
+
+    /**
+     * How configuration values are displayed in the Config panel.
+     */
+    public enum ValueExposure {
+        /**
+         * Replace secret-like values with stars. Default.
+         */
+        MASKED,
+        /**
+         * Hide values entirely and only show metadata.
+         */
+        METADATA_ONLY,
+        /**
+         * Show all values, including secrets. Discouraged.
+         */
+        FULL
+    }
+
+    public static class DevServices {
+
+        /**
+         * Allow BootUI to restart Testcontainers-backed services.
+         */
+        private boolean restartEnabled = false;
+
+        /**
+         * Maximum bytes returned by a single Dev Services log request.
+         */
+        private int logTailBytes = 64 * 1024;
+
+        public boolean isRestartEnabled() {
+            return restartEnabled;
+        }
+
+        public void setRestartEnabled(boolean restartEnabled) {
+            this.restartEnabled = restartEnabled;
+        }
+
+        public int getLogTailBytes() {
+            return logTailBytes;
+        }
+
+        public void setLogTailBytes(int logTailBytes) {
+            this.logTailBytes = logTailBytes;
+        }
+    }
+
+    public static class Cache {
+
+        /**
+         * Allow BootUI to clear application caches from the Spring Cache panel.
+         */
+        private boolean clearEnabled = true;
+
+        public boolean isClearEnabled() {
+            return clearEnabled;
+        }
+
+        public void setClearEnabled(boolean clearEnabled) {
+            this.clearEnabled = clearEnabled;
+        }
+    }
+
+    public static class Dependencies {
+
+        /**
+         * Allow on-demand vulnerability scans against OSV.dev.
+         */
+        private boolean osvEnabled = true;
+
+        /**
+         * Timeout applied to each OSV request.
+         */
+        private Duration requestTimeout = Duration.ofSeconds(10);
+
+        /**
+         * Maximum number of dependency packages included in one OSV batch query.
+         */
+        private int maxPackages = 250;
+
+        /**
+         * Maximum number of advisory details fetched after the package query.
+         */
+        private int maxAdvisories = 200;
+
+        public boolean isOsvEnabled() {
+            return osvEnabled;
+        }
+
+        public void setOsvEnabled(boolean osvEnabled) {
+            this.osvEnabled = osvEnabled;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
+        }
+
+        public int getMaxPackages() {
+            return maxPackages;
+        }
+
+        public void setMaxPackages(int maxPackages) {
+            this.maxPackages = maxPackages;
+        }
+
+        public int getMaxAdvisories() {
+            return maxAdvisories;
+        }
+
+        public void setMaxAdvisories(int maxAdvisories) {
+            this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    public static class Telemetry {
+
+        /**
+         * Accept OTLP/HTTP trace payloads at the BootUI OTLP endpoint.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Maximum number of distinct traces retained in memory. Oldest are evicted.
+         */
+        private int maxTraces = 500;
+
+        /**
+         * Maximum number of spans retained per trace.
+         */
+        private int maxSpansPerTrace = 500;
+
+        /**
+         * Maximum length of a single attribute string value before truncation.
+         */
+        private int maxAttributeValueBytes = 4 * 1024;
+
+        /**
+         * Drop spans whose route/path attribute starts with the BootUI API path.
+         */
+        private boolean excludeSelfSpans = true;
+
+        /**
+         * Maximum payload size (bytes) accepted by the OTLP receiver.
+         */
+        private int maxRequestBytes = 8 * 1024 * 1024;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getMaxTraces() {
+            return maxTraces;
+        }
+
+        public void setMaxTraces(int maxTraces) {
+            this.maxTraces = maxTraces;
+        }
+
+        public int getMaxSpansPerTrace() {
+            return maxSpansPerTrace;
+        }
+
+        public void setMaxSpansPerTrace(int maxSpansPerTrace) {
+            this.maxSpansPerTrace = maxSpansPerTrace;
+        }
+
+        public int getMaxAttributeValueBytes() {
+            return maxAttributeValueBytes;
+        }
+
+        public void setMaxAttributeValueBytes(int maxAttributeValueBytes) {
+            this.maxAttributeValueBytes = maxAttributeValueBytes;
+        }
+
+        public boolean isExcludeSelfSpans() {
+            return excludeSelfSpans;
+        }
+
+        public void setExcludeSelfSpans(boolean excludeSelfSpans) {
+            this.excludeSelfSpans = excludeSelfSpans;
+        }
+
+        public int getMaxRequestBytes() {
+            return maxRequestBytes;
+        }
+
+        public void setMaxRequestBytes(int maxRequestBytes) {
+            this.maxRequestBytes = maxRequestBytes;
+        }
+    }
+
+    public static class Ai {
+
+        /**
+         * Number of minutes retained in the per-minute token-usage series.
+         */
+        private int tokenSeriesMinutes = 60;
+
+        /**
+         * Maximum number of recent chat completions surfaced by the AI panel.
+         */
+        private int maxRecentChats = 100;
+
+        /**
+         * When true, BootUI surfaces a banner explaining that prompt/completion content is not captured by default.
+         */
+        private boolean showContentCaptureBanner = true;
+
+        public int getTokenSeriesMinutes() {
+            return tokenSeriesMinutes;
+        }
+
+        public void setTokenSeriesMinutes(int tokenSeriesMinutes) {
+            this.tokenSeriesMinutes = tokenSeriesMinutes;
+        }
+
+        public int getMaxRecentChats() {
+            return maxRecentChats;
+        }
+
+        public void setMaxRecentChats(int maxRecentChats) {
+            this.maxRecentChats = maxRecentChats;
+        }
+
+        public boolean isShowContentCaptureBanner() {
+            return showContentCaptureBanner;
+        }
+
+        public void setShowContentCaptureBanner(boolean showContentCaptureBanner) {
+            this.showContentCaptureBanner = showContentCaptureBanner;
+        }
     }
 }
