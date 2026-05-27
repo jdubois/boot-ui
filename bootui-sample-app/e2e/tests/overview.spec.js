@@ -29,4 +29,11 @@ test.describe('Overview view', () => {
     const response = await requestPromise
     expect(response.ok()).toBeTruthy()
   })
+
+  test('hero links to the BootUI GitHub project', async ({ openView }) => {
+    const page = await openView('overview', 'Overview')
+
+    await expect(page.getByRole('link', { name: /BootUI GitHub project/ }))
+      .toHaveAttribute('href', 'https://github.com/jdubois/boot-ui')
+  })
 })

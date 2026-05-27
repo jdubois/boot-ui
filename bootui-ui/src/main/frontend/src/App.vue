@@ -20,6 +20,7 @@ const activationLabel = computed(() => {
   if (!overview.value?.activation) return 'Loading'
   return overview.value.activation.enabled ? 'Active' : 'Disabled'
 })
+const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
 
 async function loadOverview() {
   try {
@@ -60,16 +61,19 @@ onMounted(loadOverview)
         </router-link>
       </nav>
 
-      <div class="safety-card mt-auto">
-        <div class="d-flex align-items-center gap-2">
-          <span class="safety-icon">
-            <i class="bi bi-shield-lock"></i>
+      <div class="sidebar-bottom mt-auto">
+        <a
+          class="contribute-card text-decoration-none"
+          :href="githubProjectUrl"
+          target="_blank"
+          rel="noopener noreferrer">
+          <span class="contribute-icon">
+            <i class="bi bi-github"></i>
           </span>
-          <div>
-            <strong>Loopback first</strong>
-            <div class="small text-muted">Local-only by default</div>
-          </div>
-        </div>
+          <span>
+            <strong>Contribute to the project</strong>
+          </span>
+        </a>
         <div v-if="overview?.activation && !overview.activation.enabled" class="alert alert-warning mt-3 mb-0 small">
           BootUI is disabled: {{ overview.activation.reason }}
         </div>
@@ -226,7 +230,7 @@ onMounted(loadOverview)
 
 .brand-mark,
 .page-icon,
-.safety-icon {
+.contribute-icon {
   align-items: center;
   border-radius: 1rem;
   display: inline-flex;
@@ -296,16 +300,36 @@ onMounted(loadOverview)
   font-size: 1.05rem;
 }
 
-.safety-card {
+.sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+}
+
+.contribute-card {
+  align-items: center;
   background: rgba(255, 255, 255, 0.84);
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 1.1rem;
+  color: inherit;
+  display: flex;
+  gap: 0.75rem;
   padding: 0.9rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.safety-icon {
-  background: rgba(25, 135, 84, 0.12);
-  color: #198754;
+.contribute-card:hover {
+  border-color: rgba(13, 110, 253, 0.25);
+  box-shadow: 0 0.9rem 1.8rem rgba(15, 23, 42, 0.09);
+  transform: translateY(-2px);
+}
+
+.contribute-card strong {
+  display: block;
+}
+
+.contribute-icon {
+  background: #24292f;
+  color: #fff;
   height: 2.25rem;
   width: 2.25rem;
 }

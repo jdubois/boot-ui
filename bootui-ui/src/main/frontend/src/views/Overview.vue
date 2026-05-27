@@ -8,6 +8,7 @@ const error = ref(null)
 const activeProfiles = computed(() => data.value?.activeProfiles ?? [])
 const defaultProfiles = computed(() => data.value?.defaultProfiles ?? [])
 const warningCount = computed(() => data.value?.activation?.warnings?.length ?? 0)
+const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
 const stats = computed(() => {
   if (!data.value) return []
   return [
@@ -88,6 +89,10 @@ onMounted(load)
         <a class="btn btn-outline-light" href="/">
           <i class="bi bi-house-door me-1"></i>
           Back to homepage
+        </a>
+        <a class="btn btn-outline-light" :href="githubProjectUrl" target="_blank" rel="noopener noreferrer">
+          <i class="bi bi-github me-1"></i>
+          BootUI GitHub project
         </a>
         <button class="btn btn-light hero-refresh" @click="load" :disabled="loading">
           <i class="bi bi-arrow-clockwise me-1" :class="{ 'spin': loading }"></i>
