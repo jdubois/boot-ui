@@ -13,6 +13,14 @@ test.describe('BootUI app shell', () => {
     await expect(subtitle).toContainText(/Java /)
   })
 
+  test('sidebar links to the BootUI GitHub project', async ({ page }) => {
+    await page.goto('/bootui/')
+
+    const contributeLink = page.getByRole('link', { name: /Contribute to the project/ })
+    await expect(contributeLink).toHaveAttribute('href', 'https://github.com/jdubois/boot-ui')
+    await expect(contributeLink.locator('.bi-github')).toBeVisible()
+  })
+
   test('sidebar links open every BootUI section', async ({ page }) => {
     const links = [
       { title: 'Overview',          heading: /^Overview/ },
