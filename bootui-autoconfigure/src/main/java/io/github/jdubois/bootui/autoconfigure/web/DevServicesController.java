@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.BootUiDtos.DevServicePortDto;
 import io.github.jdubois.bootui.core.BootUiDtos.DevServiceRestartResult;
 import io.github.jdubois.bootui.core.BootUiDtos.DevServicesReport;
 import io.github.jdubois.bootui.core.SecretMasker;
+import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -109,10 +110,14 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
     @GetMapping("/{id}/logs")
     public DevServiceLogReport logs(@PathVariable String id) {
         Object bean = findBeanBackedService(id);
-        if (bean == null || findNoArgMethod(bean.getClass(), "getLogs") == null) {
+        if (bean == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found");
+        }
+        Method logsMethod = findLogsMethod(bean.getClass());
+        if (logsMethod == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Logs are not available for this service");
         }
-        Object logs = invoke(bean, "getLogs");
+        Object logs = invokeLogs(bean, logsMethod);
         String text = logs == null ? "" : String.valueOf(logs);
         int maxBytes = Math.max(1024, properties.getDevServices().getLogTailBytes());
         boolean truncated = text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxBytes;
@@ -237,7 +242,7 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
                 testcontainersPorts(bean),
                 sanitizeDetails(details),
                 restartable,
-                findNoArgMethod(bean.getClass(), "getLogs") != null,
+                findLogsMethod(bean.getClass()) != null,
                 properties.getDevServices().isRestartEnabled()
                         ? "Restart may require application clients to reconnect."
                         : "Restart disabled by default; set bootui.dev-services.restart-enabled=true to allow it.");
@@ -569,6 +574,39 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
 
     private Method findNoArgMethod(Class<?> type, String methodName) {
         return findMethod(type, methodName);
+    }
+
+    private Method findLogsMethod(Class<?> type) {
+        for (Method method : type.getMethods()) {
+            if (!method.getName().equals("getLogs") || method.getReturnType() == Void.TYPE) {
+                continue;
+            }
+            if (method.getParameterCount() == 0) {
+                return method;
+            }
+            if (method.isVarArgs() && method.getParameterCount() == 1 && method.getParameterTypes()[0].isArray()) {
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private Object invokeLogs(Object bean, Method logsMethod) {
+        try {
+            if (logsMethod.getParameterCount() == 0) {
+                return logsMethod.invoke(bean);
+            }
+            Object emptySelection = Array.newInstance(logsMethod.getParameterTypes()[0].getComponentType(), 0);
+            return logsMethod.invoke(bean, emptySelection);
+        }
+        catch (IllegalAccessException ex) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Unable to read service logs", ex);
+        }
+        catch (InvocationTargetException ex) {
+            Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+            String message = cause.getMessage() == null ? "Unable to read service logs" : cause.getMessage();
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, message, cause);
+        }
     }
 
     private Method findMethod(Class<?> type, String methodName, Object... args) {

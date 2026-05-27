@@ -88,7 +88,7 @@ The DevTools panel reports Spring Boot DevTools availability, LiveReload status,
 
 ## Dev Services
 
-The Dev Services panel surfaces local development services discovered from Docker Compose snapshots, Testcontainers beans, and service connection metadata. It masks sensitive connection information, can show bounded logs for supported services, and keeps restart controls disabled unless `bootui.dev-services.restart-enabled=true`.
+The Dev Services panel surfaces local development services discovered from Docker Compose snapshots, Testcontainers beans, and service connection metadata. It masks sensitive connection information, can show bounded logs for supported services, and shows restart controls only for supported Testcontainers services when `bootui.dev-services.restart-enabled=true`.
 
 ![BootUI Dev Services panel](images/bootui-dev-services.png)
 
