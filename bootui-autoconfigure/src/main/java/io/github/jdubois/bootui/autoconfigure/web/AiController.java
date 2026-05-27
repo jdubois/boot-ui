@@ -83,7 +83,7 @@ public class AiController {
                 embeddingCount++;
             }
         }
-        int recentLimit = Math.max(1, Math.min(aiConfig.getMaxRecentChats(), chats.size()));
+        int recentLimit = Math.min(aiConfig.getMaxRecentChats(), chats.size());
         List<AiChatSummaryDto> recent = new ArrayList<>(recentLimit);
         for (int i = 0; i < recentLimit; i++) {
             recent.add(toSummary(chats.get(i)));
