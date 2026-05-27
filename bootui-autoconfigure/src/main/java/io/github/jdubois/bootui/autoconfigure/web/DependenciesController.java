@@ -58,7 +58,9 @@ public class DependenciesController {
         else {
             report = vulnerabilityScanner.scan(dependencies);
         }
-        this.lastScanReport = report;
+        if (!"DISABLED".equals(report.status())) {
+            this.lastScanReport = report;
+        }
         return report;
     }
 }
