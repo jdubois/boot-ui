@@ -5,9 +5,11 @@ import { useRoute, useRouter } from 'vue-router'
 const router = useRouter()
 const route = useRoute()
 const overview = ref(null)
+const panels = ref(null)
 const error = ref(null)
 
 const routes = router.options.routes.filter(r => r.name)
+const panelLookup = computed(() => new Map((panels.value?.panels ?? []).map(panel => [panel.id, panel])))
 const activeTitle = computed(() => route.meta?.title ?? 'BootUI')
 const activeIcon = computed(() => route.meta?.icon ?? 'bi-speedometer2')
 const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
@@ -28,11 +30,25 @@ async function loadOverview() {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     overview.value = await res.json()
   } catch (e) {
-    error.value = e.message
+    error.value = 'Unable to load overview: ' + e.message
   }
 }
 
-onMounted(loadOverview)
+async function loadPanels() {
+  try {
+    const res = await fetch('api/panels')
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    panels.value = await res.json()
+  } catch (e) {
+    error.value = 'Unable to load panel availability: ' + e.message
+  }
+}
+
+async function loadShellData() {
+  await Promise.all([loadOverview(), loadPanels()])
+}
+
+onMounted(loadShellData)
 </script>
 
 <template>
@@ -55,9 +71,13 @@ onMounted(loadOverview)
           :key="r.name"
           :to="r.path"
           class="nav-link bootui-nav-link"
-          :class="{ active: route.name === r.name }">
+          :class="{
+            active: route.name === r.name,
+            'bootui-nav-link--unavailable': panelLookup.get(r.name)?.available === false
+          }">
           <i :class="['bi', r.meta.icon]"></i>
-          <span>{{ r.meta.title }}</span>
+          <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+          <small v-if="panelLookup.get(r.name)?.available === false" class="bootui-nav-link__status">Unavailable</small>
         </router-link>
       </nav>
 
@@ -298,6 +318,22 @@ onMounted(loadOverview)
 
 .bootui-nav-link i {
   font-size: 1.05rem;
+}
+
+.bootui-nav-link__label {
+  flex: 1;
+}
+
+.bootui-nav-link__status {
+  font-size: 0.72rem;
+}
+
+.bootui-nav-link--unavailable {
+  opacity: 0.55;
+}
+
+.bootui-nav-link--unavailable .bootui-nav-link__label {
+  font-style: italic;
 }
 
 .sidebar-bottom {

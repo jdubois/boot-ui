@@ -21,6 +21,7 @@ import io.github.jdubois.bootui.autoconfigure.web.MappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.web.MetricsController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
+import io.github.jdubois.bootui.autoconfigure.web.PanelsController;
 import io.github.jdubois.bootui.autoconfigure.web.ProfileController;
 import io.github.jdubois.bootui.autoconfigure.web.ScheduledController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityController;
@@ -55,6 +56,7 @@ import org.springframework.core.env.Environment;
 @EnableConfigurationProperties(BootUiProperties.class)
 @Import({
         OverviewController.class,
+        PanelsController.class,
         BeansController.class,
         ConditionsController.class,
         ConfigController.class,
