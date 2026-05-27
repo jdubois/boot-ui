@@ -37,18 +37,20 @@ class OtlpReceiverEndToEndTests {
 
     private static final String VECTOR_SPAN_ID = "3333333333333333";
 
+    private BootUiProperties properties;
+
     private TelemetryStore store;
 
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        BootUiProperties properties = new BootUiProperties();
+        properties = new BootUiProperties();
         properties.getTelemetry().setEnabled(true);
         store = new TelemetryStore(properties.getTelemetry());
         OtlpSpanDecoder decoder = new OtlpSpanDecoder(properties.getTelemetry());
         OtlpReceiverController receiver = new OtlpReceiverController(store, decoder, properties);
-        TracesController traces = new TracesController(store);
+        TracesController traces = new TracesController(store, properties);
         AiController ai = new AiController(store, properties);
         mvc = standaloneSetup(receiver, traces, ai).build();
     }
@@ -116,6 +118,35 @@ class OtlpReceiverEndToEndTests {
                 .contentType("application/x-protobuf")
                 .content(new byte[256]))
                 .andExpect(status().isPayloadTooLarge());
+    }
+
+    @Test
+    void reportsDisabledTelemetryState() throws Exception {
+        properties.getTelemetry().setEnabled(false);
+
+        mvc.perform(get("/bootui/api/traces"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false));
+
+        mvc.perform(get("/bootui/api/ai/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false));
+
+        mvc.perform(post("/bootui/api/otlp/v1/traces")
+                .contentType("application/x-protobuf")
+                .content(new byte[] { 0x01 }))
+                .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void aiOverviewBoundsConfiguredRecentChats() throws Exception {
+        properties.getAi().setMaxRecentChats(-10);
+        store.add(decode(sampleRequest()).get(0));
+
+        mvc.perform(get("/bootui/api/ai/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalChats").value(1))
+                .andExpect(jsonPath("$.recent.length()").value(0));
     }
 
     @Test

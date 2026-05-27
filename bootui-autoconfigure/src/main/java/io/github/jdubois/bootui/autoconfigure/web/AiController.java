@@ -42,6 +42,12 @@ public class AiController {
 
     private static final long NANOS_PER_SECOND = 1_000_000_000L;
 
+    private static final int MAX_RECENT_CHATS = 500;
+
+    private static final int MAX_TOKEN_SERIES_MINUTES = 240;
+
+    private static final int MAX_MODEL_BREAKDOWN_ENTRIES = 50;
+
     private final TelemetryStore store;
 
     private final BootUiProperties properties;
@@ -83,25 +89,26 @@ public class AiController {
                 embeddingCount++;
             }
         }
-        int recentLimit = Math.min(aiConfig.getMaxRecentChats(), chats.size());
+        int recentLimit = Math.min(clamp(aiConfig.getMaxRecentChats(), 0, MAX_RECENT_CHATS), chats.size());
         List<AiChatSummaryDto> recent = new ArrayList<>(recentLimit);
         for (int i = 0; i < recentLimit; i++) {
             recent.add(toSummary(chats.get(i)));
         }
+        boolean telemetryEnabled = properties.getTelemetry().isEnabled();
         boolean springAi = isSpringAiOnClasspath();
-        String banner = aiConfig.isShowContentCaptureBanner()
+        String banner = telemetryEnabled && springAi && aiConfig.isShowContentCaptureBanner()
                 ? "Prompt and completion text is not captured by default. Enable Spring AI's "
                   + "include-prompt / include-completion observation options (or attach a custom "
                   + "ObservationFilter) to see message content in the conversation drawer."
                 : null;
         return new AiOverviewDto(
-                properties.getTelemetry().isEnabled(),
+                telemetryEnabled,
                 springAi,
                 chats.size(),
                 totalIn,
                 totalOut,
-                tokensByModel,
-                callsByModel,
+                topLongEntries(tokensByModel),
+                topIntegerEntries(callsByModel),
                 toolCount,
                 vectorCount,
                 embeddingCount,
@@ -131,8 +138,9 @@ public class AiController {
     }
 
     @GetMapping("/tokens")
-    public AiTokenSeriesDto tokens(@RequestParam(name = "minutes", required = false, defaultValue = "60") int minutes) {
-        int window = Math.max(1, Math.min(240, minutes));
+    public AiTokenSeriesDto tokens(@RequestParam(name = "minutes", required = false) Integer minutes) {
+        int requestedWindow = minutes != null ? minutes : properties.getAi().getTokenSeriesMinutes();
+        int window = clamp(requestedWindow, 1, MAX_TOKEN_SERIES_MINUTES);
         long nowMillis = System.currentTimeMillis();
         long endMinute = nowMillis / 60_000L;
         long startMinute = endMinute - window + 1;
@@ -278,5 +286,27 @@ public class AiController {
     // helper used by unit tests
     static long nanosPerMs() {
         return NANOS_PER_MS;
+    }
+
+    private static Map<String, Long> topLongEntries(Map<String, Long> input) {
+        return input.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(MAX_MODEL_BREAKDOWN_ENTRIES)
+                .collect(LinkedHashMap::new,
+                        (map, entry) -> map.put(entry.getKey(), entry.getValue()),
+                        LinkedHashMap::putAll);
+    }
+
+    private static Map<String, Integer> topIntegerEntries(Map<String, Integer> input) {
+        return input.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(MAX_MODEL_BREAKDOWN_ENTRIES)
+                .collect(LinkedHashMap::new,
+                        (map, entry) -> map.put(entry.getKey(), entry.getValue()),
+                        LinkedHashMap::putAll);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

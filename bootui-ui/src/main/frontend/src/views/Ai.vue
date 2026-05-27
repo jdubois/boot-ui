@@ -15,7 +15,7 @@ async function load() {
   try {
     const [ovRes, tsRes] = await Promise.all([
       fetch('api/ai/overview'),
-      fetch('api/ai/tokens?minutes=60')
+      fetch('api/ai/tokens')
     ])
     if (!ovRes.ok) throw new Error('HTTP ' + ovRes.status)
     overview.value = await ovRes.json()
@@ -127,7 +127,16 @@ onMounted(load)
         <i class="bi bi-info-circle me-1"></i>{{ overview.contentBanner }}
       </div>
 
-      <div v-if="!hasAnyData" class="alert alert-secondary">
+      <div v-if="!overview.enabled" class="alert alert-info small">
+        Telemetry receiver is disabled. Set <code>bootui.telemetry.enabled=true</code> and export OTLP spans to
+        <code>/bootui/api/otlp/v1/traces</code> to populate AI usage.
+      </div>
+
+      <div v-else-if="!overview.springAiDetected" class="alert alert-secondary">
+        Spring AI is not on the classpath for this application, so BootUI cannot collect AI usage spans.
+      </div>
+
+      <div v-else-if="!hasAnyData" class="alert alert-secondary">
         No AI chat completions recorded yet. Make sure your application uses Spring AI with OpenTelemetry tracing enabled
         and exports OTLP to <code>/bootui/api/otlp/v1/traces</code>, then exercise a chat endpoint to populate this panel.
       </div>
@@ -301,3 +310,9 @@ onMounted(load)
     </div>
   </div>
 </template>
+
+<style scoped>
+code {
+  overflow-wrap: anywhere;
+}
+</style>

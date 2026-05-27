@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedEvent;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
@@ -33,10 +34,15 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/bootui/api/traces")
 public class TracesController {
 
+    private static final int MAX_SUMMARY_SERVICES = 20;
+
     private final TelemetryStore store;
 
-    public TracesController(TelemetryStore store) {
+    private final BootUiProperties properties;
+
+    public TracesController(TelemetryStore store, BootUiProperties properties) {
         this.store = store;
+        this.properties = properties;
     }
 
     @GetMapping
@@ -46,7 +52,7 @@ public class TracesController {
         for (TelemetryStore.TraceBucket bucket : store.recentTraces(safeLimit)) {
             summaries.add(toSummary(bucket));
         }
-        return new TracesReport(true, store.retainedTraceCount(), store.capacity(), summaries);
+        return new TracesReport(properties.getTelemetry().isEnabled(), store.retainedTraceCount(), store.capacity(), summaries);
     }
 
     @GetMapping("/{traceId}")
@@ -114,7 +120,7 @@ public class TracesController {
         return new TraceSummaryDto(
                 bucket.traceId(),
                 rootSpanName,
-                new ArrayList<>(services),
+                firstServices(services),
                 minStart,
                 maxEnd,
                 Math.max(0L, maxEnd - minStart),
@@ -162,6 +168,22 @@ public class TracesController {
             out.add(new SpanEventDto(event.name(), event.timeOffsetNanos(),
                     toAttributeList(event.attributes())));
         }
+        return out;
+    }
+
+    private static List<String> firstServices(Set<String> services) {
+        if (services.size() <= MAX_SUMMARY_SERVICES) {
+            return new ArrayList<>(services);
+        }
+        List<String> out = new ArrayList<>(MAX_SUMMARY_SERVICES + 1);
+        int count = 0;
+        for (String service : services) {
+            if (count++ >= MAX_SUMMARY_SERVICES) {
+                break;
+            }
+            out.add(service);
+        }
+        out.add("...");
         return out;
     }
 }

@@ -20,6 +20,10 @@ import java.util.Map;
  */
 public class TelemetryStore {
 
+    static final int HARD_MAX_TRACES = 10_000;
+
+    static final int HARD_MAX_SPANS_PER_TRACE = 1_000;
+
     /** Holder for a single trace; the spans list is mutated under the store's monitor. */
     public static final class TraceBucket {
 
@@ -66,7 +70,7 @@ public class TelemetryStore {
         TraceBucket bucket = tracesById.remove(span.traceId());
         if (bucket == null) {
             bucket = new TraceBucket(span.traceId());
-            while (tracesById.size() >= Math.max(1, config.getMaxTraces())) {
+            while (tracesById.size() >= effectiveMaxTraces(config)) {
                 Iterator<Map.Entry<String, TraceBucket>> it = tracesById.entrySet().iterator();
                 if (!it.hasNext()) {
                     break;
@@ -75,7 +79,7 @@ public class TelemetryStore {
                 it.remove();
             }
         }
-        if (bucket.spans.size() < Math.max(1, config.getMaxSpansPerTrace())) {
+        if (bucket.spans.size() < effectiveMaxSpansPerTrace(config)) {
             bucket.spans.add(span);
         }
         bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
@@ -103,7 +107,7 @@ public class TelemetryStore {
     }
 
     public int capacity() {
-        return config.getMaxTraces();
+        return effectiveMaxTraces(config);
     }
 
     /** Snapshot of all spans for read-only iteration. */
@@ -117,5 +121,17 @@ public class TelemetryStore {
 
     public synchronized void clear() {
         tracesById.clear();
+    }
+
+    static int effectiveMaxTraces(BootUiProperties.Telemetry config) {
+        return clamp(config.getMaxTraces(), 1, HARD_MAX_TRACES);
+    }
+
+    static int effectiveMaxSpansPerTrace(BootUiProperties.Telemetry config) {
+        return clamp(config.getMaxSpansPerTrace(), 1, HARD_MAX_SPANS_PER_TRACE);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

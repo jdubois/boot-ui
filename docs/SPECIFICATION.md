@@ -834,6 +834,15 @@ Initial properties:
 | `bootui.dependencies.max-advisories` | `200` | Maximum advisory detail documents fetched after a query. |
 | `bootui.dev-services.restart-enabled` | `false` | Enables restart controls for bean-backed Testcontainers services. |
 | `bootui.dev-services.log-tail-bytes` | `65536` | Maximum bytes returned by one Dev Services log request. |
+| `bootui.telemetry.enabled` | `true` | Enables the local OTLP/HTTP trace receiver used by the Traces and AI Usage panels. |
+| `bootui.telemetry.max-traces` | `500` | Maximum distinct traces retained in memory; internally capped for UI safety. |
+| `bootui.telemetry.max-spans-per-trace` | `500` | Maximum spans retained for one trace; internally capped for UI safety. |
+| `bootui.telemetry.max-attribute-value-bytes` | `4096` | Maximum attribute string length before truncation; internally capped for UI safety. |
+| `bootui.telemetry.exclude-self-spans` | `true` | Drops spans for BootUI's own API routes from the retained trace data. |
+| `bootui.telemetry.max-request-bytes` | `8388608` | Maximum OTLP payload size accepted by the local receiver. |
+| `bootui.ai.token-series-minutes` | `60` | Default token-usage chart window for the AI Usage panel, capped by the API. |
+| `bootui.ai.max-recent-chats` | `100` | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API. |
+| `bootui.ai.show-content-capture-banner` | `true` | Shows guidance when Spring AI prompt/completion content is not captured in spans. |
 
 ### 6.6 Security model
 

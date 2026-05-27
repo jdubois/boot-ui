@@ -151,14 +151,15 @@ onMounted(load)
       <div v-if="!report.enabled" class="alert alert-info small">
         Telemetry receiver is disabled. Set <code>bootui.telemetry.enabled=true</code> and configure your application
         to export OTLP to <code>http://localhost:8080/bootui/api/otlp/v1/traces</code>.
+        <span v-if="report.retained > 0">Showing spans retained before telemetry was disabled.</span>
       </div>
 
-      <div v-else-if="report.retained === 0" class="alert alert-secondary">
+      <div v-if="report.enabled && report.retained === 0" class="alert alert-secondary">
         No traces received yet. Add an OTLP exporter pointed at
         <code>/bootui/api/otlp/v1/traces</code> and exercise your application to populate this panel.
       </div>
 
-      <template v-else>
+      <template v-if="report.retained > 0">
         <div class="mb-3">
           <input v-model="filter" class="form-control form-control-sm"
                  placeholder="Filter by trace id, root span, or service…" />
@@ -243,11 +244,12 @@ onMounted(load)
 </template>
 
 <style scoped>
-.waterfall { display: flex; flex-direction: column; gap: 4px; }
-.waterfall-row { display: grid; grid-template-columns: 220px 1fr 80px; align-items: center; gap: 8px; }
+.waterfall { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; }
+.waterfall-row { display: grid; grid-template-columns: 220px minmax(220px, 1fr) 80px; align-items: center; gap: 8px; min-width: 540px; }
 .waterfall-label { overflow: hidden; }
 .waterfall-track { position: relative; height: 16px; background: rgba(0,0,0,0.05); border-radius: 4px; }
 .waterfall-bar { height: 100%; border-radius: 4px; }
 .waterfall-duration { text-align: right; }
 .trace-drawer { border: 1px solid rgba(0,0,0,0.08); }
+code { overflow-wrap: anywhere; }
 </style>
