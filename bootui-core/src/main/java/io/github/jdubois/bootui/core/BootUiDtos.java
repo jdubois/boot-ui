@@ -486,6 +486,10 @@ public final class BootUiDtos {
             List<DependencySeverityCountDto> severityCounts,
             DependencyScanStatusDto scan,
             List<DependencyDto> dependencies) {
+
+        public String status() {
+            return scan == null ? null : scan.status();
+        }
     }
 
     /** A single JVM memory pool (heap, non-heap, or GC pool). */
