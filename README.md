@@ -39,7 +39,7 @@ BootUI exposes these panels in the same order as the application menu. See the [
 | [Security](docs/FEATURES.md#security) | Inspect Spring Security filter chains and best-effort endpoint rule explanations. |
 | [Vulnerabilities](docs/FEATURES.md#vulnerabilities) | Review dependency inventory and local OSV vulnerability scan results. |
 
-Some panels depend on optional Spring, Actuator, or development infrastructure. When data is unavailable, BootUI returns stable empty responses or shows an explanatory empty state.
+Some panels depend on optional Spring, Actuator, or development infrastructure. When data is unavailable, BootUI returns stable empty responses or shows an explanatory empty state. The sidebar also dims panels whose backing classpath or endpoint support is unavailable so you can spot empty sections immediately.
 
 ## Setup
 

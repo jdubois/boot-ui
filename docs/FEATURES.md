@@ -1,6 +1,6 @@
 # BootUI feature details
 
-BootUI panels are documented here in the same order as the application menu.
+BootUI panels are documented here in the same order as the application menu. When a panel's backing infrastructure is missing, the sidebar keeps the route visible but dims it so you can tell at a glance that the panel has no live data for the current application.
 
 ## Overview
 

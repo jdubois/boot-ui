@@ -40,6 +40,17 @@ public final class BootUiDtos {
             List<String> warnings) {
     }
 
+    /** Availability status for one BootUI sidebar panel. */
+    public record PanelDto(
+            String id,
+            String title,
+            boolean available,
+            String unavailableReason) {
+    }
+
+    public record PanelsReport(List<PanelDto> panels) {
+    }
+
     /** Spring-managed bean summary. */
     public record BeanSummary(
             String name,
