@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -32,7 +32,83 @@ async function loadOverview() {
   }
 }
 
-onMounted(loadOverview)
+// --- Log footer ---
+const LOG_MAX = 200
+const logLines = ref([])
+const logExpanded = ref(false)
+const logPaused = ref(false)
+const logConnected = ref(false)
+const logFooterRef = ref(null)
+let logSource = null
+
+const LOG_LEVEL_RE = /\b(ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\b/
+const LOG_LEVEL_CLASSES = {
+  ERROR: 'log-error',
+  WARN: 'log-warn',
+  WARNING: 'log-warn',
+  INFO: 'log-info',
+  DEBUG: 'log-debug',
+  TRACE: 'log-trace'
+}
+
+function lineClass(text) {
+  const m = LOG_LEVEL_RE.exec(text)
+  return m ? LOG_LEVEL_CLASSES[m[1]] : ''
+}
+
+function connectLog() {
+  if (logSource) return
+  logSource = new EventSource('api/logs/stream')
+  logSource.addEventListener('open', () => { logConnected.value = true })
+  logSource.addEventListener('error', () => { logConnected.value = false })
+  logSource.addEventListener('message', e => {
+    if (logPaused.value) return
+    const text = e.data ?? ''
+    if (!text) return
+    logLines.value.push(text)
+    if (logLines.value.length > LOG_MAX) logLines.value.splice(0, logLines.value.length - LOG_MAX)
+    if (logExpanded.value) {
+      nextTick(() => {
+        if (logFooterRef.value) logFooterRef.value.scrollTop = logFooterRef.value.scrollHeight
+      })
+    }
+  })
+  logConnected.value = true
+}
+
+function disconnectLog() {
+  if (logSource) {
+    logSource.close()
+    logSource = null
+    logConnected.value = false
+  }
+}
+
+function toggleLogExpanded() {
+  logExpanded.value = !logExpanded.value
+  if (logExpanded.value) {
+    nextTick(() => {
+      if (logFooterRef.value) logFooterRef.value.scrollTop = logFooterRef.value.scrollHeight
+    })
+  }
+}
+
+function clearLog() {
+  logLines.value = []
+}
+
+function toggleLogPaused() {
+  logPaused.value = !logPaused.value
+}
+
+const lastLine = computed(() => logLines.value[logLines.value.length - 1] ?? '')
+
+onMounted(() => {
+  loadOverview()
+  connectLog()
+})
+
+onUnmounted(disconnectLog)
 </script>
 
 <template>
@@ -116,9 +192,36 @@ onMounted(loadOverview)
         </router-view>
       </main>
 
-      <footer class="bootui-footer">
-        BootUI · embedded in your Spring Boot app · no external service required
-      </footer>
+      <div class="log-footer" :class="{ 'log-footer--expanded': logExpanded }">
+        <div class="log-footer-bar" role="button" tabindex="0" @click="toggleLogExpanded" @keydown.enter.space.prevent="toggleLogExpanded">
+          <span class="log-footer-status" :class="logConnected ? 'log-status-on' : 'log-status-off'" :title="logConnected ? 'Connected' : 'Disconnected'"></span>
+          <span class="log-footer-label">Application Log</span>
+          <span class="log-footer-last font-monospace text-truncate" :class="lineClass(lastLine)">{{ lastLine }}</span>
+          <div class="log-footer-actions" @click.stop>
+            <button
+              class="log-btn"
+              :title="logPaused ? 'Resume' : 'Pause'"
+              :aria-pressed="logPaused"
+              @click="toggleLogPaused">
+              <i :class="['bi', logPaused ? 'bi-play-fill' : 'bi-pause-fill']"></i>
+            </button>
+            <button class="log-btn" title="Clear" @click="clearLog">
+              <i class="bi bi-trash3"></i>
+            </button>
+            <button class="log-btn" :title="logExpanded ? 'Collapse' : 'Expand'" @click="toggleLogExpanded">
+              <i :class="['bi', logExpanded ? 'bi-chevron-down' : 'bi-chevron-up']"></i>
+            </button>
+          </div>
+        </div>
+        <div v-if="logExpanded" class="log-footer-body" ref="logFooterRef">
+          <div
+            v-for="(line, idx) in logLines"
+            :key="idx"
+            class="log-line font-monospace"
+            :class="lineClass(line)">{{ line }}</div>
+          <div v-if="logLines.length === 0" class="log-empty">No log output yet…</div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -428,12 +531,119 @@ onMounted(loadOverview)
   box-shadow: 0 0.75rem 1.75rem rgba(180, 83, 9, 0.12);
 }
 
-.bootui-footer {
-  color: #64748b;
-  font-size: 0.82rem;
-  padding: 0 2rem 1.25rem;
-  text-align: center;
+.log-footer {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  bottom: 0;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  left: 0;
+  position: sticky;
+  z-index: 100;
 }
+
+.log-footer-bar {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 0.6rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  user-select: none;
+}
+
+.log-footer-bar:focus-visible {
+  outline: 2px solid #198754;
+  outline-offset: -2px;
+}
+
+.log-footer-status {
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 0.55rem;
+  width: 0.55rem;
+}
+
+.log-status-on {
+  animation: pulse-dot 2.5s ease-in-out infinite;
+  background: #22c55e;
+}
+
+.log-status-off {
+  background: #64748b;
+}
+
+.log-footer-label {
+  color: #64748b;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.log-footer-last {
+  color: #94a3b8;
+  flex: 1;
+  font-size: 0.75rem;
+  min-width: 0;
+}
+
+.log-footer-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.15rem;
+}
+
+.log-btn {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 0.4rem;
+  color: #64748b;
+  cursor: pointer;
+  display: inline-flex;
+  height: 1.4rem;
+  justify-content: center;
+  padding: 0;
+  transition: background 120ms ease, color 120ms ease;
+  width: 1.6rem;
+}
+
+.log-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+}
+
+.log-footer-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0.4rem 0.75rem;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+  scrollbar-width: thin;
+}
+
+.log-line {
+  color: #94a3b8;
+  font-size: 0.73rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-empty {
+  color: #475569;
+  font-size: 0.78rem;
+  padding: 0.25rem 0;
+}
+
+.log-error { color: #f87171 !important; }
+.log-warn  { color: #fbbf24 !important; }
+.log-info  { color: #94a3b8; }
+.log-debug { color: #64748b; }
+.log-trace { color: #475569; }
 
 .page-slide-enter-active,
 .page-slide-leave-active {
@@ -448,6 +658,11 @@ onMounted(loadOverview)
 .page-slide-leave-to {
   opacity: 0;
   transform: translateY(-0.35rem) scale(0.99);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 @keyframes fade-up {
