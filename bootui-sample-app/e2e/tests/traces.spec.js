@@ -61,18 +61,28 @@ const traceDetail = {
 }
 
 test.describe('Traces view', () => {
-
   test('renders trace summaries and waterfall details', async ({page}) => {
     await stubShell(page)
-    await page.route(url => url.pathname === '/bootui/api/traces', async route => {
-      await route.fulfill({contentType: 'application/json', body: JSON.stringify(traceReport)})
-    })
-    await page.route(url => url.pathname === `/bootui/api/traces/${traceId}`, async route => {
-      await route.fulfill({contentType: 'application/json', body: JSON.stringify(traceDetail)})
-    })
+    await page.route(
+      (url) => url.pathname === '/bootui/api/traces',
+      async (route) => {
+        await route.fulfill({contentType: 'application/json', body: JSON.stringify(traceReport)})
+      }
+    )
+    await page.route(
+      (url) => url.pathname === `/bootui/api/traces/${traceId}`,
+      async (route) => {
+        await route.fulfill({contentType: 'application/json', body: JSON.stringify(traceDetail)})
+      }
+    )
 
     await page.goto('/bootui/#/traces')
-    await expect(page.locator('main h2').filter({hasText: /^Traces/}).first()).toBeVisible()
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /^Traces/})
+        .first()
+    ).toBeVisible()
     await expect(page.getByText('1 / 500 retained trace')).toBeVisible()
     const traceRow = page.locator('tbody tr', {hasText: 'GET /api/sample/hello'})
     await expect(traceRow).toBeVisible()
@@ -87,12 +97,15 @@ test.describe('Traces view', () => {
 
   test('shows disabled mode when telemetry is unavailable', async ({page}) => {
     await stubShell(page)
-    await page.route(url => url.pathname === '/bootui/api/traces', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({enabled: false, retained: 0, capacity: 500, traces: []})
-      })
-    })
+    await page.route(
+      (url) => url.pathname === '/bootui/api/traces',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({enabled: false, retained: 0, capacity: 500, traces: []})
+        })
+      }
+    )
 
     await page.goto('/bootui/#/traces')
     await expect(page.getByText('Telemetry receiver is disabled')).toBeVisible()
@@ -101,31 +114,37 @@ test.describe('Traces view', () => {
 })
 
 async function stubShell(page) {
-  await page.route(url => url.pathname === '/bootui/api/overview', async route => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        bootUiVersion: 'test',
-        applicationName: 'bootui-sample',
-        springBootVersion: '4.0.6',
-        javaVersion: '25',
-        javaVendor: 'test',
-        activeProfiles: ['dev'],
-        defaultProfiles: ['default'],
-        webApplicationType: 'SERVLET',
-        serverPort: 8080,
-        managementPort: null,
-        contextPath: '',
-        startupTimeMillis: 1000,
-        activation: {enabled: true, localhostOnly: true, reason: 'test', warnings: []},
-        openApiUrl: null
+  await page.route(
+    (url) => url.pathname === '/bootui/api/overview',
+    async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          bootUiVersion: 'test',
+          applicationName: 'bootui-sample',
+          springBootVersion: '4.0.6',
+          javaVersion: '25',
+          javaVendor: 'test',
+          activeProfiles: ['dev'],
+          defaultProfiles: ['default'],
+          webApplicationType: 'SERVLET',
+          serverPort: 8080,
+          managementPort: null,
+          contextPath: '',
+          startupTimeMillis: 1000,
+          activation: {enabled: true, localhostOnly: true, reason: 'test', warnings: []},
+          openApiUrl: null
+        })
       })
-    })
-  })
-  await page.route(url => url.pathname === '/bootui/api/panels', async route => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({panels: [{id: 'traces', title: 'Traces', available: true, unavailableReason: null}]})
-    })
-  })
+    }
+  )
+  await page.route(
+    (url) => url.pathname === '/bootui/api/panels',
+    async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({panels: [{id: 'traces', title: 'Traces', available: true, unavailableReason: null}]})
+      })
+    }
+  )
 }

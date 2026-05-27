@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('HTTP mappings view', () => {
-
   test('lists the sample app endpoints and filters them', async ({openView, page}) => {
     await openView('mappings', 'HTTP mappings')
 

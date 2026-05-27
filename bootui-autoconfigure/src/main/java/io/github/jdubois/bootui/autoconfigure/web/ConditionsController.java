@@ -2,6 +2,10 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.ConditionEntry;
 import io.github.jdubois.bootui.core.BootUiDtos.ConditionsReport;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint.ConditionsDescriptor;
@@ -11,11 +15,6 @@ import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReport
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/bootui/api/conditions")
@@ -39,14 +38,17 @@ public class ConditionsController {
         List<String> unconditional = new ArrayList<>();
         List<String> exclusions = new ArrayList<>();
 
-        for (Map.Entry<String, ContextConditionsDescriptor> ctx : descriptor.getContexts().entrySet()) {
+        for (Map.Entry<String, ContextConditionsDescriptor> ctx :
+                descriptor.getContexts().entrySet()) {
             ContextConditionsDescriptor ccd = ctx.getValue();
-            for (Map.Entry<String, List<MessageAndConditionDescriptor>> e : ccd.getPositiveMatches().entrySet()) {
+            for (Map.Entry<String, List<MessageAndConditionDescriptor>> e :
+                    ccd.getPositiveMatches().entrySet()) {
                 for (MessageAndConditionDescriptor m : e.getValue()) {
                     positive.add(new ConditionEntry(e.getKey(), m.getCondition(), m.getMessage(), "MATCH"));
                 }
             }
-            for (Map.Entry<String, MessageAndConditionsDescriptor> e : ccd.getNegativeMatches().entrySet()) {
+            for (Map.Entry<String, MessageAndConditionsDescriptor> e :
+                    ccd.getNegativeMatches().entrySet()) {
                 MessageAndConditionsDescriptor v = e.getValue();
                 if (v.getNotMatched() != null) {
                     for (MessageAndConditionDescriptor m : v.getNotMatched()) {

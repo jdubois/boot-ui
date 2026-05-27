@@ -5,13 +5,12 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.web.filter.OncePerRequestFilter;
-
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Rejects any BootUI request that does not originate from a loopback address.
@@ -40,7 +39,7 @@ public class LocalhostOnlyFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
-        throws ServletException, IOException {
+            throws ServletException, IOException {
 
         if (properties.isAllowNonLocalhost() || !properties.isLocalhostOnly()) {
             chain.doFilter(request, response);
@@ -56,8 +55,9 @@ public class LocalhostOnlyFilter extends OncePerRequestFilter {
         log.warn("BootUI rejected non-loopback request from {} to {}", remote, request.getRequestURI());
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
-        response.getWriter().write("{\"error\":\"BootUI is restricted to loopback requests. " +
-            "Set bootui.allow-non-localhost=true to override.\"}");
+        response.getWriter()
+                .write("{\"error\":\"BootUI is restricted to loopback requests. "
+                        + "Set bootui.allow-non-localhost=true to override.\"}");
     }
 
     private boolean isLoopback(String remoteAddr) {

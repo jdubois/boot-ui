@@ -1,6 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
-import { apiFetch } from '../api.js'
+import {apiFetch} from '../api.js'
 
 const report = ref(null)
 const detail = ref(null)
@@ -77,20 +77,22 @@ const filteredTraces = computed(() => {
   if (!report.value) return []
   const v = filter.value.trim().toLowerCase()
   if (!v) return report.value.traces
-  return report.value.traces.filter(t =>
-    (t.traceId || '').toLowerCase().includes(v)
-    || (t.rootSpanName || '').toLowerCase().includes(v)
-    || (t.services || []).join(' ').toLowerCase().includes(v))
+  return report.value.traces.filter(
+    (t) =>
+      (t.traceId || '').toLowerCase().includes(v) ||
+      (t.rootSpanName || '').toLowerCase().includes(v) ||
+      (t.services || []).join(' ').toLowerCase().includes(v)
+  )
 })
 
 const waterfall = computed(() => {
   if (!detail.value || !detail.value.spans || detail.value.spans.length === 0) return null
   const spans = [...detail.value.spans]
-  const minStart = spans.reduce((m, s) => s.startEpochNanos < m ? s.startEpochNanos : m, spans[0].startEpochNanos)
-  const maxEnd = spans.reduce((m, s) => s.endEpochNanos > m ? s.endEpochNanos : m, spans[0].endEpochNanos)
+  const minStart = spans.reduce((m, s) => (s.startEpochNanos < m ? s.startEpochNanos : m), spans[0].startEpochNanos)
+  const maxEnd = spans.reduce((m, s) => (s.endEpochNanos > m ? s.endEpochNanos : m), spans[0].endEpochNanos)
   const totalNanos = Math.max(maxEnd - minStart, 1)
   const sorted = spans
-    .map(s => ({
+    .map((s) => ({
       ...s,
       offsetPct: ((s.startEpochNanos - minStart) / totalNanos) * 100,
       widthPct: Math.max((s.durationNanos / totalNanos) * 100, 0.5)
@@ -140,8 +142,11 @@ onMounted(load)
         </div>
       </div>
       <div class="d-flex gap-2">
-        <button :disabled="!report || report.retained === 0 || busy" class="btn btn-sm btn-outline-danger"
-                @click="clearAll">
+        <button
+          :disabled="!report || report.retained === 0 || busy"
+          class="btn btn-sm btn-outline-danger"
+          @click="clearAll"
+        >
           <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
           <i v-else class="bi bi-trash me-1"></i>Clear
         </button>
@@ -161,8 +166,8 @@ onMounted(load)
 
     <template v-else-if="report">
       <div v-if="!report.enabled" class="alert alert-info small">
-        Telemetry receiver is disabled. Set <code>bootui.telemetry.enabled=true</code> and configure your application
-        to export OTLP to <code>http://localhost:8080/bootui/api/otlp/v1/traces</code>.
+        Telemetry receiver is disabled. Set <code>bootui.telemetry.enabled=true</code> and configure your application to
+        export OTLP to <code>http://localhost:8080/bootui/api/otlp/v1/traces</code>.
         <span v-if="report.retained > 0">Showing spans retained before telemetry was disabled.</span>
       </div>
 
@@ -173,89 +178,97 @@ onMounted(load)
 
       <template v-if="report.retained > 0">
         <div class="mb-3">
-          <input v-model="filter" class="form-control form-control-sm"
-                 placeholder="Filter by trace id, root span, or service…"/>
+          <input
+            v-model="filter"
+            class="form-control form-control-sm"
+            placeholder="Filter by trace id, root span, or service…"
+          />
         </div>
 
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle">
             <thead>
-            <tr>
-              <th>Started</th>
-              <th>Root span</th>
-              <th>Services</th>
-              <th>Spans</th>
-              <th>Duration</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
+              <tr>
+                <th>Started</th>
+                <th>Root span</th>
+                <th>Services</th>
+                <th>Spans</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
-            <template v-for="t in filteredTraces" :key="t.traceId">
-              <tr :class="{ 'table-active': t.traceId === selectedTraceId }">
-                <td class="text-muted small">{{ formatTime(t.startEpochNanos) }}</td>
-                <td>
-                  <code class="me-2">{{ shortId(t.traceId) }}</code>
-                  <span class="fw-semibold">{{ t.rootSpanName || '—' }}</span>
-                  <span v-if="t.hasAi" class="badge text-bg-info ms-1"><i class="bi bi-stars"></i> AI</span>
-                </td>
-                <td>
-                  <span v-for="s in t.services" :key="s" class="badge text-bg-secondary me-1">{{ s }}</span>
-                </td>
-                <td>{{ t.spanCount }}</td>
-                <td>{{ formatDuration(t.durationNanos) }}</td>
-                <td>
-                  <span v-if="t.hasError" class="badge text-bg-danger">error</span>
-                  <span v-else class="badge text-bg-success">ok</span>
-                </td>
-                <td class="text-end">
-                  <button
-                    :aria-expanded="t.traceId === selectedTraceId"
-                    class="btn btn-sm btn-outline-primary"
-                    @click="toggleTrace(t.traceId)">
-                    {{ t.traceId === selectedTraceId ? 'Close' : 'Open' }}
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="t.traceId === selectedTraceId" class="trace-detail-row">
-                <td class="p-0" colspan="7">
-                  <div class="trace-drawer card m-2">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                      <div>
-                        <i class="bi bi-bezier2 me-2"></i>
-                        <code>{{ selectedTraceId }}</code>
-                      </div>
-                      <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
-                    </div>
-                    <div class="card-body">
-                      <div v-if="detailLoading" class="text-muted small">Loading spans…</div>
-                      <template v-else-if="waterfall">
-                        <div class="text-muted small mb-2">
-                          {{ waterfall.spans.length }} span{{ waterfall.spans.length === 1 ? '' : 's' }} ·
-                          total {{ formatDuration(waterfall.totalNanos) }}
+              <template v-for="t in filteredTraces" :key="t.traceId">
+                <tr :class="{'table-active': t.traceId === selectedTraceId}">
+                  <td class="text-muted small">{{ formatTime(t.startEpochNanos) }}</td>
+                  <td>
+                    <code class="me-2">{{ shortId(t.traceId) }}</code>
+                    <span class="fw-semibold">{{ t.rootSpanName || '—' }}</span>
+                    <span v-if="t.hasAi" class="badge text-bg-info ms-1"><i class="bi bi-stars"></i> AI</span>
+                  </td>
+                  <td>
+                    <span v-for="s in t.services" :key="s" class="badge text-bg-secondary me-1">{{ s }}</span>
+                  </td>
+                  <td>{{ t.spanCount }}</td>
+                  <td>{{ formatDuration(t.durationNanos) }}</td>
+                  <td>
+                    <span v-if="t.hasError" class="badge text-bg-danger">error</span>
+                    <span v-else class="badge text-bg-success">ok</span>
+                  </td>
+                  <td class="text-end">
+                    <button
+                      :aria-expanded="t.traceId === selectedTraceId"
+                      class="btn btn-sm btn-outline-primary"
+                      @click="toggleTrace(t.traceId)"
+                    >
+                      {{ t.traceId === selectedTraceId ? 'Close' : 'Open' }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="t.traceId === selectedTraceId" class="trace-detail-row">
+                  <td class="p-0" colspan="7">
+                    <div class="trace-drawer card m-2">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                          <i class="bi bi-bezier2 me-2"></i>
+                          <code>{{ selectedTraceId }}</code>
                         </div>
-                        <div class="waterfall">
-                          <div v-for="(s, i) in waterfall.spans" :key="s.spanId + '-' + i" class="waterfall-row">
-                            <div :title="s.name" class="waterfall-label">
-                              <span class="text-muted small">{{ s.serviceName || '—' }}</span>
-                              <div class="text-truncate">{{ s.name }}</div>
-                            </div>
-                            <div class="waterfall-track">
-                              <div :class="spanColor(s)" :style="{ marginLeft: s.offsetPct + '%', width: s.widthPct + '%' }"
-                                   :title="formatDuration(s.durationNanos)"
-                                   class="waterfall-bar">
+                        <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
+                      </div>
+                      <div class="card-body">
+                        <div v-if="detailLoading" class="text-muted small">Loading spans…</div>
+                        <template v-else-if="waterfall">
+                          <div class="text-muted small mb-2">
+                            {{ waterfall.spans.length }} span{{ waterfall.spans.length === 1 ? '' : 's' }} · total
+                            {{ formatDuration(waterfall.totalNanos) }}
+                          </div>
+                          <div class="waterfall">
+                            <div v-for="(s, i) in waterfall.spans" :key="s.spanId + '-' + i" class="waterfall-row">
+                              <div :title="s.name" class="waterfall-label">
+                                <span class="text-muted small">{{ s.serviceName || '—' }}</span>
+                                <div class="text-truncate">{{ s.name }}</div>
+                              </div>
+                              <div class="waterfall-track">
+                                <div
+                                  :class="spanColor(s)"
+                                  :style="{marginLeft: s.offsetPct + '%', width: s.widthPct + '%'}"
+                                  :title="formatDuration(s.durationNanos)"
+                                  class="waterfall-bar"
+                                ></div>
+                              </div>
+                              <div class="waterfall-duration small text-muted">
+                                {{ formatDuration(s.durationNanos) }}
                               </div>
                             </div>
-                            <div class="waterfall-duration small text-muted">{{ formatDuration(s.durationNanos) }}</div>
                           </div>
-                        </div>
-                      </template>
-                      <div v-else class="text-muted">No spans in this trace.</div>
+                        </template>
+                        <div v-else class="text-muted">No spans in this trace.</div>
+                      </div>
                     </div>
-                  </div>
-                </td>
-              </tr>
-            </template>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>

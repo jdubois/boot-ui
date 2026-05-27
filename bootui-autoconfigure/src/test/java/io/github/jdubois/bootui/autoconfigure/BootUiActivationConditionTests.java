@@ -1,15 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.springframework.mock.env.MockEnvironment;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import javax.tools.ToolProvider;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import javax.tools.ToolProvider;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.mock.env.MockEnvironment;
 
 class BootUiActivationConditionTests {
 
@@ -141,11 +140,12 @@ class BootUiActivationConditionTests {
             public class RestartScope {
             }
             """);
-        int result = ToolProvider.getSystemJavaCompiler()
-            .run(null, null, null, "-d", tempDir.toString(), source.toString());
+        int result =
+                ToolProvider.getSystemJavaCompiler().run(null, null, null, "-d", tempDir.toString(), source.toString());
         assertThat(result).isZero();
 
-        try (URLClassLoader devtoolsClassLoader = new URLClassLoader(new java.net.URL[]{tempDir.toUri().toURL()}, null)) {
+        try (URLClassLoader devtoolsClassLoader =
+                new URLClassLoader(new java.net.URL[] {tempDir.toUri().toURL()}, null)) {
             BootUiActivation activation = BootUiActivationCondition.resolve(new MockEnvironment(), devtoolsClassLoader);
 
             assertThat(activation.enabled()).isTrue();

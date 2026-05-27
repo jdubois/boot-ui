@@ -5,6 +5,10 @@ import io.github.jdubois.bootui.core.BootUiDtos.RepositoryDetailDto;
 import io.github.jdubois.bootui.core.BootUiDtos.RepositoryDto;
 import io.github.jdubois.bootui.core.BootUiDtos.RepositoryMethodDto;
 import jakarta.annotation.Nullable;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+import java.util.*;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -15,11 +19,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Method;
-import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Exposes Spring Data repositories declared in the current application context.
@@ -43,10 +42,10 @@ public class DataController {
     public RepositoriesReport repositories() {
         List<RepositoryEntry> entries = discover();
         List<RepositoryDto> summaries = entries.stream()
-            .map(this::toSummary)
-            .sorted(Comparator.comparing(RepositoryDto::repositoryInterface,
-                Comparator.nullsLast(String::compareTo)))
-            .collect(Collectors.toList());
+                .map(this::toSummary)
+                .sorted(Comparator.comparing(
+                        RepositoryDto::repositoryInterface, Comparator.nullsLast(String::compareTo)))
+                .collect(Collectors.toList());
         return new RepositoriesReport(true, summaries.size(), summaries);
     }
 
@@ -105,14 +104,14 @@ public class DataController {
         int fragments = fragmentCount(entry);
         int queryMethods = queryMethodCount(info);
         return new RepositoryDto(
-            entry.beanName(),
-            iface == null ? null : iface.getName(),
-            domainType == null ? null : domainType.getName(),
-            idType == null ? null : idType.getName(),
-            detectStoreModule(iface),
-            custom == null ? null : custom.getName(),
-            queryMethods,
-            fragments);
+                entry.beanName(),
+                iface == null ? null : iface.getName(),
+                domainType == null ? null : domainType.getName(),
+                idType == null ? null : idType.getName(),
+                detectStoreModule(iface),
+                custom == null ? null : custom.getName(),
+                queryMethods,
+                fragments);
     }
 
     private RepositoryDetailDto toDetail(RepositoryEntry entry) {
@@ -133,14 +132,14 @@ public class DataController {
             }
         }
         return new RepositoryDetailDto(
-            entry.beanName(),
-            iface == null ? null : iface.getName(),
-            domainType == null ? null : domainType.getName(),
-            idType == null ? null : idType.getName(),
-            detectStoreModule(iface),
-            custom == null ? null : custom.getName(),
-            methods,
-            Collections.emptyList());
+                entry.beanName(),
+                iface == null ? null : iface.getName(),
+                domainType == null ? null : domainType.getName(),
+                idType == null ? null : idType.getName(),
+                detectStoreModule(iface),
+                custom == null ? null : custom.getName(),
+                methods,
+                Collections.emptyList());
     }
 
     private RepositoryMethodDto toMethodDto(RepositoryInformation info, Method method) {
@@ -161,12 +160,12 @@ public class DataController {
             origin = "ANNOTATED";
         }
         return new RepositoryMethodDto(
-            method.getName(),
-            signatureOf(method),
-            origin,
-            queryAnnotation == null ? null : queryAnnotation.value,
-            queryAnnotation != null && queryAnnotation.nativeQuery,
-            queryAnnotation == null ? null : queryAnnotation.name);
+                method.getName(),
+                signatureOf(method),
+                origin,
+                queryAnnotation == null ? null : queryAnnotation.value,
+                queryAnnotation != null && queryAnnotation.nativeQuery,
+                queryAnnotation == null ? null : queryAnnotation.name);
     }
 
     private int queryMethodCount(RepositoryInformation info) {
@@ -202,8 +201,8 @@ public class DataController {
 
     private String signatureOf(Method method) {
         String params = Arrays.stream(method.getParameterTypes())
-            .map(Class::getSimpleName)
-            .collect(Collectors.joining(", "));
+                .map(Class::getSimpleName)
+                .collect(Collectors.joining(", "));
         String returnType = method.getReturnType().getSimpleName();
         return returnType + " " + method.getName() + "(" + params + ")";
     }
@@ -285,10 +284,10 @@ public class DataController {
             String name = readAttribute(annotation, "name");
             Boolean nativeQuery = readBooleanAttribute(annotation, "nativeQuery");
             return new QueryAnnotation(
-                value == null || value.isBlank() ? null : value,
-                name == null || name.isBlank() ? null : name,
-                Boolean.TRUE.equals(nativeQuery),
-                value != null && !value.isBlank());
+                    value == null || value.isBlank() ? null : value,
+                    name == null || name.isBlank() ? null : name,
+                    Boolean.TRUE.equals(nativeQuery),
+                    value != null && !value.isBlank());
         }
         return null;
     }
@@ -319,14 +318,11 @@ public class DataController {
         return beanName.startsWith("&") ? beanName.substring(1) : beanName;
     }
 
-    private record RepositoryEntry(String beanName,
-                                   RepositoryFactoryInformation<?, ?> factoryInformation,
-                                   RepositoryInformation information) {
-    }
+    private record RepositoryEntry(
+            String beanName,
+            RepositoryFactoryInformation<?, ?> factoryInformation,
+            RepositoryInformation information) {}
 
-    private record QueryAnnotation(@Nullable String value,
-                                   @Nullable String name,
-                                   boolean nativeQuery,
-                                   boolean hasValue) {
-    }
+    private record QueryAnnotation(
+            @Nullable String value, @Nullable String name, boolean nativeQuery, boolean hasValue) {}
 }

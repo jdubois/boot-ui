@@ -13,6 +13,5 @@ public final class BootUiInfo {
 
     public static final String DEFAULT_API_PATH = "/bootui/api";
 
-    private BootUiInfo() {
-    }
+    private BootUiInfo() {}
 }

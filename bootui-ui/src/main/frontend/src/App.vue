@@ -8,8 +8,8 @@ const overview = ref(null)
 const panels = ref(null)
 const error = ref(null)
 
-const routes = router.options.routes.filter(r => r.name)
-const panelLookup = computed(() => new Map((panels.value?.panels ?? []).map(panel => [panel.id, panel])))
+const routes = router.options.routes.filter((r) => r.name)
+const panelLookup = computed(() => new Map((panels.value?.panels ?? []).map((panel) => [panel.id, panel])))
 const activeTitle = computed(() => route.meta?.title ?? 'BootUI')
 const activeIcon = computed(() => route.meta?.icon ?? 'bi-speedometer2')
 const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
@@ -74,7 +74,8 @@ onMounted(loadShellData)
             'bootui-nav-link--unavailable': panelLookup.get(r.name)?.available === false
           }"
           :to="r.path"
-          class="nav-link bootui-nav-link">
+          class="nav-link bootui-nav-link"
+        >
           <i :class="['bi', r.meta.icon]"></i>
           <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
         </router-link>
@@ -85,7 +86,8 @@ onMounted(loadShellData)
           :href="githubProjectUrl"
           class="contribute-card text-decoration-none"
           rel="noopener noreferrer"
-          target="_blank">
+          target="_blank"
+        >
           <span class="contribute-icon">
             <i class="bi bi-github"></i>
           </span>
@@ -128,31 +130,33 @@ onMounted(loadShellData)
           </div>
         </div>
 
-        <router-view v-slot="{ Component }">
+        <router-view v-slot="{Component}">
           <transition mode="out-in" name="page-slide">
-            <component :is="Component" :key="route.fullPath" class="page-panel"/>
+            <component :is="Component" :key="route.fullPath" class="page-panel" />
           </transition>
         </router-view>
       </main>
 
-      <footer class="bootui-footer">
-        BootUI · embedded in your Spring Boot app · no external service required
-      </footer>
+      <footer class="bootui-footer">BootUI · embedded in your Spring Boot app · no external service required</footer>
     </div>
   </div>
 </template>
 
 <style scoped>
 :global(body) {
-  background: radial-gradient(circle at top left, rgba(25, 135, 84, 0.18), transparent 34rem),
-  linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
+  background:
+    radial-gradient(circle at top left, rgba(25, 135, 84, 0.18), transparent 34rem),
+    linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
 }
 
 :global(.card) {
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 1.1rem;
   box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.07);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 :global(.card:hover) {
@@ -238,7 +242,9 @@ onMounted(loadShellData)
   display: flex;
   gap: 0.85rem;
   padding: 0.85rem;
-  transition: transform 180ms ease, box-shadow 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .brand-card:hover {
@@ -299,7 +305,10 @@ onMounted(loadShellData)
   gap: 0.75rem;
   padding: 0.62rem 0.75rem;
   position: relative;
-  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
 }
 
 .bootui-nav-link:hover {
@@ -344,7 +353,10 @@ onMounted(loadShellData)
   display: flex;
   gap: 0.75rem;
   padding: 0.9rem;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .contribute-card:hover {
@@ -467,7 +479,9 @@ onMounted(loadShellData)
 
 .page-slide-enter-active,
 .page-slide-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
 }
 
 .page-slide-enter-from {

@@ -41,7 +41,7 @@ function formatScalar(value) {
     <span v-if="value.length === 0" class="text-muted">None</span>
     <ol v-else class="mb-0 ps-3">
       <li v-for="(item, index) in value" :key="index" class="mb-1">
-        <HealthDetails :value="item"/>
+        <HealthDetails :value="item" />
       </li>
     </ol>
   </div>
@@ -49,15 +49,15 @@ function formatScalar(value) {
   <div v-else-if="isPlainObject(value)" class="table-responsive">
     <table class="table table-sm table-borderless align-middle mb-0">
       <tbody>
-      <tr v-for="[key, item] in entries(value)" :key="key">
-        <th class="text-muted fw-normal ps-0" style="width: 34%">{{ labelFor(key) }}</th>
-        <td class="pe-0">
-          <code v-if="isScalar(item)">{{ formatScalar(item) }}</code>
-          <div v-else class="border rounded bg-light-subtle p-2">
-            <HealthDetails :value="item"/>
-          </div>
-        </td>
-      </tr>
+        <tr v-for="[key, item] in entries(value)" :key="key">
+          <th class="text-muted fw-normal ps-0" style="width: 34%">{{ labelFor(key) }}</th>
+          <td class="pe-0">
+            <code v-if="isScalar(item)">{{ formatScalar(item) }}</code>
+            <div v-else class="border rounded bg-light-subtle p-2">
+              <HealthDetails :value="item" />
+            </div>
+          </td>
+        </tr>
       </tbody>
     </table>
   </div>

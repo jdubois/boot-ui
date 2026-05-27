@@ -67,23 +67,33 @@ const scannedReport = {
 }
 
 test.describe('Vulnerabilities view', () => {
-
   test('renders inventory and on-demand vulnerability scan results', async ({page}) => {
-    await page.route(url => url.pathname === '/bootui/api/dependencies', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(inventoryReport)
-      })
-    })
-    await page.route(url => url.pathname === '/bootui/api/dependencies/scan', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(scannedReport)
-      })
-    })
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dependencies',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(inventoryReport)
+        })
+      }
+    )
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dependencies/scan',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(scannedReport)
+        })
+      }
+    )
 
     await page.goto('/bootui/#/vulnerabilities')
-    await expect(page.locator('main h2').filter({hasText: /^Vulnerabilities/}).first()).toBeVisible()
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /^Vulnerabilities/})
+        .first()
+    ).toBeVisible()
     await expect(page.getByText('2 of 2 dependencies')).toBeVisible()
     await expect(page.getByText('NOT_SCANNED')).toBeVisible()
     await expect(page.getByText('No vulnerability scan data yet')).toBeVisible()

@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Metrics view', () => {
-
   test('renders meter browser, measurements and live graph', async ({openView, page}) => {
     await openView('metrics', 'Metrics')
 

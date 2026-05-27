@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('DevTools view', () => {
-
   test('renders LiveReload and restart status cards without triggering restart', async ({openView, page}) => {
     await openView('devtools', 'DevTools')
 
@@ -18,32 +17,43 @@ test.describe('DevTools view', () => {
   })
 
   test('triggering LiveReload shows action feedback and keeps restart guarded', async ({page}) => {
-    await page.route(url => url.pathname === '/bootui/api/devtools', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          restartAvailable: false,
-          restartUnavailableReason: 'Spring Boot DevTools Restarter is not initialized.',
-          restartPending: false,
-          liveReloadAvailable: true,
-          liveReloadPort: 35729,
-          liveReloadUnavailableReason: null
+    await page.route(
+      (url) => url.pathname === '/bootui/api/devtools',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            restartAvailable: false,
+            restartUnavailableReason: 'Spring Boot DevTools Restarter is not initialized.',
+            restartPending: false,
+            liveReloadAvailable: true,
+            liveReloadPort: 35729,
+            liveReloadUnavailableReason: null
+          })
         })
-      })
-    })
-    await page.route(url => url.pathname === '/bootui/api/devtools/livereload', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          action: 'livereload',
-          status: 'triggered',
-          message: 'LiveReload notification sent to connected browsers.'
+      }
+    )
+    await page.route(
+      (url) => url.pathname === '/bootui/api/devtools/livereload',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            action: 'livereload',
+            status: 'triggered',
+            message: 'LiveReload notification sent to connected browsers.'
+          })
         })
-      })
-    })
+      }
+    )
 
     await page.goto('/bootui/#/devtools')
-    await expect(page.locator('main h2').filter({hasText: /^DevTools/}).first()).toBeVisible()
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /^DevTools/})
+        .first()
+    ).toBeVisible()
 
     await expect(page.getByText('LiveReload port:')).toBeVisible()
     await expect(page.getByRole('button', {name: /Restart app/})).toBeDisabled()
@@ -52,4 +62,3 @@ test.describe('DevTools view', () => {
     await expect(page.locator('.alert-success')).toContainText('LiveReload notification sent')
   })
 })
-

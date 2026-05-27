@@ -12,12 +12,11 @@ async function load() {
 
 const filtered = computed(() => {
   if (!data.value) return []
-  return data.value.beans.filter(b => {
+  return data.value.beans.filter((b) => {
     if (classification.value && b.classification !== classification.value) return false
     if (filter.value) {
       const f = filter.value.toLowerCase()
-      return b.name.toLowerCase().includes(f) ||
-        (b.type && b.type.toLowerCase().includes(f))
+      return b.name.toLowerCase().includes(f) || (b.type && b.type.toLowerCase().includes(f))
     }
     return true
   })
@@ -33,7 +32,7 @@ onMounted(load)
 
     <div class="row g-2 mb-3">
       <div class="col-md-8">
-        <input v-model="filter" class="form-control" placeholder="Filter by name or type…"/>
+        <input v-model="filter" class="form-control" placeholder="Filter by name or type…" />
       </div>
       <div class="col-md-4">
         <select v-model="classification" class="form-select">
@@ -50,30 +49,39 @@ onMounted(load)
     <div class="table-responsive">
       <table class="table table-sm table-hover beans-table">
         <colgroup>
-          <col class="beans-table-name"/>
-          <col class="beans-table-type"/>
-          <col class="beans-table-scope"/>
-          <col class="beans-table-classification"/>
-          <col class="beans-table-dependencies"/>
+          <col class="beans-table-name" />
+          <col class="beans-table-type" />
+          <col class="beans-table-scope" />
+          <col class="beans-table-classification" />
+          <col class="beans-table-dependencies" />
         </colgroup>
         <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Scope</th>
-          <th>Class.</th>
-          <th>Dependencies</th>
-        </tr>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Scope</th>
+            <th>Class.</th>
+            <th>Dependencies</th>
+          </tr>
         </thead>
         <tbody>
-        <tr v-for="b in filtered" :key="b.name">
-          <td><code :title="b.name" class="text-truncate d-block">{{ b.name }}</code></td>
-          <td><small :title="b.type" class="text-truncate d-block">{{ b.type }}</small></td>
-          <td>{{ b.scope }}</td>
-          <td><span class="badge bg-light text-dark">{{ b.classification }}</span></td>
-          <td><small :title="b.dependencies.join(', ')"
-                     class="text-muted text-truncate d-block">{{ b.dependencies.join(', ') }}</small></td>
-        </tr>
+          <tr v-for="b in filtered" :key="b.name">
+            <td>
+              <code :title="b.name" class="text-truncate d-block">{{ b.name }}</code>
+            </td>
+            <td>
+              <small :title="b.type" class="text-truncate d-block">{{ b.type }}</small>
+            </td>
+            <td>{{ b.scope }}</td>
+            <td>
+              <span class="badge bg-light text-dark">{{ b.classification }}</span>
+            </td>
+            <td>
+              <small :title="b.dependencies.join(', ')" class="text-muted text-truncate d-block">{{
+                b.dependencies.join(', ')
+              }}</small>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>

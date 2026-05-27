@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Scheduled tasks view', () => {
-
   test('renders the sample echo scheduled task', async ({openView, page}) => {
     await openView('scheduled', 'Scheduled Tasks')
 

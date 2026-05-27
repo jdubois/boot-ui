@@ -4,7 +4,6 @@ import {expect, test} from './fixtures.js'
 const SAMPLE_LOGGER = 'io.github.jdubois.bootui.sample'
 
 test.describe('Loggers view', () => {
-
   test('filters loggers and changes the level of the sample logger', async ({openView, page}) => {
     await openView('loggers', 'Loggers')
 

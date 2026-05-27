@@ -4,6 +4,15 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.github.jdubois.bootui.core.SecretMasker;
+import java.lang.reflect.Array;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.net.URI;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -19,30 +28,17 @@ import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.lang.reflect.Array;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.net.URI;
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
-
 @RestController
 @RequestMapping("/bootui/api/dev-services")
 public class DevServicesController implements ApplicationListener<ApplicationEvent> {
 
     private static final String DOCKER_COMPOSE_EVENT =
-        "org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent";
+            "org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent";
 
-    private static final Set<String> SKIPPED_DETAIL_PROPERTIES = Set.of(
-        "class",
-        "origin",
-        "sslBundle");
+    private static final Set<String> SKIPPED_DETAIL_PROPERTIES = Set.of("class", "origin", "sslBundle");
 
-    private static final Pattern URL_CREDENTIALS = Pattern.compile("([a-z][a-z0-9+.-]*://)([^:/@\\s]+):([^@\\s]+)@",
-        Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_CREDENTIALS =
+            Pattern.compile("([a-z][a-z0-9+.-]*://)([^:/@\\s]+):([^@\\s]+)@", Pattern.CASE_INSENSITIVE);
 
     private final ConfigurableApplicationContext applicationContext;
 
@@ -79,19 +75,19 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
     public DevServicesReport list() {
         Map<String, DevServiceDto> services = new LinkedHashMap<>();
         this.dockerComposeServices.values().stream()
-            .sorted(Comparator.comparing(DevServiceDto::name))
-            .forEach(service -> services.put(service.id(), service));
+                .sorted(Comparator.comparing(DevServiceDto::name))
+                .forEach(service -> services.put(service.id(), service));
         discoverTestcontainers(services);
         discoverConnectionDetails(services);
         List<DevServiceDto> sorted = services.values().stream()
-            .sorted(Comparator.comparing(DevServiceDto::source).thenComparing(DevServiceDto::name))
-            .toList();
+                .sorted(Comparator.comparing(DevServiceDto::source).thenComparing(DevServiceDto::name))
+                .toList();
         return new DevServicesReport(
-            isPresent("org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent"),
-            isPresent("org.testcontainers.lifecycle.Startable"),
-            resolveSnapshotTimestamp(),
-            sorted.size(),
-            sorted);
+                isPresent("org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent"),
+                isPresent("org.testcontainers.lifecycle.Startable"),
+                resolveSnapshotTimestamp(),
+                sorted.size(),
+                sorted);
     }
 
     @GetMapping("/{id}/logs")
@@ -121,8 +117,9 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found");
         }
         if (!properties.getDevServices().isRestartEnabled()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                "Restart is disabled. Set bootui.dev-services.restart-enabled=true to allow it.");
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Restart is disabled. Set bootui.dev-services.restart-enabled=true to allow it.");
         }
         Method start = findNoArgMethod(bean.getClass(), "start");
         Method stop = findNoArgMethod(bean.getClass(), "stop");
@@ -132,12 +129,13 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         try {
             stop.invoke(bean);
             start.invoke(bean);
-            return new DevServiceRestartResult(id, "restarted",
-                "Service restarted. Already-created client beans may need an application restart to reconnect.");
+            return new DevServiceRestartResult(
+                    id,
+                    "restarted",
+                    "Service restarted. Already-created client beans may need an application restart to reconnect.");
         } catch (IllegalAccessException | InvocationTargetException ex) {
-            Throwable cause = ex instanceof InvocationTargetException ite && ite.getCause() != null
-                ? ite.getCause()
-                : ex;
+            Throwable cause =
+                    ex instanceof InvocationTargetException ite && ite.getCause() != null ? ite.getCause() : ex;
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, cause.getMessage(), cause);
         }
     }
@@ -190,24 +188,24 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         Map<?, ?> labels = asMap(invoke(runningService, "labels"));
         String type = inferType(name, image, labels);
         return new DevServiceDto(
-            "compose:" + slug(name),
-            name,
-            type,
-            "Docker Compose",
-            image,
-            "READY_AT_STARTUP",
-            host,
-            composePorts(invoke(runningService, "ports")),
-            sanitizeDetails(details),
-            false,
-            false,
-            "Docker Compose status is a startup snapshot; Spring Boot does not expose live per-service restart.");
+                "compose:" + slug(name),
+                name,
+                type,
+                "Docker Compose",
+                image,
+                "READY_AT_STARTUP",
+                host,
+                composePorts(invoke(runningService, "ports")),
+                sanitizeDetails(details),
+                false,
+                false,
+                "Docker Compose status is a startup snapshot; Spring Boot does not expose live per-service restart.");
     }
 
     private DevServiceDto testcontainersDto(String beanName, Object bean) {
         String image = stringValue(invoke(bean, "getDockerImageName"));
-        String host = firstNonBlank(stringValue(invoke(bean, "getHost")),
-            stringValue(invoke(bean, "getTestHostIpAddress")));
+        String host =
+                firstNonBlank(stringValue(invoke(bean, "getHost")), stringValue(invoke(bean, "getTestHostIpAddress")));
         boolean running = Boolean.TRUE.equals(invoke(bean, "isRunning"));
         String name = firstNonBlank(stringValue(invoke(bean, "getContainerName")), beanName);
         Map<String, Object> details = new LinkedHashMap<>();
@@ -215,44 +213,44 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         addIfPresent(details, "networkMode", invoke(bean, "getNetworkMode"));
         addIfPresent(details, "reuse", invoke(bean, "isShouldBeReused"));
         boolean restartable = properties.getDevServices().isRestartEnabled()
-            && findNoArgMethod(bean.getClass(), "start") != null
-            && findNoArgMethod(bean.getClass(), "stop") != null;
+                && findNoArgMethod(bean.getClass(), "start") != null
+                && findNoArgMethod(bean.getClass(), "stop") != null;
         return new DevServiceDto(
-            "bean:" + beanName,
-            name,
-            inferType(name, image, Map.of()),
-            "Testcontainers",
-            image,
-            running ? "RUNNING" : "STOPPED",
-            host,
-            testcontainersPorts(bean),
-            sanitizeDetails(details),
-            restartable,
-            findLogsMethod(bean.getClass()) != null,
-            properties.getDevServices().isRestartEnabled()
-                ? "Restart may require application clients to reconnect."
-                : "Restart disabled by default; set bootui.dev-services.restart-enabled=true to allow it.");
+                "bean:" + beanName,
+                name,
+                inferType(name, image, Map.of()),
+                "Testcontainers",
+                image,
+                running ? "RUNNING" : "STOPPED",
+                host,
+                testcontainersPorts(bean),
+                sanitizeDetails(details),
+                restartable,
+                findLogsMethod(bean.getClass()) != null,
+                properties.getDevServices().isRestartEnabled()
+                        ? "Restart may require application clients to reconnect."
+                        : "Restart disabled by default; set bootui.dev-services.restart-enabled=true to allow it.");
     }
 
-    private DevServiceDto connectionDetailsDto(ListableBeanFactory beanFactory, String beanName,
-                                               ConnectionDetails details) {
+    private DevServiceDto connectionDetailsDto(
+            ListableBeanFactory beanFactory, String beanName, ConnectionDetails details) {
         ContainerImageMetadata metadata = containerImageMetadata(beanFactory, beanName);
         String image = metadata == null ? null : metadata.imageName();
         Map<String, Object> connectionDetails = new LinkedHashMap<>();
         collectDetails("", details, connectionDetails, 0);
         return new DevServiceDto(
-            "connection:" + beanName,
-            readableName(beanName),
-            inferType(beanName, image, Map.of()),
-            "Connection details",
-            image,
-            "AVAILABLE",
-            null,
-            List.of(),
-            sanitizeDetails(connectionDetails),
-            false,
-            false,
-            "Spring Boot connection details bean; lifecycle is managed by Docker Compose or Testcontainers.");
+                "connection:" + beanName,
+                readableName(beanName),
+                inferType(beanName, image, Map.of()),
+                "Connection details",
+                image,
+                "AVAILABLE",
+                null,
+                List.of(),
+                sanitizeDetails(connectionDetails),
+                false,
+                false,
+                "Spring Boot connection details bean; lifecycle is managed by Docker Compose or Testcontainers.");
     }
 
     private ContainerImageMetadata containerImageMetadata(ListableBeanFactory beanFactory, String beanName) {
@@ -306,9 +304,7 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (value == null
-            || properties.getExposeValues() == ValueExposure.FULL
-            || !properties.isMaskSecrets()) {
+        if (value == null || properties.getExposeValues() == ValueExposure.FULL || !properties.isMaskSecrets()) {
             return value;
         }
         if (masker.isSecret(key)) {
@@ -352,8 +348,9 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
     private Object findBeanBackedService(String id) {
         if (id == null || !id.startsWith("bean:")) {
             if (this.dockerComposeServices.containsKey(id)) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Docker Compose services are snapshots and cannot be controlled by BootUI");
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Docker Compose services are snapshots and cannot be controlled by BootUI");
             }
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found");
         }
@@ -385,23 +382,21 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
     private boolean isSimpleValue(Object value) {
         Class<?> type = value.getClass();
         return value instanceof CharSequence
-            || value instanceof Number
-            || value instanceof Boolean
-            || value instanceof Character
-            || type.isEnum()
-            || value instanceof URI;
+                || value instanceof Number
+                || value instanceof Boolean
+                || value instanceof Character
+                || type.isEnum()
+                || value instanceof URI;
     }
 
     private boolean shouldRecurseInto(Object value) {
         String packageName = value.getClass().getPackageName();
-        return !packageName.startsWith("java.")
-            && !packageName.startsWith("jdk.")
-            && !packageName.startsWith("sun.");
+        return !packageName.startsWith("java.") && !packageName.startsWith("jdk.") && !packageName.startsWith("sun.");
     }
 
     private boolean isTestcontainerType(Class<?> type) {
         if (hasTypeName(type, "org.testcontainers.lifecycle.Startable")
-            || hasTypeName(type, "org.testcontainers.containers.Container")) {
+                || hasTypeName(type, "org.testcontainers.containers.Container")) {
             return true;
         }
         String name = type.getName();
@@ -457,9 +452,11 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
     }
 
     private String slug(String value) {
-        String normalized = value == null ? "service" : value.toLowerCase(Locale.ROOT)
-            .replaceAll("[^a-z0-9._-]+", "-")
-            .replaceAll("(^-+|-+$)", "");
+        String normalized = value == null
+                ? "service"
+                : value.toLowerCase(Locale.ROOT)
+                        .replaceAll("[^a-z0-9._-]+", "-")
+                        .replaceAll("(^-+|-+$)", "");
         return normalized.isBlank() ? "service" : normalized;
     }
 

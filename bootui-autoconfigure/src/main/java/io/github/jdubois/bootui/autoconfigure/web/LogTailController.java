@@ -1,17 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.LogLineDto;
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
-import java.io.IOException;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 
 @RestController
 @RequestMapping("/bootui/api/logs")
@@ -31,9 +30,7 @@ public class LogTailController {
 
     @GetMapping("/recent")
     public List<LogLineDto> recent() {
-        return appender.getRecentLines().stream()
-            .map(LogTailController::toDto)
-            .toList();
+        return appender.getRecentLines().stream().map(LogTailController::toDto).toList();
     }
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -41,8 +38,7 @@ public class LogTailController {
         SseEmitter emitter = new SseEmitter(0L);
         emitters.add(emitter);
 
-        AtomicReference<Runnable> unsubscribeRef = new AtomicReference<>(() -> {
-        });
+        AtomicReference<Runnable> unsubscribeRef = new AtomicReference<>(() -> {});
         emitter.onCompletion(() -> cleanup(emitter, unsubscribeRef.get()));
         emitter.onTimeout(() -> cleanup(emitter, unsubscribeRef.get()));
         emitter.onError(error -> cleanup(emitter, unsubscribeRef.get()));
@@ -76,8 +72,6 @@ public class LogTailController {
     }
 
     private void sendLog(SseEmitter emitter, LogLineDto line) throws IOException {
-        emitter.send(SseEmitter.event()
-            .name("log")
-            .data(line, MediaType.APPLICATION_JSON));
+        emitter.send(SseEmitter.event().name("log").data(line, MediaType.APPLICATION_JSON));
     }
 }

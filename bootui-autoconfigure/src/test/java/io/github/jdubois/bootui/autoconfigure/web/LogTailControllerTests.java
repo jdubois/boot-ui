@@ -1,16 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
-import org.slf4j.ILoggerFactory;
-import org.slf4j.LoggerFactory;
-import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.List;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -18,6 +7,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.slf4j.ILoggerFactory;
+import org.slf4j.LoggerFactory;
+import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * Tests for {@link LogTailController} and {@link BootUiLogAppender}.
@@ -136,13 +135,13 @@ class LogTailControllerTests {
     void levelStringMatchesLogbackLevelToString() {
         BootUiLogAppender appender = freshAppender();
 
-        for (Level level : new Level[]{Level.TRACE, Level.DEBUG, Level.INFO, Level.WARN, Level.ERROR}) {
+        for (Level level : new Level[] {Level.TRACE, Level.DEBUG, Level.INFO, Level.WARN, Level.ERROR}) {
             appender.doAppend(event(level, "l", "m"));
         }
 
         List<String> levels = appender.getRecentLines().stream()
-            .map(BootUiLogAppender.LogLineDto::level)
-            .toList();
+                .map(BootUiLogAppender.LogLineDto::level)
+                .toList();
         assertThat(levels).containsExactly("TRACE", "DEBUG", "INFO", "WARN", "ERROR");
     }
 
@@ -176,10 +175,11 @@ class LogTailControllerTests {
         MockMvc mvc = standaloneSetup(new LogTailController()).build();
 
         mvc.perform(get("/bootui/api/logs/recent"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("ERROR"))
-            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger")
-                .value("io.github.jdubois.Test"));
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("ERROR"))
+                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger")
+                        .value("io.github.jdubois.Test"));
     }
 
     @Test
@@ -199,10 +199,14 @@ class LogTailControllerTests {
         MockMvc mvc = standaloneSetup(new LogTailController()).build();
 
         mvc.perform(get("/bootui/api/logs/recent"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].timestamp").value(ts))
-            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("DEBUG"))
-            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger").value("shape.Logger"))
-            .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].thread").value("shape-thread"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].timestamp")
+                        .value(ts))
+                .andExpect(
+                        jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("DEBUG"))
+                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].logger")
+                        .value("shape.Logger"))
+                .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].thread")
+                        .value("shape-thread"));
     }
 }

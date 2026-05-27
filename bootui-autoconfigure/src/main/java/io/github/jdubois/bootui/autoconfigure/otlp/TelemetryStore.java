@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.otlp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-
 import java.util.*;
 
 /**
@@ -51,7 +50,8 @@ public class TelemetryStore {
         if (bucket == null) {
             bucket = new TraceBucket(span.traceId());
             while (tracesById.size() >= effectiveMaxTraces(config)) {
-                Iterator<Map.Entry<String, TraceBucket>> it = tracesById.entrySet().iterator();
+                Iterator<Map.Entry<String, TraceBucket>> it =
+                        tracesById.entrySet().iterator();
                 if (!it.hasNext()) {
                     break;
                 }

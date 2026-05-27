@@ -1,5 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -16,11 +21,6 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.web.servlet.MockMvc;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Verifies that every BootUI controller backed by an optional Actuator or
@@ -68,10 +68,10 @@ class MissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new BeansController(provider)).build();
 
         mvc.perform(get("/bootui/api/beans"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.total").value(0))
-            .andExpect(jsonPath("$.beans").isArray())
-            .andExpect(jsonPath("$.beans").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.beans").isArray())
+                .andExpect(jsonPath("$.beans").isEmpty());
     }
 
     @Test
@@ -80,11 +80,11 @@ class MissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new ConditionsController(provider)).build();
 
         mvc.perform(get("/bootui/api/conditions"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.positiveMatches").isEmpty())
-            .andExpect(jsonPath("$.negativeMatches").isEmpty())
-            .andExpect(jsonPath("$.unconditionalClasses").isEmpty())
-            .andExpect(jsonPath("$.exclusions").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positiveMatches").isEmpty())
+                .andExpect(jsonPath("$.negativeMatches").isEmpty())
+                .andExpect(jsonPath("$.unconditionalClasses").isEmpty())
+                .andExpect(jsonPath("$.exclusions").isEmpty());
     }
 
     @Test
@@ -93,10 +93,10 @@ class MissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new HealthController(provider)).build();
 
         mvc.perform(get("/bootui/api/health"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("application"))
-            .andExpect(jsonPath("$.status").value("UNKNOWN"))
-            .andExpect(jsonPath("$.components").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("application"))
+                .andExpect(jsonPath("$.status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.components").isEmpty());
     }
 
     @Test
@@ -105,9 +105,9 @@ class MissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new LoggersController(provider)).build();
 
         mvc.perform(get("/bootui/api/loggers"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.availableLevels").isEmpty())
-            .andExpect(jsonPath("$.loggers").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableLevels").isEmpty())
+                .andExpect(jsonPath("$.loggers").isEmpty());
     }
 
     @Test
@@ -116,10 +116,10 @@ class MissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new MetricsController(provider)).build();
 
         mvc.perform(get("/bootui/api/metrics"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.metricsAvailable").value(false))
-            .andExpect(jsonPath("$.total").value(0))
-            .andExpect(jsonPath("$.meters").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metricsAvailable").value(false))
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.meters").isEmpty());
     }
 
     @Test
@@ -127,8 +127,7 @@ class MissingActuatorEndpointsTests {
         ObjectProvider<MappingsEndpoint> provider = emptyProvider();
         MockMvc mvc = standaloneSetup(new MappingsController(provider)).build();
 
-        mvc.perform(get("/bootui/api/mappings"))
-            .andExpect(status().isNoContent());
+        mvc.perform(get("/bootui/api/mappings")).andExpect(status().isNoContent());
     }
 
     @Test
@@ -137,8 +136,8 @@ class MissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new StartupController(provider)).build();
 
         mvc.perform(get("/bootui/api/startup"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.steps").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps").isEmpty());
     }
 
     @Test
@@ -147,27 +146,27 @@ class MissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new ScheduledController(provider)).build();
 
         mvc.perform(get("/bootui/api/scheduled"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.schedulingPresent").value(false))
-            .andExpect(jsonPath("$.total").value(0))
-            .andExpect(jsonPath("$.tasks").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schedulingPresent").value(false))
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.tasks").isEmpty());
     }
 
     @Test
     void securityControllerReturnsAbsentReportWhenFilterChainProxyMissing() throws Exception {
         SecurityController controller = new SecurityController(
-            emptyProvider(),
-            emptyProvider(),
-            emptyProvider(),
-            emptyProvider(),
-            new MockEnvironment(),
-            new BootUiProperties());
+                emptyProvider(),
+                emptyProvider(),
+                emptyProvider(),
+                emptyProvider(),
+                new MockEnvironment(),
+                new BootUiProperties());
         MockMvc mvc = standaloneSetup(controller).build();
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.springSecurityPresent").value(false))
-            .andExpect(jsonPath("$.chains").isEmpty())
-            .andExpect(jsonPath("$.auth").doesNotExist());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.springSecurityPresent").value(false))
+                .andExpect(jsonPath("$.chains").isEmpty())
+                .andExpect(jsonPath("$.auth").doesNotExist());
     }
 }

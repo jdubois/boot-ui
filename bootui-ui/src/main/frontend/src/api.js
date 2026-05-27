@@ -1,13 +1,13 @@
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
 export async function apiFetch(input, init = {}) {
-  const options = { ...init }
+  const options = {...init}
   const method = (options.method || 'GET').toUpperCase()
 
   if (!SAFE_METHODS.has(method)) {
     let token = csrfToken()
     if (!token) {
-      await fetch('api/overview', { cache: 'no-store' })
+      await fetch('api/overview', {cache: 'no-store'})
       token = csrfToken()
     }
     if (token) {
@@ -25,8 +25,8 @@ function csrfToken() {
 
   const cookie = document.cookie
     .split(';')
-    .map(part => part.trim())
-    .find(part => part.startsWith('XSRF-TOKEN='))
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('XSRF-TOKEN='))
 
   if (!cookie) return null
   return decodeURIComponent(cookie.substring('XSRF-TOKEN='.length))

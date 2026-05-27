@@ -1,5 +1,18 @@
 package io.github.jdubois.bootui.sample;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.net.CookieManager;
+import java.net.HttpCookie;
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,44 +32,30 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.net.CookieManager;
-import java.net.HttpCookie;
-import java.net.Proxy;
-import java.net.ProxySelector;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
  * End-to-end tests that boot the sample app on a random port and call BootUI's
  * REST API through HTTP, exercising auto-configuration, the localhost-only filter
  * for loopback callers, and the override persistence path.
  */
 @SpringBootTest(
-    classes = BootUiSampleApplication.class,
-    webEnvironment = WebEnvironment.RANDOM_PORT,
-    properties = {
-        "spring.profiles.active=dev",
-        "spring.docker.compose.enabled=false",
-        "spring.cache.type=simple",
-        "spring.autoconfigure.exclude="
-            + "org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,"
-            + "org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,"
-            + "org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration,"
-            + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,"
-            + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration,"
-            + "org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration,"
-            + "org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration,"
-            + "org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration",
-        "bootui.show-banner=false",
-        "bootui.overrides-file=target/bootui-test-overrides.properties"
-    })
+        classes = BootUiSampleApplication.class,
+        webEnvironment = WebEnvironment.RANDOM_PORT,
+        properties = {
+            "spring.profiles.active=dev",
+            "spring.docker.compose.enabled=false",
+            "spring.cache.type=simple",
+            "spring.autoconfigure.exclude="
+                    + "org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,"
+                    + "org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,"
+                    + "org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration,"
+                    + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,"
+                    + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration,"
+                    + "org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration,"
+                    + "org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration,"
+                    + "org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration",
+            "bootui.show-banner=false",
+            "bootui.overrides-file=target/bootui-test-overrides.properties"
+        })
 @Testcontainers
 class BootUiSampleApplicationIntegrationTests {
 
@@ -91,15 +90,14 @@ class BootUiSampleApplicationIntegrationTests {
     private RestClient client() {
         if (client == null) {
             client = RestClient.builder()
-                .baseUrl("http://localhost:" + port)
-                .requestFactory(new JdkClientHttpRequestFactory(HttpClient.newBuilder()
-                    .cookieHandler(cookieManager)
-                    .proxy(new NoProxySelector())
-                    .build()))
-                // Never throw on non-2xx — tests inspect the status directly.
-                .defaultStatusHandler(HttpStatusCode::isError, (req, res) -> {
-                })
-                .build();
+                    .baseUrl("http://localhost:" + port)
+                    .requestFactory(new JdkClientHttpRequestFactory(HttpClient.newBuilder()
+                            .cookieHandler(cookieManager)
+                            .proxy(new NoProxySelector())
+                            .build()))
+                    // Never throw on non-2xx — tests inspect the status directly.
+                    .defaultStatusHandler(HttpStatusCode::isError, (req, res) -> {})
+                    .build();
         }
         return client;
     }
@@ -127,10 +125,10 @@ class BootUiSampleApplicationIntegrationTests {
 
     private ResponseEntity<String> getStringWithBasicAuth(String path, String username, String password) {
         return client().get()
-            .uri(path)
-            .headers(headers -> headers.setBasicAuth(username, password))
-            .retrieve()
-            .toEntity(String.class);
+                .uri(path)
+                .headers(headers -> headers.setBasicAuth(username, password))
+                .retrieve()
+                .toEntity(String.class);
     }
 
     private void applyCsrfToken(String path, HttpHeaders headers) {
@@ -176,16 +174,14 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void configEndpointListsPropertiesAndMasksSecrets() {
-        postMap("/bootui/api/config/overrides",
-            Map.of("name", "demo.api.token", "value", "topsecret"));
+        postMap("/bootui/api/config/overrides", Map.of("name", "demo.api.token", "value", "topsecret"));
 
         ResponseEntity<Map> response = getMap("/bootui/api/config");
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         Map<?, ?> body = response.getBody();
         assertThat(body).isNotNull();
-        assertThat((Iterable<?>) body.get("sources"))
-            .anyMatch(s -> "bootui-overrides".equals(s));
+        assertThat((Iterable<?>) body.get("sources")).anyMatch(s -> "bootui-overrides".equals(s));
 
         boolean found = false;
         for (Object p : (Iterable<?>) body.get("properties")) {
@@ -223,9 +219,8 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void postLoggerLevelChangesEffectiveLevel() {
-        ResponseEntity<Map> response = postMap(
-            "/bootui/api/loggers/io.github.jdubois.bootui.sample",
-            Map.of("level", "WARN"));
+        ResponseEntity<Map> response =
+                postMap("/bootui/api/loggers/io.github.jdubois.bootui.sample", Map.of("level", "WARN"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
@@ -236,9 +231,8 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void invalidLoggerLevelReturnsBadRequest() {
-        ResponseEntity<Map> response = postMap(
-            "/bootui/api/loggers/io.github.jdubois.bootui.sample",
-            Map.of("level", "NOT-A-LEVEL"));
+        ResponseEntity<Map> response =
+                postMap("/bootui/api/loggers/io.github.jdubois.bootui.sample", Map.of("level", "NOT-A-LEVEL"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
@@ -247,8 +241,8 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void configOverrideRoundtripPersistsAndDeletes() throws Exception {
-        ResponseEntity<Map> put = postMap("/bootui/api/config/overrides",
-            Map.of("name", "sample.greeting", "value", "Hola"));
+        ResponseEntity<Map> put =
+                postMap("/bootui/api/config/overrides", Map.of("name", "sample.greeting", "value", "Hola"));
 
         assertThat(put.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> putBody = put.getBody();
@@ -260,10 +254,10 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(Files.readString(OVERRIDES_FILE)).contains("sample.greeting=Hola");
 
         ResponseEntity<Map> delete = client().delete()
-            .uri("/bootui/api/config/overrides/sample.greeting")
-            .headers(headers -> applyCsrfToken("/bootui/api/config/overrides/sample.greeting", headers))
-            .retrieve()
-            .toEntity(Map.class);
+                .uri("/bootui/api/config/overrides/sample.greeting")
+                .headers(headers -> applyCsrfToken("/bootui/api/config/overrides/sample.greeting", headers))
+                .retrieve()
+                .toEntity(Map.class);
         assertThat(delete.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> deleteBody = delete.getBody();
         assertThat(deleteBody).isNotNull();
@@ -324,12 +318,11 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(body).isNotNull();
         assertThat(body.get("schedulingPresent")).isEqualTo(true);
         assertThat(((Number) body.get("total")).intValue()).isGreaterThan(0);
-        assertThat((Iterable<?>) body.get("tasks"))
-            .anySatisfy(task -> {
-                Map<?, ?> dto = (Map<?, ?>) task;
-                assertThat(dto.get("runnable")).asString().contains("EchoScheduler");
-                assertThat(dto.get("triggerType")).isIn("FIXED_RATE", "FIXED_DELAY", "CRON");
-            });
+        assertThat((Iterable<?>) body.get("tasks")).anySatisfy(task -> {
+            Map<?, ?> dto = (Map<?, ?>) task;
+            assertThat(dto.get("runnable")).asString().contains("EchoScheduler");
+            assertThat(dto.get("triggerType")).isIn("FIXED_RATE", "FIXED_DELAY", "CRON");
+        });
     }
 
     @Test
@@ -363,10 +356,11 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(calculation.containsKey("headRoomBytes")).isTrue();
         assertThat(calculation.containsKey("threadCount")).isTrue();
         assertThat(calculation.containsKey("loadedClasses")).isTrue();
-        assertThat(calculation.get("jvmOptions")).asString()
-            .contains("-Xmx")
-            .contains("-XX:MaxMetaspaceSize=")
-            .contains("-XX:ReservedCodeCacheSize=");
+        assertThat(calculation.get("jvmOptions"))
+                .asString()
+                .contains("-Xmx")
+                .contains("-XX:MaxMetaspaceSize=")
+                .contains("-XX:ReservedCodeCacheSize=");
     }
 
     @Test
@@ -382,8 +376,9 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void httpProbeEndpointCallsLoopbackSampleEndpoint() {
-        ResponseEntity<Map> response = postMap("/bootui/api/probe",
-            Map.of("method", "get", "path", "api/hello", "headers", Map.of("X-Ignored", "ok")));
+        ResponseEntity<Map> response = postMap(
+                "/bootui/api/probe",
+                Map.of("method", "get", "path", "api/hello", "headers", Map.of("X-Ignored", "ok")));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
@@ -415,7 +410,8 @@ class BootUiSampleApplicationIntegrationTests {
         ResponseEntity<String> adminWithoutCredentials = getString("/admin");
         assertThat(adminWithoutCredentials.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        ResponseEntity<String> adminWithDeveloperCredentials = getStringWithBasicAuth("/admin", "developer", "developer");
+        ResponseEntity<String> adminWithDeveloperCredentials =
+                getStringWithBasicAuth("/admin", "developer", "developer");
         assertThat(adminWithDeveloperCredentials.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 
         ResponseEntity<String> adminWithAdminCredentials = getStringWithBasicAuth("/admin", "admin", "admin");
@@ -447,9 +443,10 @@ class BootUiSampleApplicationIntegrationTests {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody()).extracting(product -> ((Map<?, ?>) product).get("name"))
-            .contains("BootUI Starter", "Sample Console")
-            .doesNotContain("Archived Prototype");
+        assertThat(response.getBody())
+                .extracting(product -> ((Map<?, ?>) product).get("name"))
+                .contains("BootUI Starter", "Sample Console")
+                .doesNotContain("Archived Prototype");
     }
 
     @Test
@@ -458,13 +455,13 @@ class BootUiSampleApplicationIntegrationTests {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody())
-            .contains("Welcome to the BootUI sample app")
-            .contains("Open BootUI")
-            .contains("href=\"/bootui/\"")
-            .contains("Ask Spring AI")
-            .contains("id=\"ai-chat-form\"")
-            .contains("POST /api/chat")
-            .contains("GET /api/sample/products");
+                .contains("Welcome to the BootUI sample app")
+                .contains("Open BootUI")
+                .contains("href=\"/bootui/\"")
+                .contains("Ask Spring AI")
+                .contains("id=\"ai-chat-form\"")
+                .contains("POST /api/chat")
+                .contains("GET /api/sample/products");
     }
 
     @Test
@@ -472,8 +469,8 @@ class BootUiSampleApplicationIntegrationTests {
         ResponseEntity<String> secureWithoutCredentials = getString("/api/secure");
         assertThat(secureWithoutCredentials.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        ResponseEntity<String> secureWithDeveloperCredentials = getStringWithBasicAuth("/api/secure", "developer",
-            "developer");
+        ResponseEntity<String> secureWithDeveloperCredentials =
+                getStringWithBasicAuth("/api/secure", "developer", "developer");
         assertThat(secureWithDeveloperCredentials.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 
         ResponseEntity<String> secureWithAdminCredentials = getStringWithBasicAuth("/api/secure", "admin", "admin");
@@ -490,14 +487,13 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(body).isNotNull();
         assertThat(body.get("springDataPresent")).isEqualTo(true);
         assertThat(((Number) body.get("total")).intValue()).isGreaterThan(0);
-        assertThat((Iterable<?>) body.get("repositories"))
-            .anySatisfy(repository -> {
-                Map<?, ?> dto = (Map<?, ?>) repository;
-                assertThat(dto.get("repositoryInterface")).isEqualTo(ProductRepository.class.getName());
-                assertThat(dto.get("domainType")).isEqualTo(Product.class.getName());
-                assertThat(dto.get("storeModule")).isEqualTo("JPA");
-                assertThat(((Number) dto.get("queryMethodCount")).intValue()).isGreaterThan(0);
-            });
+        assertThat((Iterable<?>) body.get("repositories")).anySatisfy(repository -> {
+            Map<?, ?> dto = (Map<?, ?>) repository;
+            assertThat(dto.get("repositoryInterface")).isEqualTo(ProductRepository.class.getName());
+            assertThat(dto.get("domainType")).isEqualTo(Product.class.getName());
+            assertThat(dto.get("storeModule")).isEqualTo("JPA");
+            assertThat(((Number) dto.get("queryMethodCount")).intValue()).isGreaterThan(0);
+        });
     }
 
     @Test
@@ -507,13 +503,12 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
         assertThat(body).isNotNull();
-        assertThat((Iterable<?>) body.get("methods"))
-            .anySatisfy(method -> {
-                Map<?, ?> dto = (Map<?, ?>) method;
-                assertThat(dto.get("name")).isEqualTo("searchByName");
-                assertThat(dto.get("origin")).isEqualTo("ANNOTATED");
-                assertThat((String) dto.get("query")).contains("select p from Product p");
-            });
+        assertThat((Iterable<?>) body.get("methods")).anySatisfy(method -> {
+            Map<?, ?> dto = (Map<?, ?>) method;
+            assertThat(dto.get("name")).isEqualTo("searchByName");
+            assertThat(dto.get("origin")).isEqualTo("ANNOTATED");
+            assertThat((String) dto.get("query")).contains("select p from Product p");
+        });
     }
 
     @Test
@@ -527,23 +522,22 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(body).isNotNull();
         assertThat(body.get("cacheAvailable")).isEqualTo(true);
         assertThat(body.get("clearEnabled")).isEqualTo(true);
-        assertThat((Iterable<?>) body.get("managers"))
-            .anySatisfy(manager -> {
-                Map<?, ?> dto = (Map<?, ?>) manager;
-                assertThat(dto.get("type")).asString().contains("ConcurrentMapCacheManager");
-                assertThat((Iterable<?>) dto.get("caches"))
-                    .anySatisfy(cache -> assertThat(((Map<?, ?>) cache).get("name"))
-                        .isEqualTo("sample-products"));
-            });
-        assertThat((Iterable<?>) body.get("operations"))
-            .anySatisfy(operation -> {
-                Map<?, ?> dto = (Map<?, ?>) operation;
-                assertThat(dto.get("operation")).isEqualTo("@Cacheable");
-                assertThat((Iterable<Object>) dto.get("caches")).contains("sample-products");
-            });
+        assertThat((Iterable<?>) body.get("managers")).anySatisfy(manager -> {
+            Map<?, ?> dto = (Map<?, ?>) manager;
+            assertThat(dto.get("type")).asString().contains("ConcurrentMapCacheManager");
+            assertThat((Iterable<?>) dto.get("caches"))
+                    .anySatisfy(
+                            cache -> assertThat(((Map<?, ?>) cache).get("name")).isEqualTo("sample-products"));
+        });
+        assertThat((Iterable<?>) body.get("operations")).anySatisfy(operation -> {
+            Map<?, ?> dto = (Map<?, ?>) operation;
+            assertThat(dto.get("operation")).isEqualTo("@Cacheable");
+            assertThat((Iterable<Object>) dto.get("caches")).contains("sample-products");
+        });
 
-        ResponseEntity<Map> clear = postMap("/bootui/api/cache/clear",
-            Map.of("managerName", "cacheManager", "cacheName", "sample-products", "confirm", true));
+        ResponseEntity<Map> clear = postMap(
+                "/bootui/api/cache/clear",
+                Map.of("managerName", "cacheManager", "cacheName", "sample-products", "confirm", true));
         assertThat(clear.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(clear.getBody()).isNotNull();
         assertThat(clear.getBody().get("status")).isEqualTo("cleared");
@@ -557,18 +551,17 @@ class BootUiSampleApplicationIntegrationTests {
         Map<?, ?> body = response.getBody();
         assertThat(body).isNotNull();
         assertThat(body.get("springSecurityPresent")).isEqualTo(true);
-        assertThat((Iterable<?>) body.get("chains"))
-            .anySatisfy(chain -> {
-                Map<?, ?> dto = (Map<?, ?>) chain;
-                assertThat(dto.get("requestMatcher")).asString().contains("/api/secure");
-                assertThat((Iterable<?>) dto.get("filters"))
+        assertThat((Iterable<?>) body.get("chains")).anySatisfy(chain -> {
+            Map<?, ?> dto = (Map<?, ?>) chain;
+            assertThat(dto.get("requestMatcher")).asString().contains("/api/secure");
+            assertThat((Iterable<?>) dto.get("filters"))
                     .anySatisfy(filter -> assertThat(filter).isEqualTo("BasicAuthenticationFilter"));
-            });
+        });
 
         Map<?, ?> auth = (Map<?, ?>) body.get("auth");
         assertThat(auth).isNotNull();
         assertThat((Iterable<?>) auth.get("userDetailsServiceTypes"))
-            .anySatisfy(type -> assertThat(type).isEqualTo(InMemoryUserDetailsManager.class.getName()));
+                .anySatisfy(type -> assertThat(type).isEqualTo(InMemoryUserDetailsManager.class.getName()));
     }
 
     @Test
@@ -581,7 +574,7 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(body.get("matched")).isEqualTo(true);
         assertThat(body.get("matcherDescription")).asString().contains("/api/secure");
         assertThat((Iterable<?>) body.get("filters"))
-            .anySatisfy(filter -> assertThat(filter).isEqualTo("BasicAuthenticationFilter"));
+                .anySatisfy(filter -> assertThat(filter).isEqualTo("BasicAuthenticationFilter"));
     }
 
     @Test
@@ -610,9 +603,8 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void bootUiSpaIndexIsServed() {
-        ResponseEntity<String> response = client().get().uri("/bootui/")
-            .retrieve()
-            .toEntity(String.class);
+        ResponseEntity<String> response =
+                client().get().uri("/bootui/").retrieve().toEntity(String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         // The bundled Vue index.html is served from bootui-ui's META-INF/resources.
@@ -627,7 +619,6 @@ class BootUiSampleApplicationIntegrationTests {
         }
 
         @Override
-        public void connectFailed(URI uri, java.net.SocketAddress sa, java.io.IOException ioe) {
-        }
+        public void connectFailed(URI uri, java.net.SocketAddress sa, java.io.IOException ioe) {}
     }
 }

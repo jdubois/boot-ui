@@ -1,7 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mock.env.MockEnvironment;
@@ -13,16 +22,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
-
-import java.util.List;
-import java.util.stream.Stream;
-
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Standalone MockMvc tests for {@link SecurityController}.
@@ -41,30 +40,30 @@ class SecurityControllerTests {
     // ── chain listing ─────────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private static MockMvc buildMvc(FilterChainProxy proxy,
-                                    AuthenticationProvider authProvider,
-                                    UserDetailsService userDetailsService,
-                                    MockEnvironment env,
-                                    BootUiProperties properties) {
+    private static MockMvc buildMvc(
+            FilterChainProxy proxy,
+            AuthenticationProvider authProvider,
+            UserDetailsService userDetailsService,
+            MockEnvironment env,
+            BootUiProperties properties) {
         ObjectProvider<FilterChainProxy> proxyProvider = mock(ObjectProvider.class);
         when(proxyProvider.getIfAvailable()).thenReturn(proxy);
         when(proxyProvider.stream()).thenReturn(proxy == null ? Stream.empty() : Stream.of(proxy));
 
         ObjectProvider<AuthenticationProvider> authProviderProvider = mock(ObjectProvider.class);
         when(authProviderProvider.getIfAvailable()).thenReturn(authProvider);
-        when(authProviderProvider.stream())
-            .thenReturn(authProvider == null ? Stream.empty() : Stream.of(authProvider));
+        when(authProviderProvider.stream()).thenReturn(authProvider == null ? Stream.empty() : Stream.of(authProvider));
 
         ObjectProvider<UserDetailsService> udsProvider = mock(ObjectProvider.class);
         when(udsProvider.getIfAvailable()).thenReturn(userDetailsService);
         when(udsProvider.stream())
-            .thenReturn(userDetailsService == null ? Stream.empty() : Stream.of(userDetailsService));
+                .thenReturn(userDetailsService == null ? Stream.empty() : Stream.of(userDetailsService));
 
         ObjectProvider<RequestMappingInfoHandlerMapping> mappingProvider = mock(ObjectProvider.class);
         when(mappingProvider.stream()).thenReturn(Stream.empty());
 
         SecurityController controller = new SecurityController(
-            proxyProvider, authProviderProvider, udsProvider, mappingProvider, env, properties);
+                proxyProvider, authProviderProvider, udsProvider, mappingProvider, env, properties);
 
         return standaloneSetup(controller).build();
     }
@@ -80,11 +79,11 @@ class SecurityControllerTests {
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.springSecurityPresent").value(true))
-            .andExpect(jsonPath("$.chains.length()").value(2))
-            .andExpect(jsonPath("$.chains[0].order").value(0))
-            .andExpect(jsonPath("$.chains[1].order").value(1));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.springSecurityPresent").value(true))
+                .andExpect(jsonPath("$.chains.length()").value(2))
+                .andExpect(jsonPath("$.chains[0].order").value(0))
+                .andExpect(jsonPath("$.chains[1].order").value(1));
     }
 
     // ── disabled (FilterChainProxy absent) ───────────────────────────────────
@@ -93,16 +92,15 @@ class SecurityControllerTests {
     void singleChainFiltersListedBySimpleClassName() throws Exception {
         jakarta.servlet.Filter namedFilter = new NamedFilter("SampleFilter");
 
-        SecurityFilterChain chain = new DefaultSecurityFilterChain(
-            AnyRequestMatcher.INSTANCE, List.of(namedFilter));
+        SecurityFilterChain chain = new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, List.of(namedFilter));
         FilterChainProxy proxy = mock(FilterChainProxy.class);
         when(proxy.getFilterChains()).thenReturn(List.of(chain));
 
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.chains[0].filters[0]").value("NamedFilter"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chains[0].filters[0]").value("NamedFilter"));
     }
 
     @Test
@@ -110,9 +108,9 @@ class SecurityControllerTests {
         MockMvc mvc = buildMvc(null, null, null, new MockEnvironment(), new BootUiProperties());
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.springSecurityPresent").value(false))
-            .andExpect(jsonPath("$.chains").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.springSecurityPresent").value(false))
+                .andExpect(jsonPath("$.chains").isEmpty());
     }
 
     // ── credential non-disclosure ─────────────────────────────────────────────
@@ -121,11 +119,9 @@ class SecurityControllerTests {
     void explainEndpointWithAbsentProxyReturnsUnmatchedResult() throws Exception {
         MockMvc mvc = buildMvc(null, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security/explain")
-                .param("method", "GET")
-                .param("path", "/some/path"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.matched").value(false));
+        mvc.perform(get("/bootui/api/security/explain").param("method", "GET").param("path", "/some/path"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.matched").value(false));
     }
 
     @Test
@@ -140,11 +136,11 @@ class SecurityControllerTests {
         MockMvc mvc = buildMvc(proxy, null, null, env, new BootUiProperties());
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            // username is exposed for developer convenience
-            .andExpect(jsonPath("$.auth.configuredUsername").value("admin"))
-            // The response body must not contain the raw password anywhere
-            .andExpect(jsonPath("$..super-secret-pw").doesNotExist());
+                .andExpect(status().isOk())
+                // username is exposed for developer convenience
+                .andExpect(jsonPath("$.auth.configuredUsername").value("admin"))
+                // The response body must not contain the raw password anywhere
+                .andExpect(jsonPath("$..super-secret-pw").doesNotExist());
     }
 
     // ── auth providers listed ─────────────────────────────────────────────────
@@ -163,8 +159,8 @@ class SecurityControllerTests {
         MockMvc mvc = buildMvc(proxy, null, null, env, properties);
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.auth.configuredUsername").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.auth.configuredUsername").isEmpty());
     }
 
     @Test
@@ -176,8 +172,9 @@ class SecurityControllerTests {
         MockMvc mvc = buildMvc(proxy, provider, null, new MockEnvironment(), new BootUiProperties());
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.auth.authenticationProviderTypes.length()").value(1));
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$.auth.authenticationProviderTypes.length()").value(1));
     }
 
     // ── best-effort explain ───────────────────────────────────────────────────
@@ -190,28 +187,25 @@ class SecurityControllerTests {
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
         mvc.perform(get("/bootui/api/security"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.auth.authenticationProviderTypes").isEmpty())
-            .andExpect(jsonPath("$.auth.userDetailsServiceTypes").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.auth.authenticationProviderTypes").isEmpty())
+                .andExpect(jsonPath("$.auth.userDetailsServiceTypes").isEmpty());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
     @Test
     void explainMatchesChainWhenPathMatches() throws Exception {
-        SecurityFilterChain chain = new DefaultSecurityFilterChain(
-            AnyRequestMatcher.INSTANCE, List.of());
+        SecurityFilterChain chain = new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, List.of());
         FilterChainProxy proxy = mock(FilterChainProxy.class);
         when(proxy.getFilterChains()).thenReturn(List.of(chain));
 
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security/explain")
-                .param("method", "GET")
-                .param("path", "/api/test"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.matched").value(true))
-            .andExpect(jsonPath("$.chainIndex").value(0));
+        mvc.perform(get("/bootui/api/security/explain").param("method", "GET").param("path", "/api/test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.matched").value(true))
+                .andExpect(jsonPath("$.chainIndex").value(0));
     }
 
     /**
@@ -225,10 +219,11 @@ class SecurityControllerTests {
         }
 
         @Override
-        public void doFilter(jakarta.servlet.ServletRequest req,
-                             jakarta.servlet.ServletResponse res,
-                             jakarta.servlet.FilterChain chain)
-            throws java.io.IOException, jakarta.servlet.ServletException {
+        public void doFilter(
+                jakarta.servlet.ServletRequest req,
+                jakarta.servlet.ServletResponse res,
+                jakarta.servlet.FilterChain chain)
+                throws java.io.IOException, jakarta.servlet.ServletException {
             chain.doFilter(req, res);
         }
     }

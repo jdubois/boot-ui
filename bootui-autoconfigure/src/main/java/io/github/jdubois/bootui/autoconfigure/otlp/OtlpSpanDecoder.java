@@ -12,7 +12,6 @@ import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.ScopeSpans;
 import io.opentelemetry.proto.trace.v1.Span;
 import io.opentelemetry.proto.trace.v1.Status;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -90,30 +89,31 @@ public final class OtlpSpanDecoder {
         long startNs = span.getStartTimeUnixNano();
         for (Span.Event event : span.getEventsList()) {
             events.add(new NormalizedEvent(
-                event.getName(),
-                Math.max(0L, event.getTimeUnixNano() - startNs),
-                toAttributeMap(event.getAttributesList())));
+                    event.getName(),
+                    Math.max(0L, event.getTimeUnixNano() - startNs),
+                    toAttributeMap(event.getAttributesList())));
         }
         Status status = span.getStatus();
-        String statusCode = switch (status.getCode()) {
-            case STATUS_CODE_OK -> "OK";
-            case STATUS_CODE_ERROR -> "ERROR";
-            default -> "UNSET";
-        };
+        String statusCode =
+                switch (status.getCode()) {
+                    case STATUS_CODE_OK -> "OK";
+                    case STATUS_CODE_ERROR -> "ERROR";
+                    default -> "UNSET";
+                };
         return new NormalizedSpan(
-            hex(span.getTraceId()),
-            hex(span.getSpanId()),
-            emptyToNull(hex(span.getParentSpanId())),
-            truncate(span.getName()),
-            spanKindToString(span.getKind()),
-            truncate(serviceName),
-            truncate(scopeName),
-            startNs,
-            span.getEndTimeUnixNano(),
-            statusCode,
-            truncate(status.getMessage()),
-            attrs,
-            events);
+                hex(span.getTraceId()),
+                hex(span.getSpanId()),
+                emptyToNull(hex(span.getParentSpanId())),
+                truncate(span.getName()),
+                spanKindToString(span.getKind()),
+                truncate(serviceName),
+                truncate(scopeName),
+                startNs,
+                span.getEndTimeUnixNano(),
+                statusCode,
+                truncate(status.getMessage()),
+                attrs,
+                events);
     }
 
     private Map<String, AttributeValue> toAttributeMap(List<KeyValue> keyValues) {
@@ -136,8 +136,7 @@ public final class OtlpSpanDecoder {
             case BOOL_VALUE -> AttributeValue.ofBoolean(value.getBoolValue());
             case INT_VALUE -> AttributeValue.ofNumber(value.getIntValue());
             case DOUBLE_VALUE -> AttributeValue.ofNumber(value.getDoubleValue());
-            case BYTES_VALUE -> AttributeValue.ofString(
-                truncate("0x" + bytesToHex(value.getBytesValue())));
+            case BYTES_VALUE -> AttributeValue.ofString(truncate("0x" + bytesToHex(value.getBytesValue())));
             case ARRAY_VALUE -> {
                 List<Object> arr = new ArrayList<>(value.getArrayValue().getValuesCount());
                 for (AnyValue v : value.getArrayValue().getValuesList()) {

@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('BootUI app shell', () => {
-
   test('navbar shows the application name and Spring Boot / Java versions', async ({page}) => {
     await page.goto('/bootui/')
 
@@ -22,16 +21,17 @@ test.describe('BootUI app shell', () => {
   })
 
   test('sidebar does not label unavailable panels', async ({page}) => {
-    await page.route(url => url.pathname === '/bootui/api/panels', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          panels: [
-            {id: 'overview', available: false}
-          ]
+    await page.route(
+      (url) => url.pathname === '/bootui/api/panels',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            panels: [{id: 'overview', available: false}]
+          })
         })
-      })
-    })
+      }
+    )
     await page.goto('/bootui/')
 
     const overviewLink = page.locator('aside .nav-link', {hasText: 'Overview'})
@@ -69,8 +69,7 @@ test.describe('BootUI app shell', () => {
 
     for (const link of links) {
       await page.locator('aside .nav-link', {hasText: link.title}).click()
-      await expect(page.locator('main h2').filter({hasText: link.heading}).first())
-        .toBeVisible({timeout: 15_000})
+      await expect(page.locator('main h2').filter({hasText: link.heading}).first()).toBeVisible({timeout: 15_000})
     }
   })
 

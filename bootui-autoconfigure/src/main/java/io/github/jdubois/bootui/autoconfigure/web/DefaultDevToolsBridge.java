@@ -2,16 +2,15 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.DevToolsActionResult;
 import io.github.jdubois.bootui.core.BootUiDtos.DevToolsStatus;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationContext;
-import org.springframework.util.ClassUtils;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationContext;
+import org.springframework.util.ClassUtils;
 
 public class DefaultDevToolsBridge implements DevToolsBridge {
 
@@ -20,10 +19,10 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
     private static final String RESTARTER_CLASS = "org.springframework.boot.devtools.restart.Restarter";
 
     private static final String LIVE_RELOAD_SERVER_CLASS =
-        "org.springframework.boot.devtools.livereload.LiveReloadServer";
+            "org.springframework.boot.devtools.livereload.LiveReloadServer";
 
     private static final String OPTIONAL_LIVE_RELOAD_SERVER_CLASS =
-        "org.springframework.boot.devtools.autoconfigure.OptionalLiveReloadServer";
+            "org.springframework.boot.devtools.autoconfigure.OptionalLiveReloadServer";
 
     private final ApplicationContext applicationContext;
 
@@ -34,8 +33,8 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
     public DefaultDevToolsBridge(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;
         this.classLoader = applicationContext.getClassLoader() == null
-            ? ClassUtils.getDefaultClassLoader()
-            : applicationContext.getClassLoader();
+                ? ClassUtils.getDefaultClassLoader()
+                : applicationContext.getClassLoader();
     }
 
     @Override
@@ -43,12 +42,12 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
         Availability restart = restartAvailability();
         LiveReloadHandle liveReload = liveReloadHandle();
         return new DevToolsStatus(
-            restart.available(),
-            restart.reason(),
-            restartPending.get(),
-            liveReload.available(),
-            liveReload.port(),
-            liveReload.reason());
+                restart.available(),
+                restart.reason(),
+                restartPending.get(),
+                liveReload.available(),
+                liveReload.port(),
+                liveReload.reason());
     }
 
     @Override
@@ -60,8 +59,8 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
         try {
             Method triggerReload = liveReload.target().getClass().getMethod("triggerReload");
             triggerReload.invoke(liveReload.target());
-            return new DevToolsActionResult("livereload", "triggered",
-                "LiveReload notification sent to connected browsers.");
+            return new DevToolsActionResult(
+                    "livereload", "triggered", "LiveReload notification sent to connected browsers.");
         } catch (ReflectiveOperationException ex) {
             throw new IllegalStateException("Could not trigger Spring Boot DevTools LiveReload", unwrap(ex));
         }
@@ -74,16 +73,17 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
             return new DevToolsActionResult("restart", "unavailable", restart.reason());
         }
         if (!restartPending.compareAndSet(false, true)) {
-            return new DevToolsActionResult("restart", "already_pending",
-                "A DevTools restart is already pending.");
+            return new DevToolsActionResult("restart", "already_pending", "A DevTools restart is already pending.");
         }
 
         Object restarter = restarter();
         Thread restartThread = new Thread(() -> restartAfterResponse(restarter), "bootui-devtools-restart");
         restartThread.setDaemon(false);
         restartThread.start();
-        return new DevToolsActionResult("restart", "scheduled",
-            "Restart scheduled. BootUI will reconnect when the application is available again.");
+        return new DevToolsActionResult(
+                "restart",
+                "scheduled",
+                "Restart scheduled. BootUI will reconnect when the application is available again.");
     }
 
     private void restartAfterResponse(Object restarter) {
@@ -120,9 +120,11 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
             return getInstance.invoke(null);
         } catch (InvocationTargetException ex) {
             Throwable cause = ex.getTargetException();
-            throw new IllegalStateException(cause.getMessage() == null
-                ? "Spring Boot DevTools Restarter is not initialized."
-                : cause.getMessage(), cause);
+            throw new IllegalStateException(
+                    cause.getMessage() == null
+                            ? "Spring Boot DevTools Restarter is not initialized."
+                            : cause.getMessage(),
+                    cause);
         } catch (ReflectiveOperationException | LinkageError ex) {
             throw new IllegalStateException("Spring Boot DevTools Restarter is not available.", ex);
         }
@@ -130,7 +132,7 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
 
     private LiveReloadHandle liveReloadHandle() {
         if (!ClassUtils.isPresent(OPTIONAL_LIVE_RELOAD_SERVER_CLASS, classLoader)
-            && !ClassUtils.isPresent(LIVE_RELOAD_SERVER_CLASS, classLoader)) {
+                && !ClassUtils.isPresent(LIVE_RELOAD_SERVER_CLASS, classLoader)) {
             return LiveReloadHandle.unavailable("Spring Boot DevTools LiveReload is not on the classpath.");
         }
         LiveReloadHandle optional = beanHandle(OPTIONAL_LIVE_RELOAD_SERVER_CLASS);
@@ -189,8 +191,8 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
 
     private Throwable unwrap(ReflectiveOperationException ex) {
         return ex instanceof InvocationTargetException invocation && invocation.getTargetException() != null
-            ? invocation.getTargetException()
-            : ex;
+                ? invocation.getTargetException()
+                : ex;
     }
 
     private record Availability(boolean available, String reason) {

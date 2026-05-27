@@ -3,14 +3,13 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryPoolDto;
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryReport;
+import java.lang.management.*;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.lang.management.*;
-import java.util.ArrayList;
-import java.util.List;
 
 @RestController
 @RequestMapping("/bootui/api/memory")
@@ -28,9 +27,9 @@ public class MemoryController {
 
     @GetMapping
     public MemoryReport memory(
-        @RequestParam(name = "totalMemoryMb", required = false) Long totalMemoryMb,
-        @RequestParam(name = "threadCount", required = false) Integer threadCount,
-        @RequestParam(name = "headRoomPercent", required = false) Integer headRoomPercent) {
+            @RequestParam(name = "totalMemoryMb", required = false) Long totalMemoryMb,
+            @RequestParam(name = "threadCount", required = false) Integer threadCount,
+            @RequestParam(name = "headRoomPercent", required = false) Integer headRoomPercent) {
         MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
         ClassLoadingMXBean classBean = ManagementFactory.getClassLoadingMXBean();
         ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
@@ -55,24 +54,17 @@ public class MemoryController {
         int liveClasses = classBean.getLoadedClassCount();
 
         long resolvedTotalBytes = totalMemoryMb != null
-            ? totalMemoryMb * 1024L * 1024L
-            : calculator.defaultTotalMemoryBytes(
-            heapUsage.getCommitted(),
-            nonHeapUsage.getCommitted(),
-            MemoryCalculator.defaultThreadCount(liveThreads),
-            liveClasses);
-        int resolvedThreads = threadCount != null
-            ? threadCount
-            : MemoryCalculator.defaultThreadCount(liveThreads);
+                ? totalMemoryMb * 1024L * 1024L
+                : calculator.defaultTotalMemoryBytes(
+                        heapUsage.getCommitted(),
+                        nonHeapUsage.getCommitted(),
+                        MemoryCalculator.defaultThreadCount(liveThreads),
+                        liveClasses);
+        int resolvedThreads = threadCount != null ? threadCount : MemoryCalculator.defaultThreadCount(liveThreads);
         int resolvedHeadRoom = headRoomPercent != null ? headRoomPercent : 0;
 
         MemoryCalculationDto calculation = calculator.calculate(
-            resolvedTotalBytes,
-            resolvedThreads,
-            liveClasses,
-            resolvedHeadRoom,
-            liveThreads,
-            liveClasses);
+                resolvedTotalBytes, resolvedThreads, liveClasses, resolvedHeadRoom, liveThreads, liveClasses);
 
         return new MemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation);
     }
@@ -85,4 +77,3 @@ public class MemoryController {
         return new MemoryPoolDto(name, used, committed, max, pct);
     }
 }
-

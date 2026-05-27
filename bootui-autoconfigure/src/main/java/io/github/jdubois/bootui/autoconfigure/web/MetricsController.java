@@ -2,13 +2,12 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.micrometer.core.instrument.*;
+import java.util.*;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.*;
 
 @RestController
 @RequestMapping("/bootui/api/metrics")
@@ -31,44 +30,43 @@ public class MetricsController {
 
         Map<String, List<Meter>> metersByName = metersByName(registry.getMeters());
         List<MetricMeterDto> meters = metersByName.entrySet().stream()
-            .map(entry -> toMeterDto(entry.getKey(), entry.getValue()))
-            .toList();
+                .map(entry -> toMeterDto(entry.getKey(), entry.getValue()))
+                .toList();
         return new MetricsReport(true, meters.size(), meters);
     }
 
     @GetMapping("/detail")
-    public MetricDetailDto metric(@RequestParam String name,
-                                  @RequestParam(name = "tag", required = false) List<String> tagFilters) {
+    public MetricDetailDto metric(
+            @RequestParam String name, @RequestParam(name = "tag", required = false) List<String> tagFilters) {
         MeterRegistry registry = registry();
         if (registry == null) {
             return emptyDetail(false, name);
         }
 
         List<Meter> meters = registry.getMeters().stream()
-            .filter(meter -> meter.getId().getName().equals(name))
-            .toList();
+                .filter(meter -> meter.getId().getName().equals(name))
+                .toList();
         if (meters.isEmpty()) {
             return emptyDetail(true, name);
         }
 
         Map<String, String> requiredTags = parseTagFilters(tagFilters);
-        List<Meter> matchingMeters = meters.stream()
-            .filter(meter -> hasTags(meter, requiredTags))
-            .toList();
+        List<Meter> matchingMeters =
+                meters.stream().filter(meter -> hasTags(meter, requiredTags)).toList();
         List<MetricSampleDto> samples = matchingMeters.stream()
-            .map(this::toSample)
-            .sorted(Comparator.comparing(sample -> sample.tags().toString()))
-            .toList();
+                .map(this::toSample)
+                .sorted(Comparator.comparing(sample -> sample.tags().toString()))
+                .toList();
 
         return new MetricDetailDto(
-            true,
-            name,
-            firstDescription(meters),
-            firstBaseUnit(meters),
-            firstType(meters),
-            aggregateMeasurements(matchingMeters),
-            availableTags(meters),
-            samples);
+                true,
+                name,
+                firstDescription(meters),
+                firstBaseUnit(meters),
+                firstType(meters),
+                aggregateMeasurements(matchingMeters),
+                availableTags(meters),
+                samples);
     }
 
     private MeterRegistry registry() {
@@ -82,18 +80,15 @@ public class MetricsController {
     private Map<String, List<Meter>> metersByName(List<Meter> meters) {
         Map<String, List<Meter>> grouped = new TreeMap<>();
         for (Meter meter : meters) {
-            grouped.computeIfAbsent(meter.getId().getName(), name -> new ArrayList<>()).add(meter);
+            grouped.computeIfAbsent(meter.getId().getName(), name -> new ArrayList<>())
+                    .add(meter);
         }
         return grouped;
     }
 
     private MetricMeterDto toMeterDto(String name, List<Meter> meters) {
         return new MetricMeterDto(
-            name,
-            firstDescription(meters),
-            firstBaseUnit(meters),
-            firstType(meters),
-            availableTags(meters));
+                name, firstDescription(meters), firstBaseUnit(meters), firstType(meters), availableTags(meters));
     }
 
     private MetricDetailDto emptyDetail(boolean metricsAvailable, String name) {
@@ -102,27 +97,27 @@ public class MetricsController {
 
     private String firstDescription(List<Meter> meters) {
         return meters.stream()
-            .map(meter -> meter.getId().getDescription())
-            .filter(value -> value != null && !value.isBlank())
-            .findFirst()
-            .orElse(null);
+                .map(meter -> meter.getId().getDescription())
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(null);
     }
 
     private String firstBaseUnit(List<Meter> meters) {
         return meters.stream()
-            .map(meter -> meter.getId().getBaseUnit())
-            .filter(value -> value != null && !value.isBlank())
-            .findFirst()
-            .orElse(null);
+                .map(meter -> meter.getId().getBaseUnit())
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(null);
     }
 
     private String firstType(List<Meter> meters) {
         return meters.stream()
-            .map(meter -> meter.getId().getType())
-            .filter(type -> type != null)
-            .map(Enum::name)
-            .findFirst()
-            .orElse(null);
+                .map(meter -> meter.getId().getType())
+                .filter(type -> type != null)
+                .map(Enum::name)
+                .findFirst()
+                .orElse(null);
     }
 
     private Map<String, String> parseTagFilters(List<String> tagFilters) {
@@ -153,25 +148,27 @@ public class MetricsController {
         Map<String, TreeSet<String>> valuesByKey = new TreeMap<>();
         for (Meter meter : meters) {
             for (Tag tag : meter.getId().getTags()) {
-                valuesByKey.computeIfAbsent(tag.getKey(), key -> new TreeSet<>()).add(tag.getValue());
+                valuesByKey
+                        .computeIfAbsent(tag.getKey(), key -> new TreeSet<>())
+                        .add(tag.getValue());
             }
         }
 
         List<MetricAvailableTagDto> tags = new ArrayList<>();
         for (Map.Entry<String, TreeSet<String>> entry : valuesByKey.entrySet()) {
-            List<String> values = entry.getValue().stream()
-                .limit(MAX_TAG_VALUES)
-                .toList();
-            tags.add(new MetricAvailableTagDto(entry.getKey(), values, entry.getValue().size() > MAX_TAG_VALUES));
+            List<String> values =
+                    entry.getValue().stream().limit(MAX_TAG_VALUES).toList();
+            tags.add(new MetricAvailableTagDto(
+                    entry.getKey(), values, entry.getValue().size() > MAX_TAG_VALUES));
         }
         return tags;
     }
 
     private MetricSampleDto toSample(Meter meter) {
         List<MetricTagDto> tags = meter.getId().getTags().stream()
-            .sorted(Comparator.comparing(Tag::getKey).thenComparing(Tag::getValue))
-            .map(tag -> new MetricTagDto(tag.getKey(), tag.getValue()))
-            .toList();
+                .sorted(Comparator.comparing(Tag::getKey).thenComparing(Tag::getValue))
+                .map(tag -> new MetricTagDto(tag.getKey(), tag.getValue()))
+                .toList();
         return new MetricSampleDto(tags, measurements(meter));
     }
 
@@ -212,6 +209,6 @@ public class MetricsController {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
+                .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
     }
 }

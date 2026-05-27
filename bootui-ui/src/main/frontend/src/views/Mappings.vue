@@ -23,8 +23,8 @@ const flat = computed(() => {
         const conds = h.details?.requestMappingConditions || {}
         const patterns = conds.patterns || []
         const methods = conds.methods || ['ANY']
-        for (const pattern of (patterns.length ? patterns : ['(any)'])) {
-          for (const method of (methods.length ? methods : ['ANY'])) {
+        for (const pattern of patterns.length ? patterns : ['(any)']) {
+          for (const method of methods.length ? methods : ['ANY']) {
             rows.push({method, pattern, handler: h.handler, predicate: h.predicate})
           }
         }
@@ -33,16 +33,23 @@ const flat = computed(() => {
   }
   if (!filter.value) return rows
   const f = filter.value.toLowerCase()
-  return rows.filter(r =>
-    (r.pattern || '').toLowerCase().includes(f) ||
-    (r.handler || '').toLowerCase().includes(f) ||
-    (r.method || '').toLowerCase().includes(f))
+  return rows.filter(
+    (r) =>
+      (r.pattern || '').toLowerCase().includes(f) ||
+      (r.handler || '').toLowerCase().includes(f) ||
+      (r.method || '').toLowerCase().includes(f)
+  )
 })
 
-const methodClass = m => ({
-  GET: 'bg-success', POST: 'bg-primary', PUT: 'bg-warning text-dark',
-  DELETE: 'bg-danger', PATCH: 'bg-info text-dark', ANY: 'bg-secondary'
-}[m] || 'bg-secondary')
+const methodClass = (m) =>
+  ({
+    GET: 'bg-success',
+    POST: 'bg-primary',
+    PUT: 'bg-warning text-dark',
+    DELETE: 'bg-danger',
+    PATCH: 'bg-info text-dark',
+    ANY: 'bg-secondary'
+  })[m] || 'bg-secondary'
 
 onMounted(load)
 </script>
@@ -50,22 +57,28 @@ onMounted(load)
 <template>
   <div>
     <h2><i class="bi bi-signpost-2 me-2"></i>HTTP mappings</h2>
-    <input v-model="filter" class="form-control mb-3" placeholder="Filter…"/>
+    <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
     <div class="table-responsive">
       <table class="table table-sm table-hover">
         <thead>
-        <tr>
-          <th style="width:90px">Method</th>
-          <th>Pattern</th>
-          <th>Handler</th>
-        </tr>
+          <tr>
+            <th style="width: 90px">Method</th>
+            <th>Pattern</th>
+            <th>Handler</th>
+          </tr>
         </thead>
         <tbody>
-        <tr v-for="(r, i) in flat" :key="i">
-          <td><span :class="methodClass(r.method)" class="badge">{{ r.method }}</span></td>
-          <td><code>{{ r.pattern }}</code></td>
-          <td><small>{{ r.handler }}</small></td>
-        </tr>
+          <tr v-for="(r, i) in flat" :key="i">
+            <td>
+              <span :class="methodClass(r.method)" class="badge">{{ r.method }}</span>
+            </td>
+            <td>
+              <code>{{ r.pattern }}</code>
+            </td>
+            <td>
+              <small>{{ r.handler }}</small>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>

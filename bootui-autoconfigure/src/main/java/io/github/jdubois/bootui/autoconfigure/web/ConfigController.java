@@ -6,13 +6,12 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiOverridesPropertySour
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.github.jdubois.bootui.core.SecretMasker;
+import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.*;
 
 @RestController
 @RequestMapping("/bootui/api/config")
@@ -29,16 +28,20 @@ public class ConfigController {
     private final SecretMasker masker = new SecretMasker();
 
     @Autowired
-    public ConfigController(ConfigurableEnvironment environment,
-                            ConfigOverrideService overrideService,
-                            BootUiProperties properties) {
-        this(environment, overrideService, properties, new ConfigMetadataCatalog(ConfigController.class.getClassLoader()));
+    public ConfigController(
+            ConfigurableEnvironment environment, ConfigOverrideService overrideService, BootUiProperties properties) {
+        this(
+                environment,
+                overrideService,
+                properties,
+                new ConfigMetadataCatalog(ConfigController.class.getClassLoader()));
     }
 
-    ConfigController(ConfigurableEnvironment environment,
-                     ConfigOverrideService overrideService,
-                     BootUiProperties properties,
-                     ConfigMetadataCatalog metadataCatalog) {
+    ConfigController(
+            ConfigurableEnvironment environment,
+            ConfigOverrideService overrideService,
+            BootUiProperties properties,
+            ConfigMetadataCatalog metadataCatalog) {
         this.environment = environment;
         this.overrideService = overrideService;
         this.properties = properties;
@@ -67,10 +70,7 @@ public class ConfigController {
         List<ConfigPropertyDto> sorted = new ArrayList<>(merged.values());
         sorted.sort(Comparator.comparing(ConfigPropertyDto::name));
         return new ConfigReport(
-            Arrays.asList(environment.getActiveProfiles()),
-            sources,
-            sorted,
-            metadataCatalog.suggestions());
+                Arrays.asList(environment.getActiveProfiles()), sources, sorted, metadataCatalog.suggestions());
     }
 
     @PostMapping("/overrides")
@@ -94,19 +94,19 @@ public class ConfigController {
         if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
             displayValue = null;
         } else if (properties.getExposeValues() == ValueExposure.MASKED
-            && properties.isMaskSecrets()
-            && masker.isSecret(name)) {
+                && properties.isMaskSecrets()
+                && masker.isSecret(name)) {
             displayValue = SecretMasker.MASKED_VALUE;
             masked = true;
         }
         return new ConfigPropertyDto(
-            name,
-            displayValue,
-            sourceName,
-            null,
-            masked,
-            isOverride,
-            metadata == null ? null : metadata.description(),
-            metadata == null ? null : metadata.defaultValue());
+                name,
+                displayValue,
+                sourceName,
+                null,
+                masked,
+                isOverride,
+                metadata == null ? null : metadata.description(),
+                metadata == null ? null : metadata.defaultValue());
     }
 }

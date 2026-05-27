@@ -1,20 +1,19 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.nio.file.Path;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Verifies that {@link ConfigController} applies the three {@link ValueExposure} modes
@@ -50,8 +49,10 @@ class ConfigControllerMaskingTests {
 
         ConfigOverrideService overrideService = new ConfigOverrideService(environment, properties);
         ConfigController controller = new ConfigController(
-            environment, overrideService, properties,
-            new ConfigMetadataCatalog(getClass().getClassLoader()));
+                environment,
+                overrideService,
+                properties,
+                new ConfigMetadataCatalog(getClass().getClassLoader()));
         mvc = standaloneSetup(controller).build();
     }
 
@@ -62,10 +63,11 @@ class ConfigControllerMaskingTests {
         properties.setExposeValues(ValueExposure.MASKED);
 
         mvc.perform(get("/bootui/api/config"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].masked").value(true))
-            .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value")
-                .value("******"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].masked")
+                        .value(true))
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value")
+                        .value("******"));
     }
 
     @Test
@@ -73,10 +75,11 @@ class ConfigControllerMaskingTests {
         properties.setExposeValues(ValueExposure.MASKED);
 
         mvc.perform(get("/bootui/api/config"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].masked").value(false))
-            .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].value")
-                .value(PLAIN_VALUE));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].masked")
+                        .value(false))
+                .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].value")
+                        .value(PLAIN_VALUE));
     }
 
     // ── METADATA_ONLY mode ────────────────────────────────────────────────────
@@ -86,9 +89,9 @@ class ConfigControllerMaskingTests {
         properties.setExposeValues(ValueExposure.METADATA_ONLY);
 
         mvc.perform(get("/bootui/api/config"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value[0]")
-                .doesNotExist());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value[0]")
+                        .doesNotExist());
     }
 
     @Test
@@ -96,9 +99,9 @@ class ConfigControllerMaskingTests {
         properties.setExposeValues(ValueExposure.METADATA_ONLY);
 
         mvc.perform(get("/bootui/api/config"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].value[0]")
-                .doesNotExist());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].value[0]")
+                        .doesNotExist());
     }
 
     // ── FULL mode ─────────────────────────────────────────────────────────────
@@ -108,10 +111,11 @@ class ConfigControllerMaskingTests {
         properties.setExposeValues(ValueExposure.FULL);
 
         mvc.perform(get("/bootui/api/config"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].masked").value(false))
-            .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value")
-                .value(SECRET_VALUE));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].masked")
+                        .value(false))
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value")
+                        .value(SECRET_VALUE));
     }
 
     @Test
@@ -119,9 +123,10 @@ class ConfigControllerMaskingTests {
         properties.setExposeValues(ValueExposure.FULL);
 
         mvc.perform(get("/bootui/api/config"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].masked").value(false))
-            .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].value")
-                .value(PLAIN_VALUE));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].masked")
+                        .value(false))
+                .andExpect(jsonPath("$.properties[?(@.name=='" + PLAIN_KEY + "')].value")
+                        .value(PLAIN_VALUE));
     }
 }

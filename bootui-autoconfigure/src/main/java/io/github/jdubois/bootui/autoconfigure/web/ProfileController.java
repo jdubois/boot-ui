@@ -6,19 +6,18 @@ import io.github.jdubois.bootui.core.BootUiDtos.ConfigPropertyDto;
 import io.github.jdubois.bootui.core.BootUiDtos.ProfileSourceDto;
 import io.github.jdubois.bootui.core.BootUiDtos.ProfilesReport;
 import io.github.jdubois.bootui.core.SecretMasker;
-import org.springframework.core.env.ConfigurableEnvironment;
-import org.springframework.core.env.EnumerablePropertySource;
-import org.springframework.core.env.PropertySource;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.EnumerablePropertySource;
+import org.springframework.core.env.PropertySource;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Exposes a profile-aware view of the current configuration.
@@ -30,8 +29,8 @@ import java.util.regex.Pattern;
 @RequestMapping("/bootui/api/profiles")
 public class ProfileController {
 
-    private static final Pattern PROFILE_SOURCE_PATTERN =
-        Pattern.compile("(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
+    private static final Pattern PROFILE_SOURCE_PATTERN = Pattern.compile(
+            "(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
 
     private final ConfigurableEnvironment environment;
     private final BootUiProperties properties;
@@ -82,8 +81,8 @@ public class ProfileController {
 
     private boolean shouldMask(String key) {
         return properties.getExposeValues() == ValueExposure.MASKED
-            && properties.isMaskSecrets()
-            && masker.isSecret(key);
+                && properties.isMaskSecrets()
+                && masker.isSecret(key);
     }
 
     private String displayValue(String key, String value) {

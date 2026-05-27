@@ -130,7 +130,8 @@ const memory = {
     liveLoadedClassCount: 14872,
     loadedClasses: 18590
   },
-  suggestedJvmOptions: '-Xms438m -Xmx438m -XX:MaxMetaspaceSize=94m -XX:ReservedCodeCacheSize=96m -XX:MaxDirectMemorySize=64m -XX:+UseG1GC',
+  suggestedJvmOptions:
+    '-Xms438m -Xmx438m -XX:MaxMetaspaceSize=94m -XX:ReservedCodeCacheSize=96m -XX:MaxDirectMemorySize=64m -XX:+UseG1GC',
   heap: {usedBytes: 172 * MB, committedBytes: 256 * MB, maxBytes: 438 * MB, usedPercent: 39},
   nonHeap: {usedBytes: 116 * MB, committedBytes: 148 * MB, maxBytes: -1, usedPercent: 78},
   pools: [
@@ -171,23 +172,27 @@ function metricDetail(name) {
   const value = name === 'process.uptime' ? 1420 + metricSample : 183_500_000 + metricSample * 2_000_000
   return {
     name,
-    description: metrics.meters.find(meter => meter.name === name)?.description || 'Sample metric',
-    type: metrics.meters.find(meter => meter.name === name)?.type || 'GAUGE',
+    description: metrics.meters.find((meter) => meter.name === name)?.description || 'Sample metric',
+    type: metrics.meters.find((meter) => meter.name === name)?.type || 'GAUGE',
     baseUnit: name.includes('memory') ? 'bytes' : null,
-    measurements: [
-      {statistic: 'VALUE', value}
-    ],
+    measurements: [{statistic: 'VALUE', value}],
     availableTags: [
       {key: 'area', values: ['heap', 'nonheap'], truncated: false},
       {key: 'id', values: ['G1 Old Gen', 'Metaspace'], truncated: false}
     ],
     samples: [
       {
-        tags: [{key: 'area', value: 'heap'}, {key: 'id', value: 'G1 Old Gen'}],
+        tags: [
+          {key: 'area', value: 'heap'},
+          {key: 'id', value: 'G1 Old Gen'}
+        ],
         measurements: [{statistic: 'VALUE', value}]
       },
       {
-        tags: [{key: 'area', value: 'nonheap'}, {key: 'id', value: 'Metaspace'}],
+        tags: [
+          {key: 'area', value: 'nonheap'},
+          {key: 'id', value: 'Metaspace'}
+        ],
         measurements: [{statistic: 'VALUE', value: 86_200_000}]
       }
     ]
@@ -293,7 +298,11 @@ const mappings = {
 
 const configuration = {
   activeProfiles: ['dev', 'local'],
-  sources: ['applicationConfig: [classpath:/application.properties]', '.bootui/application-bootui.properties', 'systemProperties'],
+  sources: [
+    'applicationConfig: [classpath:/application.properties]',
+    '.bootui/application-bootui.properties',
+    'systemProperties'
+  ],
   propertySuggestions: [
     {name: 'server.port', type: 'java.lang.Integer', defaultValue: 8080, description: 'Server HTTP port.'},
     {
@@ -421,10 +430,46 @@ const traceDetail = {
   traceId,
   spans: [
     span(traceId, 'aaaaaaaaaaaaaaaa', null, 'POST /api/chat', 'SERVER', 'bootui-sample', 0, 1_220_000_000),
-    span(traceId, 'bbbbbbbbbbbbbbbb', 'aaaaaaaaaaaaaaaa', 'ChatClient call', 'CLIENT', 'bootui-sample', 80_000_000, 980_000_000),
-    span(traceId, 'cccccccccccccccc', 'bbbbbbbbbbbbbbbb', 'POST /api/generate', 'CLIENT', 'ollama', 130_000_000, 760_000_000),
-    span(traceId, 'dddddddddddddddd', 'aaaaaaaaaaaaaaaa', 'GET sample-greetings', 'CLIENT', 'redis', 40_000_000, 30_000_000),
-    span(traceId, 'eeeeeeeeeeeeeeee', 'aaaaaaaaaaaaaaaa', 'INSERT chat_audit', 'CLIENT', 'postgres', 1_060_000_000, 90_000_000)
+    span(
+      traceId,
+      'bbbbbbbbbbbbbbbb',
+      'aaaaaaaaaaaaaaaa',
+      'ChatClient call',
+      'CLIENT',
+      'bootui-sample',
+      80_000_000,
+      980_000_000
+    ),
+    span(
+      traceId,
+      'cccccccccccccccc',
+      'bbbbbbbbbbbbbbbb',
+      'POST /api/generate',
+      'CLIENT',
+      'ollama',
+      130_000_000,
+      760_000_000
+    ),
+    span(
+      traceId,
+      'dddddddddddddddd',
+      'aaaaaaaaaaaaaaaa',
+      'GET sample-greetings',
+      'CLIENT',
+      'redis',
+      40_000_000,
+      30_000_000
+    ),
+    span(
+      traceId,
+      'eeeeeeeeeeeeeeee',
+      'aaaaaaaaaaaaaaaa',
+      'INSERT chat_audit',
+      'CLIENT',
+      'postgres',
+      1_060_000_000,
+      90_000_000
+    )
   ]
 }
 
@@ -444,7 +489,8 @@ const aiOverview = {
     aiChat('2222222222222222', 'ollama', 'qwen2.5:0.5b', 305, 141, 820_000_000, 'stop'),
     aiChat('3333333333333333', 'ollama', 'llama3.2:1b', 288, 205, 1_120_000_000, 'length')
   ],
-  contentBanner: 'Prompt and completion text is hidden by default. Enable Spring AI content observations to inspect message snippets locally.'
+  contentBanner:
+    'Prompt and completion text is hidden by default. Enable Spring AI content observations to inspect message snippets locally.'
 }
 
 const aiTokens = {
@@ -716,7 +762,13 @@ const security = {
       csrfEnabled: false,
       corsEnabled: true,
       sessionManagementPresent: false,
-      filters: ['DisableEncodeUrlFilter', 'WebAsyncManagerIntegrationFilter', 'HeaderWriterFilter', 'CorsFilter', 'AuthorizationFilter']
+      filters: [
+        'DisableEncodeUrlFilter',
+        'WebAsyncManagerIntegrationFilter',
+        'HeaderWriterFilter',
+        'CorsFilter',
+        'AuthorizationFilter'
+      ]
     },
     {
       order: 1,
@@ -725,7 +777,14 @@ const security = {
       csrfEnabled: true,
       corsEnabled: true,
       sessionManagementPresent: true,
-      filters: ['SecurityContextHolderFilter', 'CsrfFilter', 'LogoutFilter', 'UsernamePasswordAuthenticationFilter', 'BasicAuthenticationFilter', 'AuthorizationFilter']
+      filters: [
+        'SecurityContextHolderFilter',
+        'CsrfFilter',
+        'LogoutFilter',
+        'UsernamePasswordAuthenticationFilter',
+        'BasicAuthenticationFilter',
+        'AuthorizationFilter'
+      ]
     }
   ],
   auth: {
@@ -813,10 +872,22 @@ const dependencies = {
     dependency('pkg:maven/org.springframework.boot/spring-boot-starter-web', '4.0.6', 'NONE', []),
     dependency('pkg:maven/com.fasterxml.jackson.core/jackson-databind', '2.20.1', 'NONE', []),
     dependency('pkg:maven/org.postgresql/postgresql', '42.2.19', 'HIGH', [
-      vulnerability('GHSA-example-001', 'HIGH', 'Sample advisory showing why local dependency scans are useful.', ['CVE-2026-0001'], ['42.7.4'])
+      vulnerability(
+        'GHSA-example-001',
+        'HIGH',
+        'Sample advisory showing why local dependency scans are useful.',
+        ['CVE-2026-0001'],
+        ['42.7.4']
+      )
     ]),
     dependency('pkg:maven/io.netty/netty-handler', '4.1.95.Final', 'MEDIUM', [
-      vulnerability('GHSA-example-002', 'MEDIUM', 'Sample TLS handling advisory in a transitive dependency.', ['CVE-2026-0002'], ['4.1.118.Final']),
+      vulnerability(
+        'GHSA-example-002',
+        'MEDIUM',
+        'Sample TLS handling advisory in a transitive dependency.',
+        ['CVE-2026-0002'],
+        ['4.1.118.Final']
+      ),
       vulnerability('GHSA-example-003', 'MEDIUM', 'Sample denial-of-service advisory.', [], ['4.1.119.Final'])
     ]),
     dependency('pkg:maven/org.springframework.ai/spring-ai-core', '2.0.0-M7', 'NONE', []),
@@ -829,10 +900,15 @@ const screenshots = [
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
   ['memory', 'Memory', 'bootui-memory.png', waitForText('JVM memory calculator')],
   ['health', 'Health', 'bootui-health.png', waitForText('Component tree')],
-  ['metrics', 'Metrics', 'bootui-metrics.png', async page => {
-    await page.getByText('Micrometer metrics').waitFor()
-    await page.waitForTimeout(2300)
-  }],
+  [
+    'metrics',
+    'Metrics',
+    'bootui-metrics.png',
+    async (page) => {
+      await page.getByText('Micrometer metrics').waitFor()
+      await page.waitForTimeout(2300)
+    }
+  ],
   ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
   ['beans', 'Beans', 'bootui-beans.png', waitForText('sampleController')],
   ['mappings', 'Mappings', 'bootui-mappings.png', waitForText('/api/sample/products')],
@@ -841,19 +917,29 @@ const screenshots = [
   ['loggers', 'Loggers', 'bootui-loggers.png', waitForText('io.github.jdubois.bootui')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
-  ['http-probe', 'HTTP Probe', 'bootui-http-probe.png', async page => {
-    await page.getByPlaceholder('/api/sample/hello').fill('/api/sample/products')
-    await page.getByRole('button', {name: 'Send'}).click()
-    await page.getByText('200 OK').waitFor()
-  }],
+  [
+    'http-probe',
+    'HTTP Probe',
+    'bootui-http-probe.png',
+    async (page) => {
+      await page.getByPlaceholder('/api/sample/hello').fill('/api/sample/products')
+      await page.getByRole('button', {name: 'Send'}).click()
+      await page.getByText('200 OK').waitFor()
+    }
+  ],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
-  ['data', 'Data', 'bootui-data.png', async page => {
-    await page.getByText('ProductRepository').waitFor()
-    await page.getByRole('button', {name: /ProductRepository/}).click()
-    await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
-  }],
+  [
+    'data',
+    'Data',
+    'bootui-data.png',
+    async (page) => {
+      await page.getByText('ProductRepository').waitFor()
+      await page.getByRole('button', {name: /ProductRepository/}).click()
+      await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
+    }
+  ],
   ['cache', 'Cache', 'bootui-cache.png', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
   ['security', 'Security', 'bootui-security.png', waitForText('/api/sample/hello')],
@@ -880,8 +966,9 @@ try {
     deviceScaleFactor: 1
   })
 
-  await page.addInitScript(({logLines}) => {
-    const styleText = `
+  await page.addInitScript(
+    ({logLines}) => {
+      const styleText = `
       *, *::before, *::after {
         animation-duration: 0s !important;
         animation-delay: 0s !important;
@@ -890,51 +977,56 @@ try {
         transition-delay: 0s !important;
       }
     `
-    document.addEventListener('DOMContentLoaded', () => {
-      const style = document.createElement('style')
-      style.textContent = styleText
-      document.head.appendChild(style)
-    })
+      document.addEventListener('DOMContentLoaded', () => {
+        const style = document.createElement('style')
+        style.textContent = styleText
+        document.head.appendChild(style)
+      })
 
-    class FakeEventSource {
-      constructor() {
-        this.listeners = new Map()
-        this.readyState = 0
-        setTimeout(() => {
-          this.readyState = 1
-          this.emit('open', {type: 'open'})
-          logLines.forEach((line, index) => {
-            setTimeout(() => this.emit('log', {type: 'log', data: JSON.stringify(line)}), 40 + index * 50)
-          })
-        }, 20)
-      }
-
-      addEventListener(type, listener) {
-        const listeners = this.listeners.get(type) || []
-        listeners.push(listener)
-        this.listeners.set(type, listeners)
-      }
-
-      removeEventListener(type, listener) {
-        const listeners = this.listeners.get(type) || []
-        this.listeners.set(type, listeners.filter(candidate => candidate !== listener))
-      }
-
-      close() {
-        this.readyState = 2
-      }
-
-      emit(type, event) {
-        for (const listener of this.listeners.get(type) || []) {
-          listener(event)
+      class FakeEventSource {
+        constructor() {
+          this.listeners = new Map()
+          this.readyState = 0
+          setTimeout(() => {
+            this.readyState = 1
+            this.emit('open', {type: 'open'})
+            logLines.forEach((line, index) => {
+              setTimeout(() => this.emit('log', {type: 'log', data: JSON.stringify(line)}), 40 + index * 50)
+            })
+          }, 20)
         }
-        const handler = this[`on${type}`]
-        if (handler) handler(event)
-      }
-    }
 
-    window.EventSource = FakeEventSource
-  }, {logLines: sampleLogLines()})
+        addEventListener(type, listener) {
+          const listeners = this.listeners.get(type) || []
+          listeners.push(listener)
+          this.listeners.set(type, listeners)
+        }
+
+        removeEventListener(type, listener) {
+          const listeners = this.listeners.get(type) || []
+          this.listeners.set(
+            type,
+            listeners.filter((candidate) => candidate !== listener)
+          )
+        }
+
+        close() {
+          this.readyState = 2
+        }
+
+        emit(type, event) {
+          for (const listener of this.listeners.get(type) || []) {
+            listener(event)
+          }
+          const handler = this[`on${type}`]
+          if (handler) handler(event)
+        }
+      }
+
+      window.EventSource = FakeEventSource
+    },
+    {logLines: sampleLogLines()}
+  )
 
   await page.route('**/bootui/api/**', handleApiRoute)
 
@@ -964,9 +1056,9 @@ function startVite() {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {...process.env, BROWSER: 'none'}
   })
-  child.stdout.on('data', data => process.stdout.write(data))
-  child.stderr.on('data', data => process.stderr.write(data))
-  child.on('exit', code => {
+  child.stdout.on('data', (data) => process.stdout.write(data))
+  child.stderr.on('data', (data) => process.stderr.write(data))
+  child.on('exit', (code) => {
     if (code !== null && code !== 0 && code !== 143) {
       console.error(`Vite exited with status ${code}`)
     }
@@ -978,7 +1070,7 @@ async function waitForServer(url) {
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
     if (await isServerReady(url)) return
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 500))
   }
   throw new Error(`Timed out waiting for ${url}`)
 }
@@ -998,14 +1090,16 @@ async function handleApiRoute(route) {
   const endpoint = decodeURIComponent(url.pathname.replace(/^\/bootui\/api\/?/, ''))
 
   if (endpoint === 'overview') return fulfillJson(route, overview)
-  if (endpoint === 'panels') return fulfillJson(route, {
-    panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
-  })
+  if (endpoint === 'panels')
+    return fulfillJson(route, {
+      panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
+    })
   if (endpoint === 'startup') return fulfillJson(route, startup)
   if (endpoint.startsWith('memory')) return fulfillJson(route, memory)
   if (endpoint === 'health') return fulfillJson(route, health)
   if (endpoint === 'metrics') return fulfillJson(route, metrics)
-  if (endpoint === 'metrics/detail') return fulfillJson(route, metricDetail(url.searchParams.get('name') || 'jvm.memory.used'))
+  if (endpoint === 'metrics/detail')
+    return fulfillJson(route, metricDetail(url.searchParams.get('name') || 'jvm.memory.used'))
   if (endpoint === 'conditions') return fulfillJson(route, conditions)
   if (endpoint === 'beans') return fulfillJson(route, beans)
   if (endpoint === 'mappings') return fulfillJson(route, mappings)
@@ -1034,13 +1128,14 @@ async function handleApiRoute(route) {
   if (endpoint === 'cache') return fulfillJson(route, cache)
   if (endpoint === 'security') return fulfillJson(route, security)
   if (endpoint === 'security/endpoints') return fulfillJson(route, securityEndpoints)
-  if (endpoint === 'security/explain') return fulfillJson(route, {
-    matched: true,
-    bestEffort: false,
-    chainIndex: 1,
-    matcherDescription: 'any request',
-    filters: security.chains[1].filters
-  })
+  if (endpoint === 'security/explain')
+    return fulfillJson(route, {
+      matched: true,
+      bestEffort: false,
+      chainIndex: 1,
+      matcherDescription: 'any request',
+      filters: security.chains[1].filters
+    })
   if (endpoint === 'dependencies') return fulfillJson(route, dependencies)
   if (endpoint === 'dependencies/scan') return fulfillJson(route, dependencies)
 
@@ -1048,7 +1143,7 @@ async function handleApiRoute(route) {
 }
 
 function waitForText(text) {
-  return page => page.getByText(text).first().waitFor()
+  return (page) => page.getByText(text).first().waitFor()
 }
 
 function mapping(method, pattern, handler) {
@@ -1182,13 +1277,17 @@ function probeResponse(request) {
       'content-type': 'application/json',
       'x-bootui-probe': 'local'
     },
-    body: JSON.stringify({
-      path: request.path || '/api/sample/products',
-      products: [
-        {id: 1, name: 'BootUI Starter', category: 'library'},
-        {id: 2, name: 'Sample Console', category: 'demo'}
-      ]
-    }, null, 2),
+    body: JSON.stringify(
+      {
+        path: request.path || '/api/sample/products',
+        products: [
+          {id: 1, name: 'BootUI Starter', category: 'library'},
+          {id: 2, name: 'Sample Console', category: 'demo'}
+        ]
+      },
+      null,
+      2
+    ),
     durationMs: 18,
     error: null
   }

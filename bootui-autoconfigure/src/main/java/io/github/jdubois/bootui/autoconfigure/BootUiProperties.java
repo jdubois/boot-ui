@@ -1,8 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Configuration properties bound under the {@code bootui.*} prefix.
