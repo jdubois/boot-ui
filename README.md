@@ -128,6 +128,8 @@ The Configuration panel can create, update, and delete local runtime overrides. 
 ## More docs
 
 - [Feature details](docs/FEATURES.md): panel-by-panel guide with screenshots
+- [Sample app walkthrough](bootui-sample-app/README.md): the demo app behind the screenshots and Playwright suite
+- [CHANGELOG.md](CHANGELOG.md): release notes
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, build, test, and publishing instructions
 - [SECURITY.md](SECURITY.md): threat model and security policy
 - [docs/SPECIFICATION.md](docs/SPECIFICATION.md): full product and technical specification

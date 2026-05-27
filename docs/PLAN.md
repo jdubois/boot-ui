@@ -349,10 +349,15 @@ Reason:
 
 ## 9. Suggested next steps
 
-1. Finish focused backend tests for the harden-all-visible-panels scope.
-2. Verify Maven Central publishing prerequisites: `central` server credentials, GPG signing key, and release-profile deploy configuration.
-3. Prepare release notes and tag the first alpha only after CI and manual smoke checks pass.
-4. Re-run the full build and Playwright suite after any final release-scope changes.
+Maven Central publishing prerequisites (`central` server credentials, GPG signing key, and release-profile deploy configuration) are in place, and the first alpha has been released to Maven Central via the `Prepare Release` workflow.
+
+Backend test coverage for the harden-all-visible-panels scope has been completed: `BootUiPropertiesTests`, `BootUiActivationConditionAdditionalTests`, controller mapping and DTO serialization tests for every `/bootui/api/**` endpoint, `AdditionalMissingActuatorEndpointsTests`, `ConfigControllerHttpCrudTests`, `ConfigControllerMaskingTests`, `LoggersControllerMutationTests`, `SecretMaskerBrowserVisibleSurfaceTests`, and edge-case tests for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, and Memory.
+
+User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript Vue 3 frontend, and the full visible panel set. The repository now ships a `CHANGELOG.md` (release notes back to `0.1.0-alpha.1`) and a sample-app walkthrough at `bootui-sample-app/README.md`.
+
+`./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both pass on the current `main`.
+
+Remaining release-hardening work tracks under the milestones in §3 and the v0.2 candidates in §6.
 
 ## 10. Validation checklist
 
