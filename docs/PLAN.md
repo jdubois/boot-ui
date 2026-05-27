@@ -56,30 +56,30 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - OTLP traces receiver (`/bootui/api/otlp/v1/traces`), Traces panel API, and AI Usage panel API
 - Vue 3 UI shell with routes for:
   - Overview
-  - Beans
-  - Conditions
-  - Configuration
-  - Mappings
-  - Health
-  - Loggers
-  - Data
-  - Cache
   - Startup Timeline
   - Memory
-  - Scheduled Tasks
-  - HTTP Probe
-  - Log Tail
-  - Profile Diff
-  - Security
+  - Health
   - Metrics
-  - Vulnerabilities
-  - DevTools
-  - Dev Services
+  - Conditions
+  - Beans
+  - Mappings
+  - Configuration
+  - Profile Diff
+  - Loggers
+  - Log Tail
   - Traces
   - AI Usage
+  - HTTP Probe
+  - DevTools
+  - Dev Services
+  - Scheduled Tasks
+  - Data
+  - Cache
+  - Security
+  - Vulnerabilities
 - Maven-integrated frontend build that downloads Node/npm, builds the Vite app, and packages assets into `META-INF/resources/bootui`.
 - Backend tests covering activation, auto-configuration activation cases, localhost filtering, config override persistence, override property sources, override file storage, environment post-processing, config metadata loading, selected web controllers, missing Actuator behavior, and sample-app integration.
-- Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API, every visible BootUI route, and focused flows for the current panel set, including Metrics, Redis-backed Cache, Vulnerabilities, DevTools, and Dev Services.
+- Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API, every visible BootUI route including Traces and AI Usage, and focused flows for panels such as Metrics, Redis-backed Cache, Vulnerabilities, DevTools, and Dev Services.
 
 ## 3. Milestone status
 
@@ -108,7 +108,7 @@ The harden-all-visible-panels alpha test expansion is complete. Coverage now inc
 5. Config controller HTTP create, update, and delete behavior; persisted display state; masking; `METADATA_ONLY` / `FULL` value exposure; and restart-warning messages.
 6. Logger level mutation and clearing through HTTP.
 7. Secret masking for browser-visible property names and values.
-8. Edge-case coverage for Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff masking, Spring Security, Micrometer Metrics, DevTools, Dev Services, and JVM Memory.
+8. Edge-case coverage for Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff masking, Spring Security, Micrometer Metrics, DevTools, Dev Services, JVM Memory, and OTLP trace ingestion.
 
 Future backend test work should be incremental and tied to new or changed behavior, especially v0.2 candidates such as Dev Services edge cases, WebFlux support, source-file links, and optional UI gating.
 
@@ -117,27 +117,29 @@ Future backend test work should be incremental and tied to new or changed behavi
 The visible-route parity check is current. On 2026-05-27, the sample-app Playwright suite passed all 43 tests, covering:
 
 1. Overview.
-2. Beans.
-3. Conditions.
-4. Configuration.
-5. Mappings.
-6. Health.
-7. Loggers.
-8. Data.
-9. Cache.
-10. Startup Timeline.
-11. Memory.
-12. Metrics.
-13. Vulnerabilities.
-14. DevTools.
-15. Dev Services.
-16. Scheduled Tasks.
-17. HTTP Probe.
-18. Log Tail.
-19. Profile Diff.
-20. Security.
+2. Startup Timeline.
+3. Memory.
+4. Health.
+5. Metrics.
+6. Conditions.
+7. Beans.
+8. Mappings.
+9. Configuration.
+10. Profile Diff.
+11. Loggers.
+12. Log Tail.
+13. Traces.
+14. AI Usage.
+15. HTTP Probe.
+16. DevTools.
+17. Dev Services.
+18. Scheduled Tasks.
+19. Data.
+20. Cache.
+21. Security.
+22. Vulnerabilities.
 
-Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app Playwright tests, and part of the supported alpha surface. Any new visible route or browser-facing behavior should update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
+Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app Playwright tests, and part of the supported alpha surface. Any new visible route or browser-facing behavior should update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
 
 ### 4.3 User-facing documentation status
 
@@ -150,7 +152,7 @@ The first-alpha documentation refresh is complete. Keep these user-facing topics
 5. Secret masking and value exposure behavior.
 6. Runtime configuration override behavior, persistence to `.bootui/application-bootui.properties`, and restart/rebind caveats.
 7. Actuator requirements and degraded behavior when endpoints are unavailable.
-8. Panel-by-panel feature guide for every visible route, including Metrics, DevTools, Dev Services, and the JVM memory panel with its suggested JVM options.
+8. Panel-by-panel feature guide for every visible route, including Metrics, Traces, AI Usage, DevTools, Dev Services, and the JVM memory panel with its suggested JVM options.
 9. Troubleshooting.
 10. Sample app walkthrough.
 11. Release notes.
@@ -160,7 +162,7 @@ Completed reconciliation points:
 - `bootui.enabled` uses `AUTO|ON|OFF`.
 - Runtime config overrides persist to the BootUI overrides file by default.
 - The frontend is plain JavaScript Vue 3.
-- Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented alpha surfaces, not deferred ideas.
+- Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented alpha surfaces, not deferred ideas.
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots, bean-backed Testcontainers services can expose bounded logs, and restart is disabled unless `bootui.dev-services.restart-enabled=true`.
 - Maven Central publishing has been exercised for the first alpha; the release profile signs and stages artifacts through the Sonatype Central Publishing plugin.
 
@@ -355,7 +357,7 @@ Reason:
 
 Maven Central publishing prerequisites (`central` server credentials, GPG signing key, and release-profile deploy configuration) are in place, and the first alpha has been released to Maven Central via the `Prepare Release` workflow.
 
-Backend test coverage for the harden-all-visible-panels scope has been completed: `BootUiPropertiesTests`, `BootUiActivationConditionAdditionalTests`, controller mapping and DTO serialization tests for every `/bootui/api/**` endpoint, `AdditionalMissingActuatorEndpointsTests`, `ConfigControllerHttpCrudTests`, `ConfigControllerMaskingTests`, `LoggersControllerMutationTests`, `CacheControllerTests`, `SecretMaskerBrowserVisibleSurfaceTests`, and edge-case tests for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, and Memory.
+Backend test coverage for the harden-all-visible-panels scope has been completed: `BootUiPropertiesTests`, `BootUiActivationConditionAdditionalTests`, controller mapping and DTO serialization tests for every `/bootui/api/**` endpoint, `AdditionalMissingActuatorEndpointsTests`, `ConfigControllerHttpCrudTests`, `ConfigControllerMaskingTests`, `LoggersControllerMutationTests`, `CacheControllerTests`, `SecretMaskerBrowserVisibleSurfaceTests`, and edge-case tests for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, Memory, and OTLP trace ingestion.
 
 User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript Vue 3 frontend, and the full visible panel set. The repository now ships a `CHANGELOG.md` (release notes back to `0.1.0-alpha.1`) and a sample-app walkthrough at `bootui-sample-app/README.md`.
 

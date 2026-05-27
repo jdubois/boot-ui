@@ -53,14 +53,14 @@ test.describe('BootUI app shell', () => {
       { title: 'Profile Diff',      heading: /Profile Diff/ },
       { title: 'Loggers',           heading: /^Loggers/ },
       { title: 'Log Tail',          heading: /Log Tail/ },
+      { title: 'Traces',            heading: /^Traces/ },
+      { title: 'AI Usage',          heading: /AI Usage/ },
       { title: 'HTTP Probe',        heading: /HTTP Probe/ },
       { title: 'DevTools',          heading: /^DevTools/ },
       { title: 'Dev Services',      heading: /^Dev Services/ },
       { title: 'Scheduled Tasks',   heading: /Scheduled Tasks/ },
       { title: 'Data',              heading: /Spring Data repositories/ },
       { title: 'Cache',             heading: /Spring Cache/ },
-      { title: 'Traces',            heading: /^Traces/ },
-      { title: 'AI Usage',          heading: /AI Usage/ },
       { title: 'Security',          heading: /Spring Security/ },
       { title: 'Vulnerabilities',   heading: /^Vulnerabilities/ }
     ]
