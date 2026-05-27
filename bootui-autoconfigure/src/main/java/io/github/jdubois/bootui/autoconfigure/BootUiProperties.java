@@ -68,6 +68,9 @@ public class BootUiProperties {
     /** Dev Services panel settings. */
     private DevServices devServices = new DevServices();
 
+    /** Spring Cache panel settings. */
+    private Cache cache = new Cache();
+
     /** Dependency inventory and vulnerability scanning settings. */
     private Dependencies dependencies = new Dependencies();
 
@@ -93,6 +96,20 @@ public class BootUiProperties {
 
         public void setLogTailBytes(int logTailBytes) {
             this.logTailBytes = logTailBytes;
+        }
+    }
+
+    public static class Cache {
+
+        /** Allow BootUI to clear application caches from the Spring Cache panel. */
+        private boolean clearEnabled = true;
+
+        public boolean isClearEnabled() {
+            return clearEnabled;
+        }
+
+        public void setClearEnabled(boolean clearEnabled) {
+            this.clearEnabled = clearEnabled;
         }
     }
 
@@ -245,6 +262,14 @@ public class BootUiProperties {
 
     public void setDevServices(DevServices devServices) {
         this.devServices = devServices;
+    }
+
+    public Cache getCache() {
+        return cache;
+    }
+
+    public void setCache(Cache cache) {
+        this.cache = cache;
     }
 
     public Dependencies getDependencies() {

@@ -103,6 +103,12 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultCacheClearEnabledIsTrue() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getCache().isClearEnabled()).isTrue();
+    }
+
+    @Test
     void defaultDependenciesOsvEnabledIsTrue() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getDependencies().isOsvEnabled()).isTrue();
@@ -248,6 +254,16 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getDevServices().getLogTailBytes()).isEqualTo(131072);
+    }
+
+    @Test
+    void bindsCacheClearEnabledFalse() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.cache.clear-enabled", "false");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getCache().isClearEnabled()).isFalse();
     }
 
     @Test

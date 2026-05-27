@@ -572,7 +572,32 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
-### 5.18 Dev Services Panel
+### 5.18 Spring Cache Panel
+
+Purpose: answer "Which Spring Cache managers and caches exist, how are they used, and can I clear them during local development?"
+
+Data sources:
+
+- Spring `CacheManager` beans discovered in the application context.
+- Spring Cache `CacheOperationSource` metadata for `@Cacheable`, `@CachePut`, `@CacheEvict`, and composed `@Caching` operations.
+- Micrometer cache meters when the host application has cache metrics registered.
+
+Features:
+
+- List detected cache managers, their implementation types, and currently known cache names.
+- For each cache, show the native implementation type, safe local size when it can be read without remote enumeration, and Micrometer metrics such as hits, misses, hit ratio, puts, evictions, removals, and size.
+- List discovered cache annotation operations by bean, target type, method signature, operation type, cache names, key/condition/unless expressions, and eviction flags.
+- Clear one known cache or every known cache when `bootui.cache.clear-enabled=true` and the browser sends an explicit confirmation.
+
+Acceptance criteria:
+
+- When no `CacheManager` beans are present, the panel shows a clear empty state.
+- Cache size inspection must avoid enumerating remote or distributed cache stores.
+- Cache clear actions are enabled by default for local development, still require explicit confirmation, and return a clear disabled response when `bootui.cache.clear-enabled=false`.
+- Clearing unknown cache names must not create dynamic caches as a side effect.
+- Annotation discovery must not eagerly initialize lazy application beans.
+
+### 5.19 Dev Services Panel
 
 Purpose: answer "Which local backing services are connected?"
 
@@ -704,7 +729,7 @@ Sample Spring Boot app used for demos and integration tests.
 Responsibilities:
 
 - Demonstrate common Spring Boot features.
-- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, scheduling, and Spring Security.
+- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, Redis-backed Spring Cache, scheduling, and Spring Security.
 - Provide enough beans, mappings, config, health, repositories, scheduled tasks, security chains, and logs to test BootUI.
 - Host Playwright end-to-end tests for every visible BootUI route and the sample REST API.
 
@@ -772,6 +797,8 @@ Initial endpoints:
 | `/bootui/api/dev-services/{id}/restart` | POST | Restart a bean-backed service only when explicitly enabled |
 | `/bootui/api/data/repositories` | GET | Detected Spring Data repositories (summary) |
 | `/bootui/api/data/repositories/{name}` | GET | Spring Data repository detail with query methods |
+| `/bootui/api/cache` | GET | Spring Cache managers, caches, metrics, and annotation operations |
+| `/bootui/api/cache/clear` | POST | Clear one or all known caches only when explicitly enabled and confirmed |
 | `/bootui/api/security` | GET | Spring Security filter chain report |
 | `/bootui/api/security/explain` | GET | Best-effort chain match for a method/path |
 | `/bootui/api/security/endpoints` | GET | Best-effort per-endpoint authorization report |
@@ -800,6 +827,7 @@ Initial properties:
 | `bootui.disabled-profiles` | `prod,production` | Profiles that disable BootUI unless `bootui.enabled=ON`. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides. |
 | `bootui.endpoint-timeout` | `5s` | Timeout for endpoint-related calls. |
+| `bootui.cache.clear-enabled` | `true` | Enable Spring Cache clear actions after explicit browser confirmation. |
 | `bootui.dependencies.osv-enabled` | `true` | Allow the user-initiated OSV.dev vulnerability scan action. |
 | `bootui.dependencies.request-timeout` | `10s` | Timeout applied to each OSV request. |
 | `bootui.dependencies.max-packages` | `250` | Maximum packages sent in one OSV batch query. |
@@ -843,24 +871,25 @@ The second property should be required to expose BootUI beyond localhost.
 Top-level tabs:
 
 - Overview.
-- Beans.
-- Conditions.
-- Configuration.
-- Mappings.
-- Health.
-- Loggers.
-- Data.
 - Startup Timeline.
 - Memory.
+- Health.
 - Metrics.
-- Vulnerabilities.
+- Conditions.
+- Beans.
+- Mappings.
+- Configuration.
+- Profile Diff.
+- Loggers.
+- Log Tail.
+- HTTP Probe.
 - DevTools.
 - Dev Services.
 - Scheduled Tasks.
-- HTTP Probe.
-- Log Tail.
-- Profile Diff.
+- Data.
+- Cache.
 - Security.
+- Vulnerabilities.
 
 ### 7.2 UI principles
 
@@ -942,7 +971,7 @@ Future compatibility:
 BootUI v0.1 is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Beans, Conditions, Configuration, Mappings, Health, Loggers, Startup Timeline, Memory, Metrics, DevTools, Dev Services, Data, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, and Security.
+- The UI shows Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile Diff, Loggers, Log Tail, HTTP Probe, DevTools, Dev Services, Scheduled Tasks, Data, Cache, Security, and Vulnerabilities.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

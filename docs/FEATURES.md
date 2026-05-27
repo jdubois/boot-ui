@@ -104,6 +104,12 @@ The Data panel inspects Spring Data repositories. It shows repository interfaces
 
 ![BootUI Data panel](images/bootui-data.png)
 
+## Cache
+
+The Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native implementations, safe local sizes, Micrometer cache metrics when registered, and discovered `@Cacheable`, `@CachePut`, and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
+
+![BootUI Cache panel](images/bootui-cache.png)
+
 ## Security
 
 The Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is meant to explain local security wiring without exposing credentials or replacing a full security audit.

@@ -244,6 +244,69 @@ public final class BootUiDtos {
             List<RepositoryDto> repositories) {
     }
 
+    /** Current Micrometer cache metrics for one cache, when cache meters are registered. */
+    public record CacheMetricsDto(
+            boolean available,
+            Double hits,
+            Double misses,
+            Double hitRatio,
+            Double puts,
+            Double evictions,
+            Double removals,
+            Double size) {
+    }
+
+    /** One cache known to a Spring {@code CacheManager}. */
+    public record CacheDto(
+            String managerName,
+            String name,
+            String nativeType,
+            Long size,
+            CacheMetricsDto metrics) {
+    }
+
+    /** One Spring {@code CacheManager} bean and its currently known caches. */
+    public record CacheManagerDto(
+            String name,
+            String type,
+            boolean noOp,
+            List<CacheDto> caches) {
+    }
+
+    /** One cache annotation operation discovered on an application bean method. */
+    public record CacheOperationDto(
+            String beanName,
+            String targetType,
+            String method,
+            String operation,
+            List<String> caches,
+            String key,
+            String condition,
+            String unless,
+            boolean allEntries,
+            boolean beforeInvocation) {
+    }
+
+    /** Top-level Spring Cache report. */
+    public record CacheReport(
+            boolean cacheAvailable,
+            boolean clearEnabled,
+            int managerCount,
+            int cacheCount,
+            int operationCount,
+            List<CacheManagerDto> managers,
+            List<CacheOperationDto> operations,
+            List<String> warnings) {
+    }
+
+    /** Request to clear one cache or every known cache. */
+    public record CacheClearRequest(String managerName, String cacheName, Boolean all, Boolean confirm) {
+    }
+
+    /** Result of a cache clear operation. */
+    public record CacheClearResult(String status, String message, int clearedCaches, List<String> caches) {
+    }
+
     /** Properties contributed by a single profile-specific property source. */
     public record ProfileSourceDto(
             String sourceName,

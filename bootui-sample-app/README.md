@@ -10,15 +10,15 @@ the Playwright suite under `e2e/` exercises.
 - BootUI auto-activating when the `dev` profile is active.
 - A PostgreSQL-backed Spring Data repository so the Data panel has data to
   show.
-- A Docker Compose service (`compose.yaml`) so the Dev Services panel has a
-  snapshot to show.
+- PostgreSQL and Redis Docker Compose services (`compose.yaml`) so the Data,
+  Cache, and Dev Services panels have realistic infrastructure to show.
 - Spring Security, scheduled tasks, custom metrics, and a small static welcome
   page so the corresponding BootUI panels are populated.
 
 ## Prerequisites
 
 - Java 25
-- Docker (or any Docker-compatible engine) for the Postgres container
+- Docker (or any Docker-compatible engine) for the Postgres and Redis containers
 - The repository's Maven Wrapper (`./mvnw`) — no global Maven install needed
 
 ## Run it
@@ -29,8 +29,8 @@ From the repository root:
 ./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Spring Boot will start Docker Compose, wait for Postgres, and then bind the
-sample app to `http://localhost:8080`.
+Spring Boot will start Docker Compose, wait for Postgres and Redis, and then
+bind the sample app to `http://localhost:8080`.
 
 ## Visit BootUI
 
@@ -65,13 +65,17 @@ Useful URLs:
    includes suggested JVM options computed from the current container limits.
 8. **Data** — open `BootUiSampleRepository` to inspect its query methods and
    domain type.
-9. **Dev Services** — verify the Postgres Docker Compose entry is present and
-   its service-connection metadata matches the actual mapped port.
-10. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
+9. **Cache** — verify the Redis-backed `sample-products` and
+   `sample-greetings` caches are listed, inspect cache annotations, and clear a
+   cache after confirming the action.
+10. **Dev Services** — verify the Postgres and Redis Docker Compose entries are
+   present and their service-connection metadata matches the actual mapped
+   ports.
+11. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
     external host and confirm it is rejected as non-loopback.
-11. **Log Tail** — generate a few log lines from the sample endpoints and watch
+12. **Log Tail** — generate a few log lines from the sample endpoints and watch
     them appear in the bounded tail buffer.
-12. **DevTools** — confirm the panel shows DevTools as available and that
+13. **DevTools** — confirm the panel shows DevTools as available and that
     restart controls require explicit confirmation.
 
 ## Stop it
