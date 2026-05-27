@@ -3,7 +3,13 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.DependenciesReport;
 import io.github.jdubois.bootui.core.BootUiDtos.DependencyDto;
+import io.github.jdubois.bootui.core.BootUiDtos.DependencyGroupDto;
+import io.github.jdubois.bootui.core.BootUiDtos.DependencyTreeReport;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -49,5 +55,27 @@ public class DependenciesController {
                     null, 0, dependencies);
         }
         return vulnerabilityScanner.scan(dependencies);
+    }
+
+    @GetMapping("/tree")
+    public DependencyTreeReport tree() {
+        List<DependencyDto> dependencies = dependencyProvider.dependencies();
+        Map<String, List<DependencyDto>> byGroup = new TreeMap<>();
+        for (DependencyDto dep : dependencies) {
+            byGroup.computeIfAbsent(dep.groupId(), k -> new ArrayList<>()).add(dep);
+        }
+
+        List<DependencyGroupDto> groups = byGroup.entrySet().stream()
+                .map(entry -> {
+                    List<DependencyDto> artifacts = entry.getValue().stream()
+                            .sorted(Comparator.comparing(DependencyDto::artifactId))
+                            .toList();
+                    int vulnerableCount = (int) artifacts.stream().filter(d -> d.vulnerabilityCount() > 0).count();
+                    return new DependencyGroupDto(entry.getKey(), artifacts.size(), vulnerableCount, artifacts);
+                })
+                .toList();
+
+        int totalVulnerable = groups.stream().mapToInt(DependencyGroupDto::vulnerableCount).sum();
+        return new DependencyTreeReport(groups.size(), dependencies.size(), totalVulnerable, groups);
     }
 }

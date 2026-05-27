@@ -582,4 +582,20 @@ public final class BootUiDtos {
             String status,
             String message) {
     }
+
+    /** All artifacts that share one Maven groupId, with optional vulnerability counts. */
+    public record DependencyGroupDto(
+            String groupId,
+            int count,
+            int vulnerableCount,
+            List<DependencyDto> artifacts) {
+    }
+
+    /** Dependency inventory organized as a tree grouped by groupId. */
+    public record DependencyTreeReport(
+            int totalGroups,
+            int totalArtifacts,
+            int totalVulnerable,
+            List<DependencyGroupDto> groups) {
+    }
 }

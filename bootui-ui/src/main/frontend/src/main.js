@@ -22,6 +22,7 @@ import Security from './views/Security.vue'
 import Memory from './views/Memory.vue'
 import Metrics from './views/Metrics.vue'
 import Vulnerabilities from './views/Dependencies.vue'
+import DependencyTree from './views/DependencyTree.vue'
 import DevServices from './views/DevServices.vue'
 import DevTools from './views/DevTools.vue'
 
@@ -49,6 +50,7 @@ const router = createRouter({
     { path: '/cache', name: 'cache', component: Cache, meta: { icon: 'bi-hdd-stack', title: 'Cache' } },
     { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-person-lock', title: 'Security' } },
     { path: '/vulnerabilities', name: 'vulnerabilities', component: Vulnerabilities, meta: { icon: 'bi-bug', title: 'Vulnerabilities' } },
+    { path: '/dependency-tree', name: 'dependency-tree', component: DependencyTree, meta: { icon: 'bi-diagram-2', title: 'Dependency Tree' } },
     { path: '/dependencies', redirect: '/vulnerabilities' }
   ]
 })

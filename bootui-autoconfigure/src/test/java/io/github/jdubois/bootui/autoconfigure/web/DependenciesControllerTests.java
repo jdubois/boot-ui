@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -62,6 +63,43 @@ class DependenciesControllerTests {
                 .andExpect(jsonPath("$.scanningEnabled").value(false))
                 .andExpect(jsonPath("$.scan.status").value("DISABLED"))
                 .andExpect(jsonPath("$.dependencies[*].packageName", contains("org.example:sample")));
+    }
+
+    @Test
+    void treeGroupsDependenciesByGroupId() throws Exception {
+        MockMvc mvc = standaloneSetup(new DependenciesController(
+                new BootUiProperties(),
+                () -> List.of(
+                        dependency("com.example", "alpha", "1.0.0"),
+                        dependency("com.example", "beta", "1.0.0"),
+                        dependency("org.other", "gamma", "2.0.0")),
+                dependencies -> OsvVulnerabilityScanner.report(true, "NOT_SCANNED", "unused", null, 0, dependencies)))
+                .build();
+
+        mvc.perform(get("/bootui/api/dependencies/tree"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalGroups").value(2))
+                .andExpect(jsonPath("$.totalArtifacts").value(3))
+                .andExpect(jsonPath("$.groups", hasSize(2)))
+                .andExpect(jsonPath("$.groups[0].groupId").value("com.example"))
+                .andExpect(jsonPath("$.groups[0].count").value(2))
+                .andExpect(jsonPath("$.groups[1].groupId").value("org.other"))
+                .andExpect(jsonPath("$.groups[1].count").value(1));
+    }
+
+    @Test
+    void treeReturnsEmptyWhenNoDependencies() throws Exception {
+        MockMvc mvc = standaloneSetup(new DependenciesController(
+                new BootUiProperties(),
+                List::of,
+                dependencies -> OsvVulnerabilityScanner.report(true, "NOT_SCANNED", "unused", null, 0, dependencies)))
+                .build();
+
+        mvc.perform(get("/bootui/api/dependencies/tree"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalGroups").value(0))
+                .andExpect(jsonPath("$.totalArtifacts").value(0))
+                .andExpect(jsonPath("$.groups").isEmpty());
     }
 
     private static DependencyDto dependency(String groupId, String artifactId, String version) {
