@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import { apiFetch } from '../api.js'
 
 const data = ref(null)
 const error = ref(null)
@@ -68,7 +69,7 @@ async function loadDependencies() {
 async function scanDependencies() {
   loading.value = true
   try {
-    const res = await fetch('api/dependencies/scan', {method: 'POST'})
+    const res = await apiFetch('api/dependencies/scan', {method: 'POST'})
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
     if (data.value.vulnerable > 0) {

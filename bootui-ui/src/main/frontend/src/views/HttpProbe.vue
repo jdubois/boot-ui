@@ -1,5 +1,6 @@
 <script setup>
 import {computed, ref} from 'vue'
+import { apiFetch } from '../api.js'
 
 const method = ref('GET')
 const path = ref('')
@@ -41,7 +42,7 @@ const statusBadgeClass = computed(() => {
 async function sendProbe() {
   loading.value = true
   try {
-    const res = await fetch('api/probe', {
+    const res = await apiFetch('api/probe', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({

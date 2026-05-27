@@ -1,5 +1,9 @@
 package io.github.jdubois.bootui.sample;
 
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -10,6 +14,13 @@ import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 
@@ -22,7 +33,11 @@ class SecurityConfiguration {
         return http
             .securityMatcher("/bootui/**")
             .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-            .csrf(csrf -> csrf.disable())
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRequestHandler(csrfTokenRequestHandler())
+                .ignoringRequestMatchers("/bootui/api/otlp/**"))
+            .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
             .build();
     }
 
@@ -33,7 +48,6 @@ class SecurityConfiguration {
             .securityMatcher("/admin/**", "/api/secure")
             .authorizeHttpRequests(authorize -> authorize.anyRequest().hasRole("ADMIN"))
             .httpBasic(withDefaults())
-            .csrf(csrf -> csrf.disable())
             .build();
     }
 
@@ -42,7 +56,7 @@ class SecurityConfiguration {
     SecurityFilterChain applicationSecurity(HttpSecurity http) throws Exception {
         return http
             .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-            .csrf(csrf -> csrf.disable())
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/chat"))
             .build();
     }
 
@@ -62,5 +76,24 @@ class SecurityConfiguration {
     @Bean
     PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    private static CsrfTokenRequestAttributeHandler csrfTokenRequestHandler() {
+        CsrfTokenRequestAttributeHandler requestHandler = new CsrfTokenRequestAttributeHandler();
+        requestHandler.setCsrfRequestAttributeName(null);
+        return requestHandler;
+    }
+
+    private static final class CsrfCookieFilter extends OncePerRequestFilter {
+
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+            CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+            if (csrfToken != null) {
+                csrfToken.getToken();
+            }
+            filterChain.doFilter(request, response);
+        }
     }
 }

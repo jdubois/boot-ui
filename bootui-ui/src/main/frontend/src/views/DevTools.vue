@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, onUnmounted, ref} from 'vue'
+import { apiFetch } from '../api.js'
 
 const status = ref(null)
 const loading = ref(true)
@@ -27,7 +28,7 @@ async function load() {
 async function triggerLiveReload() {
   actionLoading.value = 'livereload'
   try {
-    const res = await fetch('api/devtools/livereload', {method: 'POST'})
+    const res = await apiFetch('api/devtools/livereload', {method: 'POST'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
       flash(result.message || result.error || ('HTTP ' + res.status), 'warning')
@@ -48,7 +49,7 @@ async function restart() {
 
   actionLoading.value = 'restart'
   try {
-    const res = await fetch('api/devtools/restart', {
+    const res = await apiFetch('api/devtools/restart', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({confirm: true})

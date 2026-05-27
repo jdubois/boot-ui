@@ -1,5 +1,6 @@
 <script setup>
 import {computed, nextTick, onMounted, ref} from 'vue'
+import { apiFetch } from '../api.js'
 
 const data = ref(null)
 const loading = ref(true)
@@ -139,7 +140,7 @@ async function saveCreate() {
 async function postOverride(name, value, onSuccess) {
   saving.value = true
   try {
-    const res = await fetch('api/config/overrides', {
+    const res = await apiFetch('api/config/overrides', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name, value})
@@ -165,7 +166,7 @@ async function removeOverride(name) {
   if (!confirm('Remove override "' + name + '"? The property will fall back to its underlying value.')) return
   saving.value = true
   try {
-    const res = await fetch('api/config/overrides/' + encodeURIComponent(name), {method: 'DELETE'})
+    const res = await apiFetch('api/config/overrides/' + encodeURIComponent(name), {method: 'DELETE'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
       flash('Could not remove override: ' + (result.message || ('HTTP ' + res.status)), 'danger')

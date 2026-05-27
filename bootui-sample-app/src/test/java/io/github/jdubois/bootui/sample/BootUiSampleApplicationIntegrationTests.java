@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.net.CookieManager;
+import java.net.HttpCookie;
 import java.net.Proxy;
 import java.net.ProxySelector;
 import java.net.URI;
@@ -66,6 +69,8 @@ class BootUiSampleApplicationIntegrationTests {
     @LocalServerPort
     int port;
 
+    private final CookieManager cookieManager = new CookieManager();
+
     private RestClient client;
 
     @BeforeAll
@@ -88,6 +93,7 @@ class BootUiSampleApplicationIntegrationTests {
             client = RestClient.builder()
                 .baseUrl("http://localhost:" + port)
                 .requestFactory(new JdkClientHttpRequestFactory(HttpClient.newBuilder()
+                    .cookieHandler(cookieManager)
                     .proxy(new NoProxySelector())
                     .build()))
                 // Never throw on non-2xx — tests inspect the status directly.
@@ -103,7 +109,12 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     private ResponseEntity<Map> postMap(String path, Object body) {
-        return client().post().uri(path).body(body).retrieve().toEntity(Map.class);
+        return client().post()
+                .uri(path)
+                .headers(headers -> applyCsrfToken(path, headers))
+                .body(body)
+                .retrieve()
+                .toEntity(Map.class);
     }
 
     private ResponseEntity<List> getList(String path) {
@@ -122,6 +133,21 @@ class BootUiSampleApplicationIntegrationTests {
             .toEntity(String.class);
     }
 
+    private void applyCsrfToken(String path, HttpHeaders headers) {
+        if (path.startsWith("/bootui/")) {
+            headers.set("X-XSRF-TOKEN", csrfToken());
+        }
+    }
+
+    private String csrfToken() {
+        client().get().uri("/bootui/api/overview").retrieve().toBodilessEntity();
+        return cookieManager.getCookieStore().getCookies().stream()
+                .filter(cookie -> "XSRF-TOKEN".equals(cookie.getName()))
+                .map(HttpCookie::getValue)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Missing XSRF-TOKEN cookie"));
+    }
+
     @Test
     void overviewEndpointReturnsActivationMetadata() {
         ResponseEntity<Map> response = getMap("/bootui/api/overview");
@@ -135,6 +161,17 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(activation).isNotNull();
         assertThat(activation.get("enabled")).isEqualTo(true);
         assertThat(activation.get("localhostOnly")).isEqualTo(true);
+    }
+
+    @Test
+    void bootUiUnsafeRequestsRequireCsrfToken() {
+        ResponseEntity<String> response = client().post()
+                .uri("/bootui/api/loggers/io.github.jdubois.bootui.sample")
+                .body(Map.of("level", "INFO"))
+                .retrieve()
+                .toEntity(String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
@@ -224,6 +261,7 @@ class BootUiSampleApplicationIntegrationTests {
 
         ResponseEntity<Map> delete = client().delete()
             .uri("/bootui/api/config/overrides/sample.greeting")
+            .headers(headers -> applyCsrfToken("/bootui/api/config/overrides/sample.greeting", headers))
             .retrieve()
             .toEntity(Map.class);
         assertThat(delete.getStatusCode()).isEqualTo(HttpStatus.OK);

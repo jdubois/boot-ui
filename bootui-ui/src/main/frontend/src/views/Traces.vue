@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import { apiFetch } from '../api.js'
 
 const report = ref(null)
 const detail = ref(null)
@@ -57,7 +58,7 @@ async function clearAll() {
   if (!confirm('Clear all retained traces? This cannot be undone.')) return
   busy.value = true
   try {
-    const res = await fetch('api/traces', {method: 'DELETE'})
+    const res = await apiFetch('api/traces', {method: 'DELETE'})
     if (!res.ok && res.status !== 204) throw new Error('HTTP ' + res.status)
     closeDrawer()
     await load()
