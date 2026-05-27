@@ -65,6 +65,9 @@ public class BootUiProperties {
     /** Timeout applied to Actuator endpoint calls. */
     private Duration endpointTimeout = Duration.ofSeconds(5);
 
+    /** Limits applied to large collections returned by BootUI endpoints. */
+    private Limits limits = new Limits();
+
     /** Dev Services panel settings. */
     private DevServices devServices = new DevServices();
 
@@ -73,6 +76,64 @@ public class BootUiProperties {
 
     /** Dependency inventory and vulnerability scanning settings. */
     private Dependencies dependencies = new Dependencies();
+
+    public static class Limits {
+
+        /** Maximum beans returned by the Beans panel. */
+        private int maxBeans = 500;
+
+        /** Maximum HTTP mappings returned by the Mappings panel. */
+        private int maxMappings = 500;
+
+        /** Maximum loggers returned by the Loggers panel. */
+        private int maxLoggers = 1000;
+
+        /** Maximum conditions entries returned by the Conditions panel. */
+        private int maxConditions = 1000;
+
+        /** Maximum scheduled tasks returned by the Scheduled panel. */
+        private int maxScheduled = 200;
+
+        public int getMaxBeans() {
+            return maxBeans;
+        }
+
+        public void setMaxBeans(int maxBeans) {
+            this.maxBeans = maxBeans;
+        }
+
+        public int getMaxMappings() {
+            return maxMappings;
+        }
+
+        public void setMaxMappings(int maxMappings) {
+            this.maxMappings = maxMappings;
+        }
+
+        public int getMaxLoggers() {
+            return maxLoggers;
+        }
+
+        public void setMaxLoggers(int maxLoggers) {
+            this.maxLoggers = maxLoggers;
+        }
+
+        public int getMaxConditions() {
+            return maxConditions;
+        }
+
+        public void setMaxConditions(int maxConditions) {
+            this.maxConditions = maxConditions;
+        }
+
+        public int getMaxScheduled() {
+            return maxScheduled;
+        }
+
+        public void setMaxScheduled(int maxScheduled) {
+            this.maxScheduled = maxScheduled;
+        }
+    }
 
     public static class DevServices {
 
@@ -254,6 +315,14 @@ public class BootUiProperties {
 
     public void setEndpointTimeout(Duration endpointTimeout) {
         this.endpointTimeout = endpointTimeout;
+    }
+
+    public Limits getLimits() {
+        return limits;
+    }
+
+    public void setLimits(Limits limits) {
+        this.limits = limits;
     }
 
     public DevServices getDevServices() {

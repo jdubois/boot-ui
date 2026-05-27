@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.ScheduledReport;
 import io.github.jdubois.bootui.core.BootUiDtos.ScheduledTaskDto;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -21,22 +23,35 @@ public class ScheduledController {
 
     private final ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider;
 
+    private final int maxScheduled;
+
     public ScheduledController(ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider) {
+        this(scheduledTaskHolderProvider, new BootUiProperties());
+    }
+
+    @Autowired
+    public ScheduledController(ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider, BootUiProperties properties) {
         this.scheduledTaskHolderProvider = scheduledTaskHolderProvider;
+        this.maxScheduled = Math.max(0, properties.getLimits().getMaxScheduled());
     }
 
     @GetMapping
     public ScheduledReport scheduled() {
         ScheduledTaskHolder holder = scheduledTaskHolderProvider.getIfAvailable();
         if (holder == null) {
-            return new ScheduledReport(false, 0, List.of());
+            return new ScheduledReport(false, 0, false, List.of());
         }
         Set<ScheduledTask> scheduledTasks = holder.getScheduledTasks();
         List<ScheduledTaskDto> tasks = scheduledTasks == null ? List.of() : scheduledTasks.stream()
                 .map(this::toDto)
                 .sorted(Comparator.comparing(ScheduledTaskDto::runnable, Comparator.nullsLast(String::compareTo)))
                 .toList();
-        return new ScheduledReport(true, tasks.size(), tasks);
+        int total = tasks.size();
+        boolean truncated = total > maxScheduled;
+        if (truncated) {
+            tasks = new ArrayList<>(tasks.subList(0, maxScheduled));
+        }
+        return new ScheduledReport(true, total, truncated, tasks);
     }
 
     private ScheduledTaskDto toDto(ScheduledTask scheduledTask) {

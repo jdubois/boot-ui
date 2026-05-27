@@ -62,7 +62,7 @@ public final class BootUiDtos {
             String classification) {
     }
 
-    public record BeanList(int total, List<BeanSummary> beans) {
+    public record BeanList(int total, boolean truncated, List<BeanSummary> beans) {
     }
 
     /** One auto-configuration evaluation entry. */
@@ -74,6 +74,7 @@ public final class BootUiDtos {
     }
 
     public record ConditionsReport(
+            boolean truncated,
             List<ConditionEntry> positiveMatches,
             List<ConditionEntry> negativeMatches,
             List<String> unconditionalClasses,
@@ -129,7 +130,7 @@ public final class BootUiDtos {
             String consumes) {
     }
 
-    public record MappingsReport(int total, List<MappingDto> mappings) {
+    public record MappingsReport(int total, boolean truncated, List<MappingDto> mappings) {
     }
 
     /** Request from the browser to probe a local HTTP endpoint. */
@@ -164,7 +165,7 @@ public final class BootUiDtos {
             String effectiveLevel) {
     }
 
-    public record LoggersReport(List<String> availableLevels, List<LoggerDto> loggers) {
+    public record LoggersReport(List<String> availableLevels, boolean truncated, List<LoggerDto> loggers) {
     }
 
     /** A single log line for the live log tail. */
@@ -212,7 +213,7 @@ public final class BootUiDtos {
             String timeUnit) {
     }
 
-    public record ScheduledReport(boolean schedulingPresent, int total, List<ScheduledTaskDto> tasks) {
+    public record ScheduledReport(boolean schedulingPresent, int total, boolean truncated, List<ScheduledTaskDto> tasks) {
     }
 
     /** Summary of one Spring Data repository discovered in the context. */

@@ -37,6 +37,7 @@ class MissingActuatorEndpointsTests {
         mvc.perform(get("/bootui/api/beans"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.truncated").value(false))
                 .andExpect(jsonPath("$.beans").isArray())
                 .andExpect(jsonPath("$.beans").isEmpty());
     }
@@ -48,6 +49,7 @@ class MissingActuatorEndpointsTests {
 
         mvc.perform(get("/bootui/api/conditions"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.truncated").value(false))
                 .andExpect(jsonPath("$.positiveMatches").isEmpty())
                 .andExpect(jsonPath("$.negativeMatches").isEmpty())
                 .andExpect(jsonPath("$.unconditionalClasses").isEmpty())
@@ -74,6 +76,7 @@ class MissingActuatorEndpointsTests {
         mvc.perform(get("/bootui/api/loggers"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.availableLevels").isEmpty())
+                .andExpect(jsonPath("$.truncated").value(false))
                 .andExpect(jsonPath("$.loggers").isEmpty());
     }
 
@@ -90,12 +93,15 @@ class MissingActuatorEndpointsTests {
     }
 
     @Test
-    void mappingsControllerReturnsNoContentWhenEndpointMissing() throws Exception {
+    void mappingsControllerReturnsEmptyReportWhenEndpointMissing() throws Exception {
         ObjectProvider<MappingsEndpoint> provider = emptyProvider();
-        MockMvc mvc = standaloneSetup(new MappingsController(provider)).build();
+        MockMvc mvc = standaloneSetup(new MappingsController(provider, new BootUiProperties())).build();
 
         mvc.perform(get("/bootui/api/mappings"))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.truncated").value(false))
+                .andExpect(jsonPath("$.mappings").isEmpty());
     }
 
     @Test
@@ -117,6 +123,7 @@ class MissingActuatorEndpointsTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.schedulingPresent").value(false))
                 .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.truncated").value(false))
                 .andExpect(jsonPath("$.tasks").isEmpty());
     }
 

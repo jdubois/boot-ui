@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.ConditionEntry;
 import io.github.jdubois.bootui.core.BootUiDtos.ConditionsReport;
 import java.util.ArrayList;
@@ -23,15 +24,23 @@ public class ConditionsController {
 
     private final ObjectProvider<ConditionsReportEndpoint> endpoint;
 
+    private final int maxConditions;
+
     public ConditionsController(ObjectProvider<ConditionsReportEndpoint> endpoint) {
+        this(endpoint, new BootUiProperties());
+    }
+
+    @Autowired
+    public ConditionsController(ObjectProvider<ConditionsReportEndpoint> endpoint, BootUiProperties properties) {
         this.endpoint = endpoint;
+        this.maxConditions = Math.max(0, properties.getLimits().getMaxConditions());
     }
 
     @GetMapping
     public ConditionsReport conditions() {
         ConditionsReportEndpoint cre = endpoint.getIfAvailable();
         if (cre == null) {
-            return new ConditionsReport(List.of(), List.of(), List.of(), List.of());
+            return new ConditionsReport(false, List.of(), List.of(), List.of(), List.of());
         }
         ConditionsDescriptor descriptor = cre.conditions();
         List<ConditionEntry> positive = new ArrayList<>();
@@ -68,6 +77,14 @@ public class ConditionsController {
                 exclusions.addAll(ex);
             }
         }
-        return new ConditionsReport(positive, negative, unconditional, exclusions);
+        int total = positive.size() + negative.size();
+        boolean truncated = total > maxConditions;
+        if (truncated) {
+            int positiveCount = Math.min(positive.size(), maxConditions);
+            positive = new ArrayList<>(positive.subList(0, positiveCount));
+            int remaining = maxConditions - positiveCount;
+            negative = remaining <= 0 ? List.of() : new ArrayList<>(negative.subList(0, Math.min(negative.size(), remaining)));
+        }
+        return new ConditionsReport(truncated, positive, negative, unconditional, exclusions);
     }
 }

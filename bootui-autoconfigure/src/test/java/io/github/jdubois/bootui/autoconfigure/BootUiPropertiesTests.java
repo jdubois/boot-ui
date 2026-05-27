@@ -91,6 +91,16 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultLimitsMatchLargeAppHardeningDefaults() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getLimits().getMaxBeans()).isEqualTo(500);
+        assertThat(props.getLimits().getMaxMappings()).isEqualTo(500);
+        assertThat(props.getLimits().getMaxLoggers()).isEqualTo(1000);
+        assertThat(props.getLimits().getMaxConditions()).isEqualTo(1000);
+        assertThat(props.getLimits().getMaxScheduled()).isEqualTo(200);
+    }
+
+    @Test
     void defaultDevServicesRestartEnabledIsFalse() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getDevServices().isRestartEnabled()).isFalse();
@@ -237,6 +247,24 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void bindsLimitsSettings() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.limits.max-beans", "50");
+        env.setProperty("bootui.limits.max-mappings", "60");
+        env.setProperty("bootui.limits.max-loggers", "70");
+        env.setProperty("bootui.limits.max-conditions", "80");
+        env.setProperty("bootui.limits.max-scheduled", "90");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getLimits().getMaxBeans()).isEqualTo(50);
+        assertThat(props.getLimits().getMaxMappings()).isEqualTo(60);
+        assertThat(props.getLimits().getMaxLoggers()).isEqualTo(70);
+        assertThat(props.getLimits().getMaxConditions()).isEqualTo(80);
+        assertThat(props.getLimits().getMaxScheduled()).isEqualTo(90);
+    }
+
+    @Test
     void bindsDevServicesRestartEnabled() {
         MockEnvironment env = new MockEnvironment();
         env.setProperty("bootui.dev-services.restart-enabled", "true");
@@ -320,6 +348,11 @@ class BootUiPropertiesTests {
         assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.MASKED);
         assertThat(props.getOverridesFile()).isEqualTo(".bootui/application-bootui.properties");
         assertThat(props.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(props.getLimits().getMaxBeans()).isEqualTo(500);
+        assertThat(props.getLimits().getMaxMappings()).isEqualTo(500);
+        assertThat(props.getLimits().getMaxLoggers()).isEqualTo(1000);
+        assertThat(props.getLimits().getMaxConditions()).isEqualTo(1000);
+        assertThat(props.getLimits().getMaxScheduled()).isEqualTo(200);
     }
 
     // -------------------------------------------------------------------------
