@@ -77,7 +77,6 @@ onMounted(loadShellData)
           }">
           <i :class="['bi', r.meta.icon]"></i>
           <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
-          <small v-if="panelLookup.get(r.name)?.available === false" class="bootui-nav-link__status">Unavailable</small>
         </router-link>
       </nav>
 
@@ -322,10 +321,6 @@ onMounted(loadShellData)
 
 .bootui-nav-link__label {
   flex: 1;
-}
-
-.bootui-nav-link__status {
-  font-size: 0.72rem;
 }
 
 .bootui-nav-link--unavailable {

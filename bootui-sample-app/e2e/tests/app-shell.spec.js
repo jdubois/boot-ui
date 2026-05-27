@@ -21,6 +21,24 @@ test.describe('BootUI app shell', () => {
     await expect(contributeLink.locator('.bi-github')).toBeVisible()
   })
 
+  test('sidebar does not label unavailable panels', async ({ page }) => {
+    await page.route(url => url.pathname === '/bootui/api/panels', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          panels: [
+            { id: 'overview', available: false }
+          ]
+        })
+      })
+    })
+    await page.goto('/bootui/')
+
+    const overviewLink = page.locator('aside .nav-link', { hasText: 'Overview' })
+    await expect(overviewLink).toHaveClass(/bootui-nav-link--unavailable/)
+    await expect(overviewLink).not.toContainText('Unavailable')
+  })
+
   test('sidebar links open every BootUI section', async ({ page }) => {
     const links = [
       { title: 'Overview',          heading: /^Overview/ },
