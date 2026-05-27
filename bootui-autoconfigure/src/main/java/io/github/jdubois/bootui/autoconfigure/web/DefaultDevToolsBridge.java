@@ -9,10 +9,12 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationListener;
 import org.springframework.util.ClassUtils;
 
-public class DefaultDevToolsBridge implements DevToolsBridge {
+public class DefaultDevToolsBridge implements DevToolsBridge, ApplicationListener<ApplicationReadyEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultDevToolsBridge.class);
 
@@ -23,6 +25,18 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
 
     private static final String OPTIONAL_LIVE_RELOAD_SERVER_CLASS =
             "org.springframework.boot.devtools.autoconfigure.OptionalLiveReloadServer";
+
+    /**
+     * Epoch-millisecond timestamp of the most recent restart request; 0 if no restart has been
+     * requested yet. Declared {@code static} so the value survives a DevTools context restart.
+     */
+    private static volatile long restartInitiatedAt = 0L;
+
+    /**
+     * Duration of the most recent completed restart in milliseconds.  {@code null} while a restart
+     * is in-flight or no restart has completed yet.  Also {@code static} for the same reason.
+     */
+    private static volatile Long lastRestartDurationMs = null;
 
     private final ApplicationContext applicationContext;
 
@@ -41,13 +55,16 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
     public DevToolsStatus status() {
         Availability restart = restartAvailability();
         LiveReloadHandle liveReload = liveReloadHandle();
+        long initiatedAt = restartInitiatedAt;
         return new DevToolsStatus(
                 restart.available(),
                 restart.reason(),
                 restartPending.get(),
                 liveReload.available(),
                 liveReload.port(),
-                liveReload.reason());
+                liveReload.reason(),
+                initiatedAt != 0L ? initiatedAt : null,
+                lastRestartDurationMs);
     }
 
     @Override
@@ -78,6 +95,9 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
                     "A DevTools restart is already pending.");
         }
 
+        restartInitiatedAt = System.currentTimeMillis();
+        lastRestartDurationMs = null;
+
         Object restarter = restarter();
         Thread restartThread = new Thread(() -> restartAfterResponse(restarter), "bootui-devtools-restart");
         restartThread.setDaemon(false);
@@ -100,6 +120,14 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
         catch (ReflectiveOperationException ex) {
             restartPending.set(false);
             log.warn("Spring Boot DevTools restart failed", unwrap(ex));
+        }
+    }
+
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent event) {
+        long initiated = restartInitiatedAt;
+        if (initiated != 0L) {
+            lastRestartDurationMs = System.currentTimeMillis() - initiated;
         }
     }
 

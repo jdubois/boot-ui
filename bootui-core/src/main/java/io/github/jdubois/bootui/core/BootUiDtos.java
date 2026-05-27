@@ -167,7 +167,9 @@ public final class BootUiDtos {
             boolean restartPending,
             boolean liveReloadAvailable,
             Integer liveReloadPort,
-            String liveReloadUnavailableReason) {
+            String liveReloadUnavailableReason,
+            Long lastRestartInitiatedAt,
+            Long lastRestartDurationMs) {
     }
 
     /** Request to restart the application through Spring Boot DevTools. */

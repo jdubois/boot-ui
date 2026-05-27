@@ -11,6 +11,18 @@ let reconnectTimer = null
 const restartReady = computed(() => status.value?.restartAvailable && !status.value?.restartPending)
 const liveReloadReady = computed(() => status.value?.liveReloadAvailable)
 
+const lastRestartTime = computed(() => {
+  const ts = status.value?.lastRestartInitiatedAt
+  if (!ts) return null
+  return new Date(ts).toLocaleTimeString()
+})
+
+const lastRestartDuration = computed(() => {
+  const ms = status.value?.lastRestartDurationMs
+  if (ms == null) return null
+  return ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : ms + ' ms'
+})
+
 async function load() {
   loading.value = true
   try {
@@ -202,10 +214,36 @@ onUnmounted(clearReconnectTimer)
       </div>
 
       <div class="col-12">
+        <div class="card">
+          <div class="card-body p-4">
+            <h3 class="h6 fw-bold mb-3"><i class="bi bi-stopwatch me-2 text-muted"></i>Last Restart Timing</h3>
+            <div v-if="!lastRestartTime" class="text-muted small">
+              No restart has been triggered from BootUI yet during this session.
+            </div>
+            <div v-else class="d-flex flex-wrap gap-4">
+              <div>
+                <div class="text-muted small mb-1">Restart triggered at</div>
+                <div class="fw-semibold font-monospace">{{ lastRestartTime }}</div>
+              </div>
+              <div>
+                <div class="text-muted small mb-1">Time to ready</div>
+                <div class="fw-semibold font-monospace">
+                  <span v-if="lastRestartDuration">{{ lastRestartDuration }}</span>
+                  <span v-else class="text-muted fst-italic">measuring…</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
         <div class="alert alert-info small mb-0">
           <strong>Note:</strong>
           LiveReload notifies connected browser tooling; it does not force this BootUI tab to reload.
           Restart interrupts the current JVM context and is intended for local development only.
+          The timing panel shows how long the last DevTools restart took from request to
+          <code>ApplicationReadyEvent</code>.
         </div>
       </div>
     </div>

@@ -17,7 +17,7 @@ class DevToolsControllerTests {
     @Test
     void reportsDevToolsStatus() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                new DevToolsStatus(true, null, false, true, 35729, null),
+                new DevToolsStatus(true, null, false, true, 35729, null, null, null),
                 new DevToolsActionResult("livereload", "triggered", "ok"),
                 new DevToolsActionResult("restart", "scheduled", "ok")))).build();
 
@@ -32,7 +32,7 @@ class DevToolsControllerTests {
     @Test
     void triggersLiveReloadWhenAvailable() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                new DevToolsStatus(true, null, false, true, 35729, null),
+                new DevToolsStatus(true, null, false, true, 35729, null, null, null),
                 new DevToolsActionResult("livereload", "triggered", "LiveReload notification sent."),
                 new DevToolsActionResult("restart", "scheduled", "ok")))).build();
 
@@ -45,7 +45,7 @@ class DevToolsControllerTests {
     @Test
     void returnsConflictWhenLiveReloadUnavailable() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                new DevToolsStatus(false, "no restart", false, false, null, "no livereload"),
+                new DevToolsStatus(false, "no restart", false, false, null, "no livereload", null, null),
                 new DevToolsActionResult("livereload", "unavailable", "no livereload"),
                 new DevToolsActionResult("restart", "unavailable", "no restart")))).build();
 
@@ -58,7 +58,7 @@ class DevToolsControllerTests {
     @Test
     void restartRequiresConfirmation() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                new DevToolsStatus(true, null, false, true, 35729, null),
+                new DevToolsStatus(true, null, false, true, 35729, null, null, null),
                 new DevToolsActionResult("livereload", "triggered", "ok"),
                 new DevToolsActionResult("restart", "scheduled", "ok")))).build();
 
@@ -72,7 +72,7 @@ class DevToolsControllerTests {
     @Test
     void schedulesRestartWhenConfirmed() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                new DevToolsStatus(true, null, false, true, 35729, null),
+                new DevToolsStatus(true, null, false, true, 35729, null, null, null),
                 new DevToolsActionResult("livereload", "triggered", "ok"),
                 new DevToolsActionResult("restart", "scheduled", "Restart scheduled.")))).build();
 
