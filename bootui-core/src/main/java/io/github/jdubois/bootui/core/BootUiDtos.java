@@ -582,4 +582,36 @@ public final class BootUiDtos {
             String status,
             String message) {
     }
+
+    /** One test case result parsed from a Surefire / Failsafe XML report. */
+    public record TestResultDto(
+            String className,
+            String testName,
+            String status,
+            Long durationMs,
+            String failureMessage,
+            String failureType) {
+    }
+
+    /** Aggregated results for one test class (one Surefire XML file). */
+    public record TestSuiteDto(
+            String name,
+            int tests,
+            int passed,
+            int failed,
+            int skipped,
+            long durationMs,
+            List<TestResultDto> testCases) {
+    }
+
+    /** Top-level report for local Maven Surefire / Failsafe test results. */
+    public record TestResultsReport(
+            boolean surefirePresent,
+            String reportsDir,
+            int totalTests,
+            int totalPassed,
+            int totalFailed,
+            int totalSkipped,
+            List<TestSuiteDto> suites) {
+    }
 }

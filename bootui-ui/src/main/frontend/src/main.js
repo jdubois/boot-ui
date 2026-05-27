@@ -24,6 +24,7 @@ import Metrics from './views/Metrics.vue'
 import Vulnerabilities from './views/Dependencies.vue'
 import DevServices from './views/DevServices.vue'
 import DevTools from './views/DevTools.vue'
+import TestResults from './views/TestResults.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -43,6 +44,7 @@ const router = createRouter({
     { path: '/log-tail', name: 'log-tail', component: LogTail, meta: { icon: 'bi-terminal', title: 'Log Tail' } },
     { path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: { icon: 'bi-send', title: 'HTTP Probe' } },
     { path: '/devtools', name: 'devtools', component: DevTools, meta: { icon: 'bi-lightning-charge', title: 'DevTools' } },
+    { path: '/test-results', name: 'test-results', component: TestResults, meta: { icon: 'bi-check2-all', title: 'Test Results' } },
     { path: '/dev-services', name: 'dev-services', component: DevServices, meta: { icon: 'bi-box-seam', title: 'Dev Services' } },
     { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },
     { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },

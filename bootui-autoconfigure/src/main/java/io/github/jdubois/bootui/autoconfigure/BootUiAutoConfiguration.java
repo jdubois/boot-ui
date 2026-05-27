@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.autoconfigure.web.ProfileController;
 import io.github.jdubois.bootui.autoconfigure.web.ScheduledController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.web.StartupController;
+import io.github.jdubois.bootui.autoconfigure.web.TestResultsController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.actuate.autoconfigure.endpoint.condition.ConditionalOnAvailableEndpoint;
@@ -73,6 +74,7 @@ import org.springframework.core.env.Environment;
         SecurityController.class,
         MemoryController.class,
         MetricsController.class,
+        TestResultsController.class,
         DevToolsController.class,
         BootUiIndexController.class
 })
