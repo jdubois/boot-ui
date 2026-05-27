@@ -892,13 +892,13 @@ Top-level tabs:
 - Loggers.
 - Log Tail.
 - Traces.
-- AI Usage.
 - HTTP Probe.
 - DevTools.
 - Dev Services.
 - Scheduled Tasks.
 - Data.
 - Cache.
+- AI Usage.
 - Security.
 - Vulnerabilities.
 
@@ -982,7 +982,7 @@ Future compatibility:
 BootUI v0.1 is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile Diff, Loggers, Log Tail, Traces, AI Usage, HTTP Probe, DevTools, Dev Services, Scheduled Tasks, Data, Cache, Security, and Vulnerabilities.
+- The UI shows Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile Diff, Loggers, Log Tail, Traces, HTTP Probe, DevTools, Dev Services, Scheduled Tasks, Data, Cache, AI Usage, Security, and Vulnerabilities.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.
