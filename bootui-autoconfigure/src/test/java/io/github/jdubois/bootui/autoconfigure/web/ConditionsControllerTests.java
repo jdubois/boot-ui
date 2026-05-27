@@ -1,5 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
@@ -10,16 +19,6 @@ import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReport
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint.MessageAndConditionsDescriptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Controller-level tests for {@link ConditionsController}.
@@ -56,15 +55,15 @@ class ConditionsControllerTests {
         MockMvc mvc = standaloneSetup(new ConditionsController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/conditions").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.positiveMatches").isArray())
-            .andExpect(jsonPath("$.positiveMatches").isEmpty())
-            .andExpect(jsonPath("$.negativeMatches").isArray())
-            .andExpect(jsonPath("$.negativeMatches").isEmpty())
-            .andExpect(jsonPath("$.unconditionalClasses").isArray())
-            .andExpect(jsonPath("$.unconditionalClasses").isEmpty())
-            .andExpect(jsonPath("$.exclusions").isArray())
-            .andExpect(jsonPath("$.exclusions").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positiveMatches").isArray())
+                .andExpect(jsonPath("$.positiveMatches").isEmpty())
+                .andExpect(jsonPath("$.negativeMatches").isArray())
+                .andExpect(jsonPath("$.negativeMatches").isEmpty())
+                .andExpect(jsonPath("$.unconditionalClasses").isArray())
+                .andExpect(jsonPath("$.unconditionalClasses").isEmpty())
+                .andExpect(jsonPath("$.exclusions").isArray())
+                .andExpect(jsonPath("$.exclusions").isEmpty());
     }
 
     @Test
@@ -74,8 +73,7 @@ class ConditionsControllerTests {
         when(matchDesc.getMessage()).thenReturn("@ConditionalOnClass found required class 'javax.servlet.Servlet'");
 
         ContextConditionsDescriptor ccd = inlineMock(ContextConditionsDescriptor.class);
-        when(ccd.getPositiveMatches()).thenReturn(
-            Map.of("org.example.WebConfig", List.of(matchDesc)));
+        when(ccd.getPositiveMatches()).thenReturn(Map.of("org.example.WebConfig", List.of(matchDesc)));
         when(ccd.getNegativeMatches()).thenReturn(Map.of());
         when(ccd.getUnconditionalClasses()).thenReturn(Set.of());
         when(ccd.getExclusions()).thenReturn(List.of());
@@ -86,14 +84,16 @@ class ConditionsControllerTests {
         ConditionsReportEndpoint endpoint = mock(ConditionsReportEndpoint.class);
         when(endpoint.conditions()).thenReturn(descriptor);
 
-        MockMvc mvc = standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
+        MockMvc mvc =
+                standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/conditions").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.positiveMatches[0].autoConfigurationClass").value("org.example.WebConfig"))
-            .andExpect(jsonPath("$.positiveMatches[0].condition").value("OnClassCondition"))
-            .andExpect(jsonPath("$.positiveMatches[0].outcome").value("MATCH"))
-            .andExpect(jsonPath("$.negativeMatches").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$.positiveMatches[0].autoConfigurationClass").value("org.example.WebConfig"))
+                .andExpect(jsonPath("$.positiveMatches[0].condition").value("OnClassCondition"))
+                .andExpect(jsonPath("$.positiveMatches[0].outcome").value("MATCH"))
+                .andExpect(jsonPath("$.negativeMatches").isEmpty());
     }
 
     @Test
@@ -122,18 +122,21 @@ class ConditionsControllerTests {
         ConditionsReportEndpoint endpoint = mock(ConditionsReportEndpoint.class);
         when(endpoint.conditions()).thenReturn(descriptor);
 
-        MockMvc mvc = standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
+        MockMvc mvc =
+                standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/conditions").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            // noMatchDesc → negativeMatches with outcome NO_MATCH
-            .andExpect(jsonPath("$.negativeMatches[0].autoConfigurationClass").value("org.example.JpaConfig"))
-            .andExpect(jsonPath("$.negativeMatches[0].condition").value("OnBeanCondition"))
-            .andExpect(jsonPath("$.negativeMatches[0].outcome").value("NO_MATCH"))
-            // partialDesc → positiveMatches with outcome PARTIAL
-            .andExpect(jsonPath("$.positiveMatches[0].autoConfigurationClass").value("org.example.JpaConfig"))
-            .andExpect(jsonPath("$.positiveMatches[0].condition").value("OnPropertyCondition"))
-            .andExpect(jsonPath("$.positiveMatches[0].outcome").value("PARTIAL"));
+                .andExpect(status().isOk())
+                // noMatchDesc → negativeMatches with outcome NO_MATCH
+                .andExpect(
+                        jsonPath("$.negativeMatches[0].autoConfigurationClass").value("org.example.JpaConfig"))
+                .andExpect(jsonPath("$.negativeMatches[0].condition").value("OnBeanCondition"))
+                .andExpect(jsonPath("$.negativeMatches[0].outcome").value("NO_MATCH"))
+                // partialDesc → positiveMatches with outcome PARTIAL
+                .andExpect(
+                        jsonPath("$.positiveMatches[0].autoConfigurationClass").value("org.example.JpaConfig"))
+                .andExpect(jsonPath("$.positiveMatches[0].condition").value("OnPropertyCondition"))
+                .andExpect(jsonPath("$.positiveMatches[0].outcome").value("PARTIAL"));
     }
 
     @Test
@@ -150,11 +153,12 @@ class ConditionsControllerTests {
         ConditionsReportEndpoint endpoint = mock(ConditionsReportEndpoint.class);
         when(endpoint.conditions()).thenReturn(descriptor);
 
-        MockMvc mvc = standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
+        MockMvc mvc =
+                standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/conditions").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.unconditionalClasses[0]").value("org.example.UnconditionalConfig"))
-            .andExpect(jsonPath("$.exclusions[0]").value("org.example.ExcludedAutoConfig"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unconditionalClasses[0]").value("org.example.UnconditionalConfig"))
+                .andExpect(jsonPath("$.exclusions[0]").value("org.example.ExcludedAutoConfig"));
     }
 }

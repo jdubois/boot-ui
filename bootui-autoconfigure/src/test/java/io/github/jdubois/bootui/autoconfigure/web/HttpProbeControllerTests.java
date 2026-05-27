@@ -1,7 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
 import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.core.BootUiDtos.HttpProbeRequest;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,14 +16,6 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
-
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Standalone MockMvc tests for {@link HttpProbeController}.
@@ -56,11 +55,11 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("get", "/api/ping", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(200))
-            .andExpect(jsonPath("$.error").isEmpty());
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("get", "/api/ping", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.error").isEmpty());
     }
 
     @Test
@@ -74,10 +73,10 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest(null, "/default-method", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(200));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest(null, "/default-method", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
     }
 
     // ── path normalization ────────────────────────────────────────────────────
@@ -94,10 +93,10 @@ class HttpProbeControllerTests {
 
         // path "hello" (no leading slash) should be normalized to "/hello"
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", "hello", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(200));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "hello", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
     }
 
     @Test
@@ -111,10 +110,10 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", null, null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(200));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", null, null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
     }
 
     // ── loopback enforcement ──────────────────────────────────────────────────
@@ -134,10 +133,10 @@ class HttpProbeControllerTests {
 
         // Normal loopback probe succeeds
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", "/safe", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(200));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "/safe", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
     }
 
     // ── response header filtering ─────────────────────────────────────────────
@@ -157,14 +156,14 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", "/headers", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.headers['content-type']").exists())
-            // sensitive / non-allow-listed headers must not appear
-            .andExpect(jsonPath("$.headers['x-custom-header']").doesNotExist())
-            .andExpect(jsonPath("$.headers['authorization']").doesNotExist())
-            .andExpect(jsonPath("$.headers['set-cookie']").doesNotExist());
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "/headers", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.headers['content-type']").exists())
+                // sensitive / non-allow-listed headers must not appear
+                .andExpect(jsonPath("$.headers['x-custom-header']").doesNotExist())
+                .andExpect(jsonPath("$.headers['authorization']").doesNotExist())
+                .andExpect(jsonPath("$.headers['set-cookie']").doesNotExist());
     }
 
     @Test
@@ -177,10 +176,10 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", "/redirect-me", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.headers['location']").value("/new-location"));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "/redirect-me", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.headers['location']").value("/new-location"));
     }
 
     // ── timeout / error responses ─────────────────────────────────────────────
@@ -198,13 +197,13 @@ class HttpProbeControllerTests {
         MockMvc mvc = standaloneSetup(new HttpProbeController(env)).build();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", "/", null, null))))
-            // The controller returns HTTP 200; error details are in the DTO
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(0))
-            .andExpect(jsonPath("$.statusText").value("Error"))
-            .andExpect(jsonPath("$.durationMs").isNumber());
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "/", null, null))))
+                // The controller returns HTTP 200; error details are in the DTO
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(0))
+                .andExpect(jsonPath("$.statusText").value("Error"))
+                .andExpect(jsonPath("$.durationMs").isNumber());
     }
 
     @Test
@@ -220,10 +219,10 @@ class HttpProbeControllerTests {
         MockMvc mvc = standaloneSetup(new HttpProbeController(env)).build();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest(null, null, null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(0));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest(null, null, null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(0));
     }
 
     // ── body handling ─────────────────────────────────────────────────────────
@@ -239,10 +238,10 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", "/body", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.body").value("hello-body"));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "/body", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body").value("hello-body"));
     }
 
     @Test
@@ -256,11 +255,11 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("POST", "/echo", "request-payload", null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value(200))
-            .andExpect(jsonPath("$.body").value("request-payload"));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("POST", "/echo", "request-payload", null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.body").value("request-payload"));
     }
 
     @Test
@@ -274,10 +273,10 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         mvc.perform(post("/bootui/api/probe")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(new HttpProbeRequest("GET", "/fast", null, null))))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.durationMs").isNumber());
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "/fast", null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.durationMs").isNumber());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

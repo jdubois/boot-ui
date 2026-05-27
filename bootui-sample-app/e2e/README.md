@@ -11,7 +11,7 @@ Each Playwright spec file targets one of the BootUI views (or a cross-cutting
 flow) exposed by the sample app:
 
 | Spec                   | Verifies                                                                                                              |
-|------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `app-shell.spec.js`    | Top navbar, sidebar links, deep-linking, navigation between every section                                             |
 | `overview.spec.js`     | Application / Runtime / Activation cards, refresh button                                                              |
 | `beans.spec.js`        | Bean list rendering, name filter, classification filter                                                               |
@@ -35,9 +35,9 @@ flow) exposed by the sample app:
 
 ## Prerequisites
 
-* Node.js 20+
-* Java 25 and the repository Maven Wrapper (used to build & run the sample app)
-* The BootUI parent build must be installed locally so the sample app can
+- Node.js 20+
+- Java 25 and the repository Maven Wrapper (used to build & run the sample app)
+- The BootUI parent build must be installed locally so the sample app can
   resolve its modules:
 
   ```bash
@@ -74,8 +74,8 @@ npm test
 
 ## Configuration
 
-* `BOOTUI_BASE_URL` — override the base URL (default `http://localhost:8080`).
-* `BOOTUI_SAMPLE_PORT` — override the port used to build the default base URL.
+- `BOOTUI_BASE_URL` — override the base URL (default `http://localhost:8080`).
+- `BOOTUI_SAMPLE_PORT` — override the port used to build the default base URL.
 
 ## Artefacts
 

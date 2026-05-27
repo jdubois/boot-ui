@@ -22,7 +22,7 @@ function normalizedDuration(durationMs) {
 }
 
 const durationScale = computed(() => {
-  const durations = report.value.steps.map(step => normalizedDuration(step.durationMs))
+  const durations = report.value.steps.map((step) => normalizedDuration(step.durationMs))
   if (durations.length === 0) {
     return {min: 0, max: 0, minLog: 0, span: 0}
   }
@@ -53,11 +53,11 @@ function buildTree(steps) {
   const byId = new Map()
   const roots = []
 
-  steps.forEach(step => {
+  steps.forEach((step) => {
     byId.set(step.id, {...step, children: []})
   })
 
-  steps.forEach(step => {
+  steps.forEach((step) => {
     const node = byId.get(step.id)
     const parentId = step.parentId
     if (!parentId || !byId.has(parentId)) {
@@ -84,7 +84,7 @@ async function load() {
     report.value = {
       steps
     }
-    expandedStepIds.value = new Set(buildTree(steps).map(step => step.id))
+    expandedStepIds.value = new Set(buildTree(steps).map((step) => step.id))
   } catch (err) {
     report.value = {steps: []}
     expandedStepIds.value = new Set()
@@ -94,16 +94,14 @@ async function load() {
   }
 }
 
-const sortedSteps = computed(() =>
-  [...report.value.steps].sort((a, b) => a.id - b.id)
-)
+const sortedSteps = computed(() => [...report.value.steps].sort((a, b) => a.id - b.id))
 
 const tree = computed(() => buildTree(sortedSteps.value))
 
 const durationBandCounts = computed(() =>
-  durationBands.map(band => ({
+  durationBands.map((band) => ({
     ...band,
-    count: report.value.steps.filter(step => durationBandFor(step.durationMs).id === band.id).length
+    count: report.value.steps.filter((step) => durationBandFor(step.durationMs).id === band.id).length
   }))
 )
 
@@ -118,7 +116,7 @@ function filterTree(nodes, query, durationBandId) {
     return nodes
   }
 
-  return nodes.flatMap(node => {
+  return nodes.flatMap((node) => {
     const children = filterTree(node.children, query, durationBandId)
     const matches = stepMatchesFilters(node, query, durationBandId)
     if (!matches && children.length === 0) {
@@ -129,12 +127,9 @@ function filterTree(nodes, query, durationBandId) {
 }
 
 function flattenVisible(nodes, hasActiveFilter, depth = 0) {
-  return nodes.flatMap(node => {
+  return nodes.flatMap((node) => {
     const expanded = hasActiveFilter || expandedStepIds.value.has(node.id)
-    return [
-      {...node, depth, expanded},
-      ...(expanded ? flattenVisible(node.children, hasActiveFilter, depth + 1) : [])
-    ]
+    return [{...node, depth, expanded}, ...(expanded ? flattenVisible(node.children, hasActiveFilter, depth + 1) : [])]
   })
 }
 
@@ -145,9 +140,7 @@ const visibleSteps = computed(() => {
   return flattenVisible(filterTree(tree.value, query, durationBandId), hasActiveFilter)
 })
 
-const branchStepCount = computed(() =>
-  report.value.steps.filter(step => step.parentId != null).length
-)
+const branchStepCount = computed(() => report.value.steps.filter((step) => step.parentId != null).length)
 
 function toggleStep(step) {
   if (!step.children?.length) {
@@ -164,9 +157,9 @@ function toggleStep(step) {
 }
 
 function expandAll() {
-  expandedStepIds.value = new Set(report.value.steps
-    .filter(step => treeStepHasChildren(step.id))
-    .map(step => step.id))
+  expandedStepIds.value = new Set(
+    report.value.steps.filter((step) => treeStepHasChildren(step.id)).map((step) => step.id)
+  )
 }
 
 function collapseAll() {
@@ -174,7 +167,7 @@ function collapseAll() {
 }
 
 function treeStepHasChildren(stepId) {
-  return report.value.steps.some(step => step.parentId === stepId)
+  return report.value.steps.some((step) => step.parentId === stepId)
 }
 
 onMounted(load)
@@ -187,18 +180,16 @@ onMounted(load)
         <h2 class="mb-1"><i class="bi bi-clock-history me-2"></i>Startup timeline</h2>
         <p class="text-muted mb-0">
           {{ report.steps.length }} steps · {{ branchStepCount }} nested<span
-          v-if="filter || selectedDurationBand !== 'all'"> · {{ visibleSteps.length }} shown</span>
+            v-if="filter || selectedDurationBand !== 'all'"
+          >
+            · {{ visibleSteps.length }} shown</span
+          >
         </p>
       </div>
       <div class="col-12 col-md-7 col-lg-6 px-0">
         <div class="input-group mb-2">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
-          <input
-            v-model="filter"
-            class="form-control"
-            placeholder="Filter by step name…"
-            type="search"
-          />
+          <input v-model="filter" class="form-control" placeholder="Filter by step name…" type="search" />
           <button
             :disabled="loading || report.steps.length === 0"
             class="btn btn-outline-secondary"
@@ -221,7 +212,7 @@ onMounted(load)
           <div aria-label="Filter startup steps by duration color" class="btn-group flex-wrap" role="group">
             <button
               :aria-pressed="selectedDurationBand === 'all'"
-              :class="{ active: selectedDurationBand === 'all' }"
+              :class="{active: selectedDurationBand === 'all'}"
               class="btn btn-sm btn-outline-secondary"
               type="button"
               @click="selectedDurationBand = 'all'"
@@ -232,7 +223,7 @@ onMounted(load)
               v-for="band in durationBandCounts"
               :key="band.id"
               :aria-pressed="selectedDurationBand === band.id"
-              :class="{ active: selectedDurationBand === band.id }"
+              :class="{active: selectedDurationBand === band.id}"
               :title="`Show ${band.label.toLowerCase()} startup steps`"
               class="btn btn-sm btn-outline-secondary startup-duration-filter"
               type="button"
@@ -247,9 +238,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="loading" class="text-muted">
-      <i class="bi bi-hourglass-split me-2"></i>Loading startup data…
-    </div>
+    <div v-if="loading" class="text-muted"><i class="bi bi-hourglass-split me-2"></i>Loading startup data…</div>
     <div v-else-if="error" class="alert alert-danger" role="alert">
       <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
     </div>
@@ -263,7 +252,7 @@ onMounted(load)
       <div
         v-for="step in visibleSteps"
         :key="step.id"
-        :style="{ paddingLeft: `${1 + step.depth * 1.25}rem` }"
+        :style="{paddingLeft: `${1 + step.depth * 1.25}rem`}"
         class="list-group-item py-3"
       >
         <div class="d-flex align-items-start justify-content-between gap-3">
@@ -272,7 +261,7 @@ onMounted(load)
               <button
                 :aria-expanded="step.expanded"
                 :aria-label="`${step.expanded ? 'Collapse' : 'Expand'} ${step.name}`"
-                :class="{ 'invisible': !step.children?.length }"
+                :class="{invisible: !step.children?.length}"
                 class="btn btn-sm btn-link text-decoration-none p-0 startup-tree-toggle"
                 type="button"
                 @click="toggleStep(step)"

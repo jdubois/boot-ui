@@ -5,6 +5,10 @@ import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
@@ -19,11 +23,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.*;
-
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.*;
 
 @RestController
 @RequestMapping("/bootui/api/cache")
@@ -43,10 +42,11 @@ public class CacheController {
 
     private final BootUiProperties properties;
 
-    public CacheController(ObjectProvider<ListableBeanFactory> beanFactoryProvider,
-                           ObjectProvider<CacheOperationSource> cacheOperationSources,
-                           ObjectProvider<MeterRegistry> meterRegistries,
-                           BootUiProperties properties) {
+    public CacheController(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+            ObjectProvider<CacheOperationSource> cacheOperationSources,
+            ObjectProvider<MeterRegistry> meterRegistries,
+            BootUiProperties properties) {
         this.beanFactoryProvider = beanFactoryProvider;
         this.cacheOperationSources = cacheOperationSources;
         this.meterRegistries = meterRegistries;
@@ -56,60 +56,77 @@ public class CacheController {
     @GetMapping
     public CacheReport cache() {
         ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
-        OperationDiscovery operationDiscovery = factory == null
-            ? new OperationDiscovery(List.of(), List.of())
-            : discoverOperations(factory);
+        OperationDiscovery operationDiscovery =
+                factory == null ? new OperationDiscovery(List.of(), List.of()) : discoverOperations(factory);
         if (factory == null) {
-            return new CacheReport(false, clearEnabled(), 0, 0, operationDiscovery.operations().size(),
-                List.of(), operationDiscovery.operations(), operationDiscovery.warnings());
+            return new CacheReport(
+                    false,
+                    clearEnabled(),
+                    0,
+                    0,
+                    operationDiscovery.operations().size(),
+                    List.of(),
+                    operationDiscovery.operations(),
+                    operationDiscovery.warnings());
         }
 
         List<CacheManagerEntry> managers = discoverManagers(factory);
         Map<MetricKey, CacheMetricsAccumulator> metrics = cacheMetrics();
-        List<CacheManagerDto> managerDtos = managers.stream()
-            .map(manager -> toManagerDto(manager, metrics))
-            .toList();
-        int cacheCount = managerDtos.stream().mapToInt(manager -> manager.caches().size()).sum();
+        List<CacheManagerDto> managerDtos =
+                managers.stream().map(manager -> toManagerDto(manager, metrics)).toList();
+        int cacheCount = managerDtos.stream()
+                .mapToInt(manager -> manager.caches().size())
+                .sum();
         return new CacheReport(
-            !managers.isEmpty(),
-            clearEnabled(),
-            managers.size(),
-            cacheCount,
-            operationDiscovery.operations().size(),
-            managerDtos,
-            operationDiscovery.operations(),
-            operationDiscovery.warnings());
+                !managers.isEmpty(),
+                clearEnabled(),
+                managers.size(),
+                cacheCount,
+                operationDiscovery.operations().size(),
+                managerDtos,
+                operationDiscovery.operations(),
+                operationDiscovery.warnings());
     }
 
     @PostMapping("/clear")
     public ResponseEntity<CacheClearResult> clear(@RequestBody(required = false) CacheClearRequest request) {
         if (!clearEnabled()) {
-            return result(HttpStatus.CONFLICT, "disabled",
-                "Cache clearing is disabled. Set bootui.cache.clear-enabled=true to allow it.",
-                List.of());
+            return result(
+                    HttpStatus.CONFLICT,
+                    "disabled",
+                    "Cache clearing is disabled. Set bootui.cache.clear-enabled=true to allow it.",
+                    List.of());
         }
         if (request == null || !Boolean.TRUE.equals(request.confirm())) {
-            return result(HttpStatus.BAD_REQUEST, "confirmation_required",
-                "Cache clearing requires explicit confirmation.", List.of());
+            return result(
+                    HttpStatus.BAD_REQUEST,
+                    "confirmation_required",
+                    "Cache clearing requires explicit confirmation.",
+                    List.of());
         }
 
         ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
         if (factory == null) {
-            return result(HttpStatus.CONFLICT, "unavailable",
-                "No bean factory is available to discover cache managers.", List.of());
+            return result(
+                    HttpStatus.CONFLICT,
+                    "unavailable",
+                    "No bean factory is available to discover cache managers.",
+                    List.of());
         }
         List<CacheManagerEntry> managers = discoverManagers(factory);
         if (managers.isEmpty()) {
-            return result(HttpStatus.CONFLICT, "unavailable",
-                "No CacheManager beans are available.", List.of());
+            return result(HttpStatus.CONFLICT, "unavailable", "No CacheManager beans are available.", List.of());
         }
 
         if (Boolean.TRUE.equals(request.all())) {
             return clearAll(managers);
         }
         if (isBlank(request.managerName()) || isBlank(request.cacheName())) {
-            return result(HttpStatus.BAD_REQUEST, "invalid_request",
-                "managerName and cacheName are required when clearing one cache.", List.of());
+            return result(
+                    HttpStatus.BAD_REQUEST,
+                    "invalid_request",
+                    "managerName and cacheName are required when clearing one cache.",
+                    List.of());
         }
         return clearOne(managers, request.managerName(), request.cacheName());
     }
@@ -129,30 +146,37 @@ public class CacheController {
             }
         }
         log.warn("BootUI cleared {} caches across all Spring Cache managers: {}", cleared.size(), cleared);
-        return result(HttpStatus.OK, "cleared",
-            "Cleared " + cleared.size() + " cache" + (cleared.size() == 1 ? "." : "s."),
-            cleared);
+        return result(
+                HttpStatus.OK,
+                "cleared",
+                "Cleared " + cleared.size() + " cache" + (cleared.size() == 1 ? "." : "s."),
+                cleared);
     }
 
-    private ResponseEntity<CacheClearResult> clearOne(List<CacheManagerEntry> managers,
-                                                      String managerName,
-                                                      String cacheName) {
+    private ResponseEntity<CacheClearResult> clearOne(
+            List<CacheManagerEntry> managers, String managerName, String cacheName) {
         CacheManagerEntry manager = managers.stream()
-            .filter(entry -> entry.name().equals(managerName))
-            .findFirst()
-            .orElse(null);
+                .filter(entry -> entry.name().equals(managerName))
+                .findFirst()
+                .orElse(null);
         if (manager == null) {
-            return result(HttpStatus.NOT_FOUND, "not_found",
-                "Cache manager '" + managerName + "' was not found.", List.of());
+            return result(
+                    HttpStatus.NOT_FOUND, "not_found", "Cache manager '" + managerName + "' was not found.", List.of());
         }
         if (!cacheNames(manager.manager()).contains(cacheName)) {
-            return result(HttpStatus.NOT_FOUND, "not_found",
-                "Cache '" + cacheName + "' was not found in manager '" + managerName + "'.", List.of());
+            return result(
+                    HttpStatus.NOT_FOUND,
+                    "not_found",
+                    "Cache '" + cacheName + "' was not found in manager '" + managerName + "'.",
+                    List.of());
         }
         Cache cache = manager.manager().getCache(cacheName);
         if (cache == null) {
-            return result(HttpStatus.NOT_FOUND, "not_found",
-                "Cache '" + cacheName + "' was not returned by manager '" + managerName + "'.", List.of());
+            return result(
+                    HttpStatus.NOT_FOUND,
+                    "not_found",
+                    "Cache '" + cacheName + "' was not returned by manager '" + managerName + "'.",
+                    List.of());
         }
 
         List<String> cleared = new ArrayList<>();
@@ -161,29 +185,32 @@ public class CacheController {
             return failure;
         }
         log.warn("BootUI cleared Spring Cache entry {} / {}", manager.name(), cacheName);
-        return result(HttpStatus.OK, "cleared",
-            "Cleared cache '" + cacheName + "' from manager '" + manager.name() + "'.",
-            cleared);
+        return result(
+                HttpStatus.OK,
+                "cleared",
+                "Cleared cache '" + cacheName + "' from manager '" + manager.name() + "'.",
+                cleared);
     }
 
-    private ResponseEntity<CacheClearResult> clearCache(String managerName, String cacheName, Cache cache,
-                                                        List<String> cleared) {
+    private ResponseEntity<CacheClearResult> clearCache(
+            String managerName, String cacheName, Cache cache, List<String> cleared) {
         try {
             cache.clear();
             cleared.add(managerName + "/" + cacheName);
             return null;
         } catch (RuntimeException ex) {
-            return result(HttpStatus.INTERNAL_SERVER_ERROR, "failed",
-                "Failed to clear cache '" + cacheName + "' from manager '" + managerName
-                    + "' (" + ex.getClass().getSimpleName() + ").",
-                cleared);
+            return result(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "failed",
+                    "Failed to clear cache '" + cacheName + "' from manager '" + managerName + "' ("
+                            + ex.getClass().getSimpleName() + ").",
+                    cleared);
         }
     }
 
-    private ResponseEntity<CacheClearResult> result(HttpStatus status, String resultStatus, String message,
-                                                    List<String> caches) {
-        return ResponseEntity.status(status)
-            .body(new CacheClearResult(resultStatus, message, caches.size(), caches));
+    private ResponseEntity<CacheClearResult> result(
+            HttpStatus status, String resultStatus, String message, List<String> caches) {
+        return ResponseEntity.status(status).body(new CacheClearResult(resultStatus, message, caches.size(), caches));
     }
 
     private List<CacheManagerEntry> discoverManagers(ListableBeanFactory factory) {
@@ -197,8 +224,7 @@ public class CacheController {
         return managers;
     }
 
-    private CacheManagerDto toManagerDto(CacheManagerEntry entry,
-                                         Map<MetricKey, CacheMetricsAccumulator> metrics) {
+    private CacheManagerDto toManagerDto(CacheManagerEntry entry, Map<MetricKey, CacheMetricsAccumulator> metrics) {
         List<CacheDto> caches = new ArrayList<>();
         for (String cacheName : cacheNames(entry.manager())) {
             Cache cache = entry.manager().getCache(cacheName);
@@ -211,25 +237,23 @@ public class CacheController {
         return new CacheManagerDto(entry.name(), entry.manager().getClass().getName(), isNoOp(entry.manager()), caches);
     }
 
-    private CacheDto toCacheDto(String managerName, String cacheName, Cache cache,
-                                Map<MetricKey, CacheMetricsAccumulator> metrics) {
+    private CacheDto toCacheDto(
+            String managerName, String cacheName, Cache cache, Map<MetricKey, CacheMetricsAccumulator> metrics) {
         Object nativeCache = nativeCache(cache);
         CacheMetricsAccumulator metric = metrics.get(new MetricKey(managerName, cacheName));
         if (metric == null) {
             metric = metrics.get(new MetricKey("*", cacheName));
         }
         return new CacheDto(
-            managerName,
-            cacheName,
-            nativeCache == null ? null : nativeCache.getClass().getName(),
-            estimateSize(nativeCache),
-            metric == null ? new CacheMetricsDto(false, null, null, null, null, null, null, null) : metric.toDto());
+                managerName,
+                cacheName,
+                nativeCache == null ? null : nativeCache.getClass().getName(),
+                estimateSize(nativeCache),
+                metric == null ? new CacheMetricsDto(false, null, null, null, null, null, null, null) : metric.toDto());
     }
 
     private List<String> cacheNames(CacheManager manager) {
-        return manager.getCacheNames().stream()
-            .sorted()
-            .toList();
+        return manager.getCacheNames().stream().sorted().toList();
     }
 
     private Object nativeCache(Cache cache) {
@@ -288,11 +312,12 @@ public class CacheController {
                 continue;
             }
             String managerName = firstNonBlank(
-                meter.getId().getTag("name"),
-                meter.getId().getTag("cacheManager"),
-                meter.getId().getTag("cache.manager"));
+                    meter.getId().getTag("name"),
+                    meter.getId().getTag("cacheManager"),
+                    meter.getId().getTag("cache.manager"));
             MetricKey key = new MetricKey(isBlank(managerName) ? "*" : managerName, cacheName);
-            CacheMetricsAccumulator accumulator = metrics.computeIfAbsent(key, ignored -> new CacheMetricsAccumulator());
+            CacheMetricsAccumulator accumulator =
+                    metrics.computeIfAbsent(key, ignored -> new CacheMetricsAccumulator());
             addMetric(accumulator, meterName, meter);
         }
         return metrics;
@@ -324,8 +349,7 @@ public class CacheController {
             case "cache.evictions" -> accumulator.addEvictions(value.getAsDouble());
             case "cache.removals" -> accumulator.addRemovals(value.getAsDouble());
             case "cache.size" -> accumulator.setSize(value.getAsDouble());
-            default -> {
-            }
+            default -> {}
         }
     }
 
@@ -343,14 +367,15 @@ public class CacheController {
     }
 
     private OperationDiscovery discoverOperations(ListableBeanFactory factory) {
-        List<CacheOperationSource> sources = cacheOperationSources.orderedStream().toList();
+        List<CacheOperationSource> sources =
+                cacheOperationSources.orderedStream().toList();
         if (sources.isEmpty()) {
             return new OperationDiscovery(List.of(), List.of());
         }
 
         List<String> beanNames = Arrays.stream(BeanFactoryUtils.beanNamesIncludingAncestors(factory))
-            .sorted()
-            .toList();
+                .sorted()
+                .toList();
         List<CacheOperationDto> operations = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         int scannedMethods = 0;
@@ -370,7 +395,7 @@ public class CacheController {
                 scannedMethods++;
                 if (scannedMethods > MAX_SCANNED_METHODS) {
                     warnings.add("Cache annotation scan stopped after " + MAX_SCANNED_METHODS
-                        + " methods to avoid slowing the application.");
+                            + " methods to avoid slowing the application.");
                     break scan;
                 }
                 Method bridged = BridgeMethodResolver.findBridgedMethod(method);
@@ -383,7 +408,7 @@ public class CacheController {
                         cacheOperations = source.getCacheOperations(bridged, userType);
                     } catch (RuntimeException ex) {
                         warnings.add("Could not inspect cache annotations on " + userType.getName() + "#"
-                            + bridged.getName() + " (" + ex.getClass().getSimpleName() + ").");
+                                + bridged.getName() + " (" + ex.getClass().getSimpleName() + ").");
                         continue;
                     }
                     if (cacheOperations == null || cacheOperations.isEmpty()) {
@@ -393,7 +418,7 @@ public class CacheController {
                         operations.add(toOperationDto(beanName, userType, bridged, operation));
                         if (operations.size() >= MAX_CACHE_OPERATIONS) {
                             warnings.add("Cache annotation report was truncated after " + MAX_CACHE_OPERATIONS
-                                + " operations.");
+                                    + " operations.");
                             break scan;
                         }
                     }
@@ -401,8 +426,8 @@ public class CacheController {
             }
         }
         operations.sort(Comparator.comparing(CacheOperationDto::beanName)
-            .thenComparing(CacheOperationDto::method)
-            .thenComparing(CacheOperationDto::operation));
+                .thenComparing(CacheOperationDto::method)
+                .thenComparing(CacheOperationDto::operation));
         return new OperationDiscovery(operations, warnings);
     }
 
@@ -416,17 +441,17 @@ public class CacheController {
 
     private boolean skipMethod(Method method) {
         return method.getDeclaringClass() == Object.class
-            || method.isBridge()
-            || method.isSynthetic()
-            || Modifier.isStatic(method.getModifiers());
+                || method.isBridge()
+                || method.isSynthetic()
+                || Modifier.isStatic(method.getModifiers());
     }
 
     private String methodKey(Method method) {
         return method.getName() + Arrays.toString(method.getParameterTypes());
     }
 
-    private CacheOperationDto toOperationDto(String beanName, Class<?> targetType, Method method,
-                                             CacheOperation operation) {
+    private CacheOperationDto toOperationDto(
+            String beanName, Class<?> targetType, Method method, CacheOperation operation) {
         String unless = null;
         boolean allEntries = false;
         boolean beforeInvocation = false;
@@ -440,16 +465,16 @@ public class CacheController {
         }
 
         return new CacheOperationDto(
-            beanName,
-            targetType.getName(),
-            signatureOf(method),
-            operationName(operation),
-            operation.getCacheNames().stream().sorted().toList(),
-            blankToNull(operation.getKey()),
-            blankToNull(operation.getCondition()),
-            unless,
-            allEntries,
-            beforeInvocation);
+                beanName,
+                targetType.getName(),
+                signatureOf(method),
+                operationName(operation),
+                operation.getCacheNames().stream().sorted().toList(),
+                blankToNull(operation.getKey()),
+                blankToNull(operation.getCondition()),
+                unless,
+                allEntries,
+                beforeInvocation);
     }
 
     private String operationName(CacheOperation operation) {
@@ -467,9 +492,9 @@ public class CacheController {
 
     private String signatureOf(Method method) {
         String params = Arrays.stream(method.getParameterTypes())
-            .map(Class::getSimpleName)
-            .reduce((left, right) -> left + ", " + right)
-            .orElse("");
+                .map(Class::getSimpleName)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
         return method.getReturnType().getSimpleName() + " " + method.getName() + "(" + params + ")";
     }
 
@@ -494,14 +519,11 @@ public class CacheController {
         return isBlank(value) ? null : value;
     }
 
-    private record CacheManagerEntry(String name, CacheManager manager) {
-    }
+    private record CacheManagerEntry(String name, CacheManager manager) {}
 
-    private record MetricKey(String managerName, String cacheName) {
-    }
+    private record MetricKey(String managerName, String cacheName) {}
 
-    private record OperationDiscovery(List<CacheOperationDto> operations, List<String> warnings) {
-    }
+    private record OperationDiscovery(List<CacheOperationDto> operations, List<String> warnings) {}
 
     private static final class CacheMetricsAccumulator {
 
@@ -567,14 +589,14 @@ public class CacheController {
                 hitRatio = total == 0.0 ? 0.0 : hits / total;
             }
             return new CacheMetricsDto(
-                available,
-                hitsSeen ? hits : null,
-                missesSeen ? misses : null,
-                hitRatio,
-                putsSeen ? puts : null,
-                evictionsSeen ? evictions : null,
-                removalsSeen ? removals : null,
-                sizeSeen ? size : null);
+                    available,
+                    hitsSeen ? hits : null,
+                    missesSeen ? misses : null,
+                    hitRatio,
+                    putsSeen ? puts : null,
+                    evictionsSeen ? evictions : null,
+                    removalsSeen ? removals : null,
+                    sizeSeen ? size : null);
         }
     }
 }

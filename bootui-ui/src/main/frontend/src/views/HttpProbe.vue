@@ -1,6 +1,6 @@
 <script setup>
 import {computed, ref} from 'vue'
-import { apiFetch } from '../api.js'
+import {apiFetch} from '../api.js'
 
 const method = ref('GET')
 const path = ref('')
@@ -124,9 +124,7 @@ function clearForm() {
               placeholder="/api/sample/hello"
               @keyup.enter="sendProbe"
             />
-            <div class="form-text">
-              Relative to the application root. Requests are always sent to localhost.
-            </div>
+            <div class="form-text">Relative to the application root. Requests are always sent to localhost.</div>
           </div>
         </div>
 
@@ -166,7 +164,8 @@ function clearForm() {
           <h6>Headers</h6>
           <ul class="list-unstyled small mb-0">
             <li v-for="(value, name) in response.headers" :key="name">
-              <code>{{ name }}</code>: {{ value }}
+              <code>{{ name }}</code
+              >: {{ value }}
             </li>
           </ul>
         </div>

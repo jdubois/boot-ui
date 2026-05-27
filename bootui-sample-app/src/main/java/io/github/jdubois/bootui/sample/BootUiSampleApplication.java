@@ -1,5 +1,11 @@
 package io.github.jdubois.bootui.sample;
 
+import java.io.Serializable;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -13,13 +19,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.Serializable;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-
 @SpringBootApplication
 @EnableCaching
 @EnableScheduling
@@ -28,8 +27,9 @@ public class BootUiSampleApplication {
 
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(BootUiSampleApplication.class);
-        composeFileDefault().ifPresent(composeFile -> application.setDefaultProperties(
-            Map.of("spring.docker.compose.file", composeFile.toString())));
+        composeFileDefault()
+                .ifPresent(composeFile ->
+                        application.setDefaultProperties(Map.of("spring.docker.compose.file", composeFile.toString())));
         application.run(args);
     }
 
@@ -109,13 +109,12 @@ public class BootUiSampleApplication {
         @Cacheable(cacheNames = "sample-products", key = "'active'", unless = "#result.isEmpty()")
         public List<ProductSummary> activeProducts() {
             return products.findByActiveTrueOrderByNameAsc().stream()
-                .map(ProductSummary::from)
-                .toList();
+                    .map(ProductSummary::from)
+                    .toList();
         }
 
         @CacheEvict(cacheNames = "sample-products", allEntries = true)
-        public void evictProducts() {
-        }
+        public void evictProducts() {}
     }
 
     public record ProductSummary(Long id, String name, String category, boolean active) implements Serializable {

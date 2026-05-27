@@ -43,13 +43,15 @@ export default defineConfig({
 
   // Set BOOTUI_SKIP_WEBSERVER=1 to disable the auto-started Maven server when
   // running the tests against an already-deployed instance, listing tests, etc.
-  webServer: process.env.BOOTUI_SKIP_WEBSERVER ? undefined : {
-    // Run from the e2e module through the root Maven Wrapper.
-    command: '../../mvnw -f ../pom.xml -q spring-boot:run',
-    url: `${BASE_URL}/bootui/api/overview`,
-    reuseExistingServer: !process.env.CI,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    timeout: 240_000
-  }
+  webServer: process.env.BOOTUI_SKIP_WEBSERVER
+    ? undefined
+    : {
+        // Run from the e2e module through the root Maven Wrapper.
+        command: '../../mvnw -f ../pom.xml -q spring-boot:run',
+        url: `${BASE_URL}/bootui/api/overview`,
+        reuseExistingServer: !process.env.CI,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: 240_000
+      }
 })

@@ -5,14 +5,13 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.AppenderBase;
-import org.slf4j.ILoggerFactory;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import org.slf4j.ILoggerFactory;
+import org.slf4j.LoggerFactory;
 
 public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
 
@@ -56,11 +55,11 @@ public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
     @Override
     protected void append(ILoggingEvent event) {
         LogLineDto line = new LogLineDto(
-            event.getTimeStamp(),
-            event.getLevel().toString(),
-            event.getLoggerName(),
-            event.getFormattedMessage(),
-            event.getThreadName());
+                event.getTimeStamp(),
+                event.getLevel().toString(),
+                event.getLoggerName(),
+                event.getFormattedMessage(),
+                event.getThreadName());
         synchronized (lines) {
             if (lines.size() >= MAX_LINES) {
                 lines.removeFirst();
@@ -83,6 +82,5 @@ public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
         return () -> subscribers.remove(consumer);
     }
 
-    public record LogLineDto(long timestamp, String level, String logger, String message, String thread) {
-    }
+    public record LogLineDto(long timestamp, String level, String logger, String message, String thread) {}
 }

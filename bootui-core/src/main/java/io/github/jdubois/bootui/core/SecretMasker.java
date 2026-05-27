@@ -16,22 +16,22 @@ public final class SecretMasker {
 
     public static final String MASKED_VALUE = "******";
     private static final Set<String> DEFAULT_KEY_PATTERNS = Set.of(
-        "password",
-        "passwd",
-        "secret",
-        "token",
-        "key",
-        "credential",
-        "credentials",
-        "private",
-        "apikey",
-        "api-key",
-        "client-secret",
-        "client_secret",
-        "auth",
-        "authorization",
-        "session-id",
-        "session_id");
+            "password",
+            "passwd",
+            "secret",
+            "token",
+            "key",
+            "credential",
+            "credentials",
+            "private",
+            "apikey",
+            "api-key",
+            "client-secret",
+            "client_secret",
+            "auth",
+            "authorization",
+            "session-id",
+            "session_id");
     private final Set<String> keyPatterns;
 
     public SecretMasker() {

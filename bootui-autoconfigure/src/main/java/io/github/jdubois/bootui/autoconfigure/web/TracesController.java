@@ -6,11 +6,10 @@ import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedEvent;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.core.BootUiDtos.*;
+import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-
-import java.util.*;
 
 /**
  * Read-only API for the BootUI Traces panel.
@@ -64,8 +63,8 @@ public class TracesController {
             rootSpanName = earliest.name();
         } else if (!bucket.spans().isEmpty()) {
             NormalizedSpan first = bucket.spans().stream()
-                .min(Comparator.comparingLong(NormalizedSpan::startEpochNanos))
-                .orElse(bucket.spans().get(0));
+                    .min(Comparator.comparingLong(NormalizedSpan::startEpochNanos))
+                    .orElse(bucket.spans().get(0));
             rootSpanName = first.name();
         }
         if (minStart == Long.MAX_VALUE) {
@@ -73,33 +72,33 @@ public class TracesController {
             maxEnd = 0L;
         }
         return new TraceSummaryDto(
-            bucket.traceId(),
-            rootSpanName,
-            firstServices(services),
-            minStart,
-            maxEnd,
-            Math.max(0L, maxEnd - minStart),
-            bucket.spans().size(),
-            hasError,
-            hasAi);
+                bucket.traceId(),
+                rootSpanName,
+                firstServices(services),
+                minStart,
+                maxEnd,
+                Math.max(0L, maxEnd - minStart),
+                bucket.spans().size(),
+                hasError,
+                hasAi);
     }
 
     static SpanDto toSpanDto(NormalizedSpan span) {
         return new SpanDto(
-            span.traceId(),
-            span.spanId(),
-            span.parentSpanId(),
-            span.name(),
-            span.kind(),
-            span.serviceName(),
-            span.scope(),
-            span.startEpochNanos(),
-            span.endEpochNanos(),
-            span.durationNanos(),
-            span.statusCode(),
-            span.statusMessage(),
-            toAttributeList(span.attributes()),
-            toEventList(span.events()));
+                span.traceId(),
+                span.spanId(),
+                span.parentSpanId(),
+                span.name(),
+                span.kind(),
+                span.serviceName(),
+                span.scope(),
+                span.startEpochNanos(),
+                span.endEpochNanos(),
+                span.durationNanos(),
+                span.statusCode(),
+                span.statusMessage(),
+                toAttributeList(span.attributes()),
+                toEventList(span.events()));
     }
 
     static List<SpanAttributeDto> toAttributeList(Map<String, AttributeValue> attrs) {
@@ -120,8 +119,7 @@ public class TracesController {
         }
         List<SpanEventDto> out = new ArrayList<>(events.size());
         for (NormalizedEvent event : events) {
-            out.add(new SpanEventDto(event.name(), event.timeOffsetNanos(),
-                toAttributeList(event.attributes())));
+            out.add(new SpanEventDto(event.name(), event.timeOffsetNanos(), toAttributeList(event.attributes())));
         }
         return out;
     }
@@ -149,7 +147,8 @@ public class TracesController {
         for (TelemetryStore.TraceBucket bucket : store.recentTraces(safeLimit)) {
             summaries.add(toSummary(bucket));
         }
-        return new TracesReport(properties.getTelemetry().isEnabled(), store.retainedTraceCount(), store.capacity(), summaries);
+        return new TracesReport(
+                properties.getTelemetry().isEnabled(), store.retainedTraceCount(), store.capacity(), summaries);
     }
 
     @GetMapping("/{traceId}")

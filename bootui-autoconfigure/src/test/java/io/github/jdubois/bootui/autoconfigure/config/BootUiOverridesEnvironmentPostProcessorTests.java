@@ -1,20 +1,18 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.SpringApplication;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 class BootUiOverridesEnvironmentPostProcessorTests {
 
-    private final BootUiOverridesEnvironmentPostProcessor processor =
-        new BootUiOverridesEnvironmentPostProcessor();
+    private final BootUiOverridesEnvironmentPostProcessor processor = new BootUiOverridesEnvironmentPostProcessor();
 
     @Test
     void registersHighestPrecedencePropertySource(@TempDir Path tmp) throws Exception {
@@ -27,10 +25,10 @@ class BootUiOverridesEnvironmentPostProcessorTests {
 
         processor.postProcessEnvironment(env, new SpringApplication());
 
-        assertThat(env.getPropertySources().contains(BootUiOverridesPropertySource.NAME)).isTrue();
+        assertThat(env.getPropertySources().contains(BootUiOverridesPropertySource.NAME))
+                .isTrue();
         assertThat(env.getProperty("server.port")).isEqualTo("9090");
-        assertThat(env.getPropertySources().iterator().next().getName())
-            .isEqualTo(BootUiOverridesPropertySource.NAME);
+        assertThat(env.getPropertySources().iterator().next().getName()).isEqualTo(BootUiOverridesPropertySource.NAME);
     }
 
     @Test
@@ -48,8 +46,8 @@ class BootUiOverridesEnvironmentPostProcessorTests {
 
         assertThat(env.getProperty("k")).isEqualTo("second");
         long count = env.getPropertySources().stream()
-            .filter(s -> BootUiOverridesPropertySource.NAME.equals(s.getName()))
-            .count();
+                .filter(s -> BootUiOverridesPropertySource.NAME.equals(s.getName()))
+                .count();
         assertThat(count).isEqualTo(1);
     }
 
@@ -61,8 +59,8 @@ class BootUiOverridesEnvironmentPostProcessorTests {
 
         processor.postProcessEnvironment(env, new SpringApplication());
 
-        BootUiOverridesPropertySource src = (BootUiOverridesPropertySource)
-            env.getPropertySources().get(BootUiOverridesPropertySource.NAME);
+        BootUiOverridesPropertySource src =
+                (BootUiOverridesPropertySource) env.getPropertySources().get(BootUiOverridesPropertySource.NAME);
         assertThat(src).isNotNull();
         assertThat(src.mutableSource()).isEmpty();
     }

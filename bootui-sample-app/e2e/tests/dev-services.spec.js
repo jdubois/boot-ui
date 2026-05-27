@@ -40,17 +40,18 @@ const devServicesReport = {
 
 const restartableDevServicesReport = {
   ...devServicesReport,
-  services: devServicesReport.services.map(service => service.id === 'bean:redisContainer'
-    ? {
-      ...service,
-      restartable: true,
-      note: 'Restart may require application clients to reconnect.'
-    }
-    : service)
+  services: devServicesReport.services.map((service) =>
+    service.id === 'bean:redisContainer'
+      ? {
+          ...service,
+          restartable: true,
+          note: 'Restart may require application clients to reconnect.'
+        }
+      : service
+  )
 }
 
 test.describe('Dev Services view', () => {
-
   test('renders the live Dev Services report or the empty state', async ({openView, page}) => {
     await openView('dev-services', 'Dev Services')
 
@@ -64,26 +65,37 @@ test.describe('Dev Services view', () => {
   })
 
   test('filters services, opens details, loads logs, and hides unavailable restart', async ({page}) => {
-    await page.route(url => url.pathname === '/bootui/api/dev-services', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(devServicesReport)
-      })
-    })
-    await page.route(url => url.pathname === '/bootui/api/dev-services/bean%3AredisContainer/logs', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 'bean:redisContainer',
-          logs: 'Redis container started\nReady to accept connections',
-          truncated: false,
-          maxBytes: 65536
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dev-services',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(devServicesReport)
         })
-      })
-    })
+      }
+    )
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dev-services/bean%3AredisContainer/logs',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'bean:redisContainer',
+            logs: 'Redis container started\nReady to accept connections',
+            truncated: false,
+            maxBytes: 65536
+          })
+        })
+      }
+    )
 
     await page.goto('/bootui/#/dev-services')
-    await expect(page.locator('main h2').filter({hasText: /^Dev Services/}).first()).toBeVisible()
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /^Dev Services/})
+        .first()
+    ).toBeVisible()
     await expect(page.getByText('2 / 2 services')).toBeVisible()
     await expect(page.getByRole('columnheader', {name: 'Source'})).toHaveCount(0)
 
@@ -106,24 +118,30 @@ test.describe('Dev Services view', () => {
 
   test('posts restart for restartable services', async ({page}) => {
     let restartCalled = false
-    await page.route(url => url.pathname === '/bootui/api/dev-services', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(restartableDevServicesReport)
-      })
-    })
-    await page.route(url => url.pathname === '/bootui/api/dev-services/bean%3AredisContainer/restart', async route => {
-      expect(route.request().method()).toBe('POST')
-      restartCalled = true
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 'bean:redisContainer',
-          status: 'restarted',
-          message: 'Service restarted. Already-created client beans may need an application restart to reconnect.'
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dev-services',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(restartableDevServicesReport)
         })
-      })
-    })
+      }
+    )
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dev-services/bean%3AredisContainer/restart',
+      async (route) => {
+        expect(route.request().method()).toBe('POST')
+        restartCalled = true
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'bean:redisContainer',
+            status: 'restarted',
+            message: 'Service restarted. Already-created client beans may need an application restart to reconnect.'
+          })
+        })
+      }
+    )
 
     await page.goto('/bootui/#/dev-services')
     const redisRow = page.locator('tbody tr', {hasText: 'redis'})

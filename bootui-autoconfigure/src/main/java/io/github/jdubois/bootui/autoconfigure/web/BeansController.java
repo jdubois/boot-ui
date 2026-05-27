@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.BeanList;
 import io.github.jdubois.bootui.core.BootUiDtos.BeanSummary;
+import java.util.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint.BeanDescriptor;
@@ -10,8 +11,6 @@ import org.springframework.boot.actuate.beans.BeansEndpoint.ContextBeansDescript
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.*;
 
 @RestController
 @RequestMapping("/bootui/api/beans")
@@ -31,8 +30,10 @@ public class BeansController {
         }
         BeansDescriptor descriptor = be.beans();
         List<BeanSummary> summaries = new ArrayList<>();
-        for (Map.Entry<String, ContextBeansDescriptor> ctxEntry : descriptor.getContexts().entrySet()) {
-            for (Map.Entry<String, BeanDescriptor> beanEntry : ctxEntry.getValue().getBeans().entrySet()) {
+        for (Map.Entry<String, ContextBeansDescriptor> ctxEntry :
+                descriptor.getContexts().entrySet()) {
+            for (Map.Entry<String, BeanDescriptor> beanEntry :
+                    ctxEntry.getValue().getBeans().entrySet()) {
                 summaries.add(toSummary(beanEntry.getKey(), beanEntry.getValue()));
             }
         }
@@ -43,13 +44,13 @@ public class BeansController {
     private BeanSummary toSummary(String name, BeanDescriptor descriptor) {
         String type = descriptor.getType() == null ? null : descriptor.getType().getName();
         return new BeanSummary(
-            name,
-            type,
-            descriptor.getScope(),
-            descriptor.getResource(),
-            descriptor.getDependencies() == null ? List.of() : Arrays.asList(descriptor.getDependencies()),
-            descriptor.getAliases() == null ? List.of() : Arrays.asList(descriptor.getAliases()),
-            classify(name, type));
+                name,
+                type,
+                descriptor.getScope(),
+                descriptor.getResource(),
+                descriptor.getDependencies() == null ? List.of() : Arrays.asList(descriptor.getDependencies()),
+                descriptor.getAliases() == null ? List.of() : Arrays.asList(descriptor.getAliases()),
+                classify(name, type));
     }
 
     private String classify(String name, String type) {

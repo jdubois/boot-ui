@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('HTTP Probe view', () => {
-
   test('sends a GET request to the sample API and shows the response body', async ({openView, page}) => {
     await openView('http-probe', 'HTTP Probe')
 

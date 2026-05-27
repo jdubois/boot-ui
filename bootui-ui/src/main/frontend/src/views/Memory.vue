@@ -111,7 +111,7 @@ const breakdown = computed(() => {
     {key: 'headroom', label: 'Headroom', bytes: c.headRoomBytes, color: '#6c757d'}
   ]
   const total = segments.reduce((sum, s) => sum + Math.max(0, s.bytes || 0), 0)
-  return segments.map(s => ({
+  return segments.map((s) => ({
     ...s,
     bytes: Math.max(0, s.bytes || 0),
     percent: total > 0 ? (Math.max(0, s.bytes || 0) / total) * 100 : 0
@@ -158,10 +158,9 @@ onBeforeUnmount(() => {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-3">
-            Inspired by the Paketo <code>libjvm</code> memory calculator.
-            Heap is whatever is left after subtracting metaspace (sized from
-            currently loaded classes × 1.25 safety factor), code cache, direct
-            memory, thread stacks, and headroom from your target memory.
+            Inspired by the Paketo <code>libjvm</code> memory calculator. Heap is whatever is left after subtracting
+            metaspace (sized from currently loaded classes × 1.25 safety factor), code cache, direct memory, thread
+            stacks, and headroom from your target memory.
           </p>
 
           <div class="row g-3 mb-3">
@@ -179,7 +178,8 @@ onBeforeUnmount(() => {
                   step="64"
                   type="number"
                 />
-                <button aria-label="Increase" class="btn btn-outline-secondary" type="button" @click="stepTotal(64)">+
+                <button aria-label="Increase" class="btn btn-outline-secondary" type="button" @click="stepTotal(64)">
+                  +
                 </button>
                 <span class="input-group-text">MB</span>
               </div>
@@ -187,9 +187,7 @@ onBeforeUnmount(() => {
             <div class="col-md-4">
               <label class="form-label small fw-semibold">
                 Thread count
-                <span class="text-muted fw-normal">
-                  (currently {{ data.calculation.liveThreadCount }})
-                </span>
+                <span class="text-muted fw-normal"> (currently {{ data.calculation.liveThreadCount }}) </span>
               </label>
               <input
                 v-model.number="threadCount"
@@ -218,11 +216,11 @@ onBeforeUnmount(() => {
           </div>
 
           <template v-else>
-            <div aria-label="Memory breakdown" class="progress breakdown-bar mb-2" role="img" style="height: 24px;">
+            <div aria-label="Memory breakdown" class="progress breakdown-bar mb-2" role="img" style="height: 24px">
               <div
                 v-for="seg in breakdown"
                 :key="seg.key"
-                :style="{ width: seg.percent + '%', backgroundColor: seg.color }"
+                :style="{width: seg.percent + '%', backgroundColor: seg.color}"
                 :title="seg.label + ': ' + formatBytes(seg.bytes)"
                 class="progress-bar"
               >
@@ -231,14 +229,14 @@ onBeforeUnmount(() => {
             </div>
             <div class="d-flex flex-wrap gap-3 small mb-2">
               <div v-for="seg in breakdown" :key="'leg-' + seg.key" class="d-flex align-items-center">
-                <span :style="{ backgroundColor: seg.color }" class="legend-swatch me-1"></span>
+                <span :style="{backgroundColor: seg.color}" class="legend-swatch me-1"></span>
                 <span class="text-muted me-1">{{ seg.label }}:</span>
                 <span class="fw-semibold">{{ formatBytes(seg.bytes) }}</span>
               </div>
             </div>
             <div class="small text-muted">
-              Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded ·
-              metaspace sized for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor
+              Currently {{ data.calculation.liveLoadedClassCount.toLocaleString() }} classes loaded · metaspace sized
+              for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor
             </div>
           </template>
         </div>
@@ -249,7 +247,7 @@ onBeforeUnmount(() => {
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
           <span><i class="bi bi-rocket-takeoff me-2"></i>Recommended JVM Options</span>
           <button
-            :class="{ 'btn-success': copied }"
+            :class="{'btn-success': copied}"
             :disabled="!data.calculation || !data.calculation.valid"
             class="btn btn-sm btn-light"
             @click="copyOptions"
@@ -260,11 +258,11 @@ onBeforeUnmount(() => {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-2">
-            Generated from your calculator inputs. <code>-Xms == -Xmx</code> for predictable container startup;
-            GC picked automatically (G1 below 4 GB, ZGC above).
+            Generated from your calculator inputs. <code>-Xms == -Xmx</code> for predictable container startup; GC
+            picked automatically (G1 below 4 GB, ZGC above).
           </p>
           <pre
-            :class="{ 'opacity-50': data.calculation && !data.calculation.valid }"
+            :class="{'opacity-50': data.calculation && !data.calculation.valid}"
             class="bg-dark text-light rounded p-3 mb-0 options-box"
           ><code>{{ data.suggestedJvmOptions || '—' }}</code></pre>
           <div class="mt-2">
@@ -287,10 +285,16 @@ onBeforeUnmount(() => {
                 <span class="text-muted small">Used</span>
                 <span class="fw-semibold">{{ formatBytes(data.heap.usedBytes) }}</span>
               </div>
-              <div class="progress mb-3" style="height: 10px;">
-                <div :aria-valuenow="data.heap.usedPercent" :class="progressClass(data.heap.usedPercent)"
-                     :style="{ width: data.heap.usedPercent + '%' }" aria-valuemax="100"
-                     aria-valuemin="0" class="progress-bar" role="progressbar"></div>
+              <div class="progress mb-3" style="height: 10px">
+                <div
+                  :aria-valuenow="data.heap.usedPercent"
+                  :class="progressClass(data.heap.usedPercent)"
+                  :style="{width: data.heap.usedPercent + '%'}"
+                  aria-valuemax="100"
+                  aria-valuemin="0"
+                  class="progress-bar"
+                  role="progressbar"
+                ></div>
               </div>
               <div class="row text-center g-2">
                 <div class="col-4">
@@ -307,9 +311,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </div>
-            <div class="card-footer text-muted small">
-              {{ data.heap.usedPercent }}% of max used
-            </div>
+            <div class="card-footer text-muted small">{{ data.heap.usedPercent }}% of max used</div>
           </div>
         </div>
 
@@ -324,10 +326,15 @@ onBeforeUnmount(() => {
                 <span class="text-muted small">Used</span>
                 <span class="fw-semibold">{{ formatBytes(data.nonHeap.usedBytes) }}</span>
               </div>
-              <div class="progress mb-3" style="height: 10px;">
-                <div :aria-valuenow="data.nonHeap.usedPercent"
-                     :style="{ width: Math.min(data.nonHeap.usedPercent, 100) + '%' }" aria-valuemax="100"
-                     aria-valuemin="0" class="progress-bar bg-info" role="progressbar"></div>
+              <div class="progress mb-3" style="height: 10px">
+                <div
+                  :aria-valuenow="data.nonHeap.usedPercent"
+                  :style="{width: Math.min(data.nonHeap.usedPercent, 100) + '%'}"
+                  aria-valuemax="100"
+                  aria-valuemin="0"
+                  class="progress-bar bg-info"
+                  role="progressbar"
+                ></div>
               </div>
               <div class="row text-center g-2">
                 <div class="col-4">
@@ -346,9 +353,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </div>
-            <div class="card-footer text-muted small">
-              Metaspace, code cache, and JIT buffers
-            </div>
+            <div class="card-footer text-muted small">Metaspace, code cache, and JIT buffers</div>
           </div>
         </div>
       </div>
@@ -359,30 +364,36 @@ onBeforeUnmount(() => {
         <div class="table-responsive">
           <table class="table table-sm table-hover mb-0">
             <thead class="table-light">
-            <tr>
-              <th>Pool</th>
-              <th class="text-end">Used</th>
-              <th class="text-end">Committed</th>
-              <th class="text-end">Max</th>
-              <th style="width:140px">Usage</th>
-            </tr>
+              <tr>
+                <th>Pool</th>
+                <th class="text-end">Used</th>
+                <th class="text-end">Committed</th>
+                <th class="text-end">Max</th>
+                <th style="width: 140px">Usage</th>
+              </tr>
             </thead>
             <tbody>
-            <tr v-for="pool in data.pools" :key="pool.name">
-              <td><code>{{ pool.name }}</code></td>
-              <td class="text-end">{{ formatBytes(pool.usedBytes) }}</td>
-              <td class="text-end">{{ formatBytes(pool.committedBytes) }}</td>
-              <td class="text-end">{{ pool.maxBytes < 0 ? '∞' : formatBytes(pool.maxBytes) }}</td>
-              <td>
-                <div class="d-flex align-items-center gap-2">
-                  <div class="progress flex-grow-1" style="height: 6px;">
-                    <div :class="progressClass(pool.usedPercent)" :style="{ width: Math.min(pool.usedPercent, 100) + '%' }"
-                         class="progress-bar" role="progressbar"></div>
+              <tr v-for="pool in data.pools" :key="pool.name">
+                <td>
+                  <code>{{ pool.name }}</code>
+                </td>
+                <td class="text-end">{{ formatBytes(pool.usedBytes) }}</td>
+                <td class="text-end">{{ formatBytes(pool.committedBytes) }}</td>
+                <td class="text-end">{{ pool.maxBytes < 0 ? '∞' : formatBytes(pool.maxBytes) }}</td>
+                <td>
+                  <div class="d-flex align-items-center gap-2">
+                    <div class="progress flex-grow-1" style="height: 6px">
+                      <div
+                        :class="progressClass(pool.usedPercent)"
+                        :style="{width: Math.min(pool.usedPercent, 100) + '%'}"
+                        class="progress-bar"
+                        role="progressbar"
+                      ></div>
+                    </div>
+                    <span class="text-muted small" style="width: 32px; text-align: right">{{ pool.usedPercent }}%</span>
                   </div>
-                  <span class="text-muted small" style="width: 32px; text-align: right;">{{ pool.usedPercent }}%</span>
-                </div>
-              </td>
-            </tr>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -392,7 +403,8 @@ onBeforeUnmount(() => {
       <div v-if="data.jvmInputArguments && data.jvmInputArguments.length" class="card">
         <div class="card-header"><i class="bi bi-terminal me-2"></i>Current JVM Arguments</div>
         <div class="card-body">
-          <div v-if="data.jvmInputArguments.length === 0" class="text-muted small">No JVM arguments passed at startup.
+          <div v-if="data.jvmInputArguments.length === 0" class="text-muted small">
+            No JVM arguments passed at startup.
           </div>
           <ul v-else class="list-unstyled mb-0">
             <li v-for="arg in data.jvmInputArguments" :key="arg" class="mb-1">
@@ -433,4 +445,3 @@ onBeforeUnmount(() => {
   border-radius: 2px;
 }
 </style>
-

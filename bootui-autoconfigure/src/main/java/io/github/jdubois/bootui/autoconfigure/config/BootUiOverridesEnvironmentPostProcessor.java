@@ -1,14 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Map;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MutablePropertySources;
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Map;
 
 /**
  * Registers the {@link BootUiOverridesPropertySource} as the highest-precedence
@@ -31,9 +30,8 @@ public class BootUiOverridesEnvironmentPostProcessor implements EnvironmentPostP
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         String configured = environment.getProperty("bootui.overrides-file");
-        Path file = Paths.get(configured != null && !configured.isBlank()
-            ? configured
-            : ".bootui/application-bootui.properties");
+        Path file = Paths.get(
+                configured != null && !configured.isBlank() ? configured : ".bootui/application-bootui.properties");
 
         ConfigOverridesFileStore store = new ConfigOverridesFileStore(file);
         Map<String, Object> existing = store.load();

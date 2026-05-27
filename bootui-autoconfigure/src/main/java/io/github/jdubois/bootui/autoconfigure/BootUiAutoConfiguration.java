@@ -65,7 +65,8 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public BootUiActivation bootUiActivation(Environment environment) {
-        BootUiActivation activation = BootUiActivationCondition.resolve(environment, getClass().getClassLoader());
+        BootUiActivation activation =
+                BootUiActivationCondition.resolve(environment, getClass().getClassLoader());
         log.info("BootUI activation: {}", activation.reason());
         for (String warning : activation.warnings()) {
             log.warn("BootUI activation warning: {}", warning);
@@ -74,8 +75,8 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
-    public ConfigOverrideService bootUiConfigOverrideService(ConfigurableEnvironment environment,
-                                                             BootUiProperties properties) {
+    public ConfigOverrideService bootUiConfigOverrideService(
+            ConfigurableEnvironment environment, BootUiProperties properties) {
         return new ConfigOverrideService(environment, properties);
     }
 
@@ -101,7 +102,7 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public FilterRegistrationBean<LocalhostOnlyFilter> bootUiLocalhostOnlyFilterRegistration(
-        LocalhostOnlyFilter filter, BootUiProperties properties) {
+            LocalhostOnlyFilter filter, BootUiProperties properties) {
         FilterRegistrationBean<LocalhostOnlyFilter> registration = new FilterRegistrationBean<>(filter);
         registration.addUrlPatterns(properties.getPath() + "/*", properties.getApiPath() + "/*");
         registration.setOrder(Integer.MIN_VALUE);
@@ -110,14 +111,13 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
-    public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(BootUiProperties properties,
-                                                                          Environment environment) {
+    public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(
+            BootUiProperties properties, Environment environment) {
         return event -> {
             if (!properties.isShowBanner()) {
                 return;
             }
-            String port = environment.getProperty("local.server.port",
-                environment.getProperty("server.port", "8080"));
+            String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
             String contextPath = environment.getProperty("server.servlet.context-path", "");
             String url = "http://localhost:" + port + contextPath + properties.getPath();
             log.info("BootUI is available at {}", url);

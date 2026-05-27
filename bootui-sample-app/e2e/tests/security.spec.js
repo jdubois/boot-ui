@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Security view', () => {
-
   test('lists filter chains including the ADMIN-only chain', async ({openView, page}) => {
     await openView('security', 'Spring Security')
 

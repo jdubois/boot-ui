@@ -101,8 +101,8 @@ onMounted(load)
         </span>
         <h2>Understand your Spring Boot app in minutes</h2>
         <p>
-          BootUI turns the local runtime into a guided map of profiles, ports,
-          safety status, Actuator-backed diagnostics, and the panels that explain how the app is wired.
+          BootUI turns the local runtime into a guided map of profiles, ports, safety status, Actuator-backed
+          diagnostics, and the panels that explain how the app is wired.
         </p>
       </div>
       <div class="hero-actions">
@@ -115,7 +115,7 @@ onMounted(load)
           BootUI GitHub project
         </a>
         <button :disabled="loading" class="btn btn-light hero-refresh" @click="load">
-          <i :class="{ 'spin': loading }" class="bi bi-arrow-clockwise me-1"></i>
+          <i :class="{spin: loading}" class="bi bi-arrow-clockwise me-1"></i>
           Refresh snapshot
         </button>
       </div>
@@ -128,7 +128,7 @@ onMounted(load)
     <template v-else-if="data">
       <div class="row g-3 mb-4">
         <div v-for="(stat, index) in stats" :key="stat.label" class="col-xl-3 col-md-6">
-          <div :style="{ animationDelay: `${index * 70}ms` }" class="metric-card h-100">
+          <div :style="{animationDelay: `${index * 70}ms`}" class="metric-card h-100">
             <span :class="['metric-icon', `metric-${stat.tone}`]">
               <i :class="['bi', stat.icon]"></i>
             </span>
@@ -151,7 +151,7 @@ onMounted(load)
                   <h3 class="h4 fw-bold mb-1">{{ data.applicationName }}</h3>
                   <div class="text-muted">{{ data.webApplicationType }} · context {{ data.contextPath || '/' }}</div>
                 </div>
-                <span :class="{ disabled: !data.activation.enabled }" class="activation-badge">
+                <span :class="{disabled: !data.activation.enabled}" class="activation-badge">
                   <i :class="['bi', data.activation.enabled ? 'bi-lightning-charge-fill' : 'bi-power']"></i>
                   {{ data.activation.enabled ? 'Enabled' : 'Disabled' }}
                 </span>
@@ -212,27 +212,37 @@ onMounted(load)
                   <span></span>
                   <div>
                     <strong>Development activation</strong>
-                    <p>{{
-                        data.activation.enabled ? 'BootUI is available for this runtime.' : 'BootUI reports disabled state for this runtime.'
-                      }}</p>
+                    <p>
+                      {{
+                        data.activation.enabled
+                          ? 'BootUI is available for this runtime.'
+                          : 'BootUI reports disabled state for this runtime.'
+                      }}
+                    </p>
                   </div>
                 </div>
-                <div :class="{ complete: data.activation.localhostOnly }" class="timeline-item">
+                <div :class="{complete: data.activation.localhostOnly}" class="timeline-item">
                   <span></span>
                   <div>
                     <strong>Loopback enforcement</strong>
-                    <p>{{
-                        data.activation.localhostOnly ? 'Non-local requests are rejected by default.' : 'Non-local access is explicitly allowed.'
-                      }}</p>
+                    <p>
+                      {{
+                        data.activation.localhostOnly
+                          ? 'Non-local requests are rejected by default.'
+                          : 'Non-local access is explicitly allowed.'
+                      }}
+                    </p>
                   </div>
                 </div>
-                <div :class="{ warning: warningCount }" class="timeline-item">
+                <div :class="{warning: warningCount}" class="timeline-item">
                   <span></span>
                   <div>
                     <strong>Warnings</strong>
-                    <p>{{
+                    <p>
+                      {{
                         warningCount ? `${warningCount} warning(s) need review.` : 'No activation warnings reported.'
-                      }}</p>
+                      }}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -275,8 +285,9 @@ onMounted(load)
 <style scoped>
 .overview-hero {
   align-items: flex-start;
-  background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.38), transparent 18rem),
-  linear-gradient(135deg, #16794c, #0d6efd);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.38), transparent 18rem),
+    linear-gradient(135deg, #16794c, #0d6efd);
   border-radius: 1.4rem;
   box-shadow: 0 1.5rem 3.5rem rgba(13, 110, 253, 0.22);
   color: #fff;
@@ -291,7 +302,7 @@ onMounted(load)
 .overview-hero::after {
   animation: sweep 5s ease-in-out infinite;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
-  content: "";
+  content: '';
   height: 150%;
   position: absolute;
   right: 12%;
@@ -376,7 +387,9 @@ onMounted(load)
   display: flex;
   gap: 0.85rem;
   padding: 1rem;
-  transition: transform 180ms ease, box-shadow 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .metric-card > div {
@@ -441,8 +454,9 @@ onMounted(load)
 }
 
 .app-map-card {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74)),
-  radial-gradient(circle at top right, rgba(25, 135, 84, 0.12), transparent 18rem);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74)),
+    radial-gradient(circle at top right, rgba(25, 135, 84, 0.12), transparent 18rem);
 }
 
 .activation-badge {
@@ -562,7 +576,10 @@ onMounted(load)
   gap: 0.85rem;
   height: 100%;
   padding: 1rem;
-  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .quick-link-card:hover {

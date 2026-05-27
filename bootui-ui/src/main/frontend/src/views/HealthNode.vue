@@ -10,23 +10,25 @@ const props = defineProps({
   depth: {type: Number, default: 0}
 })
 
-const statusClass = s => ({
-  UP: 'bg-success',
-  DOWN: 'bg-danger',
-  OUT_OF_SERVICE: 'bg-warning text-dark',
-  UNKNOWN: 'bg-secondary'
-}[s] || 'bg-secondary')
+const statusClass = (s) =>
+  ({
+    UP: 'bg-success',
+    DOWN: 'bg-danger',
+    OUT_OF_SERVICE: 'bg-warning text-dark',
+    UNKNOWN: 'bg-secondary'
+  })[s] || 'bg-secondary'
 
-const statusIcon = s => ({
-  UP: 'bi-check-circle-fill text-success',
-  DOWN: 'bi-x-circle-fill text-danger',
-  OUT_OF_SERVICE: 'bi-exclamation-triangle-fill text-warning',
-  UNKNOWN: 'bi-question-circle-fill text-secondary'
-}[s] || 'bi-question-circle-fill text-secondary')
+const statusIcon = (s) =>
+  ({
+    UP: 'bi-check-circle-fill text-success',
+    DOWN: 'bi-x-circle-fill text-danger',
+    OUT_OF_SERVICE: 'bi-exclamation-triangle-fill text-warning',
+    UNKNOWN: 'bi-question-circle-fill text-secondary'
+  })[s] || 'bi-question-circle-fill text-secondary'
 
-const childCount = node => (node.components || []).length
+const childCount = (node) => (node.components || []).length
 
-const detailCount = node => {
+const detailCount = (node) => {
   if (!node.details || typeof node.details !== 'object' || Array.isArray(node.details)) return node.details ? 1 : 0
   return Object.keys(node.details).length
 }
@@ -51,16 +53,12 @@ const detailCount = node => {
     <div v-if="childCount(node) || node.details" class="card-body">
       <section v-if="node.details" class="mb-3">
         <h6 class="text-muted text-uppercase small mb-2">Details</h6>
-        <HealthDetails :value="node.details"/>
+        <HealthDetails :value="node.details" />
       </section>
 
       <section v-if="childCount(node)">
         <h6 v-if="node.details" class="text-muted text-uppercase small mb-2">Components</h6>
-        <HealthNode
-          v-for="c in node.components"
-          :key="c.name"
-          :depth="depth + 1"
-          :node="c"/>
+        <HealthNode v-for="c in node.components" :key="c.name" :depth="depth + 1" :node="c" />
       </section>
     </div>
   </details>

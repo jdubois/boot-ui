@@ -40,14 +40,27 @@ jobs:
           cache: npm
           cache-dependency-path: bootui-sample-app/e2e/package-lock.json
 
+      - name: Check Maven formatting
+        run: ./mvnw -B -ntp spotless:check
+
       - name: Build all modules
         run: ./mvnw -B -ntp clean install
 
+      - name: Check frontend formatting
+        working-directory: bootui-ui/src/main/frontend
+        run: npm run format:check
+
       - name: Install Playwright dependencies
         working-directory: bootui-sample-app/e2e
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
+        run: npm ci
+
+      - name: Check Playwright formatting
+        working-directory: bootui-sample-app/e2e
+        run: npm run format:check
+
+      - name: Install Playwright browsers
+        working-directory: bootui-sample-app/e2e
+        run: npx playwright install --with-deps chromium
 
       - name: Run Playwright end-to-end tests
         working-directory: bootui-sample-app/e2e

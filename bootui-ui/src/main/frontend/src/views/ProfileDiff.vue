@@ -24,13 +24,14 @@ const filteredSources = computed(() => {
   if (!data.value) return []
   const f = filter.value.toLowerCase()
   if (!f) return data.value.profileSources
-  return data.value.profileSources.map(source => ({
-    ...source,
-    properties: source.properties.filter(p =>
-      p.name.toLowerCase().includes(f) ||
-      (p.value != null && String(p.value).toLowerCase().includes(f))
-    )
-  })).filter(source => source.properties.length > 0)
+  return data.value.profileSources
+    .map((source) => ({
+      ...source,
+      properties: source.properties.filter(
+        (p) => p.name.toLowerCase().includes(f) || (p.value != null && String(p.value).toLowerCase().includes(f))
+      )
+    }))
+    .filter((source) => source.properties.length > 0)
 })
 
 onMounted(load)
@@ -56,7 +57,7 @@ onMounted(load)
         <span v-else class="text-muted small">(none)</span>
       </div>
 
-      <input v-model="filter" class="form-control mb-3" placeholder="Filter by property name or value…"/>
+      <input v-model="filter" class="form-control mb-3" placeholder="Filter by property name or value…" />
 
       <div v-if="filteredSources.length === 0" class="alert alert-info">
         <i class="bi bi-info-circle me-1"></i>
@@ -73,19 +74,21 @@ onMounted(load)
         <div class="table-responsive">
           <table class="table table-sm table-hover mb-0">
             <thead class="table-light">
-            <tr>
-              <th style="width:40%">Property</th>
-              <th>Value</th>
-            </tr>
+              <tr>
+                <th style="width: 40%">Property</th>
+                <th>Value</th>
+              </tr>
             </thead>
             <tbody>
-            <tr v-for="prop in source.properties" :key="prop.name">
-              <td><code>{{ prop.name }}</code></td>
-              <td>
-                <span v-if="prop.masked" class="text-muted font-monospace">••••••••</span>
-                <span v-else class="font-monospace">{{ prop.value ?? '(null)' }}</span>
-              </td>
-            </tr>
+              <tr v-for="prop in source.properties" :key="prop.name">
+                <td>
+                  <code>{{ prop.name }}</code>
+                </td>
+                <td>
+                  <span v-if="prop.masked" class="text-muted font-monospace">••••••••</span>
+                  <span v-else class="font-monospace">{{ prop.value ?? '(null)' }}</span>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>

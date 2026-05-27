@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.core;
 
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
 
 class SecretMaskerTests {
 
@@ -20,8 +20,7 @@ class SecretMaskerTests {
 
     @Test
     void masksValueWhenKeyMatches() {
-        assertThat(masker.mask("spring.datasource.password", "hunter2"))
-            .isEqualTo(SecretMasker.MASKED_VALUE);
+        assertThat(masker.mask("spring.datasource.password", "hunter2")).isEqualTo(SecretMasker.MASKED_VALUE);
         assertThat(masker.mask("server.port", 8080)).isEqualTo(8080);
         assertThat(masker.mask("spring.datasource.password", null)).isNull();
     }

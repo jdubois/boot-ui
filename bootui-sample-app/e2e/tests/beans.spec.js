@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Beans view', () => {
-
   test('lists beans and supports filtering by name and classification', async ({openView}) => {
     const page = await openView('beans', 'Beans')
 
@@ -19,6 +18,6 @@ test.describe('Beans view', () => {
     await page.locator('select.form-select').selectOption('BOOTUI')
     await expect(rows.first()).toBeVisible()
     const classifications = await page.locator('table tbody tr td:nth-child(4) .badge').allInnerTexts()
-    expect(classifications.every(c => c === 'BOOTUI')).toBeTruthy()
+    expect(classifications.every((c) => c === 'BOOTUI')).toBeTruthy()
   })
 })

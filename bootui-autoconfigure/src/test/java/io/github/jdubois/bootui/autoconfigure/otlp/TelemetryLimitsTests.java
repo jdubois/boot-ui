@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.otlp;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.google.protobuf.ByteString;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
@@ -9,49 +11,48 @@ import io.opentelemetry.proto.resource.v1.Resource;
 import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.ScopeSpans;
 import io.opentelemetry.proto.trace.v1.Span;
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class TelemetryLimitsTests {
 
     private static NormalizedSpan span(String traceId, String spanId) {
         return new NormalizedSpan(
-            traceId,
-            spanId,
-            null,
-            "GET /sample",
-            "SERVER",
-            "sample",
-            "test",
-            1L,
-            2L,
-            "OK",
-            null,
-            Map.of(),
-            List.of());
+                traceId,
+                spanId,
+                null,
+                "GET /sample",
+                "SERVER",
+                "sample",
+                "test",
+                1L,
+                2L,
+                "OK",
+                null,
+                Map.of(),
+                List.of());
     }
 
     private static ExportTraceServiceRequest requestWithAttribute(String value) {
         Span span = Span.newBuilder()
-            .setTraceId(ByteString.copyFrom(hexToBytes("0123456789abcdef0123456789abcdef")))
-            .setSpanId(ByteString.copyFrom(hexToBytes("1111111111111111")))
-            .setName("large span")
-            .setStartTimeUnixNano(1L)
-            .setEndTimeUnixNano(2L)
-            .addAttributes(KeyValue.newBuilder()
-                .setKey("large")
-                .setValue(AnyValue.newBuilder().setStringValue(value).build())
-                .build())
-            .build();
+                .setTraceId(ByteString.copyFrom(hexToBytes("0123456789abcdef0123456789abcdef")))
+                .setSpanId(ByteString.copyFrom(hexToBytes("1111111111111111")))
+                .setName("large span")
+                .setStartTimeUnixNano(1L)
+                .setEndTimeUnixNano(2L)
+                .addAttributes(KeyValue.newBuilder()
+                        .setKey("large")
+                        .setValue(AnyValue.newBuilder().setStringValue(value).build())
+                        .build())
+                .build();
         ResourceSpans resourceSpans = ResourceSpans.newBuilder()
-            .setResource(Resource.newBuilder().build())
-            .addScopeSpans(ScopeSpans.newBuilder().addSpans(span).build())
-            .build();
-        return ExportTraceServiceRequest.newBuilder().addResourceSpans(resourceSpans).build();
+                .setResource(Resource.newBuilder().build())
+                .addScopeSpans(ScopeSpans.newBuilder().addSpans(span).build())
+                .build();
+        return ExportTraceServiceRequest.newBuilder()
+                .addResourceSpans(resourceSpans)
+                .build();
     }
 
     private static byte[] hexToBytes(String hex) {

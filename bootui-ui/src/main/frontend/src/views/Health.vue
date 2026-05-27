@@ -27,15 +27,17 @@ function flatten(node) {
 
 const nodes = computed(() => flatten(root.value))
 const componentCount = computed(() => Math.max(nodes.value.length - 1, 0))
-const problemNodes = computed(() =>
-  nodes.value.filter(node => !['UP', 'UNKNOWN'].includes(node.status)))
-const detailsHidden = computed(() =>
-  root.value && !root.value.details && (!root.value.components || root.value.components.length === 0))
+const problemNodes = computed(() => nodes.value.filter((node) => !['UP', 'UNKNOWN'].includes(node.status)))
+const detailsHidden = computed(
+  () => root.value && !root.value.details && (!root.value.components || root.value.components.length === 0)
+)
 
 const statusMessage = computed(() => {
   if (!root.value) return ''
   if (problemNodes.value.length) {
-    return problemNodes.value.length + ' component' + (problemNodes.value.length === 1 ? ' needs' : 's need') + ' attention'
+    return (
+      problemNodes.value.length + ' component' + (problemNodes.value.length === 1 ? ' needs' : 's need') + ' attention'
+    )
   }
   if (root.value.status === 'UP') return 'All reported components are healthy'
   if (root.value.status === 'UNKNOWN') return 'Health endpoint did not report component details'
@@ -69,12 +71,15 @@ onMounted(load)
             <div class="card-body">
               <div class="text-muted small text-uppercase">Overall status</div>
               <div class="fs-4 fw-semibold">
-                <span :class="{
-                  'bg-success': root.status === 'UP',
-                  'bg-danger': root.status === 'DOWN',
-                  'bg-warning text-dark': root.status === 'OUT_OF_SERVICE',
-                  'bg-secondary': !['UP', 'DOWN', 'OUT_OF_SERVICE'].includes(root.status)
-                }" class="badge">
+                <span
+                  :class="{
+                    'bg-success': root.status === 'UP',
+                    'bg-danger': root.status === 'DOWN',
+                    'bg-warning text-dark': root.status === 'OUT_OF_SERVICE',
+                    'bg-secondary': !['UP', 'DOWN', 'OUT_OF_SERVICE'].includes(root.status)
+                  }"
+                  class="badge"
+                >
                   {{ root.status }}
                 </span>
               </div>
@@ -110,7 +115,7 @@ onMounted(load)
       </div>
 
       <h5 class="mb-2">Component tree</h5>
-      <HealthNode :node="root"/>
+      <HealthNode :node="root" />
     </template>
   </div>
 </template>

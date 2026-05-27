@@ -1,5 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
@@ -9,14 +16,6 @@ import org.springframework.boot.actuate.beans.BeansEndpoint.BeansDescriptor;
 import org.springframework.boot.actuate.beans.BeansEndpoint.ContextBeansDescriptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.Map;
-
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Controller-level tests for {@link BeansController}.
@@ -52,10 +51,10 @@ class BeansControllerTests {
         MockMvc mvc = standaloneSetup(new BeansController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.total").value(0))
-            .andExpect(jsonPath("$.beans").isArray())
-            .andExpect(jsonPath("$.beans").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.beans").isArray())
+                .andExpect(jsonPath("$.beans").isEmpty());
     }
 
     @Test
@@ -70,8 +69,8 @@ class BeansControllerTests {
         BeanDescriptor bd2 = inlineMock(BeanDescriptor.class);
         doReturn(java.util.ArrayList.class).when(bd2).getType();
         when(bd2.getScope()).thenReturn("prototype");
-        when(bd2.getDependencies()).thenReturn(new String[]{"dep1"});
-        when(bd2.getAliases()).thenReturn(new String[]{"listAlias"});
+        when(bd2.getDependencies()).thenReturn(new String[] {"dep1"});
+        when(bd2.getAliases()).thenReturn(new String[] {"listAlias"});
 
         ContextBeansDescriptor ctx = inlineMock(ContextBeansDescriptor.class);
         when(ctx.getBeans()).thenReturn(Map.of("alphaBean", bd1, "betaBean", bd2));
@@ -85,22 +84,24 @@ class BeansControllerTests {
         MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.total").value(2))
-            // results are sorted by name, so alphaBean comes before betaBean
-            .andExpect(jsonPath("$.beans[0].name").value("alphaBean"))
-            .andExpect(jsonPath("$.beans[0].type").value(String.class.getName()))
-            .andExpect(jsonPath("$.beans[0].scope").value("singleton"))
-            .andExpect(jsonPath("$.beans[0].classification").value("PLATFORM"))
-            .andExpect(jsonPath("$.beans[1].name").value("betaBean"))
-            .andExpect(jsonPath("$.beans[1].dependencies[0]").value("dep1"))
-            .andExpect(jsonPath("$.beans[1].aliases[0]").value("listAlias"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                // results are sorted by name, so alphaBean comes before betaBean
+                .andExpect(jsonPath("$.beans[0].name").value("alphaBean"))
+                .andExpect(jsonPath("$.beans[0].type").value(String.class.getName()))
+                .andExpect(jsonPath("$.beans[0].scope").value("singleton"))
+                .andExpect(jsonPath("$.beans[0].classification").value("PLATFORM"))
+                .andExpect(jsonPath("$.beans[1].name").value("betaBean"))
+                .andExpect(jsonPath("$.beans[1].dependencies[0]").value("dep1"))
+                .andExpect(jsonPath("$.beans[1].aliases[0]").value("listAlias"));
     }
 
     @Test
     void beansClassifiesTypesCorrectly() throws Exception {
         BeanDescriptor frameworkBean = inlineMock(BeanDescriptor.class);
-        doReturn(org.springframework.context.ApplicationContext.class).when(frameworkBean).getType();
+        doReturn(org.springframework.context.ApplicationContext.class)
+                .when(frameworkBean)
+                .getType();
         when(frameworkBean.getDependencies()).thenReturn(new String[0]);
         when(frameworkBean.getAliases()).thenReturn(new String[0]);
 
@@ -115,10 +116,11 @@ class BeansControllerTests {
         when(platformBean.getAliases()).thenReturn(new String[0]);
 
         ContextBeansDescriptor ctx = inlineMock(ContextBeansDescriptor.class);
-        when(ctx.getBeans()).thenReturn(Map.of(
-            "aFrameworkBean", frameworkBean,
-            "bPlatformBean", platformBean,
-            "zNullBean", nullTypeBean));
+        when(ctx.getBeans())
+                .thenReturn(Map.of(
+                        "aFrameworkBean", frameworkBean,
+                        "bPlatformBean", platformBean,
+                        "zNullBean", nullTypeBean));
 
         BeansDescriptor descriptor = inlineMock(BeansDescriptor.class);
         when(descriptor.getContexts()).thenReturn(Map.of("root", ctx));
@@ -129,13 +131,13 @@ class BeansControllerTests {
         MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.beans[0].name").value("aFrameworkBean"))
-            .andExpect(jsonPath("$.beans[0].classification").value("FRAMEWORK"))
-            .andExpect(jsonPath("$.beans[1].name").value("bPlatformBean"))
-            .andExpect(jsonPath("$.beans[1].classification").value("PLATFORM"))
-            .andExpect(jsonPath("$.beans[2].name").value("zNullBean"))
-            .andExpect(jsonPath("$.beans[2].classification").value("OTHER"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.beans[0].name").value("aFrameworkBean"))
+                .andExpect(jsonPath("$.beans[0].classification").value("FRAMEWORK"))
+                .andExpect(jsonPath("$.beans[1].name").value("bPlatformBean"))
+                .andExpect(jsonPath("$.beans[1].classification").value("PLATFORM"))
+                .andExpect(jsonPath("$.beans[2].name").value("zNullBean"))
+                .andExpect(jsonPath("$.beans[2].classification").value("OTHER"));
     }
 
     @Test
@@ -162,8 +164,8 @@ class BeansControllerTests {
         MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.beans[0].name").value("apple"))
-            .andExpect(jsonPath("$.beans[1].name").value("zebra"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.beans[0].name").value("apple"))
+                .andExpect(jsonPath("$.beans[1].name").value("zebra"));
     }
 }

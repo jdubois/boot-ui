@@ -43,7 +43,8 @@ public class BootUiStartupEnvironmentPostProcessor implements EnvironmentPostPro
         if (!environment.getProperty("bootui.startup.enabled", Boolean.class, true)) {
             return;
         }
-        if (!BootUiActivationCondition.resolve(environment, application.getClassLoader()).enabled()) {
+        if (!BootUiActivationCondition.resolve(environment, application.getClassLoader())
+                .enabled()) {
             return;
         }
         ApplicationStartup current = application.getApplicationStartup();
@@ -64,7 +65,7 @@ public class BootUiStartupEnvironmentPostProcessor implements EnvironmentPostPro
      * Spring Boot's auto-configured {@code StartupEndpoint} can be exposed.
      */
     static final class BufferingApplicationStartupRegistrar
-        implements ApplicationContextInitializer<ConfigurableApplicationContext>, Ordered {
+            implements ApplicationContextInitializer<ConfigurableApplicationContext>, Ordered {
 
         private final BufferingApplicationStartup startup;
 

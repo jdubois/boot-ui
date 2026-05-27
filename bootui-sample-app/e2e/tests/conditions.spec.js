@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Auto-configuration conditions view', () => {
-
   test('shows positive matches by default and lets the user switch to negative ones', async ({openView}) => {
     const page = await openView('conditions', 'Auto-configuration conditions')
 

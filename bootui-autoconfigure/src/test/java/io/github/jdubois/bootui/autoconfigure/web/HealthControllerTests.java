@@ -1,5 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
@@ -10,14 +17,6 @@ import org.springframework.boot.health.actuate.endpoint.IndicatedHealthDescripto
 import org.springframework.boot.health.contributor.Status;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.Map;
-
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Controller-level tests for {@link HealthController}.
@@ -49,65 +48,67 @@ class HealthControllerTests {
         MockMvc mvc = standaloneSetup(new HealthController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/health"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("application"))
-            .andExpect(jsonPath("$.status").value("UNKNOWN"))
-            .andExpect(jsonPath("$.components").isArray())
-            .andExpect(jsonPath("$.components").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("application"))
+                .andExpect(jsonPath("$.status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.components").isArray())
+                .andExpect(jsonPath("$.components").isEmpty());
     }
 
     @Test
     void healthReturnsSimpleUpStatus() throws Exception {
-        IndicatedHealthDescriptor indicated = mock(IndicatedHealthDescriptor.class,
-            withSettings().mockMaker(MockMakers.INLINE));
+        IndicatedHealthDescriptor indicated =
+                mock(IndicatedHealthDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
         when(indicated.getStatus()).thenReturn(Status.UP);
         when(indicated.getDetails()).thenReturn(Map.of("ping", "pong"));
 
         HealthEndpoint endpoint = mock(HealthEndpoint.class);
         when(endpoint.health()).thenReturn(indicated);
 
-        MockMvc mvc = standaloneSetup(new HealthController(providerOf(endpoint))).build();
+        MockMvc mvc =
+                standaloneSetup(new HealthController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/health").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("application"))
-            .andExpect(jsonPath("$.status").value("UP"))
-            .andExpect(jsonPath("$.components").isArray())
-            .andExpect(jsonPath("$.components").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("application"))
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components").isArray())
+                .andExpect(jsonPath("$.components").isEmpty());
     }
 
     @Test
     void healthReturnsDownStatus() throws Exception {
-        IndicatedHealthDescriptor downDescriptor = mock(IndicatedHealthDescriptor.class,
-            withSettings().mockMaker(MockMakers.INLINE));
+        IndicatedHealthDescriptor downDescriptor =
+                mock(IndicatedHealthDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
         when(downDescriptor.getStatus()).thenReturn(Status.DOWN);
         when(downDescriptor.getDetails()).thenReturn(Map.of("error", "Connection refused"));
 
         HealthEndpoint endpoint = mock(HealthEndpoint.class);
         when(endpoint.health()).thenReturn(downDescriptor);
 
-        MockMvc mvc = standaloneSetup(new HealthController(providerOf(endpoint))).build();
+        MockMvc mvc =
+                standaloneSetup(new HealthController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/health").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("DOWN"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DOWN"));
     }
 
     @Test
     void healthReturnsCompositeWithComponents() throws Exception {
-        IndicatedHealthDescriptor dbDescriptor = mock(IndicatedHealthDescriptor.class,
-            withSettings().mockMaker(MockMakers.INLINE));
+        IndicatedHealthDescriptor dbDescriptor =
+                mock(IndicatedHealthDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
         when(dbDescriptor.getStatus()).thenReturn(Status.UP);
         when(dbDescriptor.getDetails()).thenReturn(Map.of("database", "H2"));
 
-        IndicatedHealthDescriptor diskDescriptor = mock(IndicatedHealthDescriptor.class,
-            withSettings().mockMaker(MockMakers.INLINE));
+        IndicatedHealthDescriptor diskDescriptor =
+                mock(IndicatedHealthDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
         when(diskDescriptor.getStatus()).thenReturn(new Status("DOWN"));
         when(diskDescriptor.getDetails()).thenReturn(Map.of("free", 1024L));
 
         Map<String, HealthDescriptor> components = Map.of(
-            "db", dbDescriptor,
-            "diskSpace", diskDescriptor);
+                "db", dbDescriptor,
+                "diskSpace", diskDescriptor);
 
         CompositeHealthDescriptor composite = mock(CompositeHealthDescriptor.class);
         when(composite.getStatus()).thenReturn(new Status("DOWN"));
@@ -116,15 +117,17 @@ class HealthControllerTests {
         HealthEndpoint endpoint = mock(HealthEndpoint.class);
         when(endpoint.health()).thenReturn(composite);
 
-        MockMvc mvc = standaloneSetup(new HealthController(providerOf(endpoint))).build();
+        MockMvc mvc =
+                standaloneSetup(new HealthController(providerOf(endpoint))).build();
 
         mvc.perform(get("/bootui/api/health").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("application"))
-            .andExpect(jsonPath("$.status").value("DOWN"))
-            .andExpect(jsonPath("$.components").isArray())
-            .andExpect(jsonPath("$.components.length()").value(2))
-            .andExpect(jsonPath("$.components[?(@.name=='db')].status").value("UP"))
-            .andExpect(jsonPath("$.components[?(@.name=='diskSpace')].status").value("DOWN"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("application"))
+                .andExpect(jsonPath("$.status").value("DOWN"))
+                .andExpect(jsonPath("$.components").isArray())
+                .andExpect(jsonPath("$.components.length()").value(2))
+                .andExpect(jsonPath("$.components[?(@.name=='db')].status").value("UP"))
+                .andExpect(
+                        jsonPath("$.components[?(@.name=='diskSpace')].status").value("DOWN"));
     }
 }

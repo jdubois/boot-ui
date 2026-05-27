@@ -2,9 +2,8 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Cache view', () => {
-
   test('lists caches, cache annotations, and clears a cache', async ({openView, page}) => {
-    page.on('dialog', dialog => dialog.accept())
+    page.on('dialog', (dialog) => dialog.accept())
 
     await openView('cache', 'Spring Cache')
 

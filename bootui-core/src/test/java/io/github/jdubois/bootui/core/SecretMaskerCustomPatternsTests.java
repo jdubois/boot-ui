@@ -1,11 +1,10 @@
 package io.github.jdubois.bootui.core;
 
-import org.junit.jupiter.api.Test;
-
-import java.util.Set;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.Set;
+import org.junit.jupiter.api.Test;
 
 class SecretMaskerCustomPatternsTests {
 
@@ -35,8 +34,7 @@ class SecretMaskerCustomPatternsTests {
 
     @Test
     void nullPatternsThrow() {
-        assertThatThrownBy(() -> new SecretMasker(null))
-            .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SecretMasker(null)).isInstanceOf(NullPointerException.class);
     }
 
     @Test

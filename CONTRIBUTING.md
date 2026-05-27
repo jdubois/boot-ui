@@ -64,6 +64,22 @@ npm test
 Playwright can start the sample app automatically. If you already have the sample app running on port 8080, it will
 reuse that server.
 
+## Formatting
+
+Use Spotless for Java and repository whitespace checks:
+
+```bash
+./mvnw spotless:apply
+./mvnw spotless:check
+```
+
+Use Prettier for the Vue app and Playwright tests:
+
+```bash
+(cd bootui-ui/src/main/frontend && npm run format)
+(cd bootui-sample-app/e2e && npm run format)
+```
+
 ## Run the sample app
 
 ```bash

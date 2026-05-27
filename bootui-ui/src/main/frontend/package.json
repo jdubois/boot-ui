@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "format": "prettier --config ../../../../prettier.config.cjs --ignore-path ../../../../.prettierignore --write .",
+    "format:check": "prettier --config ../../../../prettier.config.cjs --ignore-path ../../../../.prettierignore --check ."
   },
   "dependencies": {
     "bootstrap": "5.3.8",
@@ -16,6 +18,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.7",
+    "prettier": "3.8.3",
     "vite": "8.0.14"
   }
 }

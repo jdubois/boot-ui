@@ -65,21 +65,23 @@ const detail = {
       statusCode: 'OK'
     }
   ],
-  attributes: [
-    {key: 'gen_ai.system', type: 'string', value: 'ollama'}
-  ],
+  attributes: [{key: 'gen_ai.system', type: 'string', value: 'ollama'}],
   events: [],
   contentCaptured: false,
   contentBanner: 'Message content is not on this span.'
 }
 
 test.describe('AI Usage view', () => {
-
   test('renders AI token usage, model breakdowns, and chat detail', async ({page}) => {
     await stubAi(page, overview)
 
     await page.goto('/bootui/#/ai')
-    await expect(page.locator('main h2').filter({hasText: /AI Usage/}).first()).toBeVisible()
+    await expect(
+      page
+        .locator('main h2')
+        .filter({hasText: /AI Usage/})
+        .first()
+    ).toBeVisible()
     await expect(page.getByText('Spring AI detected')).toBeVisible()
     await expect(page.locator('.card', {hasText: 'Input tokens'}).getByText('42', {exact: true})).toBeVisible()
     await expect(page.locator('.card', {hasText: 'Tokens by model'}).getByText('qwen2.5:0.5b')).toBeVisible()
@@ -133,52 +135,67 @@ test.describe('AI Usage view', () => {
 
 async function stubAi(page, overviewResponse) {
   await stubShell(page, overviewResponse.enabled && overviewResponse.springAiDetected)
-  await page.route(url => url.pathname === '/bootui/api/ai/overview', async route => {
-    await route.fulfill({contentType: 'application/json', body: JSON.stringify(overviewResponse)})
-  })
-  await page.route(url => url.pathname === '/bootui/api/ai/tokens', async route => {
-    await route.fulfill({contentType: 'application/json', body: JSON.stringify(tokenSeries)})
-  })
-  await page.route(url => url.pathname === `/bootui/api/ai/chats/${chatSpanId}`, async route => {
-    await route.fulfill({contentType: 'application/json', body: JSON.stringify(detail)})
-  })
+  await page.route(
+    (url) => url.pathname === '/bootui/api/ai/overview',
+    async (route) => {
+      await route.fulfill({contentType: 'application/json', body: JSON.stringify(overviewResponse)})
+    }
+  )
+  await page.route(
+    (url) => url.pathname === '/bootui/api/ai/tokens',
+    async (route) => {
+      await route.fulfill({contentType: 'application/json', body: JSON.stringify(tokenSeries)})
+    }
+  )
+  await page.route(
+    (url) => url.pathname === `/bootui/api/ai/chats/${chatSpanId}`,
+    async (route) => {
+      await route.fulfill({contentType: 'application/json', body: JSON.stringify(detail)})
+    }
+  )
 }
 
 async function stubShell(page, aiAvailable) {
-  await page.route(url => url.pathname === '/bootui/api/overview', async route => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        bootUiVersion: 'test',
-        applicationName: 'bootui-sample',
-        springBootVersion: '4.0.6',
-        javaVersion: '25',
-        javaVendor: 'test',
-        activeProfiles: ['dev'],
-        defaultProfiles: ['default'],
-        webApplicationType: 'SERVLET',
-        serverPort: 8080,
-        managementPort: null,
-        contextPath: '',
-        startupTimeMillis: 1000,
-        activation: {enabled: true, localhostOnly: true, reason: 'test', warnings: []},
-        openApiUrl: null
+  await page.route(
+    (url) => url.pathname === '/bootui/api/overview',
+    async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          bootUiVersion: 'test',
+          applicationName: 'bootui-sample',
+          springBootVersion: '4.0.6',
+          javaVersion: '25',
+          javaVendor: 'test',
+          activeProfiles: ['dev'],
+          defaultProfiles: ['default'],
+          webApplicationType: 'SERVLET',
+          serverPort: 8080,
+          managementPort: null,
+          contextPath: '',
+          startupTimeMillis: 1000,
+          activation: {enabled: true, localhostOnly: true, reason: 'test', warnings: []},
+          openApiUrl: null
+        })
       })
-    })
-  })
-  await page.route(url => url.pathname === '/bootui/api/panels', async route => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        panels: [
-          {
-            id: 'ai',
-            title: 'AI Usage',
-            available: aiAvailable,
-            unavailableReason: aiAvailable ? null : 'AI usage unavailable in this test state'
-          }
-        ]
+    }
+  )
+  await page.route(
+    (url) => url.pathname === '/bootui/api/panels',
+    async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          panels: [
+            {
+              id: 'ai',
+              title: 'AI Usage',
+              available: aiAvailable,
+              unavailableReason: aiAvailable ? null : 'AI usage unavailable in this test state'
+            }
+          ]
+        })
       })
-    })
-  })
+    }
+  )
 }

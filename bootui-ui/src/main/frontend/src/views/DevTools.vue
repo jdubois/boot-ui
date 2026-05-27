@@ -1,6 +1,6 @@
 <script setup>
 import {computed, onMounted, onUnmounted, ref} from 'vue'
-import { apiFetch } from '../api.js'
+import {apiFetch} from '../api.js'
 
 const status = ref(null)
 const loading = ref(true)
@@ -31,7 +31,7 @@ async function triggerLiveReload() {
     const res = await apiFetch('api/devtools/livereload', {method: 'POST'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      flash(result.message || result.error || ('HTTP ' + res.status), 'warning')
+      flash(result.message || result.error || 'HTTP ' + res.status, 'warning')
       await load()
       return
     }
@@ -45,7 +45,8 @@ async function triggerLiveReload() {
 }
 
 async function restart() {
-  if (!confirm('Restart this Spring Boot application now? In-memory state and in-flight requests will be interrupted.')) return
+  if (!confirm('Restart this Spring Boot application now? In-memory state and in-flight requests will be interrupted.'))
+    return
 
   actionLoading.value = 'restart'
   try {
@@ -56,7 +57,7 @@ async function restart() {
     })
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      flash(result.message || result.error || ('HTTP ' + res.status), 'warning')
+      flash(result.message || result.error || 'HTTP ' + res.status, 'warning')
       await load()
       return
     }
@@ -116,7 +117,7 @@ onUnmounted(clearReconnectTimer)
         </p>
       </div>
       <button :disabled="loading || restarting" class="btn btn-outline-secondary" title="Refresh" @click="load">
-        <i :class="{ 'spin': loading }" class="bi bi-arrow-clockwise"></i>
+        <i :class="{spin: loading}" class="bi bi-arrow-clockwise"></i>
       </button>
     </div>
 
@@ -160,7 +161,9 @@ onUnmounted(clearReconnectTimer)
             </div>
 
             <div class="small text-muted mb-3">
-              <span v-if="status.liveReloadPort">LiveReload port: <code>{{ status.liveReloadPort }}</code></span>
+              <span v-if="status.liveReloadPort"
+                >LiveReload port: <code>{{ status.liveReloadPort }}</code></span
+              >
               <span v-else>{{ status.liveReloadUnavailableReason || 'No LiveReload port reported.' }}</span>
             </div>
 
@@ -182,12 +185,10 @@ onUnmounted(clearReconnectTimer)
                   <i class="bi bi-arrow-clockwise"></i>
                 </div>
                 <h3 class="h5 fw-bold mt-3 mb-1">Restart application</h3>
-                <p class="text-muted small mb-0">
-                  Schedules a DevTools restart after the API response is sent.
-                </p>
+                <p class="text-muted small mb-0">Schedules a DevTools restart after the API response is sent.</p>
               </div>
               <span :class="restartReady ? 'text-bg-success' : 'text-bg-secondary'" class="badge">
-                {{ status.restartPending ? 'Pending' : (restartReady ? 'Available' : 'Unavailable') }}
+                {{ status.restartPending ? 'Pending' : restartReady ? 'Available' : 'Unavailable' }}
               </span>
             </div>
 
@@ -207,8 +208,8 @@ onUnmounted(clearReconnectTimer)
       <div class="col-12">
         <div class="alert alert-info small mb-0">
           <strong>Note:</strong>
-          LiveReload notifies connected browser tooling; it does not force this BootUI tab to reload.
-          Restart interrupts the current JVM context and is intended for local development only.
+          LiveReload notifies connected browser tooling; it does not force this BootUI tab to reload. Restart interrupts
+          the current JVM context and is intended for local development only.
         </div>
       </div>
     </div>

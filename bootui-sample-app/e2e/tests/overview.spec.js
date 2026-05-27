@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Overview view', () => {
-
   test('renders the application, runtime and activation cards', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
@@ -23,8 +22,9 @@ test.describe('Overview view', () => {
 
   test('refresh button re-fetches the overview', async ({openView, page}) => {
     await openView('overview', 'Overview')
-    const requestPromise = page.waitForResponse(res =>
-      res.url().endsWith('/bootui/api/overview') && res.request().method() === 'GET')
+    const requestPromise = page.waitForResponse(
+      (res) => res.url().endsWith('/bootui/api/overview') && res.request().method() === 'GET'
+    )
     await page.getByRole('button', {name: /Refresh/}).click()
     const response = await requestPromise
     expect(response.ok()).toBeTruthy()
@@ -33,7 +33,9 @@ test.describe('Overview view', () => {
   test('hero links to the BootUI GitHub project', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
-    await expect(page.getByRole('link', {name: /BootUI GitHub project/}))
-      .toHaveAttribute('href', 'https://github.com/jdubois/boot-ui')
+    await expect(page.getByRole('link', {name: /BootUI GitHub project/})).toHaveAttribute(
+      'href',
+      'https://github.com/jdubois/boot-ui'
+    )
   })
 })

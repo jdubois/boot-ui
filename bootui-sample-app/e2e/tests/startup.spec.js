@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Startup timeline view', () => {
-
   test('renders startup steps and supports filtering', async ({openView, page}) => {
     await openView('startup', 'Startup timeline')
 
@@ -21,7 +20,7 @@ test.describe('Startup timeline view', () => {
     await page.getByRole('button', {name: 'Expand all'}).click()
     await expect.poll(async () => steps.count()).toBeGreaterThan(collapsedCount)
 
-    await page.getByPlaceholder(/Filter by step name/).fill('spring.boot');
+    await page.getByPlaceholder(/Filter by step name/).fill('spring.boot')
     // Either the filter produces a smaller list, or the explicit "no matches" state.
     await expect(async () => {
       const visible = await steps.count()

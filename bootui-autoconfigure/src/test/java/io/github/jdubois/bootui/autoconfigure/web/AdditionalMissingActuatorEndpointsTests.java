@@ -1,14 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ListableBeanFactory;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.test.web.servlet.MockMvc;
-
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * Extends missing-actuator/framework endpoint coverage beyond what
@@ -86,11 +86,11 @@ class AdditionalMissingActuatorEndpointsTests {
         MockMvc mvc = standaloneSetup(new DataController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/data/repositories"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.springDataPresent").value(true))
-            .andExpect(jsonPath("$.total").value(0))
-            .andExpect(jsonPath("$.repositories").isArray())
-            .andExpect(jsonPath("$.repositories").isEmpty());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.springDataPresent").value(true))
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.repositories").isArray())
+                .andExpect(jsonPath("$.repositories").isEmpty());
     }
 
     /**
@@ -101,7 +101,6 @@ class AdditionalMissingActuatorEndpointsTests {
     void dataControllerReturnsNotFoundForSpecificRepositoryWhenBeanFactoryMissing() throws Exception {
         MockMvc mvc = standaloneSetup(new DataController(emptyProvider())).build();
 
-        mvc.perform(get("/bootui/api/data/repositories/MyRepository"))
-            .andExpect(status().isNotFound());
+        mvc.perform(get("/bootui/api/data/repositories/MyRepository")).andExpect(status().isNotFound());
     }
 }

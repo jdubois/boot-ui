@@ -1,18 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class BootUiOverridesPropertySourceTests {
 
     @Test
     void hasStableName() {
-        assertThat(new BootUiOverridesPropertySource().getName())
-            .isEqualTo(BootUiOverridesPropertySource.NAME);
+        assertThat(new BootUiOverridesPropertySource().getName()).isEqualTo(BootUiOverridesPropertySource.NAME);
     }
 
     @Test

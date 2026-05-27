@@ -63,6 +63,8 @@
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
+        <palantir-java-format.version>2.91.0</palantir-java-format.version>
+        <spotless-maven-plugin.version>3.6.0</spotless-maven-plugin.version>
         <node.version>v24.16.0</node.version>
         <npm.version>11.15.0</npm.version>
     </properties>
@@ -132,6 +134,11 @@
                     <version>${frontend-maven-plugin.version}</version>
                 </plugin>
                 <plugin>
+                    <groupId>com.diffplug.spotless</groupId>
+                    <artifactId>spotless-maven-plugin</artifactId>
+                    <version>${spotless-maven-plugin.version}</version>
+                </plugin>
+                <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-antrun-plugin</artifactId>
                     <version>${maven-antrun-plugin.version}</version>
@@ -177,6 +184,45 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <configuration>
+                    <java>
+                        <palantirJavaFormat>
+                            <version>${palantir-java-format.version}</version>
+                        </palantirJavaFormat>
+                        <removeUnusedImports/>
+                    </java>
+                    <formats>
+                        <format>
+                            <includes>
+                                <include>*.md</include>
+                                <include>.github/**/*.md</include>
+                                <include>.github/**/*.yml</include>
+                                <include>docs/**/*.md</include>
+                                <include>pom.xml</include>
+                                <include>src/**/*.json</include>
+                                <include>src/**/*.properties</include>
+                                <include>src/**/*.xml</include>
+                                <include>src/**/*.yaml</include>
+                                <include>src/**/*.yml</include>
+                            </includes>
+                            <excludes>
+                                <exclude>**/dist/**</exclude>
+                                <exclude>**/node_modules/**</exclude>
+                                <exclude>**/playwright-report/**</exclude>
+                                <exclude>**/target/**</exclude>
+                                <exclude>**/test-results/**</exclude>
+                            </excludes>
+                            <trimTrailingWhitespace/>
+                            <endWithNewline/>
+                        </format>
+                    </formats>
+                </configuration>
+            </plugin>
+        </plugins>
     </build>
 
     <profiles>

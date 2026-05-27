@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.safety;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.BeforeEach;
@@ -7,8 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 class LocalhostOnlyFilterTests {
 

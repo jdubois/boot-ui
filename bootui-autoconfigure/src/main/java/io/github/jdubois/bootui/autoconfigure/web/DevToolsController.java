@@ -3,11 +3,10 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.core.BootUiDtos.DevToolsActionResult;
 import io.github.jdubois.bootui.core.BootUiDtos.DevToolsRestartRequest;
 import io.github.jdubois.bootui.core.BootUiDtos.DevToolsStatus;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/bootui/api/devtools")
@@ -33,8 +32,9 @@ public class DevToolsController {
     @PostMapping("/restart")
     public ResponseEntity<DevToolsActionResult> restart(@RequestBody(required = false) DevToolsRestartRequest request) {
         if (request == null || !Boolean.TRUE.equals(request.confirm())) {
-            return ResponseEntity.badRequest().body(new DevToolsActionResult("restart", "confirmation_required",
-                "Restart requires explicit confirmation."));
+            return ResponseEntity.badRequest()
+                    .body(new DevToolsActionResult(
+                            "restart", "confirmation_required", "Restart requires explicit confirmation."));
         }
         DevToolsActionResult result = devTools.scheduleRestart();
         return ResponseEntity.status(statusFor(result)).body(result);
@@ -51,6 +51,6 @@ public class DevToolsController {
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, String>> handleIllegalState(IllegalStateException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-            .body(Map.of("error", ex.getMessage() == null ? "DevTools action failed" : ex.getMessage()));
+                .body(Map.of("error", ex.getMessage() == null ? "DevTools action failed" : ex.getMessage()));
     }
 }

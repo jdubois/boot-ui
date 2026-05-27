@@ -16,8 +16,7 @@ public class Product {
 
     private boolean active;
 
-    protected Product() {
-    }
+    protected Product() {}
 
     public Product(String name, String category, boolean active) {
         this.name = name;

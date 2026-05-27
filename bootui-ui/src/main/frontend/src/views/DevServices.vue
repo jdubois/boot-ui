@@ -1,6 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
-import { apiFetch } from '../api.js'
+import {apiFetch} from '../api.js'
 
 const report = ref(null)
 const loading = ref(true)
@@ -33,29 +33,34 @@ const filtered = computed(() => {
   if (!report.value) return []
   const value = filter.value.trim().toLowerCase()
   if (!value) return report.value.services
-  return report.value.services.filter(service =>
-    (service.name || '').toLowerCase().includes(value)
-    || (service.type || '').toLowerCase().includes(value)
-    || (service.status || '').toLowerCase().includes(value)
-    || (service.image || '').toLowerCase().includes(value)
+  return report.value.services.filter(
+    (service) =>
+      (service.name || '').toLowerCase().includes(value) ||
+      (service.type || '').toLowerCase().includes(value) ||
+      (service.status || '').toLowerCase().includes(value) ||
+      (service.image || '').toLowerCase().includes(value)
   )
 })
 
 function sourceClass(source) {
-  return {
-    'Docker Compose': 'bg-primary',
-    Testcontainers: 'bg-success',
-    'Connection details': 'bg-info text-dark'
-  }[source] || 'bg-secondary'
+  return (
+    {
+      'Docker Compose': 'bg-primary',
+      Testcontainers: 'bg-success',
+      'Connection details': 'bg-info text-dark'
+    }[source] || 'bg-secondary'
+  )
 }
 
 function statusClass(status) {
-  return {
-    RUNNING: 'text-bg-success',
-    STOPPED: 'text-bg-secondary',
-    AVAILABLE: 'text-bg-info',
-    READY_AT_STARTUP: 'text-bg-primary'
-  }[status] || 'text-bg-secondary'
+  return (
+    {
+      RUNNING: 'text-bg-success',
+      STOPPED: 'text-bg-secondary',
+      AVAILABLE: 'text-bg-info',
+      READY_AT_STARTUP: 'text-bg-primary'
+    }[status] || 'text-bg-secondary'
+  )
 }
 
 function formatSnapshot(timestamp) {
@@ -71,8 +76,9 @@ function formatSnapshot(timestamp) {
 function formatPorts(service) {
   if (!service.ports || service.ports.length === 0) return '—'
   return service.ports
-    .map(port => {
-      if (port.containerPort && port.hostPort) return `${port.containerPort} → ${port.hostPort}/${port.protocol || 'tcp'}`
+    .map((port) => {
+      if (port.containerPort && port.hostPort)
+        return `${port.containerPort} → ${port.hostPort}/${port.protocol || 'tcp'}`
       if (port.hostPort) return `${port.hostPort}/${port.protocol || 'tcp'}`
       return port.containerPort || '—'
     })
@@ -95,7 +101,7 @@ function syncSelectedService() {
     logs.value = null
     return
   }
-  const updated = services.find(service => service.id === selected.value.id)
+  const updated = services.find((service) => service.id === selected.value.id)
   if (updated) {
     selected.value = updated
     return
@@ -178,9 +184,9 @@ onMounted(load)
       <div>
         <h2 class="mb-1"><i class="bi bi-box-seam me-2"></i>Dev Services</h2>
         <div v-if="report" class="text-muted small">
-          Snapshot {{ formatSnapshot(report.snapshotTimestamp) }} ·
-          Docker Compose {{ report.dockerComposePresent ? 'available' : 'not detected' }} ·
-          Testcontainers {{ report.testcontainersPresent ? 'available' : 'not detected' }}
+          Snapshot {{ formatSnapshot(report.snapshotTimestamp) }} · Docker Compose
+          {{ report.dockerComposePresent ? 'available' : 'not detected' }} · Testcontainers
+          {{ report.testcontainersPresent ? 'available' : 'not detected' }}
         </div>
       </div>
       <button class="btn btn-sm btn-outline-secondary" @click="load">
@@ -202,10 +208,7 @@ onMounted(load)
     <template v-else-if="report">
       <div class="row g-2 mb-3">
         <div class="col-md-8">
-          <input
-            v-model="filter"
-            class="form-control"
-            placeholder="Filter by name, type, status, or image…"/>
+          <input v-model="filter" class="form-control" placeholder="Filter by name, type, status, or image…" />
         </div>
         <div class="col-md-4 text-end small text-muted align-self-center">
           {{ filtered.length }} / {{ report.total }} services
@@ -221,67 +224,70 @@ onMounted(load)
           <div class="table-responsive">
             <table class="table table-sm table-hover align-middle">
               <thead>
-              <tr>
-                <th>Service</th>
-                <th>Status</th>
-                <th>Host / ports</th>
-                <th class="text-end">Actions</th>
-              </tr>
+                <tr>
+                  <th>Service</th>
+                  <th>Status</th>
+                  <th>Host / ports</th>
+                  <th class="text-end">Actions</th>
+                </tr>
               </thead>
               <tbody>
-              <tr v-for="service in filtered" :key="service.id" :class="{ 'selected-row': isSelected(service) }">
-                <td data-label="Service">
-                  <div class="fw-semibold">{{ service.name }}</div>
-                  <div class="small text-muted">
-                    {{ service.type }}
-                    <span v-if="service.image"> · <code>{{ service.image }}</code></span>
-                  </div>
-                </td>
-                <td data-label="Status"><span :class="statusClass(service.status)" class="badge">{{
-                    service.status
-                  }}</span></td>
-                <td class="small" data-label="Host / ports">
-                  <div>{{ service.host || '—' }}</div>
-                  <code>{{ formatPorts(service) }}</code>
-                </td>
-                <td class="text-end" data-label="Actions">
-                  <div class="d-flex flex-wrap justify-content-end gap-1 service-actions">
-                    <button
-                      :aria-pressed="isSelected(service)"
-                      :class="isSelected(service) ? 'btn-primary' : 'btn-outline-primary'"
-                      class="btn btn-sm"
-                      @click="selectService(service)">
-                      <i class="bi bi-info-circle me-1"></i>
-                      {{ isSelected(service) ? 'Details shown' : 'View details' }}
-                    </button>
-                    <button
-                      v-if="service.logsAvailable"
-                      :disabled="busyService === service.id"
-                      class="btn btn-sm btn-outline-secondary"
-                      @click="openLogs(service)">
-                      <i class="bi bi-card-text me-1"></i>
-                      View logs
-                    </button>
-                    <button
-                      v-if="service.restartable"
-                      :disabled="busyService === service.id"
-                      class="btn btn-sm btn-outline-danger"
-                      @click="restart(service)">
-                      <i class="bi bi-arrow-repeat me-1"></i>
-                      Restart
-                    </button>
-                  </div>
-                </td>
-              </tr>
+                <tr v-for="service in filtered" :key="service.id" :class="{'selected-row': isSelected(service)}">
+                  <td data-label="Service">
+                    <div class="fw-semibold">{{ service.name }}</div>
+                    <div class="small text-muted">
+                      {{ service.type }}
+                      <span v-if="service.image">
+                        · <code>{{ service.image }}</code></span
+                      >
+                    </div>
+                  </td>
+                  <td data-label="Status">
+                    <span :class="statusClass(service.status)" class="badge">{{ service.status }}</span>
+                  </td>
+                  <td class="small" data-label="Host / ports">
+                    <div>{{ service.host || '—' }}</div>
+                    <code>{{ formatPorts(service) }}</code>
+                  </td>
+                  <td class="text-end" data-label="Actions">
+                    <div class="d-flex flex-wrap justify-content-end gap-1 service-actions">
+                      <button
+                        :aria-pressed="isSelected(service)"
+                        :class="isSelected(service) ? 'btn-primary' : 'btn-outline-primary'"
+                        class="btn btn-sm"
+                        @click="selectService(service)"
+                      >
+                        <i class="bi bi-info-circle me-1"></i>
+                        {{ isSelected(service) ? 'Details shown' : 'View details' }}
+                      </button>
+                      <button
+                        v-if="service.logsAvailable"
+                        :disabled="busyService === service.id"
+                        class="btn btn-sm btn-outline-secondary"
+                        @click="openLogs(service)"
+                      >
+                        <i class="bi bi-card-text me-1"></i>
+                        View logs
+                      </button>
+                      <button
+                        v-if="service.restartable"
+                        :disabled="busyService === service.id"
+                        class="btn btn-sm btn-outline-danger"
+                        @click="restart(service)"
+                      >
+                        <i class="bi bi-arrow-repeat me-1"></i>
+                        Restart
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
         </div>
 
         <div class="col-xl-5">
-          <div v-if="!selected" class="text-muted small">
-            Select a service to inspect connection details.
-          </div>
+          <div v-if="!selected" class="text-muted small">Select a service to inspect connection details.</div>
           <div v-else class="card">
             <div class="card-header d-flex justify-content-between align-items-start gap-2">
               <div>
@@ -295,11 +301,17 @@ onMounted(load)
                 <dt class="col-sm-4">Type</dt>
                 <dd class="col-sm-8">{{ selected.type }}</dd>
                 <dt class="col-sm-4">Image</dt>
-                <dd class="col-sm-8"><code>{{ selected.image || '—' }}</code></dd>
+                <dd class="col-sm-8">
+                  <code>{{ selected.image || '—' }}</code>
+                </dd>
                 <dt class="col-sm-4">Host</dt>
-                <dd class="col-sm-8"><code>{{ selected.host || '—' }}</code></dd>
+                <dd class="col-sm-8">
+                  <code>{{ selected.host || '—' }}</code>
+                </dd>
                 <dt class="col-sm-4">Ports</dt>
-                <dd class="col-sm-8"><code>{{ formatPorts(selected) }}</code></dd>
+                <dd class="col-sm-8">
+                  <code>{{ formatPorts(selected) }}</code>
+                </dd>
               </dl>
 
               <h6>Connection details</h6>
@@ -308,10 +320,12 @@ onMounted(load)
               </div>
               <table v-else class="table table-sm">
                 <tbody>
-                <tr v-for="[key, value] in detailEntries(selected)" :key="key">
-                  <th class="text-nowrap small">{{ key }}</th>
-                  <td><code>{{ value ?? '—' }}</code></td>
-                </tr>
+                  <tr v-for="[key, value] in detailEntries(selected)" :key="key">
+                    <th class="text-nowrap small">{{ key }}</th>
+                    <td>
+                      <code>{{ value ?? '—' }}</code>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
 

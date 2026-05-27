@@ -1,15 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.springframework.mock.env.MockEnvironment;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import javax.tools.ToolProvider;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import javax.tools.ToolProvider;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.mock.env.MockEnvironment;
 
 /**
  * Additional coverage for {@link BootUiActivationCondition} targeting scenarios not
@@ -43,12 +42,12 @@ class BootUiActivationConditionAdditionalTests {
             public class RestartScope {
             }
             """);
-        int result = ToolProvider.getSystemJavaCompiler()
-            .run(null, null, null, "-d", tempDir.toString(), source.toString());
+        int result =
+                ToolProvider.getSystemJavaCompiler().run(null, null, null, "-d", tempDir.toString(), source.toString());
         if (result != 0) {
             throw new IllegalStateException("Failed to compile stub RestartScope");
         }
-        return new URLClassLoader(new java.net.URL[]{tempDir.toUri().toURL()}, null);
+        return new URLClassLoader(new java.net.URL[] {tempDir.toUri().toURL()}, null);
     }
 
     @Test
@@ -118,7 +117,7 @@ class BootUiActivationConditionAdditionalTests {
     @Test
     void devtoolsClassNameConstantIsCorrect() {
         assertThat(BootUiActivationCondition.DEVTOOLS_CLASS)
-            .isEqualTo("org.springframework.boot.devtools.restart.RestartScope");
+                .isEqualTo("org.springframework.boot.devtools.restart.RestartScope");
     }
 
     @Test

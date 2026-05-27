@@ -7,7 +7,6 @@ import {expect, test} from '@playwright/test'
  * so we want explicit coverage of their behaviour from a real client.
  */
 test.describe('Sample application REST API', () => {
-
   test('GET / serves a welcome page that links to BootUI', async ({request}) => {
     const response = await request.get('/')
     expect(response.status()).toBe(200)
@@ -40,7 +39,7 @@ test.describe('Sample application REST API', () => {
       expect(product).toHaveProperty('category')
       expect(product.active).toBe(true)
     }
-    const names = products.map(p => p.name)
+    const names = products.map((p) => p.name)
     expect(names).toContain('BootUI Starter')
     expect(names).toContain('Sample Console')
     expect(names).not.toContain('Archived Prototype')

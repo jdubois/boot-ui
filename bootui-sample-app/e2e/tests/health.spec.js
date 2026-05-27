@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Health view', () => {
-
   test('renders friendly health summary and tree', async ({openView, page}) => {
     await openView('health', 'Health')
 

@@ -2,7 +2,6 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Log Tail view', () => {
-
   test('connects to the SSE stream, then can pause and resume', async ({openView, page}) => {
     await openView('log-tail', 'Log Tail')
 
@@ -30,7 +29,7 @@ test.describe('Log Tail view', () => {
     const empty = page.locator('text=No log lines to display.')
     const lineCount = page.locator('.log-pane code span.d-block')
     await expect(async () => {
-      const visible = await empty.count() + (await lineCount.count() === 0 ? 1 : 0)
+      const visible = (await empty.count()) + ((await lineCount.count()) === 0 ? 1 : 0)
       expect(visible).toBeGreaterThan(0)
     }).toPass()
   })

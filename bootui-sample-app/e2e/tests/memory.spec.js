@@ -2,14 +2,14 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Memory view', () => {
-
   test('renders the JVM options panel and heap/non-heap cards', async ({openView, page, browserName, context}) => {
     // Grant clipboard permissions for the copy button. Not all browsers expose them
     // through the same API; ignore failures gracefully.
     if (browserName === 'chromium') {
       try {
         await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-      } catch { /* no-op */
+      } catch {
+        /* no-op */
       }
     }
 
@@ -66,10 +66,15 @@ test.describe('Memory view', () => {
     await totalInput.blur()
 
     // Debounced re-fetch is 300 ms; allow up to 5 s.
-    await expect.poll(async () => {
-      const text = await optionsBlock.innerText()
-      const m = text.match(/-Xmx(\d+)m/)
-      return m ? parseInt(m[1], 10) : 0
-    }, {timeout: 5_000}).not.toBe(beforeXmx)
+    await expect
+      .poll(
+        async () => {
+          const text = await optionsBlock.innerText()
+          const m = text.match(/-Xmx(\d+)m/)
+          return m ? parseInt(m[1], 10) : 0
+        },
+        {timeout: 5_000}
+      )
+      .not.toBe(beforeXmx)
   })
 })

@@ -17,8 +17,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
  */
 public final class AiSpanRecognizer {
 
-    private AiSpanRecognizer() {
-    }
+    private AiSpanRecognizer() {}
 
     public static boolean isAi(NormalizedSpan span) {
         return isChat(span) || isEmbedding(span) || isToolCall(span) || isVectorOperation(span);
@@ -120,8 +119,7 @@ public final class AiSpanRecognizer {
     }
 
     public static String finishReason(NormalizedSpan span) {
-        AttributeValue av = span.attributes() != null
-            ? span.attributes().get("gen_ai.response.finish_reasons") : null;
+        AttributeValue av = span.attributes() != null ? span.attributes().get("gen_ai.response.finish_reasons") : null;
         if (av == null) {
             return stringAttr(span, "gen_ai.response.finish_reason");
         }

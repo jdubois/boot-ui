@@ -28,24 +28,25 @@ const visibleLines = computed(() => {
   const filter = textFilter.value.trim().toLowerCase()
   const threshold = levelThreshold[levelFilter.value] ?? -1
 
-  return lines.value.filter(line => {
+  return lines.value.filter((line) => {
     const rank = levelRank[line.level] ?? -1
     const logger = (line.logger || '').toLowerCase()
     const message = (line.message || '').toLowerCase()
     const matchesLevel = threshold < 0 || rank >= threshold
-    const matchesText = !filter
-      || logger.startsWith(filter)
-      || message.includes(filter)
+    const matchesText = !filter || logger.startsWith(filter) || message.includes(filter)
 
     return matchesLevel && matchesText
   })
 })
 
-const statusClass = computed(() => ({
-  Connected: 'text-bg-success',
-  Paused: 'text-bg-secondary',
-  Disconnected: 'text-bg-danger'
-}[status.value] || 'text-bg-secondary'))
+const statusClass = computed(
+  () =>
+    ({
+      Connected: 'text-bg-success',
+      Paused: 'text-bg-secondary',
+      Disconnected: 'text-bg-danger'
+    })[status.value] || 'text-bg-secondary'
+)
 
 function connect() {
   disconnect(false)
@@ -54,7 +55,7 @@ function connect() {
   eventSource.onopen = () => {
     status.value = 'Connected'
   }
-  eventSource.addEventListener('log', event => {
+  eventSource.addEventListener('log', (event) => {
     const line = JSON.parse(event.data)
     lines.value.push(line)
     if (lines.value.length > 500) {
@@ -99,13 +100,15 @@ function formatTime(timestamp) {
 }
 
 function levelClass(level) {
-  return {
-    ERROR: 'text-danger',
-    WARN: 'text-warning',
-    INFO: 'text-success',
-    DEBUG: 'text-info',
-    TRACE: 'text-secondary'
-  }[level] || 'text-light'
+  return (
+    {
+      ERROR: 'text-danger',
+      WARN: 'text-warning',
+      INFO: 'text-success',
+      DEBUG: 'text-info',
+      TRACE: 'text-secondary'
+    }[level] || 'text-light'
+  )
 }
 
 async function scrollToBottom() {
@@ -117,7 +120,7 @@ async function scrollToBottom() {
 }
 
 watch(visibleLines, scrollToBottom)
-watch(autoScroll, enabled => {
+watch(autoScroll, (enabled) => {
   if (enabled) {
     scrollToBottom()
   }
@@ -137,10 +140,7 @@ onBeforeUnmount(() => disconnect(false))
     <div class="row g-3 mb-3 align-items-end">
       <div class="col-lg-4">
         <label class="form-label">Filter</label>
-        <input
-          v-model="textFilter"
-          class="form-control"
-          placeholder="Logger prefix or message text"/>
+        <input v-model="textFilter" class="form-control" placeholder="Logger prefix or message text" />
       </div>
       <div class="col-sm-4 col-lg-2">
         <label class="form-label">Level</label>
@@ -153,14 +153,12 @@ onBeforeUnmount(() => disconnect(false))
       </div>
       <div class="col-sm-4 col-lg-2">
         <div class="form-check pt-sm-4">
-          <input id="auto-scroll" v-model="autoScroll" class="form-check-input" type="checkbox"/>
+          <input id="auto-scroll" v-model="autoScroll" class="form-check-input" type="checkbox" />
           <label class="form-check-label" for="auto-scroll">Auto-scroll</label>
         </div>
       </div>
       <div class="col-sm-4 col-lg-4 d-flex gap-2 justify-content-sm-end">
-        <button class="btn btn-outline-secondary" @click="clearLines">
-          <i class="bi bi-trash me-1"></i>Clear
-        </button>
+        <button class="btn btn-outline-secondary" @click="clearLines"><i class="bi bi-trash me-1"></i>Clear</button>
         <button class="btn btn-outline-primary" @click="toggleStreaming">
           <i :class="['bi', status === 'Connected' ? 'bi-pause-circle' : 'bi-play-circle', 'me-1']"></i>
           {{ status === 'Connected' ? 'Pause' : 'Resume' }}

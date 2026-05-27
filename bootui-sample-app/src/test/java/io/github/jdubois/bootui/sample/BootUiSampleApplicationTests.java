@@ -1,18 +1,16 @@
 package io.github.jdubois.bootui.sample;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class BootUiSampleApplicationTests {
 
     @Test
-    void leavesDockerComposeDiscoveryAloneWhenRunningFromSampleModule(@TempDir Path workingDirectory)
-        throws Exception {
+    void leavesDockerComposeDiscoveryAloneWhenRunningFromSampleModule(@TempDir Path workingDirectory) throws Exception {
         Files.createFile(workingDirectory.resolve("compose.yaml"));
 
         assertThat(BootUiSampleApplication.composeFileDefault(workingDirectory)).isEmpty();
@@ -20,9 +18,9 @@ class BootUiSampleApplicationTests {
 
     @Test
     void pointsDockerComposeToSampleModuleWhenRunningFromRepositoryRoot(@TempDir Path workingDirectory)
-        throws Exception {
+            throws Exception {
         Path composeFile = Files.createDirectories(workingDirectory.resolve("bootui-sample-app"))
-            .resolve("compose.yaml");
+                .resolve("compose.yaml");
         Files.createFile(composeFile);
 
         assertThat(BootUiSampleApplication.composeFileDefault(workingDirectory)).contains(composeFile);

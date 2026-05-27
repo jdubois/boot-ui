@@ -1,13 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 /**
  * Tests for {@link BootUiIndexController}.
@@ -24,17 +24,15 @@ class BootUiIndexControllerTests {
 
     private static MockMvc buildMvc(BootUiProperties properties) {
         return standaloneSetup(new BootUiIndexController(properties))
-            .setViewResolvers(new InternalResourceViewResolver())
-            .build();
+                .setViewResolvers(new InternalResourceViewResolver())
+                .build();
     }
 
     @Test
     void rootPathRedirectsToTrailingSlash() throws Exception {
         MockMvc mvc = buildMvc(new BootUiProperties());
 
-        mvc.perform(get("/bootui"))
-            .andExpect(status().is3xxRedirection())
-            .andExpect(redirectedUrl("/bootui/"));
+        mvc.perform(get("/bootui")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/bootui/"));
     }
 
     // ── /bootui/ → forward ────────────────────────────────────────────────────
@@ -45,9 +43,7 @@ class BootUiIndexControllerTests {
         properties.setPath("/devtools");
         MockMvc mvc = buildMvc(properties);
 
-        mvc.perform(get("/bootui"))
-            .andExpect(status().is3xxRedirection())
-            .andExpect(redirectedUrl("/devtools/"));
+        mvc.perform(get("/bootui")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/devtools/"));
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -56,8 +52,6 @@ class BootUiIndexControllerTests {
     void indexPathForwardsToIndexHtml() throws Exception {
         MockMvc mvc = buildMvc(new BootUiProperties());
 
-        mvc.perform(get("/bootui/"))
-            .andExpect(status().isOk())
-            .andExpect(forwardedUrl("/bootui/index.html"));
+        mvc.perform(get("/bootui/")).andExpect(status().isOk()).andExpect(forwardedUrl("/bootui/index.html"));
     }
 }
