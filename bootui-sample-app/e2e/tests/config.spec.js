@@ -1,6 +1,8 @@
 // @ts-check
 import { test, expect } from './fixtures.js'
 
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 test.describe('Configuration view', () => {
 
   test('lists properties and supports searching', async ({ openView, page }) => {
@@ -30,7 +32,7 @@ test.describe('Configuration view', () => {
 
     // Wait for the banner confirmation.
     await expect(page.locator('.alert.alert-success'))
-      .toContainText(new RegExp(`Override saved for ${propertyName.replace(/\./g, '\\.')}`))
+      .toContainText(new RegExp(`Override saved for ${escapeRegExp(propertyName)}`))
 
     // Filter down to the new row and verify it is flagged as an override.
     await page.getByPlaceholder(/Filter by name or value/).fill(propertyName)
@@ -42,7 +44,7 @@ test.describe('Configuration view', () => {
     // Remove the override.
     await newRow.first().locator('button[title="Remove override"]').click()
     await expect(page.locator('.alert.alert-success'))
-      .toContainText(new RegExp(`Override removed for ${propertyName.replace(/\./g, '\\.')}`))
+      .toContainText(new RegExp(`Override removed for ${escapeRegExp(propertyName)}`))
     await expect(page.locator('table tbody tr', { hasText: propertyName })).toHaveCount(0)
   })
 
