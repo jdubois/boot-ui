@@ -24,6 +24,8 @@ import Metrics from './views/Metrics.vue'
 import Vulnerabilities from './views/Dependencies.vue'
 import DevServices from './views/DevServices.vue'
 import DevTools from './views/DevTools.vue'
+import Traces from './views/Traces.vue'
+import Ai from './views/Ai.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -47,6 +49,8 @@ const router = createRouter({
     { path: '/scheduled', name: 'scheduled', component: Scheduled, meta: { icon: 'bi-clock-history', title: 'Scheduled Tasks' } },
     { path: '/data', name: 'data', component: Data, meta: { icon: 'bi-database', title: 'Data' } },
     { path: '/cache', name: 'cache', component: Cache, meta: { icon: 'bi-hdd-stack', title: 'Cache' } },
+    { path: '/traces', name: 'traces', component: Traces, meta: { icon: 'bi-bezier2', title: 'Traces' } },
+    { path: '/ai', name: 'ai', component: Ai, meta: { icon: 'bi-stars', title: 'AI Usage' } },
     { path: '/security', name: 'security', component: Security, meta: { icon: 'bi-person-lock', title: 'Security' } },
     { path: '/vulnerabilities', name: 'vulnerabilities', component: Vulnerabilities, meta: { icon: 'bi-bug', title: 'Vulnerabilities' } },
     { path: '/dependencies', redirect: '/vulnerabilities' }

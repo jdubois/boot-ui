@@ -1,7 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
+import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
+import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
+import io.github.jdubois.bootui.autoconfigure.web.AiController;
 import io.github.jdubois.bootui.autoconfigure.web.BeansController;
 import io.github.jdubois.bootui.autoconfigure.web.BootUiIndexController;
 import io.github.jdubois.bootui.autoconfigure.web.CacheController;
@@ -20,12 +23,14 @@ import io.github.jdubois.bootui.autoconfigure.web.LogTailController;
 import io.github.jdubois.bootui.autoconfigure.web.MappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.web.MetricsController;
+import io.github.jdubois.bootui.autoconfigure.web.OtlpReceiverController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
 import io.github.jdubois.bootui.autoconfigure.web.PanelsController;
 import io.github.jdubois.bootui.autoconfigure.web.ProfileController;
 import io.github.jdubois.bootui.autoconfigure.web.ScheduledController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.web.StartupController;
+import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.actuate.autoconfigure.endpoint.condition.ConditionalOnAvailableEndpoint;
@@ -76,6 +81,9 @@ import org.springframework.core.env.Environment;
         MemoryController.class,
         MetricsController.class,
         DevToolsController.class,
+        TracesController.class,
+        AiController.class,
+        OtlpReceiverController.class,
         BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {
@@ -106,6 +114,16 @@ public class BootUiAutoConfiguration {
     @Bean
     public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties) {
         return new LocalhostOnlyFilter(properties);
+    }
+
+    @Bean
+    public TelemetryStore bootUiTelemetryStore(BootUiProperties properties) {
+        return new TelemetryStore(properties.getTelemetry());
+    }
+
+    @Bean
+    public OtlpSpanDecoder bootUiOtlpSpanDecoder(BootUiProperties properties) {
+        return new OtlpSpanDecoder(properties.getTelemetry());
     }
 
     @Bean

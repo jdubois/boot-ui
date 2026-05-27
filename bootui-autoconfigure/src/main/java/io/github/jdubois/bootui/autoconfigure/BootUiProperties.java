@@ -74,6 +74,12 @@ public class BootUiProperties {
     /** Dependency inventory and vulnerability scanning settings. */
     private Dependencies dependencies = new Dependencies();
 
+    /** OTLP-based telemetry receiver and trace store settings. */
+    private Telemetry telemetry = new Telemetry();
+
+    /** AI Usage panel settings. */
+    private Ai ai = new Ai();
+
     public static class DevServices {
 
         /** Allow BootUI to restart Testcontainers-backed services. */
@@ -157,6 +163,111 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    public static class Telemetry {
+
+        /** Accept OTLP/HTTP trace payloads at the BootUI OTLP endpoint. */
+        private boolean enabled = true;
+
+        /** Maximum number of distinct traces retained in memory. Oldest are evicted. */
+        private int maxTraces = 500;
+
+        /** Maximum number of spans retained per trace. */
+        private int maxSpansPerTrace = 500;
+
+        /** Maximum length of a single attribute string value before truncation. */
+        private int maxAttributeValueBytes = 4 * 1024;
+
+        /** Drop spans whose route/path attribute starts with the BootUI API path. */
+        private boolean excludeSelfSpans = true;
+
+        /** Maximum payload size (bytes) accepted by the OTLP receiver. */
+        private int maxRequestBytes = 8 * 1024 * 1024;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getMaxTraces() {
+            return maxTraces;
+        }
+
+        public void setMaxTraces(int maxTraces) {
+            this.maxTraces = maxTraces;
+        }
+
+        public int getMaxSpansPerTrace() {
+            return maxSpansPerTrace;
+        }
+
+        public void setMaxSpansPerTrace(int maxSpansPerTrace) {
+            this.maxSpansPerTrace = maxSpansPerTrace;
+        }
+
+        public int getMaxAttributeValueBytes() {
+            return maxAttributeValueBytes;
+        }
+
+        public void setMaxAttributeValueBytes(int maxAttributeValueBytes) {
+            this.maxAttributeValueBytes = maxAttributeValueBytes;
+        }
+
+        public boolean isExcludeSelfSpans() {
+            return excludeSelfSpans;
+        }
+
+        public void setExcludeSelfSpans(boolean excludeSelfSpans) {
+            this.excludeSelfSpans = excludeSelfSpans;
+        }
+
+        public int getMaxRequestBytes() {
+            return maxRequestBytes;
+        }
+
+        public void setMaxRequestBytes(int maxRequestBytes) {
+            this.maxRequestBytes = maxRequestBytes;
+        }
+    }
+
+    public static class Ai {
+
+        /** Number of minutes retained in the per-minute token-usage series. */
+        private int tokenSeriesMinutes = 60;
+
+        /** Maximum number of recent chat completions surfaced by the AI panel. */
+        private int maxRecentChats = 100;
+
+        /** When true, BootUI surfaces a banner explaining that prompt/completion content is not captured by default. */
+        private boolean showContentCaptureBanner = true;
+
+        public int getTokenSeriesMinutes() {
+            return tokenSeriesMinutes;
+        }
+
+        public void setTokenSeriesMinutes(int tokenSeriesMinutes) {
+            this.tokenSeriesMinutes = tokenSeriesMinutes;
+        }
+
+        public int getMaxRecentChats() {
+            return maxRecentChats;
+        }
+
+        public void setMaxRecentChats(int maxRecentChats) {
+            this.maxRecentChats = maxRecentChats;
+        }
+
+        public boolean isShowContentCaptureBanner() {
+            return showContentCaptureBanner;
+        }
+
+        public void setShowContentCaptureBanner(boolean showContentCaptureBanner) {
+            this.showContentCaptureBanner = showContentCaptureBanner;
         }
     }
 
@@ -278,5 +389,21 @@ public class BootUiProperties {
 
     public void setDependencies(Dependencies dependencies) {
         this.dependencies = dependencies;
+    }
+
+    public Telemetry getTelemetry() {
+        return telemetry;
+    }
+
+    public void setTelemetry(Telemetry telemetry) {
+        this.telemetry = telemetry;
+    }
+
+    public Ai getAi() {
+        return ai;
+    }
+
+    public void setAi(Ai ai) {
+        this.ai = ai;
     }
 }

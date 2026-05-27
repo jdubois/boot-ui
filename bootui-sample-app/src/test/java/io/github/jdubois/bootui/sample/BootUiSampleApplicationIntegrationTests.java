@@ -46,7 +46,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
                         + "org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,"
                         + "org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration,"
                         + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,"
-                        + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration",
+                        + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration,"
+                        + "org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration,"
+                        + "org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration,"
+                        + "org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration",
                 "bootui.show-banner=false",
                 "bootui.overrides-file=target/bootui-test-overrides.properties"
         })

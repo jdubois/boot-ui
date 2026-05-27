@@ -59,6 +59,8 @@ test.describe('BootUI app shell', () => {
       { title: 'Scheduled Tasks',   heading: /Scheduled Tasks/ },
       { title: 'Data',              heading: /Spring Data repositories/ },
       { title: 'Cache',             heading: /Spring Cache/ },
+      { title: 'Traces',            heading: /^Traces/ },
+      { title: 'AI Usage',          heading: /AI Usage/ },
       { title: 'Security',          heading: /Spring Security/ },
       { title: 'Vulnerabilities',   heading: /^Vulnerabilities/ }
     ]
