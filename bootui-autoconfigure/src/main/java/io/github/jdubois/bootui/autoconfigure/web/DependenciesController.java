@@ -20,6 +20,8 @@ public class DependenciesController {
 
     private final VulnerabilityScanner vulnerabilityScanner;
 
+    private volatile DependenciesReport lastScanReport;
+
     @Autowired
     public DependenciesController(BootUiProperties properties) {
         this(properties, new DependencyCatalog(), new OsvVulnerabilityScanner(properties.getDependencies()));
@@ -34,6 +36,10 @@ public class DependenciesController {
 
     @GetMapping
     public DependenciesReport dependencies() {
+        DependenciesReport cached = this.lastScanReport;
+        if (cached != null) {
+            return cached;
+        }
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
         return OsvVulnerabilityScanner.report(properties.getDependencies().isOsvEnabled(), "NOT_SCANNED",
                 "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
@@ -43,11 +49,16 @@ public class DependenciesController {
     @PostMapping("/scan")
     public DependenciesReport scan() {
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
+        DependenciesReport report;
         if (!properties.getDependencies().isOsvEnabled()) {
-            return OsvVulnerabilityScanner.report(false, "DISABLED",
+            report = OsvVulnerabilityScanner.report(false, "DISABLED",
                     "OSV scanning is disabled. Set bootui.dependencies.osv-enabled=true to allow on-demand scans.",
                     null, 0, dependencies);
         }
-        return vulnerabilityScanner.scan(dependencies);
+        else {
+            report = vulnerabilityScanner.scan(dependencies);
+        }
+        this.lastScanReport = report;
+        return report;
     }
 }

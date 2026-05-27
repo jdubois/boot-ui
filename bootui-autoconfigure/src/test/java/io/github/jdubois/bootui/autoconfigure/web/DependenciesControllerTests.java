@@ -64,6 +64,24 @@ class DependenciesControllerTests {
                 .andExpect(jsonPath("$.dependencies[*].packageName", contains("org.example:sample")));
     }
 
+    @Test
+    void dependenciesReturnsLastScanReportAfterScan() throws Exception {
+        MockMvc mvc = standaloneSetup(new DependenciesController(
+                new BootUiProperties(),
+                () -> List.of(dependency("org.example", "sample", "1.0.0")),
+                dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "done", 1L, 1, dependencies)))
+                .build();
+
+        mvc.perform(post("/bootui/api/dependencies/scan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scan.status").value("SCANNED"));
+
+        mvc.perform(get("/bootui/api/dependencies"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scan.status").value("SCANNED"))
+                .andExpect(jsonPath("$.scan.message").value("done"));
+    }
+
     private static DependencyDto dependency(String groupId, String artifactId, String version) {
         String packageName = groupId + ":" + artifactId;
         return new DependencyDto(groupId, artifactId, version, packageName, "test", 0, "NONE", List.of());
