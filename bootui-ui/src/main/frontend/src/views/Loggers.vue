@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { apiFetch } from '../api.js'
 
 const data = ref(null)
 const filter = ref('')
@@ -19,7 +20,7 @@ const filtered = computed(() => {
 
 async function changeLevel(logger, level) {
   const body = level ? { level } : {}
-  const res = await fetch('api/loggers/' + encodeURIComponent(logger.name), {
+  const res = await apiFetch('api/loggers/' + encodeURIComponent(logger.name), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)

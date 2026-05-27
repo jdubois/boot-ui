@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { apiFetch } from '../api.js'
 
 const report = ref(null)
 const loading = ref(true)
@@ -147,7 +148,7 @@ async function restart(service) {
   actionMessage.value = null
   busyService.value = service.id
   try {
-    const res = await fetch(serviceActionUrl(service, 'restart'), { method: 'POST' })
+    const res = await apiFetch(serviceActionUrl(service, 'restart'), { method: 'POST' })
     if (!res.ok) throw new Error(await responseMessage(res))
     const result = await res.json()
     await load({ preserveActionMessage: true })

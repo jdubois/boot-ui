@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { apiFetch } from '../api.js'
 
 const report = ref(null)
 const loading = ref(true)
@@ -104,7 +105,7 @@ async function clearCaches(payload, busyKey) {
   busy.value = busyKey
   banner.value = null
   try {
-    const res = await fetch('api/cache/clear', {
+    const res = await apiFetch('api/cache/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
