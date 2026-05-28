@@ -11,12 +11,13 @@ import java.lang.reflect.Modifier;
 import java.net.URI;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.container.ContainerImageMetadata;
 import org.springframework.boot.autoconfigure.service.connection.ConnectionDetails;
@@ -46,9 +47,20 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
 
     private final SecretMasker masker = new SecretMasker();
 
-    private final Map<String, DevServiceDto> dockerComposeServices = new ConcurrentHashMap<>();
+    private final AtomicReference<ComposeSnapshot> dockerComposeSnapshot =
+            new AtomicReference<>(ComposeSnapshot.empty());
 
-    private volatile long dockerComposeSnapshotTimestamp;
+    private record ComposeSnapshot(Map<String, DevServiceDto> services, List<String> warnings, long timestamp) {
+
+        private ComposeSnapshot {
+            services = Collections.unmodifiableMap(new LinkedHashMap<>(services));
+            warnings = List.copyOf(warnings);
+        }
+
+        private static ComposeSnapshot empty() {
+            return new ComposeSnapshot(Map.of(), List.of(), 0);
+        }
+    }
 
     public DevServicesController(ConfigurableApplicationContext applicationContext, BootUiProperties properties) {
         this.applicationContext = applicationContext;
@@ -62,32 +74,35 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         }
         List<?> runningServices = invokeList(event, "getRunningServices");
         Map<String, DevServiceDto> snapshot = new LinkedHashMap<>();
+        Map<String, Integer> ids = new HashMap<>();
+        List<String> warnings = new ArrayList<>();
         for (Object runningService : runningServices) {
-            DevServiceDto dto = dockerComposeDto(runningService);
+            DevServiceDto dto = dockerComposeDto(runningService, ids, warnings);
             snapshot.put(dto.id(), dto);
         }
-        this.dockerComposeServices.clear();
-        this.dockerComposeServices.putAll(snapshot);
-        this.dockerComposeSnapshotTimestamp = System.currentTimeMillis();
+        this.dockerComposeSnapshot.set(new ComposeSnapshot(snapshot, warnings, System.currentTimeMillis()));
     }
 
     @GetMapping
     public DevServicesReport list() {
+        ComposeSnapshot composeSnapshot = this.dockerComposeSnapshot.get();
         Map<String, DevServiceDto> services = new LinkedHashMap<>();
-        this.dockerComposeServices.values().stream()
+        List<String> warnings = new ArrayList<>(composeSnapshot.warnings());
+        composeSnapshot.services().values().stream()
                 .sorted(Comparator.comparing(DevServiceDto::name))
                 .forEach(service -> services.put(service.id(), service));
-        discoverTestcontainers(services);
-        discoverConnectionDetails(services);
+        discoverTestcontainers(services, warnings);
+        discoverConnectionDetails(services, warnings);
         List<DevServiceDto> sorted = services.values().stream()
                 .sorted(Comparator.comparing(DevServiceDto::source).thenComparing(DevServiceDto::name))
                 .toList();
         return new DevServicesReport(
                 isPresent("org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent"),
                 isPresent("org.testcontainers.lifecycle.Startable"),
-                resolveSnapshotTimestamp(),
+                resolveSnapshotTimestamp(composeSnapshot),
                 sorted.size(),
-                sorted);
+                sorted,
+                List.copyOf(warnings));
     }
 
     @GetMapping("/{id}/logs")
@@ -140,14 +155,14 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         }
     }
 
-    private long resolveSnapshotTimestamp() {
-        if (this.dockerComposeSnapshotTimestamp > 0) {
-            return this.dockerComposeSnapshotTimestamp;
+    private long resolveSnapshotTimestamp(ComposeSnapshot composeSnapshot) {
+        if (composeSnapshot.timestamp() > 0) {
+            return composeSnapshot.timestamp();
         }
         return Instant.now().toEpochMilli();
     }
 
-    private void discoverTestcontainers(Map<String, DevServiceDto> services) {
+    private void discoverTestcontainers(Map<String, DevServiceDto> services, List<String> warnings) {
         if (!isPresent("org.testcontainers.lifecycle.Startable")) {
             return;
         }
@@ -157,8 +172,14 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
             if (type == null || !isTestcontainerType(type)) {
                 continue;
             }
+            String skipReason = inspectionSkipReason(beanFactory, beanName);
+            if (skipReason != null) {
+                warnings.add("Skipped Testcontainers bean '" + beanName + "' because " + skipReason + ".");
+                continue;
+            }
             Object bean = safeGetBean(beanFactory, beanName);
             if (bean == null) {
+                warnings.add("Skipped Testcontainers bean '" + beanName + "' because the bean could not be obtained.");
                 continue;
             }
             DevServiceDto dto = testcontainersDto(beanName, bean);
@@ -166,12 +187,19 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         }
     }
 
-    private void discoverConnectionDetails(Map<String, DevServiceDto> services) {
+    private void discoverConnectionDetails(Map<String, DevServiceDto> services, List<String> warnings) {
         ListableBeanFactory beanFactory = applicationContext.getBeanFactory();
         String[] names = beanFactory.getBeanNamesForType(ConnectionDetails.class, false, false);
         for (String beanName : names) {
+            String skipReason = inspectionSkipReason(beanFactory, beanName);
+            if (skipReason != null) {
+                warnings.add("Skipped service connection bean '" + beanName + "' because " + skipReason + ".");
+                continue;
+            }
             ConnectionDetails details = safeGetBean(beanFactory, beanName, ConnectionDetails.class);
             if (details == null) {
+                warnings.add(
+                        "Skipped service connection bean '" + beanName + "' because the bean could not be obtained.");
                 continue;
             }
             DevServiceDto dto = connectionDetailsDto(beanFactory, beanName, details);
@@ -179,16 +207,21 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         }
     }
 
-    private DevServiceDto dockerComposeDto(Object runningService) {
+    private DevServiceDto dockerComposeDto(Object runningService, Map<String, Integer> ids, List<String> warnings) {
         String name = stringValue(invoke(runningService, "name"));
         String image = stringValue(invoke(runningService, "image"));
+        if (name == null || name.isBlank()) {
+            name = firstNonBlank(image, "service");
+            warnings.add("Docker Compose reported a service without a name; BootUI displayed it as '" + name + "'.");
+        }
         String host = stringValue(invoke(runningService, "host"));
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("snapshot", "Captured when Spring Boot reported Docker Compose services ready");
         Map<?, ?> labels = asMap(invoke(runningService, "labels"));
         String type = inferType(name, image, labels);
+        String id = uniqueId("compose:" + slug(name), ids, warnings);
         return new DevServiceDto(
-                "compose:" + slug(name),
+                id,
                 name,
                 type,
                 "Docker Compose",
@@ -347,7 +380,7 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
 
     private Object findBeanBackedService(String id) {
         if (id == null || !id.startsWith("bean:")) {
-            if (this.dockerComposeServices.containsKey(id)) {
+            if (this.dockerComposeSnapshot.get().services().containsKey(id)) {
                 throw new ResponseStatusException(
                         HttpStatus.CONFLICT,
                         "Docker Compose services are snapshots and cannot be controlled by BootUI");
@@ -355,7 +388,17 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found");
         }
         String beanName = id.substring("bean:".length());
-        Object bean = safeGetBean(applicationContext.getBeanFactory(), beanName);
+        ListableBeanFactory beanFactory = applicationContext.getBeanFactory();
+        Class<?> type = safeGetType(beanFactory, beanName);
+        if (type == null || !isTestcontainerType(type)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found");
+        }
+        String skipReason = inspectionSkipReason(beanFactory, beanName);
+        if (skipReason != null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "Service cannot be inspected because " + skipReason + ".");
+        }
+        Object bean = safeGetBean(beanFactory, beanName);
         if (bean == null || !isTestcontainerType(bean.getClass())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found");
         }
@@ -460,6 +503,16 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         return normalized.isBlank() ? "service" : normalized;
     }
 
+    private String uniqueId(String baseId, Map<String, Integer> ids, List<String> warnings) {
+        int count = ids.merge(baseId, 1, Integer::sum);
+        if (count == 1) {
+            return baseId;
+        }
+        String id = baseId + "-" + count;
+        warnings.add("Docker Compose reported duplicate service id '" + baseId + "'; BootUI kept it as '" + id + "'.");
+        return id;
+    }
+
     private void addIfPresent(Map<String, Object> details, String key, Object value) {
         if (value != null) {
             details.put(key, value);
@@ -497,6 +550,40 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
             return beanFactory.getType(beanName, false);
         } catch (BeansException ex) {
             return null;
+        }
+    }
+
+    private String inspectionSkipReason(ListableBeanFactory beanFactory, String beanName) {
+        if (!(beanFactory instanceof ConfigurableListableBeanFactory configurableBeanFactory)) {
+            return null;
+        }
+        if (configurableBeanFactory.containsSingleton(beanName)) {
+            return null;
+        }
+        try {
+            BeanDefinition beanDefinition = configurableBeanFactory.getBeanDefinition(beanName);
+            if (beanDefinition.isAbstract()) {
+                return "it is an abstract bean definition";
+            }
+            if (!beanDefinition.isSingleton()) {
+                return beanDefinition.isPrototype() ? "it is a prototype bean" : "it is not a singleton bean";
+            }
+            if (beanDefinition.isLazyInit()) {
+                return "inspecting it would initialize a lazy bean";
+            }
+            return "it has not been initialized yet";
+        } catch (NoSuchBeanDefinitionException ex) {
+            return safeIsSingleton(beanFactory, beanName)
+                    ? "it has not been initialized yet"
+                    : "it is not a singleton bean";
+        }
+    }
+
+    private boolean safeIsSingleton(ListableBeanFactory beanFactory, String beanName) {
+        try {
+            return beanFactory.isSingleton(beanName);
+        } catch (BeansException ex) {
+            return false;
         }
     }
 

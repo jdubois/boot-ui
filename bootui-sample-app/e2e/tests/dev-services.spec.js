@@ -6,6 +6,7 @@ const devServicesReport = {
   testcontainersPresent: true,
   snapshotTimestamp: Date.now(),
   total: 2,
+  warnings: [],
   services: [
     {
       id: 'compose:postgres',
@@ -150,5 +151,24 @@ test.describe('Dev Services view', () => {
     await redisRow.getByRole('button', {name: 'Restart'}).click()
     await expect(page.locator('.alert-success')).toContainText('Service restarted')
     await expect.poll(async () => restartCalled).toBe(true)
+  })
+
+  test('shows safe-inspection warnings from the report', async ({page}) => {
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dev-services',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...devServicesReport,
+            warnings: ["Skipped Testcontainers bean 'lazyRedis' because inspecting it would initialize a lazy bean."]
+          })
+        })
+      }
+    )
+
+    await page.goto('/bootui/#/dev-services')
+    await expect(page.locator('.alert-warning')).toContainText('Some services were skipped')
+    await expect(page.locator('.alert-warning')).toContainText('lazyRedis')
   })
 })
