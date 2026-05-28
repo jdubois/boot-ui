@@ -134,7 +134,7 @@ The harden-all-visible-panels alpha test expansion is complete. Coverage now inc
     against the full metadata catalog as the user types.
 
 Future backend test work should be incremental and tied to new or changed behavior, especially remaining v0.2
-candidates such as optional UI gating and server-side filtering or pagination if payload-size bottlenecks show up.
+candidates such as server-side filtering or pagination if payload-size bottlenecks show up.
 
 ### 4.2 UI and product parity status
 
@@ -172,6 +172,11 @@ update the router, README feature table, `docs/FEATURES.md`, and Playwright cove
 The first v0.2 large-app pass is complete for the most obvious browser-rendering hotspots: Beans, Conditions, Mappings,
 Configuration, and Loggers progressively render large filtered result sets, while search/filter controls continue to
 operate over all received data.
+
+Optional UI gating is complete for the visible route set (v0.2, 2026-05-28). `/bootui/api/panels` reports classpath,
+endpoint, and configuration availability for each sidebar route. The Vue shell keeps routes visible, dims unavailable
+links, exposes the reason through accessible labels/tooltips, and shows a page-level unavailable-state banner when a
+dimmed panel is opened.
 
 ### 4.3 User-facing documentation status
 
@@ -327,7 +332,9 @@ Potential features:
 - ~~Dev Services hardening for Docker Compose/Testcontainers edge cases.~~ Done (2026-05-28, PR #88).
 - ~~Large-app edge-case hardening for current panels as real-world usage reveals gaps.~~ Done (2026-05-28): the first
   pass protects high-cardinality browser lists with progressive rendering and a bounded Configuration metadata datalist.
-- Optional UI gating based on classpath/endpoint availability so irrelevant panels can be hidden or clearly disabled.
+- ~~Optional UI gating based on classpath/endpoint availability so irrelevant panels can be hidden or clearly disabled.~~
+  Done (2026-05-28): the panel availability API drives sidebar dimming, accessible unavailable labels/tooltips, and an
+  active-panel reason banner while keeping routes navigable.
 - Frontend test setup if the project decides to add Vitest or another UI test runner.
 - Server-side filtering or pagination for Actuator-backed APIs if real-world large apps expose response-size bottlenecks
   that browser-side progressive rendering cannot solve.
@@ -427,8 +434,10 @@ endpoint, `AdditionalMissingActuatorEndpointsTests`, `ConfigControllerHttpCrudTe
 for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, Memory, and OTLP trace ingestion.
 
 Dev Services edge-case hardening (first v0.2 item) was completed on 2026-05-28 (PR #88). Large-app browser-rendering
-hardening was completed next for high-cardinality lists. The remaining v0.2 candidates are optional UI gating, frontend
-test setup, and server-side filtering or pagination if payload-size bottlenecks show up in real-world apps.
+hardening was completed next for high-cardinality lists. Optional UI gating was completed after that with the
+`/bootui/api/panels` availability report, sidebar dimming, accessible unavailable labels/tooltips, and an active-panel
+reason banner. The remaining v0.2 candidates are frontend test setup and server-side filtering or pagination if
+payload-size bottlenecks show up in real-world apps.
 
 User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and
 `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript
@@ -438,8 +447,8 @@ Vue 3 frontend, and the full visible panel set. The repository now ships a `CHAN
 On 2026-05-28, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
 current branch. The Playwright run covered all 57 sample-app browser tests.
 
-The next workstream continues v0.2 with the remaining candidates in §6. Keep release validation and docs in sync as
-changes land.
+The next workstream continues v0.2 with the remaining candidates in §6: frontend test setup and server-side filtering or
+pagination if payload-size bottlenecks show up. Keep release validation and docs in sync as changes land.
 
 ## 10. Validation checklist
 
