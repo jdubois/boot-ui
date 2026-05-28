@@ -78,8 +78,8 @@ test.describe('Copilot panel', () => {
     await expect(
       page.locator('.metric-card', {hasText: 'Sanitized events'}).getByText('42', {exact: true})
     ).toBeVisible()
-    await expect(page.getByText('apply_patch')).toBeVisible()
-    await expect(page.getByText('FILE_EDIT')).toBeVisible()
+    await expect(page.getByRole('heading', {name: 'Top tools'}).locator('..').getByText('apply_patch')).toBeVisible()
+    await expect(page.getByRole('heading', {name: 'Event mix'}).locator('..').getByText('FILE_EDIT')).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Session explorer'})).toBeVisible()
   })
 })
