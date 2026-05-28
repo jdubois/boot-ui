@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.service.connection.ConnectionDetails;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.test.web.servlet.MockMvc;
@@ -183,6 +185,115 @@ class DevServicesControllerTests {
     }
 
     @Test
+    void listSkipsPrototypeScopedTestcontainerWithWarning() throws Exception {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean(
+                "protoTestcontainer",
+                FakeTestcontainer.class,
+                definition -> definition.setScope(BeanDefinition.SCOPE_PROTOTYPE));
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.warnings[0]").value(containsString("protoTestcontainer")))
+                .andExpect(jsonPath("$.warnings[0]").value(containsString("prototype bean")));
+
+        context.close();
+    }
+
+    @Test
+    void listSilentlySkipsAbstractBeanDefinition() throws Exception {
+        // Abstract bean definitions are excluded from Testcontainers discovery because
+        // safeGetType returns null for them (Spring cannot predict the type without
+        // instantiation). They are silently ignored rather than generating a warning.
+        GenericApplicationContext context = new GenericApplicationContext();
+        RootBeanDefinition def = new RootBeanDefinition(FakeTestcontainer.class);
+        def.setAbstract(true);
+        context.registerBeanDefinition("abstractTestcontainer", def);
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.warnings").isEmpty());
+
+        context.close();
+    }
+
+    @Test
+    void listShowsStoppedTestcontainerStatusAsSTOPPED() throws Exception {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("stoppedPostgresTestcontainer", StoppedFakeTestcontainer.class);
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.services[0].id").value("bean:stoppedPostgresTestcontainer"))
+                .andExpect(jsonPath("$.services[0].status").value("STOPPED"));
+
+        context.close();
+    }
+
+    @Test
+    void logsReturnsEmptyStringWhenGetLogsReturnsNull() throws Exception {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("nullLogsTestcontainer", NullLogsFakeTestcontainer.class);
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services/bean:nullLogsTestcontainer/logs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.logs").value(""))
+                .andExpect(jsonPath("$.truncated").value(false));
+
+        context.close();
+    }
+
+    @Test
+    void restartReturns500WhenStopThrows() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getDevServices().setRestartEnabled(true);
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("failingTestcontainer", ThrowingStopFakeTestcontainer.class);
+        context.refresh();
+        MockMvc mvc =
+                standaloneSetup(new DevServicesController(context, properties)).build();
+
+        mvc.perform(post("/bootui/api/dev-services/bean:failingTestcontainer/restart"))
+                .andExpect(status().isInternalServerError());
+
+        context.close();
+    }
+
+    @Test
+    void listHidesConnectionDetailsValuesUnderMetadataOnlyExposure() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        properties.setExposeValues(ValueExposure.METADATA_ONLY);
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("postgresConnectionDetails", SampleConnectionDetails.class);
+        context.refresh();
+        MockMvc mvc =
+                standaloneSetup(new DevServicesController(context, properties)).build();
+
+        mvc.perform(get("/bootui/api/dev-services"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl").value((Object) null))
+                .andExpect(jsonPath("$.services[0].connectionDetails.password").value((Object) null));
+
+        context.close();
+    }
+
+    @Test
     void dockerComposeDuplicateNamesReceiveUniqueIds() throws Exception {
         DevServicesController controller =
                 new DevServicesController(new GenericApplicationContext(), new BootUiProperties());
@@ -303,6 +414,41 @@ class DevServicesControllerTests {
 
         public String getLogs() {
             return "lazy logs";
+        }
+    }
+
+    static class StoppedFakeTestcontainer extends FakeTestcontainer {
+
+        @Override
+        public boolean isRunning() {
+            return false;
+        }
+    }
+
+    static class NullLogsFakeTestcontainer {
+
+        public String getDockerImageName() {
+            return "postgres:16";
+        }
+
+        public String getContainerName() {
+            return "postgres";
+        }
+
+        public boolean isRunning() {
+            return true;
+        }
+
+        public String getLogs() {
+            return null;
+        }
+    }
+
+    static class ThrowingStopFakeTestcontainer extends FakeTestcontainer {
+
+        @Override
+        public void stop() {
+            throw new RuntimeException("Docker daemon unreachable");
         }
     }
 

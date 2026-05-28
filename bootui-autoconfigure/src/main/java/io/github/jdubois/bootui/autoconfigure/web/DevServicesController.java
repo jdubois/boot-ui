@@ -151,7 +151,8 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
         } catch (IllegalAccessException | InvocationTargetException ex) {
             Throwable cause =
                     ex instanceof InvocationTargetException ite && ite.getCause() != null ? ite.getCause() : ex;
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, cause.getMessage(), cause);
+            String message = cause.getMessage() != null ? cause.getMessage() : "Failed to restart service";
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, message, cause);
         }
     }
 
