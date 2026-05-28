@@ -12,7 +12,9 @@ import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionSummary;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotTurn;
 import jakarta.annotation.PreDestroy;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,8 +43,8 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Scans, parses, and caches sanitized session-state files written by the local
- * Copilot CLI. Only allowlisted fields are surfaced to callers; the raw {@link JsonNode}
- * is retained in memory for the opt-in raw-reveal endpoint.
+ * Copilot CLI. Only allowlisted fields are surfaced to callers; JSONL raw events
+ * are read back from disk only for the opt-in raw-reveal endpoint.
  *
  * <p>This store is intentionally tolerant of unknown JSON shapes: when an expected
  * field is missing, the parser still produces a session summary and flags
@@ -57,6 +59,8 @@ import tools.jackson.databind.ObjectMapper;
 public class CopilotSessionStore {
 
     private static final Logger log = LoggerFactory.getLogger(CopilotSessionStore.class);
+
+    private static final String EVENTS_JSONL = "events.jsonl";
 
     /** Largest individual session-state file we will parse, in bytes. */
     private static final long MAX_FILE_BYTES = 32L * 1024 * 1024;
@@ -116,31 +120,9 @@ public class CopilotSessionStore {
             return 0;
         }
         Map<String, Boolean> seen = new HashMap<>();
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(sessionStateDir, "*.json")) {
-            for (Path file : stream) {
-                String id = sessionIdFor(file);
-                seen.put(id, Boolean.TRUE);
-                try {
-                    BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
-                    if (attrs.size() > MAX_FILE_BYTES) {
-                        log.warn(
-                                "BootUI Copilot: skipping {} ({} bytes exceeds {} byte limit)",
-                                file.getFileName(),
-                                attrs.size(),
-                                MAX_FILE_BYTES);
-                        continue;
-                    }
-                    long mtime = attrs.lastModifiedTime().toMillis();
-                    ParsedSession existing = sessions.get(id);
-                    if (existing != null && existing.fileSize == attrs.size() && existing.fileMtime == mtime) {
-                        continue;
-                    }
-                    JsonNode root = objectMapper.readTree(file.toFile());
-                    ParsedSession parsed = parse(id, file, root, attrs);
-                    sessions.put(id, parsed);
-                } catch (IOException ex) {
-                    log.debug("BootUI Copilot: failed to parse {}: {}", file, ex.toString());
-                }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(sessionStateDir)) {
+            for (Path entry : stream) {
+                scanEntry(entry, seen);
             }
         } catch (IOException ex) {
             log.warn("BootUI Copilot: failed to list {}: {}", sessionStateDir, ex.toString());
@@ -148,6 +130,63 @@ public class CopilotSessionStore {
         // remove sessions whose files have disappeared
         sessions.keySet().removeIf(id -> !seen.containsKey(id));
         return sessions.size();
+    }
+
+    private void scanEntry(Path entry, Map<String, Boolean> seen) {
+        if (Files.isSymbolicLink(entry)) {
+            return;
+        }
+        if (Files.isDirectory(entry)) {
+            Path eventsFile = entry.resolve(EVENTS_JSONL);
+            if (Files.isRegularFile(eventsFile)) {
+                scanJsonlSession(entry.getFileName().toString(), eventsFile, seen);
+            }
+            return;
+        }
+        String name = entry.getFileName().toString();
+        if (Files.isRegularFile(entry) && name.toLowerCase(Locale.ROOT).endsWith(".json")) {
+            scanLegacyJsonSession(sessionIdFor(entry), entry, seen);
+        }
+    }
+
+    private void scanLegacyJsonSession(String id, Path file, Map<String, Boolean> seen) {
+        seen.put(id, Boolean.TRUE);
+        try {
+            BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
+            if (attrs.size() > MAX_FILE_BYTES) {
+                log.warn(
+                        "BootUI Copilot: skipping {} ({} bytes exceeds {} byte limit)",
+                        file.getFileName(),
+                        attrs.size(),
+                        MAX_FILE_BYTES);
+                return;
+            }
+            long mtime = attrs.lastModifiedTime().toMillis();
+            ParsedSession existing = sessions.get(id);
+            if (existing != null && existing.fileSize == attrs.size() && existing.fileMtime == mtime) {
+                return;
+            }
+            JsonNode root = objectMapper.readTree(file.toFile());
+            ParsedSession parsed = parse(id, file, root, attrs);
+            sessions.put(id, parsed);
+        } catch (IOException ex) {
+            log.debug("BootUI Copilot: failed to parse {}: {}", file, ex.toString());
+        }
+    }
+
+    private void scanJsonlSession(String id, Path file, Map<String, Boolean> seen) {
+        seen.put(id, Boolean.TRUE);
+        try {
+            BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
+            long mtime = attrs.lastModifiedTime().toMillis();
+            ParsedSession existing = sessions.get(id);
+            if (existing != null && existing.fileSize == attrs.size() && existing.fileMtime == mtime) {
+                return;
+            }
+            sessions.put(id, parseJsonl(id, file, attrs));
+        } catch (IOException ex) {
+            log.debug("BootUI Copilot: failed to parse {}: {}", file, ex.toString());
+        }
     }
 
     /**
@@ -177,6 +216,7 @@ public class CopilotSessionStore {
 
     private void runWatcher() {
         long debounceMs = Math.max(50L, properties.getStreamDebounce().toMillis());
+        long lastPollRefresh = 0L;
         while (!stopped && !Thread.currentThread().isInterrupted()) {
             try {
                 if (!isDirectoryAvailable()) {
@@ -188,6 +228,12 @@ public class CopilotSessionStore {
                     while (!stopped && Files.isDirectory(sessionStateDir)) {
                         WatchKey key = ws.poll(2, TimeUnit.SECONDS);
                         if (key == null) {
+                            long now = System.currentTimeMillis();
+                            if (now - lastPollRefresh >= 5_000L) {
+                                refresh();
+                                notifyListeners();
+                                lastPollRefresh = now;
+                            }
                             continue;
                         }
                         // debounce: drain additional events before refreshing
@@ -202,6 +248,7 @@ public class CopilotSessionStore {
                         }
                         refresh();
                         notifyListeners();
+                        lastPollRefresh = System.currentTimeMillis();
                     }
                 }
             } catch (InterruptedException ie) {
@@ -315,10 +362,41 @@ public class CopilotSessionStore {
         if (ps == null) {
             return null;
         }
-        JsonNode node = ps.rawById.get(eventId);
-        if (node == null) {
+        RawEventReference reference = ps.rawById.get(eventId);
+        if (reference == null) {
             return null;
         }
+        if (reference instanceof JsonNodeRawEventReference jsonNodeReference) {
+            return jsonToString(jsonNodeReference.node());
+        }
+        if (reference instanceof JsonlLineRawEventReference jsonlReference) {
+            return readJsonlRawEvent(jsonlReference);
+        }
+        return null;
+    }
+
+    private String readJsonlRawEvent(JsonlLineRawEventReference reference) {
+        try (BufferedReader reader = Files.newBufferedReader(reference.file(), StandardCharsets.UTF_8)) {
+            String line;
+            int current = 0;
+            while ((line = reader.readLine()) != null) {
+                current++;
+                if (current == reference.lineNumber()) {
+                    JsonNode node = objectMapper.readTree(line);
+                    return jsonToString(node);
+                }
+            }
+        } catch (IOException ex) {
+            log.debug(
+                    "BootUI Copilot: failed to read raw event {}:{}: {}",
+                    reference.file(),
+                    reference.lineNumber(),
+                    ex.toString());
+        }
+        return null;
+    }
+
+    private String jsonToString(JsonNode node) {
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
         } catch (Exception ex) {
@@ -341,7 +419,7 @@ public class CopilotSessionStore {
 
         EventsExtraction extracted = extractEvents(root, properties.getMaxEventsPerSession());
         List<CopilotActivityEvent> events = extracted.events;
-        Map<String, JsonNode> rawById = extracted.rawById;
+        Map<String, RawEventReference> rawById = extracted.rawById;
         List<CopilotTurn> turns = extracted.turns;
 
         Map<String, Integer> byCategory = new LinkedHashMap<>();
@@ -381,6 +459,271 @@ public class CopilotSessionStore {
         return new ParsedSession(summary, counts, turns, events, rawById, attrs.size(), mtime);
     }
 
+    private ParsedSession parseJsonl(String id, Path file, BasicFileAttributes attrs) throws IOException {
+        int maxEvents = Math.max(1, properties.getMaxEventsPerSession());
+        long mtime = attrs.lastModifiedTime().toMillis();
+        List<CopilotActivityEvent> events = new ArrayList<>();
+        Map<String, RawEventReference> rawById = new LinkedHashMap<>();
+        Map<String, TurnAccumulator> turnAccumulators = new LinkedHashMap<>();
+        Map<String, Integer> byCategory = new LinkedHashMap<>();
+
+        String model = null;
+        String cwd = null;
+        String status = null;
+        Long startedAt = null;
+        Long updatedAt = null;
+        Long lastActivity = null;
+        String lastSummary = null;
+        int errors = 0;
+        int lineNumber = 0;
+        boolean schemaDrift = false;
+        boolean parsedAnyLine = false;
+
+        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                if (line.isBlank()) {
+                    continue;
+                }
+                JsonNode node;
+                try {
+                    node = objectMapper.readTree(line);
+                } catch (RuntimeException ex) {
+                    schemaDrift = true;
+                    log.debug("BootUI Copilot: failed to parse {} line {}: {}", file, lineNumber, ex.toString());
+                    continue;
+                }
+                parsedAnyLine = true;
+                JsonNode data = child(node, "data");
+                String type = stringField(node, "type", "kind", "event", "role");
+                Long timestamp = firstLong(
+                        longField(node, "timestamp", "ts", "created_at", "createdAt", "time"),
+                        longField(data, "timestamp", "ts", "created_at", "createdAt", "time", "startTime"));
+                if (timestamp != null) {
+                    if (startedAt == null || timestamp < startedAt) {
+                        startedAt = timestamp;
+                    }
+                    if (updatedAt == null || timestamp > updatedAt) {
+                        updatedAt = timestamp;
+                    }
+                }
+                JsonNode context = child(data, "context");
+                model = firstNonBlank(model, stringField(data, "model"), stringField(node, "model"));
+                cwd = firstNonBlank(cwd, stringField(context, "cwd"));
+                status = firstNonBlank(status, stringField(data, "status"), stringField(node, "status", "state"));
+
+                int turnIndex = turnIndexFor(turnAccumulators, data, type, timestamp);
+                updateTurn(turnAccumulators, data, type, timestamp);
+
+                CopilotActivityEvent event = jsonlActivityEvent(node, turnIndex, lineNumber);
+                if (event == null) {
+                    continue;
+                }
+                lastSummary = event.summary();
+                if (event.timestampEpochMillis() != null) {
+                    lastActivity = event.timestampEpochMillis();
+                }
+                if (Boolean.FALSE.equals(event.success())) {
+                    errors++;
+                }
+                byCategory.merge(event.category(), 1, Integer::sum);
+                retainEvent(events, rawById, event, new JsonlLineRawEventReference(file, lineNumber), maxEvents);
+            }
+        }
+
+        if (updatedAt == null) {
+            updatedAt = mtime;
+        }
+        byCategory.clear();
+        errors = 0;
+        lastActivity = null;
+        lastSummary = null;
+        for (CopilotActivityEvent event : events) {
+            byCategory.merge(event.category(), 1, Integer::sum);
+            if (Boolean.FALSE.equals(event.success())) {
+                errors++;
+            }
+            if (event.timestampEpochMillis() != null
+                    && (lastActivity == null || event.timestampEpochMillis() >= lastActivity)) {
+                lastActivity = event.timestampEpochMillis();
+                lastSummary = event.summary();
+            }
+        }
+        if (lastSummary == null && !events.isEmpty()) {
+            lastSummary = events.get(events.size() - 1).summary();
+        }
+
+        List<CopilotTurn> turns =
+                turnAccumulators.values().stream().map(TurnAccumulator::toTurn).toList();
+        CopilotInsightCounts counts = new CopilotInsightCounts(events.size(), byCategory, errors, lastActivity);
+        CopilotSessionSummary summary = new CopilotSessionSummary(
+                id,
+                file.getParent().getFileName() + "/" + file.getFileName(),
+                startedAt,
+                updatedAt,
+                model,
+                cwd,
+                status,
+                events.size(),
+                turns.size(),
+                errors,
+                lastSummary,
+                schemaDrift || !parsedAnyLine);
+        return new ParsedSession(summary, counts, turns, events, rawById, attrs.size(), mtime);
+    }
+
+    private static int turnIndexFor(
+            Map<String, TurnAccumulator> turnAccumulators, JsonNode data, String type, Long timestamp) {
+        String key = turnKey(data, type);
+        if (key == null) {
+            key = "__session";
+        }
+        TurnAccumulator accumulator = turnAccumulators.computeIfAbsent(
+                key, ignored -> new TurnAccumulator(turnAccumulators.size(), timestamp));
+        return accumulator.index;
+    }
+
+    private static void updateTurn(
+            Map<String, TurnAccumulator> turnAccumulators, JsonNode data, String type, Long timestamp) {
+        String key = turnKey(data, type);
+        if (key == null) {
+            key = "__session";
+        }
+        TurnAccumulator accumulator = turnAccumulators.computeIfAbsent(
+                key, ignored -> new TurnAccumulator(turnAccumulators.size(), timestamp));
+        if (timestamp != null) {
+            if (accumulator.startedAt == null || timestamp < accumulator.startedAt) {
+                accumulator.startedAt = timestamp;
+            }
+            if (accumulator.lastSeenAt == null || timestamp > accumulator.lastSeenAt) {
+                accumulator.lastSeenAt = timestamp;
+            }
+        }
+        accumulator.eventCount++;
+        if (accumulator.summary == null && type != null && !type.isBlank()) {
+            accumulator.summary = type;
+        }
+    }
+
+    private static String turnKey(JsonNode data, String type) {
+        String turnId = stringField(data, "turnId", "turn_id");
+        if (turnId != null) {
+            return turnId;
+        }
+        if (type != null && type.startsWith("assistant.turn")) {
+            return stringField(data, "id", "messageId");
+        }
+        return null;
+    }
+
+    private CopilotActivityEvent jsonlActivityEvent(JsonNode node, int turnIndex, int lineNumber) {
+        String type = stringField(node, "type", "kind", "event", "role");
+        if (isSensitiveMessageEvent(type)) {
+            return null;
+        }
+        JsonNode data = child(node, "data");
+        String tool = jsonlToolName(data);
+        if (type == null && tool == null) {
+            return null;
+        }
+        Long ts = firstLong(
+                longField(node, "timestamp", "ts", "created_at", "createdAt", "time"),
+                longField(data, "timestamp", "ts", "created_at", "createdAt", "time", "startTime"));
+        Boolean success = firstBoolean(booleanField(data, "success", "ok"), booleanField(node, "success", "ok"));
+        String status = firstNonBlank(stringField(data, "status"), stringField(node, "status"));
+        if (success == null && status != null) {
+            String lower = status.toLowerCase(Locale.ROOT);
+            if (lower.contains("error") || lower.contains("fail")) {
+                success = Boolean.FALSE;
+            } else if (lower.contains("ok") || lower.contains("success") || lower.contains("complete")) {
+                success = Boolean.TRUE;
+            }
+        }
+        String category = categorize(type, tool);
+        String summary = sanitizedJsonlSummary(type, tool, category, data);
+        String eventId = eventIdFor(node, lineNumber, turnIndex, tool);
+        return new CopilotActivityEvent(
+                eventId,
+                turnIndex,
+                ts,
+                truncate(type, 64),
+                truncate(tool, 96),
+                category,
+                truncate(summary, 240),
+                success);
+    }
+
+    private static boolean isSensitiveMessageEvent(String type) {
+        if (type == null) {
+            return false;
+        }
+        String normalized = type.toLowerCase(Locale.ROOT);
+        return normalized.equals("user.message")
+                || normalized.equals("assistant.message")
+                || normalized.equals("system.message");
+    }
+
+    private static String jsonlToolName(JsonNode data) {
+        String tool = stringField(data, "toolName", "tool_name", "name");
+        if (tool != null) {
+            return tool;
+        }
+        JsonNode input = child(data, "input");
+        tool = stringField(input, "toolName", "tool_name", "name");
+        if (tool != null) {
+            return tool;
+        }
+        JsonNode toolRequests = child(data, "toolRequests");
+        if (toolRequests != null && toolRequests.isArray() && toolRequests.size() > 0) {
+            return stringField(toolRequests.get(0), "name", "toolName", "tool_name");
+        }
+        return null;
+    }
+
+    private static String sanitizedJsonlSummary(String type, String tool, String category, JsonNode data) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(category).append(" · ").append(tool != null ? tool : type != null ? type : "event");
+        String extension = firstNonBlank(
+                stringField(child(child(data, "toolTelemetry"), "properties"), "fileExtension"),
+                stringField(
+                        child(child(child(child(data, "input"), "toolResult"), "toolTelemetry"), "properties"),
+                        "fileExtension"));
+        if (extension != null) {
+            sb.append(" · *.").append(extension.replaceFirst("^\\.", ""));
+        }
+        return sb.toString();
+    }
+
+    private static String eventIdFor(JsonNode node, int lineNumber, int turnIndex, String tool) {
+        String id = stringField(node, "id", "eventId", "messageId");
+        if (id != null) {
+            return id;
+        }
+        return "l" + lineNumber + "-t" + turnIndex + "-" + safeIdSuffix(tool);
+    }
+
+    private static String safeIdSuffix(String value) {
+        if (value == null || value.isBlank()) {
+            return "event";
+        }
+        return truncate(value.replaceAll("[^A-Za-z0-9_.-]", "_"), 48);
+    }
+
+    private static void retainEvent(
+            List<CopilotActivityEvent> events,
+            Map<String, RawEventReference> rawById,
+            CopilotActivityEvent event,
+            RawEventReference rawEventReference,
+            int maxEvents) {
+        if (events.size() >= maxEvents) {
+            CopilotActivityEvent evicted = events.remove(0);
+            rawById.remove(evicted.id());
+        }
+        events.add(event);
+        rawById.put(event.id(), rawEventReference);
+    }
+
     private static String sessionIdFor(Path file) {
         String name = file.getFileName().toString();
         if (name.toLowerCase(Locale.ROOT).endsWith(".json")) {
@@ -400,6 +743,41 @@ public class CopilotSessionStore {
                 if (s != null && !s.isBlank()) {
                     return s;
                 }
+            }
+        }
+        return null;
+    }
+
+    private static JsonNode child(JsonNode node, String name) {
+        if (node == null) {
+            return null;
+        }
+        JsonNode child = node.get(name);
+        return child == null || child.isNull() ? null : child;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static Long firstLong(Long... values) {
+        for (Long value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static Boolean firstBoolean(Boolean... values) {
+        for (Boolean value : values) {
+            if (value != null) {
+                return value;
             }
         }
         return null;
@@ -460,7 +838,7 @@ public class CopilotSessionStore {
     /** Extract sanitized events from common Copilot session-state shapes. */
     private EventsExtraction extractEvents(JsonNode root, int maxEvents) {
         List<CopilotActivityEvent> out = new ArrayList<>();
-        Map<String, JsonNode> rawById = new LinkedHashMap<>();
+        Map<String, RawEventReference> rawById = new LinkedHashMap<>();
         List<CopilotTurn> turns = new ArrayList<>();
         boolean schemaDrift = false;
 
@@ -524,7 +902,7 @@ public class CopilotSessionStore {
 
     private void addEvent(
             List<CopilotActivityEvent> out,
-            Map<String, JsonNode> rawById,
+            Map<String, RawEventReference> rawById,
             JsonNode node,
             int turnIndex,
             int indexInTurn) {
@@ -555,7 +933,7 @@ public class CopilotSessionStore {
         CopilotActivityEvent event = new CopilotActivityEvent(
                 id, turnIndex, ts, truncate(type, 64), truncate(tool, 96), category, truncate(summary, 240), success);
         out.add(event);
-        rawById.put(id, node);
+        rawById.put(id, new JsonNodeRawEventReference(node));
     }
 
     private static JsonNode firstArray(JsonNode parent, String... names) {
@@ -723,7 +1101,7 @@ public class CopilotSessionStore {
         final CopilotInsightCounts counts;
         final List<CopilotTurn> turns;
         final List<CopilotActivityEvent> events;
-        final Map<String, JsonNode> rawById;
+        final Map<String, RawEventReference> rawById;
         final long fileSize;
         final long fileMtime;
 
@@ -732,7 +1110,7 @@ public class CopilotSessionStore {
                 CopilotInsightCounts counts,
                 List<CopilotTurn> turns,
                 List<CopilotActivityEvent> events,
-                Map<String, JsonNode> rawById,
+                Map<String, RawEventReference> rawById,
                 long fileSize,
                 long fileMtime) {
             this.summary = Objects.requireNonNull(summary);
@@ -747,19 +1125,45 @@ public class CopilotSessionStore {
 
     private static final class EventsExtraction {
         final List<CopilotActivityEvent> events;
-        final Map<String, JsonNode> rawById;
+        final Map<String, RawEventReference> rawById;
         final List<CopilotTurn> turns;
         final boolean schemaDrift;
 
         EventsExtraction(
                 List<CopilotActivityEvent> events,
-                Map<String, JsonNode> rawById,
+                Map<String, RawEventReference> rawById,
                 List<CopilotTurn> turns,
                 boolean schemaDrift) {
             this.events = events;
             this.rawById = rawById;
             this.turns = turns;
             this.schemaDrift = schemaDrift;
+        }
+    }
+
+    private interface RawEventReference {}
+
+    private record JsonNodeRawEventReference(JsonNode node) implements RawEventReference {}
+
+    private record JsonlLineRawEventReference(Path file, int lineNumber) implements RawEventReference {}
+
+    private static final class TurnAccumulator {
+        final int index;
+        Long startedAt;
+        Long lastSeenAt;
+        String summary;
+        int eventCount;
+
+        TurnAccumulator(int index, Long startedAt) {
+            this.index = index;
+            this.startedAt = startedAt;
+            this.lastSeenAt = startedAt;
+        }
+
+        CopilotTurn toTurn() {
+            Long duration =
+                    startedAt != null && lastSeenAt != null && lastSeenAt >= startedAt ? lastSeenAt - startedAt : null;
+            return new CopilotTurn(index, startedAt, duration, summary, eventCount);
         }
     }
 

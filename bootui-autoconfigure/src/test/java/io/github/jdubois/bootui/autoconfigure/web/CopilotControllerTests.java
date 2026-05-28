@@ -78,6 +78,40 @@ class CopilotControllerTests {
     }
 
     @Test
+    void sessionsListsJsonlSessionDirectoriesWithSanitizedEvents(@TempDir Path tempDir) throws Exception {
+        Path sessionDir = tempDir.resolve("session-1");
+        Files.createDirectories(sessionDir);
+        Files.writeString(sessionDir.resolve("events.jsonl"), """
+                {"id":"e1","type":"session.start","timestamp":"2026-05-28T07:00:00Z","data":{"model":"gpt-5.5","context":{"cwd":"/work/project","repository":"jdubois/boot-ui","branch":"main"}}}
+                {"id":"e2","type":"user.message","timestamp":"2026-05-28T07:00:01Z","data":{"content":"secret prompt","transformedContent":"secret transformed prompt"}}
+                {"id":"e3","type":"tool.execution_start","timestamp":"2026-05-28T07:00:02Z","data":{"toolName":"apply_patch","success":true,"arguments":{"command":"do not expose this"}}}
+                {"id":"e4","type":"tool.execution_complete","timestamp":"2026-05-28T07:00:03Z","data":{"toolName":"apply_patch","success":false,"input":{"toolResult":{"textResultForLlm":"secret output"}}}}
+                """);
+        BootUiProperties props = propertiesFor(tempDir);
+        CopilotSessionStore store = storeFor(props);
+        MockMvc mvc = standaloneSetup(new CopilotController(store, props)).build();
+
+        mvc.perform(get("/bootui/api/copilot/sessions").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.sessions[0].id").value("session-1"))
+                .andExpect(jsonPath("$.sessions[0].filename").value("session-1/events.jsonl"))
+                .andExpect(jsonPath("$.sessions[0].model").value("gpt-5.5"))
+                .andExpect(jsonPath("$.sessions[0].workingDirectory").value("/work/project"))
+                .andExpect(jsonPath("$.sessions[0].eventCount").value(3))
+                .andExpect(jsonPath("$.sessions[0].errorCount").value(1));
+
+        CopilotSessionDetail detail = store.getSession("session-1");
+        assertThat(detail.recentEvents()).extracting(CopilotActivityEvent::type).doesNotContain("user.message");
+        assertThat(detail.recentEvents().toString())
+                .doesNotContain("secret prompt")
+                .doesNotContain("secret transformed prompt")
+                .doesNotContain("secret output")
+                .doesNotContain("do not expose this");
+    }
+
+    @Test
     void sessionDetailFlagsSchemaDriftForUnknownShape(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("weird.json"), "{\"hello\":\"world\"}");
         BootUiProperties props = propertiesFor(tempDir);
@@ -156,6 +190,28 @@ class CopilotControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sessionId").value("s1"))
                 .andExpect(jsonPath("$.json").exists());
+    }
+
+    @Test
+    void rawRevealReturnsSingleJsonlEventWhenEnabled(@TempDir Path tempDir) throws Exception {
+        Path sessionDir = tempDir.resolve("s1");
+        Files.createDirectories(sessionDir);
+        Files.writeString(sessionDir.resolve("events.jsonl"), """
+                {"id":"e1","type":"session.start","timestamp":1,"data":{"model":"gpt-5.5"}}
+                {"id":"e2","type":"tool.execution_start","timestamp":2,"data":{"toolName":"apply_patch","success":true}}
+                """);
+        BootUiProperties props = propertiesFor(tempDir);
+        CopilotSessionStore store = storeFor(props);
+
+        MockMvc mvc = standaloneSetup(new CopilotController(store, props)).build();
+        String response = mvc.perform(
+                        get("/bootui/api/copilot/sessions/s1/events/e2/raw").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value("s1"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertThat(response).contains("apply_patch").doesNotContain("session.start");
     }
 
     @Test

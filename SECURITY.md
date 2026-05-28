@@ -49,10 +49,11 @@ In-scope security issues include:
 
 ## Copilot panel local file read
 
-When enabled, the Copilot panel reads JSON session-state files from
+When enabled, the Copilot panel reads Copilot CLI session directories from
 `~/.copilot/session-state/` (or the path configured via
-`bootui.copilot.session-state-dir`). The data flow is local-only and
-**read-only** - BootUI never writes to or deletes from that directory.
+`bootui.copilot.session-state-dir`), including each session's
+`events.jsonl` file. The data flow is local-only and **read-only** - BootUI
+never writes to or deletes from that directory.
 
 The default `/bootui/api/copilot/**` payloads contain only allowlisted,
 sanitized fields: event type, tool name, category, timestamp, success

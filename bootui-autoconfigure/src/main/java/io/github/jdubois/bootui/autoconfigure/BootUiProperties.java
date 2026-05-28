@@ -483,8 +483,9 @@ public class BootUiProperties {
      * Copilot panel settings.
      *
      * <p>The Copilot panel reads sanitized session state written by the local
-     * Copilot CLI under {@code ~/.copilot/session-state/}. It is read-only and
-     * never modifies anything under that directory.</p>
+     * Copilot CLI under {@code ~/.copilot/session-state/}, including per-session
+     * {@code events.jsonl} files. It is read-only and never modifies anything
+     * under that directory.</p>
      */
     public static class Copilot {
 
@@ -494,7 +495,7 @@ public class BootUiProperties {
         private Mode enabled = Mode.AUTO;
 
         /**
-         * Override the directory scanned for Copilot CLI session-state JSON files.
+         * Override the directory scanned for Copilot CLI session-state directories.
          * When {@code null}, defaults to {@code ${user.home}/.copilot/session-state}.
          */
         private String sessionStateDir;
