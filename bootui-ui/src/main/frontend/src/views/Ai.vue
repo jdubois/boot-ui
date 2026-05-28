@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
 
@@ -10,6 +10,49 @@ const loading = ref(true)
 const error = ref(null)
 const selectedSpanId = ref(null)
 const detailLoading = ref(false)
+const lastUpdated = ref(null)
+const autoRefresh = ref(true)
+let refreshInterval = null
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  if (autoRefresh.value) {
+    refreshInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') load()
+    }, 10000)
+  }
+}
+
+function stopAutoRefresh() {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+    refreshInterval = null
+  }
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible' && autoRefresh.value) {
+    load()
+  }
+}
+
+function onAutoRefreshChange() {
+  if (autoRefresh.value) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+const isStale = computed(() => {
+  if (autoRefresh.value || !lastUpdated.value) return false
+  return Date.now() - lastUpdated.value > 30_000
+})
+
+const lastUpdatedText = computed(() => {
+  if (!lastUpdated.value) return null
+  return formatRelative(lastUpdated.value)
+})
 
 async function load() {
   loading.value = true
@@ -24,11 +67,56 @@ async function load() {
     if (tsRes.ok) {
       series.value = await tsRes.json()
     }
+    lastUpdated.value = Date.now()
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
+}
+
+function exportCsv() {
+  const rows = filteredChats.value
+  const headers = [
+    'started',
+    'provider',
+    'model',
+    'inputTokens',
+    'outputTokens',
+    'totalTokens',
+    'durationMs',
+    'status',
+    'finishReason',
+    'traceId',
+    'spanId'
+  ]
+  const lines = [
+    headers.join(','),
+    ...rows.map((c) =>
+      [
+        c.startEpochNanos ? new Date(Math.floor(c.startEpochNanos / 1_000_000)).toISOString() : '',
+        c.provider || '',
+        c.requestModel || '',
+        c.inputTokens ?? '',
+        c.outputTokens ?? '',
+        c.totalTokens ?? '',
+        c.durationNanos != null ? (c.durationNanos / 1_000_000).toFixed(2) : '',
+        c.statusCode || '',
+        c.finishReason || '',
+        c.traceId || '',
+        c.spanId || ''
+      ]
+        .map((v) => JSON.stringify(String(v)))
+        .join(',')
+    )
+  ]
+  const blob = new Blob([lines.join('\n')], {type: 'text/csv'})
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'ai-chats.csv'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 async function openChat(spanId) {
@@ -338,7 +426,16 @@ const errorRate = computed(() => {
 
 const hasAnyData = computed(() => overview.value && overview.value.totalChats > 0)
 
-onMounted(load)
+onMounted(() => {
+  load()
+  startAutoRefresh()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 </script>
 
 <template>
@@ -352,13 +449,37 @@ onMounted(load)
           <span v-if="!overview.enabled" class="badge text-bg-warning me-1">Telemetry disabled</span>
         </div>
       </div>
-      <button :disabled="loading" class="btn btn-sm btn-outline-secondary" @click="load">
-        <i class="bi bi-arrow-clockwise"></i> Refresh
-      </button>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span v-if="lastUpdatedText" class="text-muted small">Updated {{ lastUpdatedText }}</span>
+        <span v-if="isStale" class="badge text-bg-warning">Data may be stale</span>
+        <div class="form-check form-switch mb-0">
+          <input
+            id="autoRefreshToggle"
+            v-model="autoRefresh"
+            class="form-check-input"
+            type="checkbox"
+            @change="onAutoRefreshChange"
+          />
+          <label class="form-check-label small" for="autoRefreshToggle">Auto-refresh</label>
+        </div>
+        <button v-if="overview && hasAnyData" class="btn btn-sm btn-outline-secondary" @click="exportCsv">
+          <i class="bi bi-download"></i> Export CSV
+        </button>
+        <button :disabled="loading" class="btn btn-sm btn-outline-secondary" @click="load">
+          <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="text-muted">Loading AI usage…</div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <div v-else-if="error" class="alert alert-warning">
+      <div class="fw-semibold">Could not load AI usage data</div>
+      <details class="mt-1">
+        <summary class="small">Details</summary>
+        <code class="small">{{ error }}</code>
+      </details>
+      <button class="btn btn-sm btn-outline-secondary mt-2" @click="load">Retry</button>
+    </div>
 
     <template v-else-if="overview">
       <div v-if="overview.contentBanner" class="alert alert-info small">
