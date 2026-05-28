@@ -58,14 +58,37 @@ function closeDrawer() {
   detail.value = null
 }
 
-const tokensByModelEntries = computed(() => {
-  if (!overview.value || !overview.value.tokensByModel) return []
-  return Object.entries(overview.value.tokensByModel).sort((a, b) => b[1] - a[1])
-})
+const byModelSort = ref('totalTokens')
+const byModelSortDir = ref('desc')
 
-const callsByModelEntries = computed(() => {
-  if (!overview.value || !overview.value.callsByModel) return []
-  return Object.entries(overview.value.callsByModel).sort((a, b) => b[1] - a[1])
+function sortByModel(col) {
+  if (byModelSort.value === col) {
+    byModelSortDir.value = byModelSortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    byModelSort.value = col
+    byModelSortDir.value = 'desc'
+  }
+}
+
+const byModel = computed(() => {
+  if (!overview.value) return []
+  const tokens = overview.value.tokensByModel || {}
+  const calls = overview.value.callsByModel || {}
+  const allModels = new Set([...Object.keys(tokens), ...Object.keys(calls)])
+  const rows = Array.from(allModels).map((model) => {
+    const totalTokens = tokens[model] || 0
+    const c = calls[model] || 0
+    return {model, calls: c, totalTokens, avgTokens: c > 0 ? Math.round(totalTokens / c) : 0}
+  })
+  const maxTokens = rows.reduce((m, r) => Math.max(m, r.totalTokens), 1)
+  const col = byModelSort.value
+  const dir = byModelSortDir.value === 'asc' ? 1 : -1
+  rows.sort((a, b) => {
+    const av = a[col] ?? 0
+    const bv = b[col] ?? 0
+    return typeof av === 'string' ? av.localeCompare(bv) * dir : (av - bv) * dir
+  })
+  return rows.map((r) => ({...r, pct: Math.round((r.totalTokens / maxTokens) * 100)}))
 })
 
 const windowMinutes = ref(60)
@@ -350,39 +373,73 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="row g-3 mb-3">
-          <div class="col-md-6">
-            <div class="card h-100">
-              <div class="card-body">
-                <h6>Tokens by model</h6>
-                <table class="table table-sm mb-0">
-                  <tbody>
-                    <tr v-for="[model, tokens] in tokensByModelEntries" :key="model">
-                      <td>
-                        <code>{{ model }}</code>
-                      </td>
-                      <td class="text-end">{{ formatNumber(tokens) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <div class="card h-100">
-              <div class="card-body">
-                <h6>Calls by model</h6>
-                <table class="table table-sm mb-0">
-                  <tbody>
-                    <tr v-for="[model, calls] in callsByModelEntries" :key="model">
-                      <td>
-                        <code>{{ model }}</code>
-                      </td>
-                      <td class="text-end">{{ formatNumber(calls) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+        <div class="card mb-3">
+          <div class="card-body">
+            <h6>Usage by model</h6>
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col" class="cursor-pointer user-select-none" @click="sortByModel('model')">
+                      Model
+                      <i
+                        v-if="byModelSort === 'model'"
+                        :class="byModelSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                        class="bi"
+                      ></i>
+                    </th>
+                    <th scope="col" class="text-end cursor-pointer user-select-none" @click="sortByModel('calls')">
+                      Calls
+                      <i
+                        v-if="byModelSort === 'calls'"
+                        :class="byModelSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                        class="bi"
+                      ></i>
+                    </th>
+                    <th
+                      scope="col"
+                      class="text-end cursor-pointer user-select-none"
+                      @click="sortByModel('totalTokens')"
+                    >
+                      Total tokens
+                      <i
+                        v-if="byModelSort === 'totalTokens'"
+                        :class="byModelSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                        class="bi"
+                      ></i>
+                    </th>
+                    <th scope="col" class="text-end cursor-pointer user-select-none" @click="sortByModel('avgTokens')">
+                      Avg tokens/call
+                      <i
+                        v-if="byModelSort === 'avgTokens'"
+                        :class="byModelSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                        class="bi"
+                      ></i>
+                    </th>
+                    <th scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in byModel" :key="row.model">
+                    <td>
+                      <code
+                        :title="row.model"
+                        class="text-truncate d-inline-block align-middle"
+                        style="max-width: 20ch"
+                        >{{ row.model }}</code
+                      >
+                    </td>
+                    <td class="text-end">{{ formatNumber(row.calls) }}</td>
+                    <td class="text-end">{{ formatNumber(row.totalTokens) }}</td>
+                    <td class="text-end">{{ formatNumber(row.avgTokens) }}</td>
+                    <td style="width: 30%">
+                      <div class="progress" style="height: 6px">
+                        <div :style="{width: row.pct + '%'}" class="progress-bar" role="progressbar"></div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
