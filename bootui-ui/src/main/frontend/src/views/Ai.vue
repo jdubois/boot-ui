@@ -497,7 +497,7 @@ onBeforeUnmount(() => {
         <div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 mb-3">
           <div class="col">
             <div class="card h-100">
-              <div class="card-body">
+              <div class="card-body kpi-card-body">
                 <div class="text-muted small"><i class="bi bi-chat-dots me-1"></i>Chats</div>
                 <div class="fs-3 fw-semibold">{{ formatNumber(overview.totalChats) }}</div>
               </div>
@@ -505,7 +505,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="col">
             <div class="card h-100">
-              <div class="card-body">
+              <div class="card-body kpi-card-body">
                 <div class="text-muted small"><i class="bi bi-coin me-1"></i>Total tokens</div>
                 <div class="fs-3 fw-semibold">
                   {{ formatNumber((overview.totalInputTokens || 0) + (overview.totalOutputTokens || 0)) }}
@@ -519,7 +519,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="col">
             <div class="card h-100">
-              <div class="card-body">
+              <div class="card-body kpi-card-body">
                 <div class="text-muted small"><i class="bi bi-stopwatch me-1"></i>Avg latency</div>
                 <div class="fs-3 fw-semibold">{{ avgLatency != null ? formatDuration(avgLatency) : '—' }}</div>
               </div>
@@ -527,7 +527,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="col">
             <div class="card h-100">
-              <div :class="['card-body', errorRate > 0 ? 'text-danger' : '']">
+              <div :class="['card-body', 'kpi-card-body', errorRate > 0 ? 'text-danger' : '']">
                 <div class="text-muted small"><i class="bi bi-exclamation-triangle me-1"></i>Error rate</div>
                 <div class="fs-3 fw-semibold">{{ errorRate != null ? errorRate.toFixed(1) + '%' : '—' }}</div>
               </div>
@@ -535,7 +535,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="col">
             <div class="card h-100">
-              <div class="card-body">
+              <div class="card-body kpi-card-body">
                 <div class="text-muted small"><i class="bi bi-tools me-1"></i>Tool calls</div>
                 <div class="fs-3 fw-semibold">{{ formatNumber(overview.toolCallCount) }}</div>
               </div>
@@ -543,7 +543,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="col">
             <div class="card h-100">
-              <div class="card-body">
+              <div class="card-body kpi-card-body">
                 <div class="text-muted small"><i class="bi bi-database me-1"></i>Vector ops</div>
                 <div class="fs-3 fw-semibold">{{ formatNumber(overview.vectorOperationCount) }}</div>
                 <small class="text-muted">+ {{ formatNumber(overview.embeddingCount) }} embeddings</small>
@@ -629,6 +629,9 @@ onBeforeUnmount(() => {
             <h6>Usage by model</h6>
             <div class="table-responsive">
               <table class="table table-sm mb-0">
+                <caption class="visually-hidden">
+                  Usage by model
+                </caption>
                 <thead>
                   <tr>
                     <th scope="col" class="cursor-pointer user-select-none" @click="sortByModel('model')">
@@ -991,5 +994,8 @@ code {
 }
 .cursor-pointer {
   cursor: pointer;
+}
+.kpi-card-body {
+  min-height: 90px;
 }
 </style>
