@@ -55,6 +55,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Micrometer metrics
   - dependency inventory and OSV vulnerability scan
   - DevTools reload/restart
+  - Copilot session dashboard, session explorer, and live SSE stream
   - OTLP traces receiver (`/bootui/api/otlp/v1/traces`), Traces panel API, and AI Usage panel API
 - Vue 3 UI shell with routes for:
   - Overview
@@ -71,6 +72,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Log Tail
   - Traces
   - HTTP Probe
+  - Copilot
   - DevTools
   - Dev Services
   - Scheduled Tasks
@@ -126,7 +128,7 @@ Dev Services edge cases and optional UI gating.
 
 ### 4.2 UI and product parity status
 
-The visible-route parity check is current. On 2026-05-27, the sample-app Playwright suite passed all 43 tests, covering:
+The visible-route parity check is current. On 2026-05-28, the sample-app Playwright suite passed all 43 tests, covering:
 
 1. Overview.
 2. Startup Timeline.
@@ -142,16 +144,17 @@ The visible-route parity check is current. On 2026-05-27, the sample-app Playwri
 12. Log Tail.
 13. Traces.
 14. HTTP Probe.
-15. DevTools.
-16. Dev Services.
-17. Scheduled Tasks.
-18. Data.
-19. Cache.
-20. AI Usage.
-21. Security.
-22. Vulnerabilities.
+15. Copilot.
+16. DevTools.
+17. Dev Services.
+18. Scheduled Tasks.
+19. Data.
+20. Cache.
+21. AI Usage.
+22. Security.
+23. Vulnerabilities.
 
-Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Scheduled Tasks,
+Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Scheduled Tasks,
 Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app
 Playwright tests, and part of the supported alpha surface. Any new visible route or browser-facing behavior should
 update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
@@ -180,9 +183,9 @@ Completed reconciliation points:
 - `bootui.enabled` uses `AUTO|ON|OFF`.
 - Runtime config overrides persist to the BootUI overrides file by default.
 - The frontend is plain JavaScript Vue 3.
-- Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Scheduled
-  Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented alpha surfaces, not deferred
-  ideas.
+- Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot,
+  Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented alpha surfaces, not
+  deferred ideas.
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots,
   bean-backed Testcontainers services can expose bounded logs, and restart is disabled unless
   `bootui.dev-services.restart-enabled=true`.
@@ -191,7 +194,7 @@ Completed reconciliation points:
 
 ### 4.4 Release readiness validation
 
-Last validation completed on 2026-05-27:
+Last validation completed on 2026-05-28:
 
 - `./mvnw -B -ntp clean install` passed.
 - The sample-app Playwright suite passed all 43 tests.
@@ -267,6 +270,7 @@ Already implemented beyond the original MVP surface:
 - Micrometer metrics browser with live values.
 - DevTools reload/restart controls.
 - In-app OTLP/HTTP traces receiver, Traces panel, and AI Usage panel.
+- Copilot panel for sanitized GitHub Copilot CLI session dashboarding and live SSE updates.
 
 Added in `0.1.0-alpha.5` (2026-05):
 
@@ -281,6 +285,15 @@ Added in `0.1.0-alpha.5` (2026-05):
 - **Multi-service dev orchestration (sink-only)**. Multiple cooperating local processes can each export OTLP to BootUI
   and their spans show up in the same waterfall. This is the dev-time equivalent of Aspire's distributed-tracing view;
   BootUI does not run, schedule, or restart the other services.
+
+Added after `0.1.0-alpha.5`:
+
+- **Copilot panel**. Reads the session directories and `events.jsonl` files that GitHub Copilot CLI writes under
+  `~/.copilot/session-state/` and presents a sanitized activity dashboard: session count, total events, failures,
+  24-hour and 7-day activity charts, event category mix, top tools, and model usage. The session explorer lets you
+  drill into individual sessions with a turn-by-turn story, recent events, and failure list. Raw event JSON is
+  opt-in and local-only. Live updates are pushed via SSE. Inspired by
+  [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control).
 
 Still excluded:
 

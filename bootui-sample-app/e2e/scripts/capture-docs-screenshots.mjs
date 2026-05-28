@@ -33,6 +33,7 @@ const panelOrder = [
   ['log-tail', 'Log Tail'],
   ['traces', 'Traces'],
   ['http-probe', 'HTTP Probe'],
+  ['copilot', 'Copilot'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['scheduled', 'Scheduled Tasks'],
@@ -895,6 +896,208 @@ const dependencies = {
   ]
 }
 
+const copilotSessionId = 'session-bootui-2026-001'
+const copilotSession2Id = 'session-bootui-2026-002'
+
+const copilotDashboard = {
+  available: true,
+  unavailableReason: null,
+  sessionStateDir: '~/.copilot/session-state',
+  sessionCount: 24,
+  eventCount: 1847,
+  turnCount: 312,
+  errorCount: 5,
+  activeLast24Hours: 3,
+  activeLast7Days: 11,
+  sessionsWithSchemaDrift: 0,
+  lastActivityEpochMillis: nowMillis - 4 * 60 * 1000,
+  categoryCounts: [
+    {label: 'FILE_EDIT', count: 412},
+    {label: 'FILE_READ', count: 389},
+    {label: 'SEARCH', count: 276},
+    {label: 'SHELL', count: 198},
+    {label: 'WEB', count: 87},
+    {label: 'MCP', count: 64},
+    {label: 'HOOK', count: 42},
+    {label: 'ASK', count: 31},
+    {label: 'OTHER', count: 348}
+  ],
+  modelCounts: [
+    {label: 'claude-sonnet-4.6', count: 18},
+    {label: 'claude-opus-4.7', count: 6}
+  ],
+  topTools: [
+    {label: 'edit', count: 412},
+    {label: 'view', count: 389},
+    {label: 'grep', count: 218},
+    {label: 'bash', count: 198},
+    {label: 'glob', count: 58}
+  ],
+  otherToolEventCount: 572,
+  activityBuckets: Array.from({length: 24}, (_, i) => {
+    const hour = i
+    const base = [0, 0, 0, 0, 0, 0, 0, 2, 18, 42, 67, 88, 54, 0, 0, 0, 0, 31, 76, 112, 98, 63, 34, 12][i]
+    return {
+      startEpochMillis: nowMillis - (23 - i) * 3600 * 1000,
+      endEpochMillis: nowMillis - (22 - i) * 3600 * 1000,
+      eventCount: base + Math.round(hour * 0.4),
+      errorCount: base > 0 ? Math.min(2, Math.floor(base * 0.02)) : 0
+    }
+  }),
+  dailyActivityBuckets: Array.from({length: 7}, (_, i) => ({
+    startEpochMillis: nowMillis - (6 - i) * 86400 * 1000,
+    endEpochMillis: nowMillis - (5 - i) * 86400 * 1000,
+    eventCount: [0, 42, 218, 312, 189, 401, 685][i],
+    errorCount: [0, 0, 1, 2, 0, 1, 1][i]
+  })),
+  recentSessions: [
+    {
+      id: copilotSessionId,
+      filename: 'laughing-succotash',
+      startedAtEpochMillis: nowMillis - 45 * 60 * 1000,
+      updatedAtEpochMillis: nowMillis - 4 * 60 * 1000,
+      model: 'claude-sonnet-4.6',
+      workingDirectory: '/workspace/BootUI/jdubois-laughing-succotash',
+      status: 'active',
+      eventCount: 284,
+      turnCount: 47,
+      errorCount: 0,
+      lastActivitySummary: 'Updated docs and screenshot script',
+      schemaDrift: false
+    },
+    {
+      id: copilotSession2Id,
+      filename: 'crispy-broccoli',
+      startedAtEpochMillis: nowMillis - 3 * 3600 * 1000,
+      updatedAtEpochMillis: nowMillis - 2.5 * 3600 * 1000,
+      model: 'claude-sonnet-4.6',
+      workingDirectory: '/workspace/BootUI/jdubois-crispy-broccoli',
+      status: 'complete',
+      eventCount: 198,
+      turnCount: 31,
+      errorCount: 2,
+      lastActivitySummary: 'Added Copilot panel backend and tests',
+      schemaDrift: false
+    }
+  ],
+  warnings: []
+}
+
+const copilotSessions = {
+  available: true,
+  unavailableReason: null,
+  sessionStateDir: '~/.copilot/session-state',
+  total: 24,
+  returned: 24,
+  maxSessions: 100,
+  sessions: copilotDashboard.recentSessions,
+  warnings: []
+}
+
+const copilotSessionDetail = {
+  summary: copilotDashboard.recentSessions[0],
+  counts: {
+    total: 284,
+    byCategory: {
+      FILE_EDIT: 72,
+      FILE_READ: 68,
+      SEARCH: 54,
+      SHELL: 41,
+      WEB: 18,
+      MCP: 12,
+      HOOK: 9,
+      ASK: 7,
+      OTHER: 3
+    },
+    errors: 0,
+    lastActivityEpochMillis: nowMillis - 4 * 60 * 1000
+  },
+  turns: [
+    {
+      index: 0,
+      startedAtEpochMillis: nowMillis - 45 * 60 * 1000,
+      durationMillis: 12400,
+      summary: 'Exploring repository structure and docs',
+      eventCount: 14
+    },
+    {
+      index: 1,
+      startedAtEpochMillis: nowMillis - 40 * 60 * 1000,
+      durationMillis: 28700,
+      summary: 'Reading PLAN.md, FEATURES.md, README, and copilot instructions',
+      eventCount: 22
+    },
+    {
+      index: 2,
+      startedAtEpochMillis: nowMillis - 30 * 60 * 1000,
+      durationMillis: 54200,
+      summary: 'Updating screenshot script with Copilot fixture data',
+      eventCount: 38
+    },
+    {
+      index: 3,
+      startedAtEpochMillis: nowMillis - 10 * 60 * 1000,
+      durationMillis: 18900,
+      summary: 'Patching FEATURES.md, PLAN.md, and copilot instructions',
+      eventCount: 21
+    }
+  ],
+  recentEvents: [
+    {
+      id: 'ev-001',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 9 * 60 * 1000,
+      type: 'tool.execution_complete',
+      toolName: 'view',
+      category: 'FILE_READ',
+      summary: 'docs/FEATURES.md',
+      success: true
+    },
+    {
+      id: 'ev-002',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 8 * 60 * 1000,
+      type: 'tool.execution_complete',
+      toolName: 'grep',
+      category: 'SEARCH',
+      summary: 'Copilot — docs/FEATURES.md',
+      success: true
+    },
+    {
+      id: 'ev-003',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 7 * 60 * 1000,
+      type: 'tool.execution_complete',
+      toolName: 'edit',
+      category: 'FILE_EDIT',
+      summary: '.github/copilot-instructions.md',
+      success: true
+    },
+    {
+      id: 'ev-004',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 6 * 60 * 1000,
+      type: 'tool.execution_complete',
+      toolName: 'edit',
+      category: 'FILE_EDIT',
+      summary: 'docs/PLAN.md',
+      success: true
+    },
+    {
+      id: 'ev-005',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 5 * 60 * 1000,
+      type: 'tool.execution_complete',
+      toolName: 'bash',
+      category: 'SHELL',
+      summary: 'npm run screenshots',
+      success: true
+    }
+  ],
+  failureEvents: [],
+  warnings: []
+}
+
 const screenshots = [
   ['overview', 'Overview', 'bootui-overview.png', waitForText('Understand your Spring Boot app')],
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
@@ -925,6 +1128,16 @@ const screenshots = [
       await page.getByPlaceholder('/api/sample/hello').fill('/api/sample/products')
       await page.getByRole('button', {name: 'Send'}).click()
       await page.getByText('200 OK').waitFor()
+    }
+  ],
+  [
+    'copilot',
+    'Copilot',
+    'bootui-copilot.png',
+    async (page) => {
+      await page.getByText('Copilot activity overview').waitFor()
+      await page.getByText('session-bootui-2026-001').first().click()
+      await page.getByText('Updated docs and screenshot script').waitFor()
     }
   ],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
@@ -1034,6 +1247,7 @@ try {
     await page.goto(`${baseUrl}/bootui/#/${route}`)
     await page.locator('.page-heading h2').filter({hasText: title}).first().waitFor()
     await prepare(page)
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.waitForTimeout(250)
     await page.screenshot({
       path: path.join(imagesDir, fileName),
@@ -1112,6 +1326,35 @@ async function handleApiRoute(route) {
   if (endpoint === 'ai/tokens') return fulfillJson(route, aiTokens)
   if (endpoint === `ai/chats/${aiSpanId}`) return fulfillJson(route, aiDetail)
   if (endpoint === 'probe') return fulfillJson(route, probeResponse(postDataJson(request)))
+  if (endpoint === 'copilot/dashboard') return fulfillJson(route, copilotDashboard)
+  if (endpoint === 'copilot/sessions') return fulfillJson(route, copilotSessions)
+  if (endpoint === `copilot/sessions/${copilotSessionId}`) return fulfillJson(route, copilotSessionDetail)
+  if (endpoint === `copilot/sessions/${copilotSession2Id}`)
+    return fulfillJson(route, {
+      ...copilotSessionDetail,
+      summary: copilotDashboard.recentSessions[1],
+      counts: {...copilotSessionDetail.counts, total: 198, errors: 2},
+      recentEvents: copilotSessionDetail.recentEvents.slice(0, 3),
+      failureEvents: [
+        {
+          id: 'ev-fail-001',
+          turnIndex: 2,
+          timestampEpochMillis: nowMillis - 2.6 * 3600 * 1000,
+          type: 'tool.execution_complete',
+          toolName: 'bash',
+          category: 'SHELL',
+          summary: './mvnw test',
+          success: false
+        }
+      ]
+    })
+  if (endpoint.startsWith('copilot/sessions/') && endpoint.endsWith('/events'))
+    return fulfillJson(route, {
+      sessionId: copilotSessionId,
+      total: copilotSessionDetail.recentEvents.length,
+      returned: copilotSessionDetail.recentEvents.length,
+      events: copilotSessionDetail.recentEvents
+    })
   if (endpoint === 'devtools') return fulfillJson(route, devTools)
   if (endpoint === 'dev-services') return fulfillJson(route, devServices)
   if (endpoint === 'dev-services/compose:redis/logs') {
