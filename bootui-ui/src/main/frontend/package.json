@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview",
     "format": "prettier --config ../../../../prettier.config.cjs --ignore-path ../../../../.prettierignore --write .",
     "format:check": "prettier --config ../../../../prettier.config.cjs --ignore-path ../../../../.prettierignore --check ."
@@ -18,7 +20,11 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.7",
+    "@vue/server-renderer": "3.5.34",
+    "@vue/test-utils": "2.4.10",
+    "jsdom": "29.1.1",
     "prettier": "3.8.3",
-    "vite": "8.0.14"
+    "vite": "8.0.14",
+    "vitest": "4.1.7"
   }
 }

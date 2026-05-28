@@ -35,8 +35,9 @@ docs/                         Specification and roadmap
 ./mvnw clean install
 ```
 
-This downloads Node + npm, runs `npm install`, builds the Vue UI with Vite, and
-packages every module. A full clean build takes about a minute on a warm cache.
+This downloads Node + npm, runs `npm install`, runs the Vue unit tests with Vitest,
+builds the Vue UI with Vite, and packages every module. A full clean build takes
+about a minute on a warm cache.
 
 To rebuild only the backend (useful while iterating on Java code):
 
@@ -50,6 +51,14 @@ Use the CI-equivalent build before opening or updating a pull request:
 
 ```bash
 ./mvnw -B -ntp clean install
+```
+
+For frontend-only unit test iteration:
+
+```bash
+cd bootui-ui/src/main/frontend
+npm install
+npm test
 ```
 
 Run the browser end-to-end suite when you change the UI, browser-facing API responses, or sample-app behavior:
@@ -99,8 +108,9 @@ npm run dev
 ```
 
 This starts Vite on a separate port and proxies `/bootui/api/*` to a locally
-running sample app. When you are done, run `./mvnw install -pl bootui-ui` once to
-re-bundle the assets into the JAR.
+running sample app. Use `npm run test:watch` for Vitest watch mode while iterating.
+When you are done, run `./mvnw install -pl bootui-ui` once to re-bundle the assets
+into the JAR.
 
 ## Publishing
 

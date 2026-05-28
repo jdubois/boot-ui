@@ -17,6 +17,7 @@
     <properties>
         <frontend.dir>${project.basedir}/src/main/frontend</frontend.dir>
         <frontend.output.dir>${project.build.outputDirectory}/META-INF/resources/bootui</frontend.output.dir>
+        <skipTests>false</skipTests>
     </properties>
 
     <build>
@@ -63,6 +64,17 @@
                         <phase>generate-resources</phase>
                         <configuration>
                             <arguments>run build</arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-test</id>
+                        <goals>
+                            <goal>npm</goal>
+                        </goals>
+                        <phase>test</phase>
+                        <configuration>
+                            <arguments>run test</arguments>
+                            <skip>${skipTests}</skip>
                         </configuration>
                     </execution>
                 </executions>

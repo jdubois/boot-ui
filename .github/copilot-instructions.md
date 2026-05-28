@@ -15,7 +15,7 @@ read those before changing public behavior or visible panel behavior.
 ## Build, run, test
 
 ```bash
-# CI-equivalent multi-module build (downloads Node, builds Vue UI, packages all JARs).
+# CI-equivalent multi-module build (downloads Node, tests/builds Vue UI, packages all JARs).
 ./mvnw -B -ntp clean install
 
 # Backend-only iteration loop (skips the Vue build).
@@ -30,6 +30,8 @@ read those before changing public behavior or visible panel behavior.
 
 # Front-end inner loop (Vite dev server with HMR; proxies /bootui/api/* to a running sample app).
 (cd bootui-ui/src/main/frontend && npm install && npm run dev)
+# Front-end unit tests (Vitest + Vue Test Utils + jsdom; also run by Maven's test phase unless -DskipTests is set).
+(cd bootui-ui/src/main/frontend && npm test)
 # After changing UI code that needs to be re-bundled into the JAR:
 ./mvnw -pl bootui-ui install
 
@@ -40,10 +42,10 @@ read those before changing public behavior or visible panel behavior.
 ./mvnw -B -ntp -Prelease clean deploy
 ```
 
-CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 25, installs Playwright Chromium, and
-runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers Java/Kotlin and JavaScript/TypeScript when code scanning is
-enabled. The release workflow (`.github/workflows/release.yml`) publishes `v*` tags to Maven Central through the
-`release` Maven profile and the Sonatype Central Publishing plugin.
+CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 25, which includes the frontend Vitest
+suite through Maven, installs Playwright Chromium, and runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers
+Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow (`.github/workflows/release.yml`)
+publishes `v*` tags to Maven Central through the `release` Maven profile and the Sonatype Central Publishing plugin.
 
 ## Formatting before PRs
 
@@ -106,9 +108,10 @@ bootui-ui                    Vue 3 + Vite SPA; built into META-INF/resources/boo
 bootui-sample-app            Reference Spring Boot 4 app used for demos and integration testing
 ```
 
-`bootui-ui` has **no Java sources**. Its Maven build runs `npm install` + `npm run build`, then `maven-resources-plugin`
-copies `src/main/frontend/dist/` into `target/classes/META-INF/resources/bootui/`. Spring Boot then serves that
-classpath path automatically — consumers must never need npm.
+`bootui-ui` has **no Java sources**. Its Maven build runs `npm install`, `npm run test` during the Maven `test` phase
+(skipped by `-DskipTests`), and `npm run build`, then `maven-resources-plugin` copies `src/main/frontend/dist/` into
+`target/classes/META-INF/resources/bootui/`. Spring Boot then serves that classpath path automatically — consumers must
+never need npm.
 
 ## Activation & safety model (critical)
 
@@ -196,6 +199,8 @@ Playwright coverage aligned for:
   hardcode `/bootui/api/...`.
 - New panel = add a `views/Xxx.vue`, register it in `src/main/frontend/src/main.js` with an `icon` + `title` in `meta`;
   the sidebar in `App.vue` renders from `router.options.routes`.
+- Frontend unit tests use Vitest with Vue Test Utils and jsdom. Add focused `*.test.js` coverage for reusable
+  composables/components and UI logic where Playwright would be too broad or slow.
 - The Vite dev server proxies `/bootui/api/*` to the running sample app, but packaged assets must work from `/bootui/`
   without requiring consumers to install Node.
 
@@ -204,8 +209,8 @@ Playwright coverage aligned for:
 - Branch names start with the GitHub username, e.g. `jdubois/improve-config-ui`.
 - Keep PRs small and update `docs/` whenever public behavior changes. The PR template's checklist (
   `./mvnw clean install`, sample-app smoke test, no committed secrets) is enforced in review.
-- Run the Playwright suite when changing the Vue UI, browser-facing API response shapes, visible routes, or sample-app
-  behavior.
+- Run focused Vitest tests for changed Vue composables/components, and run the Playwright suite when changing browser
+  flows, browser-facing API response shapes, visible routes, or sample-app behavior.
 - The sample app is for demos/integration tests and has `<maven.deploy.skip>true</maven.deploy.skip>`; do not publish it
   as part of Maven Central releases.
 - Spring Boot 3.x compatibility is **out of scope** for v0.1 — don't add compatibility shims.
