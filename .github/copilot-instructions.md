@@ -167,6 +167,9 @@ Playwright coverage aligned for:
   sample-app Playwright navigation tests should stay consistent when panels are added, renamed, hidden, or reordered.
 - New browser-facing behavior usually needs a stable DTO, controller tests where practical, Vue route/view updates,
   `docs/FEATURES.md` / README updates, and an e2e spec when the UI or sample app behavior changes.
+- Feature screenshots in `docs/images/bootui-*.png` should stay at the current 1600x900 px size so the feature page
+  remains visually consistent. When adding or refreshing screenshots, seed the sample app or local state with realistic
+  non-sensitive sample data that demonstrates how the panel works instead of capturing empty/default states.
 
 ## Java conventions
 
