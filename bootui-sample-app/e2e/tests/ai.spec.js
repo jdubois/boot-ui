@@ -83,11 +83,11 @@ test.describe('AI Usage view', () => {
         .first()
     ).toBeVisible()
     await expect(page.getByText('Spring AI detected')).toBeVisible()
-    await expect(page.locator('.card', {hasText: 'Input tokens'}).getByText('42', {exact: true})).toBeVisible()
-    await expect(page.locator('.card', {hasText: 'Tokens by model'}).getByText('qwen2.5:0.5b')).toBeVisible()
+    await expect(page.locator('.card', {hasText: 'Total tokens'}).getByText('49', {exact: true})).toBeVisible()
+    await expect(page.locator('.card', {hasText: 'Usage by model'}).getByText('qwen2.5:0.5b')).toBeVisible()
     await expect(page.getByText('Token usage (last 60 min)')).toBeVisible()
 
-    await page.getByRole('button', {name: 'Open'}).click()
+    await page.getByRole('button', {name: 'Toggle chat details'}).click()
     await expect(page.locator('.card', {hasText: `Chat ${chatSpanId}`})).toBeVisible()
     await expect(page.getByText('getWeather')).toBeVisible()
     await expect(page.getByText('docs')).toBeVisible()
@@ -110,7 +110,7 @@ test.describe('AI Usage view', () => {
     })
 
     await page.goto('/bootui/#/ai')
-    await expect(page.getByText('Telemetry receiver is disabled')).toBeVisible()
+    await expect(page.getByText('Enable the BootUI telemetry receiver')).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })
 
@@ -128,7 +128,7 @@ test.describe('AI Usage view', () => {
     })
 
     await page.goto('/bootui/#/ai')
-    await expect(page.getByText('Spring AI is not on the classpath')).toBeVisible()
+    await expect(page.getByText('Spring AI on classpath')).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })
 })
