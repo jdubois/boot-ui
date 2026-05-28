@@ -22,11 +22,12 @@ class PanelsControllerTests {
 
             mvc.perform(get("/bootui/api/panels"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.panels.length()").value(22))
+                    .andExpect(jsonPath("$.panels.length()").value(23))
                     .andExpect(jsonPath("$.panels[0].id").value("overview"))
                     .andExpect(jsonPath("$.panels[18].id").value("traces"))
                     .andExpect(jsonPath("$.panels[19].id").value("ai"))
-                    .andExpect(jsonPath("$.panels[21].id").value("vulnerabilities"));
+                    .andExpect(jsonPath("$.panels[20].id").value("copilot"))
+                    .andExpect(jsonPath("$.panels[22].id").value("vulnerabilities"));
         }
     }
 
@@ -50,8 +51,8 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[12].available").value(true))
                     .andExpect(jsonPath("$.panels[18].id").value("traces"))
                     .andExpect(jsonPath("$.panels[18].available").value(true))
-                    .andExpect(jsonPath("$.panels[21].id").value("vulnerabilities"))
-                    .andExpect(jsonPath("$.panels[21].available").value(true));
+                    .andExpect(jsonPath("$.panels[22].id").value("vulnerabilities"))
+                    .andExpect(jsonPath("$.panels[22].available").value(true));
         }
     }
 

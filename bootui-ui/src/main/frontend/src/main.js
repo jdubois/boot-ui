@@ -26,6 +26,7 @@ import DevServices from './views/DevServices.vue'
 import DevTools from './views/DevTools.vue'
 import Traces from './views/Traces.vue'
 import Ai from './views/Ai.vue'
+import Copilot from './views/Copilot.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -71,6 +72,7 @@ const router = createRouter({
     {path: '/data', name: 'data', component: Data, meta: {icon: 'bi-database', title: 'Data'}},
     {path: '/cache', name: 'cache', component: Cache, meta: {icon: 'bi-hdd-stack', title: 'Cache'}},
     {path: '/ai', name: 'ai', component: Ai, meta: {icon: 'bi-stars', title: 'AI Usage'}},
+    {path: '/copilot', name: 'copilot', component: Copilot, meta: {icon: 'bi-robot', title: 'Copilot'}},
     {path: '/security', name: 'security', component: Security, meta: {icon: 'bi-person-lock', title: 'Security'}},
     {
       path: '/vulnerabilities',

@@ -104,6 +104,7 @@ public class PanelsController {
                 panel("cache", "Cache", beanPresent(CacheManager.class), "No CacheManager beans are available"),
                 panel("traces", "Traces", properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled"),
                 panel("ai", "AI Usage", aiAvailable(), aiUnavailableReason()),
+                panel("copilot", "Copilot", copilotAvailable(), copilotUnavailableReason()),
                 panel(
                         "security",
                         "Security",
@@ -164,5 +165,21 @@ public class PanelsController {
             return "Telemetry receiver is disabled";
         }
         return "Spring AI ChatClient is not on the classpath";
+    }
+
+    private boolean copilotAvailable() {
+        if (properties.getCopilot().getEnabled() == BootUiProperties.Mode.OFF) {
+            return false;
+        }
+        java.nio.file.Path dir = CopilotSessionStore.resolveDir(properties.getCopilot());
+        return java.nio.file.Files.isDirectory(dir);
+    }
+
+    private String copilotUnavailableReason() {
+        if (properties.getCopilot().getEnabled() == BootUiProperties.Mode.OFF) {
+            return "Copilot panel is disabled via configuration";
+        }
+        return "Copilot CLI session-state directory not found at "
+                + CopilotSessionStore.resolveDir(properties.getCopilot());
     }
 }

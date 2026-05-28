@@ -57,6 +57,7 @@ import org.springframework.core.env.Environment;
     TracesController.class,
     AiController.class,
     OtlpReceiverController.class,
+    CopilotController.class,
     BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {
@@ -98,6 +99,17 @@ public class BootUiAutoConfiguration {
     @Bean
     public OtlpSpanDecoder bootUiOtlpSpanDecoder(BootUiProperties properties) {
         return new OtlpSpanDecoder(properties.getTelemetry());
+    }
+
+    @Bean(destroyMethod = "stop")
+    public io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore bootUiCopilotSessionStore(
+            BootUiProperties properties) {
+        io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore store =
+                new io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore(properties.getCopilot());
+        if (properties.getCopilot().getEnabled() != BootUiProperties.Mode.OFF) {
+            store.start();
+        }
+        return store;
     }
 
     @Bean

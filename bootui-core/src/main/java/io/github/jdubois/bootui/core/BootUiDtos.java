@@ -669,4 +669,84 @@ public final class BootUiDtos {
             int embeddingCount,
             List<AiChatSummaryDto> recent,
             String contentBanner) {}
+
+    // ── Copilot panel ─────────────────────────────────────────────────────────
+
+    /**
+     * Sanitized summary of a single Copilot CLI session.
+     */
+    public record CopilotSessionSummary(
+            String id,
+            String filename,
+            Long startedAtEpochMillis,
+            Long updatedAtEpochMillis,
+            String model,
+            String workingDirectory,
+            String status,
+            int eventCount,
+            int turnCount,
+            int errorCount,
+            String lastActivitySummary,
+            boolean schemaDrift) {}
+
+    /**
+     * A single sanitized activity event observed in a Copilot session.
+     *
+     * <p>Only allowlisted fields are returned. Raw arguments, command output, file diffs,
+     * and prompts are deliberately excluded from this DTO. The opt-in raw endpoint
+     * exposes the source JSON locally on demand.</p>
+     */
+    public record CopilotActivityEvent(
+            String id,
+            int turnIndex,
+            Long timestampEpochMillis,
+            String type,
+            String toolName,
+            String category,
+            String summary,
+            Boolean success) {}
+
+    /**
+     * One turn of activity in a Copilot session.
+     */
+    public record CopilotTurn(
+            int index, Long startedAtEpochMillis, Long durationMillis, String summary, int eventCount) {}
+
+    /**
+     * Aggregate counters across a Copilot session's events.
+     */
+    public record CopilotInsightCounts(
+            int total, Map<String, Integer> byCategory, int errors, Long lastActivityEpochMillis) {}
+
+    /**
+     * Detailed view of a Copilot session: summary, counts, turn story, and recent events.
+     */
+    public record CopilotSessionDetail(
+            CopilotSessionSummary summary,
+            CopilotInsightCounts counts,
+            List<CopilotTurn> turns,
+            List<CopilotActivityEvent> recentEvents,
+            List<String> warnings) {}
+
+    /**
+     * Response payload for the sessions list endpoint.
+     */
+    public record CopilotSessionListDto(
+            boolean available,
+            String unavailableReason,
+            String sessionStateDir,
+            int total,
+            List<CopilotSessionSummary> sessions,
+            List<String> warnings) {}
+
+    /**
+     * Paginated/filtered events for a single session.
+     */
+    public record CopilotEventListDto(String sessionId, int total, int returned, List<CopilotActivityEvent> events) {}
+
+    /**
+     * Raw JSON details for a single event. Returned only when explicitly requested
+     * and only when {@code bootui.copilot.allow-raw-reveal=true}.
+     */
+    public record CopilotRawEventDto(String sessionId, String eventId, String json) {}
 }

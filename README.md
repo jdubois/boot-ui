@@ -40,6 +40,7 @@ for explanations and screenshots for every panel.
 | [Data](docs/FEATURES.md#data)                         | Explore Spring Data repositories, domain types, IDs, and query methods.                                    |
 | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                  |
 | [AI Usage](docs/FEATURES.md#ai-usage)                 | Summarize Spring AI chat conversations, token usage, latency, and model details from OpenTelemetry spans.  |
+| [Copilot](docs/FEATURES.md#copilot)                   | Surface sanitized signals from local GitHub Copilot CLI sessions: tool calls, MCP, hooks, skills, errors.  |
 | [Security](docs/FEATURES.md#security)                 | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                          |
 | [Vulnerabilities](docs/FEATURES.md#vulnerabilities)   | Review dependency inventory and local OSV vulnerability scan results.                                      |
 
@@ -110,6 +111,9 @@ Common properties:
 | `bootui.cache.clear-enabled`          | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
 | `bootui.dev-services.restart-enabled` | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |
 | `bootui.dev-services.log-tail-bytes`  | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                  |
+| `bootui.copilot.enabled`              | `AUTO`                                  | Enable the Copilot panel. `AUTO` activates when `~/.copilot/session-state/` exists.      |
+| `bootui.copilot.session-state-dir`    | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session-state JSON files.                              |
+| `bootui.copilot.allow-raw-reveal`     | `true`                                  | When `false`, the opt-in raw-event reveal endpoint returns 404 even on loopback.         |
 
 ## Runtime overrides
 

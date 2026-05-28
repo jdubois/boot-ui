@@ -80,6 +80,10 @@ public class BootUiProperties {
      * AI Usage panel settings.
      */
     private Ai ai = new Ai();
+    /**
+     * Copilot panel settings.
+     */
+    private Copilot copilot = new Copilot();
 
     public Mode getEnabled() {
         return enabled;
@@ -215,6 +219,14 @@ public class BootUiProperties {
 
     public void setAi(Ai ai) {
         this.ai = ai;
+    }
+
+    public Copilot getCopilot() {
+        return copilot;
+    }
+
+    public void setCopilot(Copilot copilot) {
+        this.copilot = copilot;
     }
 
     /**
@@ -464,6 +476,84 @@ public class BootUiProperties {
 
         public void setShowContentCaptureBanner(boolean showContentCaptureBanner) {
             this.showContentCaptureBanner = showContentCaptureBanner;
+        }
+    }
+
+    /**
+     * Copilot panel settings.
+     *
+     * <p>The Copilot panel reads sanitized session state written by the local
+     * Copilot CLI under {@code ~/.copilot/session-state/}. It is read-only and
+     * never modifies anything under that directory.</p>
+     */
+    public static class Copilot {
+
+        /**
+         * Enable the Copilot panel. AUTO activates only when the session-state directory exists.
+         */
+        private Mode enabled = Mode.AUTO;
+
+        /**
+         * Override the directory scanned for Copilot CLI session-state JSON files.
+         * When {@code null}, defaults to {@code ${user.home}/.copilot/session-state}.
+         */
+        private String sessionStateDir;
+
+        /**
+         * Maximum number of activity events retained per session in memory.
+         */
+        private int maxEventsPerSession = 2000;
+
+        /**
+         * Debounce window applied to file-system events before refreshing parsed sessions
+         * and notifying SSE subscribers.
+         */
+        private Duration streamDebounce = Duration.ofMillis(400);
+
+        /**
+         * Allow the opt-in raw-event reveal endpoint. When {@code false}, the endpoint
+         * returns HTTP 404 even on the loopback interface.
+         */
+        private boolean allowRawReveal = true;
+
+        public Mode getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(Mode enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getSessionStateDir() {
+            return sessionStateDir;
+        }
+
+        public void setSessionStateDir(String sessionStateDir) {
+            this.sessionStateDir = sessionStateDir;
+        }
+
+        public int getMaxEventsPerSession() {
+            return maxEventsPerSession;
+        }
+
+        public void setMaxEventsPerSession(int maxEventsPerSession) {
+            this.maxEventsPerSession = maxEventsPerSession;
+        }
+
+        public Duration getStreamDebounce() {
+            return streamDebounce;
+        }
+
+        public void setStreamDebounce(Duration streamDebounce) {
+            this.streamDebounce = streamDebounce;
+        }
+
+        public boolean isAllowRawReveal() {
+            return allowRawReveal;
+        }
+
+        public void setAllowRawReveal(boolean allowRawReveal) {
+            this.allowRawReveal = allowRawReveal;
         }
     }
 }
