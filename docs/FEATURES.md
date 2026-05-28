@@ -139,6 +139,8 @@ Server-Sent Events. Inspired by
 [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control), which pioneered this dashboarding of
 Copilot CLI session state.
 
+![BootUI Copilot panel](images/bootui-copilot.png)
+
 ## DevTools
 
 The DevTools panel reports Spring Boot DevTools availability, LiveReload status, and restart support. Restart actions
