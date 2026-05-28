@@ -122,7 +122,7 @@ The harden-all-visible-panels alpha test expansion is complete. Coverage now inc
    Security, Micrometer Metrics, DevTools, Dev Services, JVM Memory, and OTLP trace ingestion.
 
 Future backend test work should be incremental and tied to new or changed behavior, especially v0.2 candidates such as
-Dev Services edge cases, WebFlux support, source-file links, and optional UI gating.
+Dev Services edge cases and optional UI gating.
 
 ### 4.2 UI and product parity status
 
@@ -298,8 +298,6 @@ Still excluded:
 Potential features:
 
 - Dev Services hardening for Docker Compose/Testcontainers edge cases.
-- Better WebFlux support.
-- Link from UI to source files when possible.
 - Large-app edge-case hardening for current panels as real-world usage reveals gaps.
 - Optional UI gating based on classpath/endpoint availability so irrelevant panels can be hidden or clearly disabled.
 - Frontend test setup if the project decides to add Vitest or another UI test runner.
