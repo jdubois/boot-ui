@@ -130,6 +130,71 @@ function durationClass(nanos) {
   return ''
 }
 
+const groupedAttributes = computed(() => {
+  if (!detail.value || !detail.value.attributes || !detail.value.attributes.length) return []
+  const groups = {}
+  for (const a of detail.value.attributes) {
+    const dot = a.key.indexOf('.')
+    const ns = dot > 0 ? a.key.slice(0, dot) : '(other)'
+    if (!groups[ns]) groups[ns] = []
+    groups[ns].push(a)
+  }
+  return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]))
+})
+
+const miniTimeline = computed(() => {
+  if (!detail.value || !detail.value.summary) return null
+  const s = detail.value.summary
+  if (!s.startEpochNanos || !s.durationNanos) return null
+  const totalDuration = s.durationNanos
+  const width = 400
+  const height = 30
+  const baseY = 10
+  const barH = 8
+
+  function toX(relNanos) {
+    return (relNanos / totalDuration) * width
+  }
+
+  const bars = []
+  // base chat span bar
+  bars.push({x: 0, w: width, y: baseY, h: barH, color: '#dee2e6', title: 'Chat span'})
+
+  const children = []
+  if (detail.value.toolCalls) {
+    for (const tc of detail.value.toolCalls) {
+      if (tc.startEpochNanos && tc.durationNanos) {
+        const rel = tc.startEpochNanos - s.startEpochNanos
+        children.push({
+          x: Math.max(0, toX(rel)),
+          w: Math.max(2, toX(tc.durationNanos)),
+          y: baseY,
+          h: barH,
+          color: '#0d6efd',
+          title: (tc.name || 'tool') + ' ' + (tc.durationNanos / 1_000_000).toFixed(1) + 'ms'
+        })
+      }
+    }
+  }
+  if (detail.value.vectorOperations) {
+    for (const vo of detail.value.vectorOperations) {
+      if (vo.startEpochNanos && vo.durationNanos) {
+        const rel = vo.startEpochNanos - s.startEpochNanos
+        children.push({
+          x: Math.max(0, toX(rel)),
+          w: Math.max(2, toX(vo.durationNanos)),
+          y: baseY,
+          h: barH,
+          color: '#fd7e14',
+          title: (vo.operation || 'vector') + ' ' + (vo.durationNanos / 1_000_000).toFixed(1) + 'ms'
+        })
+      }
+    }
+  }
+
+  return {width, height, bars: [...bars, ...children]}
+})
+
 const byModelSort = ref('totalTokens')
 const byModelSortDir = ref('desc')
 
@@ -697,6 +762,27 @@ onMounted(load)
                             <dd class="col-sm-9">{{ detail.summary.finishReason || '—' }}</dd>
                           </dl>
 
+                          <div v-if="miniTimeline" class="mb-3">
+                            <h6>Span timeline</h6>
+                            <svg
+                              :viewBox="'0 0 ' + miniTimeline.width + ' ' + miniTimeline.height"
+                              class="w-100"
+                              style="max-height: 30px"
+                            >
+                              <rect
+                                v-for="(bar, bi) in miniTimeline.bars"
+                                :key="bi"
+                                :fill="bar.color"
+                                :height="bar.h"
+                                :width="bar.w"
+                                :x="bar.x"
+                                :y="bar.y"
+                              >
+                                <title>{{ bar.title }}</title>
+                              </rect>
+                            </svg>
+                          </div>
+
                           <div v-if="detail.toolCalls && detail.toolCalls.length" class="mb-3">
                             <h6>Tool calls</h6>
                             <ul class="list-group">
@@ -730,21 +816,38 @@ onMounted(load)
                             </ul>
                           </div>
 
-                          <details v-if="detail.attributes && detail.attributes.length">
-                            <summary class="text-muted">Span attributes ({{ detail.attributes.length }})</summary>
-                            <table class="table table-sm mt-2">
-                              <tbody>
-                                <tr v-for="a in detail.attributes" :key="a.key">
-                                  <td>
-                                    <code>{{ a.key }}</code>
-                                  </td>
-                                  <td>
-                                    <code>{{ a.value }}</code>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </details>
+                          <div v-if="detail.events && detail.events.length" class="mb-3">
+                            <h6>Events</h6>
+                            <ul class="list-group">
+                              <li
+                                v-for="(ev, ei) in detail.events"
+                                :key="ei"
+                                class="list-group-item d-flex justify-content-between"
+                              >
+                                <span>{{ ev.name }}</span>
+                                <span class="text-muted small">{{ formatTime(ev.epochNanos) }}</span>
+                              </li>
+                            </ul>
+                          </div>
+
+                          <div v-if="groupedAttributes.length">
+                            <h6>Span attributes ({{ detail.attributes.length }})</h6>
+                            <details v-for="[ns, attrs] in groupedAttributes" :key="ns" class="mb-1">
+                              <summary class="text-muted small">{{ ns }} ({{ attrs.length }})</summary>
+                              <table class="table table-sm mt-1">
+                                <tbody>
+                                  <tr v-for="a in attrs" :key="a.key">
+                                    <td>
+                                      <code>{{ a.key }}</code>
+                                    </td>
+                                    <td>
+                                      <code>{{ a.value }}</code>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </details>
+                          </div>
                         </template>
                         <div v-else-if="detail && detail.error" class="alert alert-danger small">
                           {{ detail.error }}
