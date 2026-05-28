@@ -8,6 +8,7 @@ const detail = ref(null)
 const categoryFilter = ref('ALL')
 const textFilter = ref('')
 const activeDetailTab = ref('activity')
+const activeSessionWindow = ref(null)
 const loading = ref(true)
 const detailLoading = ref(false)
 const error = ref(null)
@@ -116,7 +117,9 @@ const filteredEvents = computed(() => {
   })
 })
 
-const failureEvents = computed(() => (detail.value?.recentEvents ?? []).filter((event) => event.success === false))
+const failureEvents = computed(
+  () => detail.value?.failureEvents ?? (detail.value?.recentEvents ?? []).filter((event) => event.success === false)
+)
 
 const breakdown = computed(() => {
   const map = detail.value?.counts?.byCategory ?? {}
@@ -197,6 +200,10 @@ function dailyBucketTitle(bucket) {
   )} failures`
 }
 
+function bucketWindowLabel(bucket, granularity) {
+  return granularity === 'day' ? formatBucketDay(bucket.startEpochMillis) : formatBucketTime(bucket.startEpochMillis)
+}
+
 async function loadDashboard() {
   try {
     const res = await fetch('api/copilot/dashboard')
@@ -208,9 +215,16 @@ async function loadDashboard() {
   }
 }
 
-async function loadSessions() {
+async function loadSessions(window = activeSessionWindow.value) {
   try {
-    const res = await fetch('api/copilot/sessions')
+    let url = 'api/copilot/sessions'
+    if (window) {
+      const params = new URLSearchParams()
+      params.set('since', window.since)
+      params.set('until', window.until)
+      url += `?${params.toString()}`
+    }
+    const res = await fetch(url)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     sessionList.value = await res.json()
     error.value = null
@@ -218,6 +232,23 @@ async function loadSessions() {
     error.value = e.message
   } finally {
     loading.value = false
+  }
+
+  async function selectActivityWindow(bucket, granularity) {
+    activeSessionWindow.value = {
+      since: bucket.startEpochMillis,
+      until: bucket.endEpochMillis,
+      label: bucketWindowLabel(bucket, granularity),
+      granularity
+    }
+    selectedSessionId.value = null
+    detail.value = null
+    await loadSessions(activeSessionWindow.value)
+  }
+
+  async function clearActivityWindow() {
+    activeSessionWindow.value = null
+    await loadSessions(null)
   }
 }
 
@@ -301,8 +332,12 @@ function connectStream() {
   eventSource = new EventSource('api/copilot/stream')
   eventSource.addEventListener('sessions', async (event) => {
     try {
-      sessionList.value = JSON.parse(event.data)
-      status.value = sessionList.value.available === false ? 'Unavailable' : 'Live'
+      if (activeSessionWindow.value) {
+        await loadSessions(activeSessionWindow.value)
+      } else {
+        sessionList.value = JSON.parse(event.data)
+      }
+      status.value = sessionList.value?.available === false ? 'Unavailable' : 'Live'
       // refresh detail if the selected session changed
       if (selectedSessionId.value) {
         await loadDetail(selectedSessionId.value)
@@ -349,6 +384,12 @@ onBeforeUnmount(disconnect)
       <div>
         <h2 class="mb-1"><i class="bi bi-robot me-2"></i>Copilot</h2>
         <div class="text-muted">Sanitized command activity, tool usage, failures, and recent sessions.</div>
+        <div class="small text-muted mt-1">
+          Inspired by
+          <a href="https://github.com/DanWahlin/copilot-mission-control" target="_blank" rel="noopener noreferrer"
+            >copilot-mission-control</a
+          >.
+        </div>
       </div>
       <span :class="statusClass" class="badge">{{ status }}</span>
     </div>
@@ -430,11 +471,15 @@ onBeforeUnmount(disconnect)
                       dashboard?.sessionCount ?? 0
                     } sessions`"
                   >
-                    <div
+                    <button
                       v-for="bucket in dashboard?.activityBuckets ?? []"
                       :key="bucket.startEpochMillis"
+                      :class="{active: activeSessionWindow?.since === bucket.startEpochMillis}"
                       class="activity-column"
+                      type="button"
                       :title="bucketTitle(bucket)"
+                      :aria-label="`Show sessions from ${bucketTitle(bucket)}`"
+                      @click="selectActivityWindow(bucket, 'hour')"
                     >
                       <div class="activity-bars">
                         <div class="activity-bar bg-primary" :style="{height: bucketHeight(bucket)}"></div>
@@ -445,7 +490,7 @@ onBeforeUnmount(disconnect)
                         ></div>
                       </div>
                       <div class="activity-label">{{ formatBucketTime(bucket.startEpochMillis) }}</div>
-                    </div>
+                    </button>
                   </div>
                   <div class="small text-muted mt-2">
                     Blue bars show sanitized activity; red overlays show failures in the same hour.
@@ -463,11 +508,15 @@ onBeforeUnmount(disconnect)
                       role="img"
                       :aria-label="`${formatNumber(totalEvents)} sanitized Copilot events summarized across the last 7 days`"
                     >
-                      <div
+                      <button
                         v-for="bucket in dashboard?.dailyActivityBuckets ?? []"
                         :key="bucket.startEpochMillis"
+                        :class="{active: activeSessionWindow?.since === bucket.startEpochMillis}"
                         class="activity-column"
+                        type="button"
                         :title="dailyBucketTitle(bucket)"
+                        :aria-label="`Show sessions from ${dailyBucketTitle(bucket)}`"
+                        @click="selectActivityWindow(bucket, 'day')"
                       >
                         <div class="activity-bars">
                           <div
@@ -483,7 +532,7 @@ onBeforeUnmount(disconnect)
                           ></div>
                         </div>
                         <div class="activity-label">{{ formatBucketDay(bucket.startEpochMillis) }}</div>
-                      </div>
+                      </button>
                     </div>
                     <div class="small text-muted mt-2">
                       Daily buckets use the same sanitized event stream as the 24-hour chart.
@@ -606,6 +655,13 @@ onBeforeUnmount(disconnect)
           <div v-if="explorerLimitMessage" class="alert alert-info py-2 small">
             <i class="bi bi-funnel me-1"></i>{{ explorerLimitMessage }}. Increase
             <code>bootui.copilot.max-sessions</code> to show more.
+          </div>
+          <div v-if="activeSessionWindow" class="alert alert-primary py-2 small d-flex justify-content-between gap-2">
+            <span>
+              <i class="bi bi-filter me-1"></i>
+              Filtered to sessions active during {{ activeSessionWindow.label }}.
+            </span>
+            <button class="btn btn-sm btn-link p-0" type="button" @click="clearActivityWindow">Clear filter</button>
           </div>
           <div v-if="sessionWarnings.length" class="mb-3">
             <div v-for="warning in sessionWarnings" :key="warning" class="small text-warning">
@@ -787,8 +843,8 @@ onBeforeUnmount(disconnect)
                       @click="showFailures()"
                     >
                       Failures
-                      <span v-if="failureEvents.length" class="badge text-bg-danger ms-1">{{
-                        failureEvents.length
+                      <span v-if="detail.counts.errors" class="badge text-bg-danger ms-1">{{
+                        detail.counts.errors
                       }}</span>
                     </button>
                   </li>
@@ -855,10 +911,19 @@ onBeforeUnmount(disconnect)
                     <div v-if="failureEvents.length === 0" class="text-muted small">No failures recorded.</div>
                     <ul v-else class="list-group">
                       <li v-for="event in failureEvents" :key="event.id" class="list-group-item">
-                        <span :class="categoryBadgeClass(event.category)" class="badge me-2">{{ event.category }}</span>
-                        <code v-if="event.toolName">{{ event.toolName }}</code>
-                        <span class="badge text-bg-danger ms-2">error</span>
-                        <div class="small text-muted mt-1">{{ event.summary }}</div>
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                          <div>
+                            <span :class="categoryBadgeClass(event.category)" class="badge me-2">{{
+                              event.category
+                            }}</span>
+                            <code v-if="event.toolName">{{ event.toolName }}</code>
+                            <span v-else class="text-muted">{{ event.type || 'event' }}</span>
+                            <span class="badge text-bg-danger ms-2">failed</span>
+                            <div class="small text-muted mt-1">{{ event.summary }}</div>
+                            <div class="small text-muted">type: {{ event.type || 'unknown' }}</div>
+                          </div>
+                          <div class="small text-muted text-end">{{ formatTime(event.timestampEpochMillis) }}</div>
+                        </div>
                       </li>
                     </ul>
                   </div>
@@ -893,11 +958,25 @@ onBeforeUnmount(disconnect)
 
 .activity-column {
   align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
   display: flex;
   flex: 1 0 1.75rem;
   flex-direction: column;
   justify-content: flex-end;
   min-width: 1.75rem;
+  padding: 0;
+}
+
+.activity-column:hover .activity-bar,
+.activity-column:focus-visible .activity-bar {
+  filter: brightness(0.9);
+}
+
+.activity-column.active .activity-bar {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
 }
 
 .activity-bars {

@@ -143,6 +143,23 @@ class CopilotControllerTests {
     }
 
     @Test
+    void sessionsListCanFilterByActivityWindow(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("old.json"), "{\"updated_at\":1700000000,\"events\":[{\"type\":\"t\"}]}");
+        Files.writeString(tempDir.resolve("new.json"), "{\"updated_at\":1700000100,\"events\":[{\"type\":\"t\"}]}");
+        BootUiProperties props = propertiesFor(tempDir);
+        CopilotSessionStore store = storeFor(props);
+        MockMvc mvc = standaloneSetup(new CopilotController(store, props)).build();
+
+        mvc.perform(get("/bootui/api/copilot/sessions")
+                        .param("since", "1700000050000")
+                        .param("until", "1700000200000")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.sessions[0].id").value("new"));
+    }
+
+    @Test
     void dashboardAggregatesJsonlSessions(@TempDir Path tempDir) throws Exception {
         Path firstSession = tempDir.resolve("s1");
         Path secondSession = tempDir.resolve("s2");
@@ -298,6 +315,24 @@ class CopilotControllerTests {
                 .getResponse()
                 .getContentAsString();
         assertThat(response).contains("apply_patch").doesNotContain("session.start");
+    }
+
+    @Test
+    void failureEventsIncludeInheritedToolNames(@TempDir Path tempDir) throws Exception {
+        Path sessionDir = tempDir.resolve("s1");
+        Files.createDirectories(sessionDir);
+        Files.writeString(sessionDir.resolve("events.jsonl"), """
+                {"id":"start","type":"tool.execution_start","timestamp":1,"data":{"toolName":"create"}}
+                {"id":"failed","parentId":"start","type":"tool.execution_complete","timestamp":2,"data":{"success":false}}
+                """);
+        BootUiProperties props = propertiesFor(tempDir);
+        CopilotSessionStore store = storeFor(props);
+
+        CopilotSessionDetail detail = store.getSession("s1");
+
+        assertThat(detail.failureEvents()).hasSize(1);
+        assertThat(detail.failureEvents().get(0).toolName()).isEqualTo("create");
+        assertThat(detail.failureEvents().get(0).summary()).contains("create", "failed");
     }
 
     @Test

@@ -762,6 +762,7 @@ public final class BootUiDtos {
             CopilotInsightCounts counts,
             List<CopilotTurn> turns,
             List<CopilotActivityEvent> recentEvents,
+            List<CopilotActivityEvent> failureEvents,
             List<String> warnings) {}
 
     /**

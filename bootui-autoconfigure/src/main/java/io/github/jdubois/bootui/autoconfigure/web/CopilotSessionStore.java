@@ -304,6 +304,11 @@ public class CopilotSessionStore {
 
     /** Build the list payload returned by {@code GET /bootui/api/copilot/sessions}. */
     public CopilotSessionListDto listSessions() {
+        return listSessions(null, null);
+    }
+
+    /** Build the list payload, optionally limited to sessions active in a time window. */
+    public CopilotSessionListDto listSessions(Long sinceEpochMillis, Long untilEpochMillis) {
         int maxSessions = effectiveMaxSessions();
         if (!isDirectoryAvailable()) {
             return new CopilotSessionListDto(
@@ -317,6 +322,7 @@ public class CopilotSessionStore {
                     List.of());
         }
         List<CopilotSessionSummary> sorted = sessions.values().stream()
+                .filter(ps -> matchesActivityWindow(ps, sinceEpochMillis, untilEpochMillis))
                 .map(ps -> ps.summary)
                 .sorted(sessionSummaryComparator())
                 .toList();
@@ -343,6 +349,29 @@ public class CopilotSessionStore {
 
     private int effectiveMaxSessions() {
         return Math.min(Math.max(1, properties.getMaxSessions()), HARD_MAX_SESSION_EXPLORER_ITEMS);
+    }
+
+    private static boolean matchesActivityWindow(ParsedSession session, Long sinceEpochMillis, Long untilEpochMillis) {
+        if (sinceEpochMillis == null && untilEpochMillis == null) {
+            return true;
+        }
+        for (Long bucketStart : session.activityByHour.keySet()) {
+            if (isInWindow(bucketStart, sinceEpochMillis, untilEpochMillis)) {
+                return true;
+            }
+        }
+        Long fallback = firstLong(session.counts.lastActivityEpochMillis(), session.summary.updatedAtEpochMillis());
+        return isInWindow(fallback, sinceEpochMillis, untilEpochMillis);
+    }
+
+    private static boolean isInWindow(Long timestamp, Long sinceEpochMillis, Long untilEpochMillis) {
+        if (timestamp == null) {
+            return false;
+        }
+        if (sinceEpochMillis != null && timestamp < sinceEpochMillis) {
+            return false;
+        }
+        return untilEpochMillis == null || timestamp < untilEpochMillis;
     }
 
     /** Build the aggregate dashboard payload returned by {@code GET /bootui/api/copilot/dashboard}. */
@@ -506,10 +535,19 @@ public class CopilotSessionStore {
         int returned = Math.min(ps.events.size(), 200);
         List<CopilotActivityEvent> recent =
                 ps.events.subList(Math.max(0, ps.events.size() - returned), ps.events.size());
-        List<String> warnings = ps.summary.schemaDrift()
-                ? List.of("Session did not match the expected Copilot CLI schema; some details may be missing.")
-                : List.<String>of();
-        return new CopilotSessionDetail(ps.summary, ps.counts, ps.turns, recent, warnings);
+        List<String> warnings = new ArrayList<>();
+        if (ps.summary.schemaDrift()) {
+            warnings.add("Session did not match the expected Copilot CLI schema; some details may be missing.");
+        }
+        if (ps.summary.errorCount() > ps.failureEvents.size()) {
+            warnings.add("Showing "
+                    + ps.failureEvents.size()
+                    + " retained failures out of "
+                    + ps.summary.errorCount()
+                    + " total failures.");
+        }
+        return new CopilotSessionDetail(
+                ps.summary, ps.counts, ps.turns, recent, ps.failureEvents, List.copyOf(warnings));
     }
 
     private static Comparator<CopilotSessionSummary> sessionSummaryComparator() {
@@ -648,6 +686,9 @@ public class CopilotSessionStore {
         List<CopilotActivityEvent> events = extracted.events;
         Map<String, RawEventReference> rawById = extracted.rawById;
         List<CopilotTurn> turns = extracted.turns;
+        List<CopilotActivityEvent> failureEvents = events.stream()
+                .filter(event -> Boolean.FALSE.equals(event.success()))
+                .toList();
 
         Map<String, Integer> byCategory = new LinkedHashMap<>();
         int errors = 0;
@@ -689,6 +730,7 @@ public class CopilotSessionStore {
                 counts,
                 turns,
                 events,
+                failureEvents,
                 rawById,
                 aggregates.toolCounts(),
                 aggregates.activityByHour(),
@@ -700,11 +742,13 @@ public class CopilotSessionStore {
         int maxEvents = Math.max(1, properties.getMaxEventsPerSession());
         long mtime = attrs.lastModifiedTime().toMillis();
         List<CopilotActivityEvent> events = new ArrayList<>();
+        List<CopilotActivityEvent> failureEvents = new ArrayList<>();
         Map<String, RawEventReference> rawById = new LinkedHashMap<>();
         Map<String, TurnAccumulator> turnAccumulators = new LinkedHashMap<>();
         Map<String, Integer> byCategory = new LinkedHashMap<>();
         Map<String, Integer> toolCounts = new LinkedHashMap<>();
         Map<Long, BucketCounts> activityByHour = new LinkedHashMap<>();
+        Map<String, String> toolNameByEventId = new HashMap<>();
 
         String model = null;
         String cwd = null;
@@ -756,10 +800,11 @@ public class CopilotSessionStore {
                 int turnIndex = turnIndexFor(turnAccumulators, data, type, timestamp);
                 updateTurn(turnAccumulators, data, type, timestamp);
 
-                CopilotActivityEvent event = jsonlActivityEvent(node, turnIndex, lineNumber);
+                CopilotActivityEvent event = jsonlActivityEvent(node, toolNameByEventId, turnIndex, lineNumber);
                 if (event == null) {
                     continue;
                 }
+                rememberToolName(toolNameByEventId, node, event.toolName());
                 totalEvents++;
                 lastSummary = event.summary();
                 if (event.timestampEpochMillis() != null) {
@@ -767,6 +812,7 @@ public class CopilotSessionStore {
                 }
                 if (Boolean.FALSE.equals(event.success())) {
                     errors++;
+                    retainFailure(failureEvents, event, maxEvents);
                 }
                 byCategory.merge(event.category(), 1, Integer::sum);
                 if (event.toolName() != null) {
@@ -801,7 +847,16 @@ public class CopilotSessionStore {
                 lastSummary,
                 schemaDrift || !parsedAnyLine);
         return new ParsedSession(
-                summary, counts, turns, events, rawById, toolCounts, activityByHour, attrs.size(), mtime);
+                summary,
+                counts,
+                turns,
+                events,
+                failureEvents,
+                rawById,
+                toolCounts,
+                activityByHour,
+                attrs.size(),
+                mtime);
     }
 
     private static int turnIndexFor(
@@ -848,13 +903,14 @@ public class CopilotSessionStore {
         return null;
     }
 
-    private CopilotActivityEvent jsonlActivityEvent(JsonNode node, int turnIndex, int lineNumber) {
+    private CopilotActivityEvent jsonlActivityEvent(
+            JsonNode node, Map<String, String> toolNameByEventId, int turnIndex, int lineNumber) {
         String type = stringField(node, "type", "kind", "event", "role");
         if (isSensitiveMessageEvent(type)) {
             return null;
         }
         JsonNode data = child(node, "data");
-        String tool = jsonlToolName(data);
+        String tool = jsonlToolName(node, data, toolNameByEventId);
         if (type == null && tool == null) {
             return null;
         }
@@ -872,7 +928,7 @@ public class CopilotSessionStore {
             }
         }
         String category = categorize(type, tool);
-        String summary = sanitizedJsonlSummary(type, tool, category, data);
+        String summary = sanitizedJsonlSummary(type, tool, category, data, success);
         String eventId = eventIdFor(node, lineNumber, turnIndex, tool);
         return new CopilotActivityEvent(
                 eventId,
@@ -895,7 +951,7 @@ public class CopilotSessionStore {
                 || normalized.equals("system.message");
     }
 
-    private static String jsonlToolName(JsonNode data) {
+    private static String jsonlToolName(JsonNode node, JsonNode data, Map<String, String> toolNameByEventId) {
         String tool = stringField(data, "toolName", "tool_name", "name");
         if (tool != null) {
             return tool;
@@ -909,21 +965,57 @@ public class CopilotSessionStore {
         if (toolRequests != null && toolRequests.isArray() && toolRequests.size() > 0) {
             return stringField(toolRequests.get(0), "name", "toolName", "tool_name");
         }
+        String parentId = stringField(node, "parentId", "parent_id");
+        if (parentId != null) {
+            return toolNameByEventId.get(parentId);
+        }
         return null;
     }
 
-    private static String sanitizedJsonlSummary(String type, String tool, String category, JsonNode data) {
+    private static String sanitizedJsonlSummary(
+            String type, String tool, String category, JsonNode data, Boolean success) {
         StringBuilder sb = new StringBuilder();
         sb.append(category).append(" · ").append(tool != null ? tool : type != null ? type : "event");
-        String extension = firstNonBlank(
+        if (Boolean.FALSE.equals(success)) {
+            sb.append(" · failed");
+        }
+        String extension = normalizeExtensionHint(firstNonBlank(
                 stringField(child(child(data, "toolTelemetry"), "properties"), "fileExtension"),
                 stringField(
                         child(child(child(child(data, "input"), "toolResult"), "toolTelemetry"), "properties"),
-                        "fileExtension"));
+                        "fileExtension")));
         if (extension != null) {
-            sb.append(" · *.").append(extension.replaceFirst("^\\.", ""));
+            sb.append(" · *.").append(extension);
         }
         return sb.toString();
+    }
+
+    private static String normalizeExtensionHint(String extension) {
+        if (extension == null || extension.isBlank()) {
+            return null;
+        }
+        String normalized = extension
+                .trim()
+                .replace("[", "")
+                .replace("]", "")
+                .replace("\"", "")
+                .replace("'", "");
+        int comma = normalized.indexOf(',');
+        if (comma >= 0) {
+            normalized = normalized.substring(0, comma);
+        }
+        normalized = normalized.trim().replaceFirst("^\\.", "");
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private static void rememberToolName(Map<String, String> toolNameByEventId, JsonNode node, String toolName) {
+        if (toolName == null) {
+            return;
+        }
+        String id = stringField(node, "id", "eventId", "messageId");
+        if (id != null) {
+            toolNameByEventId.put(id, toolName);
+        }
     }
 
     private static String eventIdFor(JsonNode node, int lineNumber, int turnIndex, String tool) {
@@ -953,6 +1045,14 @@ public class CopilotSessionStore {
         }
         events.add(event);
         rawById.put(event.id(), rawEventReference);
+    }
+
+    private static void retainFailure(
+            List<CopilotActivityEvent> failureEvents, CopilotActivityEvent event, int maxEvents) {
+        if (failureEvents.size() >= maxEvents) {
+            failureEvents.remove(0);
+        }
+        failureEvents.add(event);
     }
 
     private static SessionAggregates aggregateEvents(List<CopilotActivityEvent> events) {
@@ -1359,6 +1459,7 @@ public class CopilotSessionStore {
         final CopilotInsightCounts counts;
         final List<CopilotTurn> turns;
         final List<CopilotActivityEvent> events;
+        final List<CopilotActivityEvent> failureEvents;
         final Map<String, RawEventReference> rawById;
         final Map<String, Integer> toolCounts;
         final Map<Long, BucketCounts> activityByHour;
@@ -1370,6 +1471,7 @@ public class CopilotSessionStore {
                 CopilotInsightCounts counts,
                 List<CopilotTurn> turns,
                 List<CopilotActivityEvent> events,
+                List<CopilotActivityEvent> failureEvents,
                 Map<String, RawEventReference> rawById,
                 Map<String, Integer> toolCounts,
                 Map<Long, BucketCounts> activityByHour,
@@ -1379,6 +1481,7 @@ public class CopilotSessionStore {
             this.counts = Objects.requireNonNull(counts);
             this.turns = List.copyOf(turns);
             this.events = List.copyOf(events);
+            this.failureEvents = List.copyOf(failureEvents);
             this.rawById = Map.copyOf(rawById);
             this.toolCounts = Map.copyOf(toolCounts);
             this.activityByHour = Map.copyOf(activityByHour);

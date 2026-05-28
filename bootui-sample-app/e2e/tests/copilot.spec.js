@@ -97,6 +97,28 @@ test.describe('Copilot panel', () => {
           success: false
         }
       ],
+      failureEvents: [
+        {
+          id: 'failure',
+          turnIndex: 0,
+          timestampEpochMillis: Date.now() - 60_000,
+          type: 'tool.execution_complete',
+          toolName: 'bash',
+          category: 'SHELL',
+          summary: 'SHELL · bash · failed',
+          success: false
+        },
+        {
+          id: 'older-failure',
+          turnIndex: 0,
+          timestampEpochMillis: Date.now() - 180_000,
+          type: 'tool.execution_complete',
+          toolName: 'apply_patch',
+          category: 'FILE_EDIT',
+          summary: 'FILE_EDIT · apply_patch · failed',
+          success: false
+        }
+      ],
       warnings: []
     }
 
@@ -127,6 +149,10 @@ test.describe('Copilot panel', () => {
     await page.goto('/bootui/#/copilot')
 
     await expect(page.getByRole('heading', {name: 'Copilot activity overview'})).toBeVisible()
+    await expect(page.getByRole('link', {name: 'copilot-mission-control'})).toHaveAttribute(
+      'href',
+      'https://github.com/DanWahlin/copilot-mission-control'
+    )
     await expect(page.getByRole('heading', {name: 'Activity, last 7 days'})).toBeVisible()
     await expect(
       page.locator('.metric-card', {hasText: 'Sanitized events'}).getByText('42', {exact: true})
@@ -137,9 +163,17 @@ test.describe('Copilot panel', () => {
     await expect(page.getByText('1 / 5 sessions')).toBeVisible()
     await expect(page.getByText('bootui.copilot.max-sessions')).toBeVisible()
 
+    await page
+      .getByRole('button', {name: /Show sessions from/})
+      .first()
+      .click()
+    await expect(page.getByText(/Filtered to sessions active during/)).toBeVisible()
+    await page.getByRole('button', {name: 'Clear filter'}).click()
+
     await page.getByRole('button', {name: 'Show failures for session-one'}).click()
     await expect(page.getByRole('tab', {name: /Failures/})).toHaveClass(/active/)
-    await expect(page.getByText('SHELL · bash')).toBeVisible()
+    await expect(page.getByText('SHELL · bash · failed')).toBeVisible()
+    await expect(page.getByText('FILE_EDIT · apply_patch · failed')).toBeVisible()
 
     await page.getByRole('tab', {name: 'Turn story'}).click()
     await expect(page.getByRole('tab', {name: 'Turn story'})).toHaveClass(/active/)

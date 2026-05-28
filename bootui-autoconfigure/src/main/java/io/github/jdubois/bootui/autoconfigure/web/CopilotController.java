@@ -42,8 +42,10 @@ public class CopilotController {
     }
 
     @GetMapping("/sessions")
-    public CopilotSessionListDto sessions() {
-        return store.listSessions();
+    public CopilotSessionListDto sessions(
+            @RequestParam(name = "since", required = false) Long since,
+            @RequestParam(name = "until", required = false) Long until) {
+        return store.listSessions(since, until);
     }
 
     @GetMapping("/dashboard")
