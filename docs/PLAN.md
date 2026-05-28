@@ -122,9 +122,15 @@ The harden-all-visible-panels alpha test expansion is complete. Coverage now inc
 7. Secret masking for browser-visible property names and values.
 8. Edge-case coverage for Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff masking, Spring
    Security, Micrometer Metrics, DevTools, Dev Services, JVM Memory, and OTLP trace ingestion.
+9. Dev Services edge-case hardening (v0.2, 2026-05-28): prototype-scoped Testcontainers beans skipped with a warning,
+   stopped container status reported as `STOPPED`, null `getLogs()` result yields an empty string, restart exception
+   yields HTTP 500 with a non-null message (bug fix), `METADATA_ONLY` exposure hides connection detail values, and
+   abstract bean definitions are silently excluded (documents actual Spring `getType` behavior). Testcontainers added
+   as a `test`-scope dependency in `bootui-autoconfigure` so the `discoverTestcontainers` classpath guard does not
+   short-circuit unit tests.
 
-Future backend test work should be incremental and tied to new or changed behavior, especially v0.2 candidates such as
-Dev Services edge cases and optional UI gating.
+Future backend test work should be incremental and tied to new or changed behavior, especially remaining v0.2
+candidates such as large-app edge cases and optional UI gating.
 
 ### 4.2 UI and product parity status
 
@@ -310,7 +316,7 @@ Still excluded:
 
 Potential features:
 
-- Dev Services hardening for Docker Compose/Testcontainers edge cases.
+- ~~Dev Services hardening for Docker Compose/Testcontainers edge cases.~~ Done (2026-05-28, PR #88).
 - Large-app edge-case hardening for current panels as real-world usage reveals gaps.
 - Optional UI gating based on classpath/endpoint availability so irrelevant panels can be hidden or clearly disabled.
 - Frontend test setup if the project decides to add Vitest or another UI test runner.
@@ -409,17 +415,19 @@ endpoint, `AdditionalMissingActuatorEndpointsTests`, `ConfigControllerHttpCrudTe
 `LoggersControllerMutationTests`, `CacheControllerTests`, `SecretMaskerBrowserVisibleSurfaceTests`, and edge-case tests
 for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, Memory, and OTLP trace ingestion.
 
+Dev Services edge-case hardening (first v0.2 item) was completed on 2026-05-28 (PR #88). The remaining v0.2 candidates
+are large-app edge-case hardening, optional UI gating, and frontend test setup.
+
 User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and
 `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript
 Vue 3 frontend, and the full visible panel set. The repository now ships a `CHANGELOG.md` (release notes through
 `0.1.0-alpha.5`) and a sample-app walkthrough at `bootui-sample-app/README.md`.
 
-On 2026-05-27, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
+On 2026-05-28, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
 current branch. The Playwright run covered all 43 sample-app browser tests.
 
-The next workstream is v0.2 scoping and implementation. Start with the candidates in §6, with Dev Services edge-case
-hardening as the likely first focus because it is already visible, safety-sensitive, and explicitly called out for v0.2
-follow-up. Keep release validation and docs in sync as changes land.
+The next workstream continues v0.2 with the remaining candidates in §6. Keep release validation and docs in sync as
+changes land.
 
 ## 10. Validation checklist
 
