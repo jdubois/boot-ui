@@ -21,6 +21,7 @@ const categories = [
   'SEARCH',
   'SHELL',
   'WEB',
+  'DOCS',
   'MCP',
   'HOOK',
   'SKILL',
@@ -254,7 +255,9 @@ onBeforeUnmount(disconnect)
                   <div>{{ formatRelative(session.updatedAtEpochMillis) }}</div>
                   <div>
                     <span class="badge text-bg-secondary me-1">{{ session.eventCount }} events</span>
-                    <span v-if="session.errorCount > 0" class="badge text-bg-danger">{{ session.errorCount }} err</span>
+                    <span v-if="session.errorCount > 0" class="badge text-bg-danger"
+                      >{{ session.errorCount }} errors</span
+                    >
                   </div>
                 </div>
               </div>
