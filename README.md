@@ -40,7 +40,7 @@ for explanations and screenshots for every panel.
 | [Data](docs/FEATURES.md#data)                         | Explore Spring Data repositories, domain types, IDs, and query methods.                                    |
 | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                  |
 | [AI Usage](docs/FEATURES.md#ai-usage)                 | Summarize Spring AI chat conversations, token usage, latency, and model details from OpenTelemetry spans.  |
-| [Copilot](docs/FEATURES.md#copilot)                   | Surface sanitized signals from local GitHub Copilot CLI sessions: tool calls, MCP, hooks, skills, errors.  |
+| [Copilot](docs/FEATURES.md#copilot)                   | Dashboard sanitized local GitHub Copilot CLI sessions: activity trends, tool mix, MCP, hooks, skills, errors. |
 | [Security](docs/FEATURES.md#security)                 | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                          |
 | [Vulnerabilities](docs/FEATURES.md#vulnerabilities)   | Review dependency inventory and local OSV vulnerability scan results.                                      |
 

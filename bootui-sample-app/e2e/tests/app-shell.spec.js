@@ -62,6 +62,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Cache', heading: /Spring Cache/},
       {title: 'AI Usage', heading: /AI Usage/},
       {title: 'Security', heading: /Spring Security/},
+      {title: 'Copilot', heading: /^Copilot/},
       {title: 'Vulnerabilities', heading: /^Vulnerabilities/}
     ]
 

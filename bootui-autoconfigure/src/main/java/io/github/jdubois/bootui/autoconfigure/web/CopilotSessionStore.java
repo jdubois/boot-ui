@@ -5,8 +5,11 @@ import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.BootUiDtos.CopilotActivityBucket;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotActivityEvent;
+import io.github.jdubois.bootui.core.BootUiDtos.CopilotDashboardDto;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotInsightCounts;
+import io.github.jdubois.bootui.core.BootUiDtos.CopilotMetricCount;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionSummary;
@@ -22,6 +25,7 @@ import java.nio.file.Paths;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -61,12 +65,18 @@ public class CopilotSessionStore {
     private static final Logger log = LoggerFactory.getLogger(CopilotSessionStore.class);
 
     private static final String EVENTS_JSONL = "events.jsonl";
+    private static final long HOUR_MILLIS = 60L * 60L * 1000L;
+    private static final long DAY_MILLIS = 24L * HOUR_MILLIS;
+    private static final int DASHBOARD_BUCKET_COUNT = 24;
+    private static final int DASHBOARD_TOP_LIMIT = 10;
+    private static final int DASHBOARD_RECENT_SESSION_LIMIT = 8;
 
     /** Largest individual session-state file we will parse, in bytes. */
     private static final long MAX_FILE_BYTES = 32L * 1024 * 1024;
 
     private final BootUiProperties.Copilot properties;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Clock clock;
     private final Map<String, ParsedSession> sessions = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Consumer<RefreshEvent>> listeners = new CopyOnWriteArrayList<>();
     private final AtomicLong refreshCounter = new AtomicLong();
@@ -74,9 +84,15 @@ public class CopilotSessionStore {
 
     private volatile Thread watcherThread;
     private volatile boolean stopped;
+    private volatile CopilotDashboardDto dashboardCache;
 
     public CopilotSessionStore(BootUiProperties.Copilot properties) {
+        this(properties, Clock.systemDefaultZone());
+    }
+
+    CopilotSessionStore(BootUiProperties.Copilot properties, Clock clock) {
         this.properties = properties;
+        this.clock = clock;
         this.sessionStateDir = resolveDir(properties);
     }
 
@@ -117,6 +133,7 @@ public class CopilotSessionStore {
     public synchronized int refresh() {
         if (!isDirectoryAvailable()) {
             sessions.clear();
+            dashboardCache = unavailableDashboard();
             return 0;
         }
         Map<String, Boolean> seen = new HashMap<>();
@@ -129,6 +146,7 @@ public class CopilotSessionStore {
         }
         // remove sessions whose files have disappeared
         sessions.keySet().removeIf(id -> !seen.containsKey(id));
+        dashboardCache = buildDashboard();
         return sessions.size();
     }
 
@@ -295,16 +313,147 @@ public class CopilotSessionStore {
         }
         List<CopilotSessionSummary> sorted = sessions.values().stream()
                 .map(ps -> ps.summary)
-                .sorted(Comparator.comparing(
-                                CopilotSessionSummary::updatedAtEpochMillis,
-                                Comparator.nullsLast(Comparator.reverseOrder()))
-                        .thenComparing(CopilotSessionSummary::id))
+                .sorted(sessionSummaryComparator())
                 .toList();
         List<String> warnings = sorted.stream().anyMatch(CopilotSessionSummary::schemaDrift)
                 ? List.of(
                         "One or more sessions did not match the expected Copilot CLI schema; some details may be missing.")
                 : List.<String>of();
         return new CopilotSessionListDto(true, null, sessionStateDir.toString(), sorted.size(), sorted, warnings);
+    }
+
+    /** Build the aggregate dashboard payload returned by {@code GET /bootui/api/copilot/dashboard}. */
+    public CopilotDashboardDto dashboard() {
+        if (!isDirectoryAvailable()) {
+            return unavailableDashboard();
+        }
+        CopilotDashboardDto cached = dashboardCache;
+        if (cached != null) {
+            return cached;
+        }
+        return buildDashboard();
+    }
+
+    private CopilotDashboardDto unavailableDashboard() {
+        return new CopilotDashboardDto(
+                false,
+                "Copilot CLI session-state directory not found at " + sessionStateDir,
+                sessionStateDir.toString(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                0,
+                List.of(),
+                List.of(),
+                List.of());
+    }
+
+    private CopilotDashboardDto buildDashboard() {
+        long now = clock.millis();
+        long activeDayCutoff = now - DAY_MILLIS;
+        long activeWeekCutoff = now - (7L * DAY_MILLIS);
+        long firstBucketStart = hourStart(now) - ((DASHBOARD_BUCKET_COUNT - 1L) * HOUR_MILLIS);
+
+        List<ParsedSession> snapshot = new ArrayList<>(sessions.values());
+        Map<String, Integer> categoryCounts = new LinkedHashMap<>();
+        Map<String, Integer> modelCounts = new LinkedHashMap<>();
+        Map<String, Integer> toolCounts = new LinkedHashMap<>();
+        Map<Long, BucketAccumulator> buckets = new LinkedHashMap<>();
+        for (int i = 0; i < DASHBOARD_BUCKET_COUNT; i++) {
+            long start = firstBucketStart + (i * HOUR_MILLIS);
+            buckets.put(start, new BucketAccumulator());
+        }
+
+        int eventCount = 0;
+        int turnCount = 0;
+        int errorCount = 0;
+        int activeLast24Hours = 0;
+        int activeLast7Days = 0;
+        int sessionsWithSchemaDrift = 0;
+        Long lastActivity = null;
+
+        for (ParsedSession session : snapshot) {
+            CopilotSessionSummary summary = session.summary;
+            eventCount += summary.eventCount();
+            turnCount += summary.turnCount();
+            errorCount += summary.errorCount();
+            if (summary.schemaDrift()) {
+                sessionsWithSchemaDrift++;
+            }
+            Long sessionActivity = firstLong(session.counts.lastActivityEpochMillis(), summary.updatedAtEpochMillis());
+            if (sessionActivity != null) {
+                if (sessionActivity >= activeDayCutoff) {
+                    activeLast24Hours++;
+                }
+                if (sessionActivity >= activeWeekCutoff) {
+                    activeLast7Days++;
+                }
+                if (lastActivity == null || sessionActivity > lastActivity) {
+                    lastActivity = sessionActivity;
+                }
+            }
+            mergeCounts(categoryCounts, session.counts.byCategory());
+            mergeCount(modelCounts, firstNonBlank(summary.model(), "Unknown"), 1);
+            mergeCounts(toolCounts, session.toolCounts);
+            for (Map.Entry<Long, BucketCounts> entry : session.activityByHour.entrySet()) {
+                BucketAccumulator bucket = buckets.get(entry.getKey());
+                if (bucket != null) {
+                    bucket.add(entry.getValue());
+                }
+            }
+        }
+
+        List<CopilotMetricCount> topTools =
+                metricCounts(toolCounts).stream().limit(DASHBOARD_TOP_LIMIT).toList();
+        int visibleToolEvents =
+                topTools.stream().mapToInt(CopilotMetricCount::count).sum();
+        int allToolEvents =
+                toolCounts.values().stream().mapToInt(Integer::intValue).sum();
+
+        List<CopilotActivityBucket> activityBuckets = buckets.entrySet().stream()
+                .map(entry -> new CopilotActivityBucket(
+                        entry.getKey(),
+                        entry.getKey() + HOUR_MILLIS,
+                        entry.getValue().eventCount,
+                        entry.getValue().errorCount))
+                .toList();
+        List<CopilotSessionSummary> recentSessions = snapshot.stream()
+                .map(ps -> ps.summary)
+                .sorted(sessionSummaryComparator())
+                .limit(DASHBOARD_RECENT_SESSION_LIMIT)
+                .toList();
+        List<String> warnings = sessionsWithSchemaDrift > 0
+                ? List.of(sessionsWithSchemaDrift
+                        + " Copilot sessions did not match the expected schema; some metrics may be incomplete.")
+                : List.of();
+
+        return new CopilotDashboardDto(
+                true,
+                null,
+                sessionStateDir.toString(),
+                snapshot.size(),
+                eventCount,
+                turnCount,
+                errorCount,
+                activeLast24Hours,
+                activeLast7Days,
+                sessionsWithSchemaDrift,
+                lastActivity,
+                metricCounts(categoryCounts),
+                metricCounts(modelCounts),
+                topTools,
+                allToolEvents - visibleToolEvents,
+                activityBuckets,
+                recentSessions,
+                warnings);
     }
 
     public CopilotSessionDetail getSession(String id) {
@@ -319,6 +468,38 @@ public class CopilotSessionStore {
                 ? List.of("Session did not match the expected Copilot CLI schema; some details may be missing.")
                 : List.<String>of();
         return new CopilotSessionDetail(ps.summary, ps.counts, ps.turns, recent, warnings);
+    }
+
+    private static Comparator<CopilotSessionSummary> sessionSummaryComparator() {
+        return Comparator.comparing(
+                        CopilotSessionSummary::updatedAtEpochMillis, Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(CopilotSessionSummary::id);
+    }
+
+    private static List<CopilotMetricCount> metricCounts(Map<String, Integer> counts) {
+        return counts.entrySet().stream()
+                .map(entry -> new CopilotMetricCount(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparingInt(CopilotMetricCount::count)
+                        .reversed()
+                        .thenComparing(CopilotMetricCount::label))
+                .toList();
+    }
+
+    private static void mergeCounts(Map<String, Integer> target, Map<String, Integer> source) {
+        for (Map.Entry<String, Integer> entry : source.entrySet()) {
+            mergeCount(target, entry.getKey(), entry.getValue());
+        }
+    }
+
+    private static void mergeCount(Map<String, Integer> target, String label, int count) {
+        if (label == null || label.isBlank() || count <= 0) {
+            return;
+        }
+        target.merge(label, count, Integer::sum);
+    }
+
+    private static long hourStart(long epochMillis) {
+        return Math.floorDiv(epochMillis, HOUR_MILLIS) * HOUR_MILLIS;
     }
 
     /**
@@ -456,7 +637,17 @@ public class CopilotSessionStore {
                 lastSummary,
                 extracted.schemaDrift);
 
-        return new ParsedSession(summary, counts, turns, events, rawById, attrs.size(), mtime);
+        SessionAggregates aggregates = aggregateEvents(events);
+        return new ParsedSession(
+                summary,
+                counts,
+                turns,
+                events,
+                rawById,
+                aggregates.toolCounts(),
+                aggregates.activityByHour(),
+                attrs.size(),
+                mtime);
     }
 
     private ParsedSession parseJsonl(String id, Path file, BasicFileAttributes attrs) throws IOException {
@@ -466,6 +657,8 @@ public class CopilotSessionStore {
         Map<String, RawEventReference> rawById = new LinkedHashMap<>();
         Map<String, TurnAccumulator> turnAccumulators = new LinkedHashMap<>();
         Map<String, Integer> byCategory = new LinkedHashMap<>();
+        Map<String, Integer> toolCounts = new LinkedHashMap<>();
+        Map<Long, BucketCounts> activityByHour = new LinkedHashMap<>();
 
         String model = null;
         String cwd = null;
@@ -474,6 +667,7 @@ public class CopilotSessionStore {
         Long updatedAt = null;
         Long lastActivity = null;
         String lastSummary = null;
+        int totalEvents = 0;
         int errors = 0;
         int lineNumber = 0;
         boolean schemaDrift = false;
@@ -520,6 +714,7 @@ public class CopilotSessionStore {
                 if (event == null) {
                     continue;
                 }
+                totalEvents++;
                 lastSummary = event.summary();
                 if (event.timestampEpochMillis() != null) {
                     lastActivity = event.timestampEpochMillis();
@@ -528,6 +723,10 @@ public class CopilotSessionStore {
                     errors++;
                 }
                 byCategory.merge(event.category(), 1, Integer::sum);
+                if (event.toolName() != null) {
+                    toolCounts.merge(event.toolName(), 1, Integer::sum);
+                }
+                recordActivity(activityByHour, event);
                 retainEvent(events, rawById, event, new JsonlLineRawEventReference(file, lineNumber), maxEvents);
             }
         }
@@ -535,28 +734,13 @@ public class CopilotSessionStore {
         if (updatedAt == null) {
             updatedAt = mtime;
         }
-        byCategory.clear();
-        errors = 0;
-        lastActivity = null;
-        lastSummary = null;
-        for (CopilotActivityEvent event : events) {
-            byCategory.merge(event.category(), 1, Integer::sum);
-            if (Boolean.FALSE.equals(event.success())) {
-                errors++;
-            }
-            if (event.timestampEpochMillis() != null
-                    && (lastActivity == null || event.timestampEpochMillis() >= lastActivity)) {
-                lastActivity = event.timestampEpochMillis();
-                lastSummary = event.summary();
-            }
-        }
         if (lastSummary == null && !events.isEmpty()) {
             lastSummary = events.get(events.size() - 1).summary();
         }
 
         List<CopilotTurn> turns =
                 turnAccumulators.values().stream().map(TurnAccumulator::toTurn).toList();
-        CopilotInsightCounts counts = new CopilotInsightCounts(events.size(), byCategory, errors, lastActivity);
+        CopilotInsightCounts counts = new CopilotInsightCounts(totalEvents, byCategory, errors, lastActivity);
         CopilotSessionSummary summary = new CopilotSessionSummary(
                 id,
                 file.getParent().getFileName() + "/" + file.getFileName(),
@@ -565,12 +749,13 @@ public class CopilotSessionStore {
                 model,
                 cwd,
                 status,
-                events.size(),
+                totalEvents,
                 turns.size(),
                 errors,
                 lastSummary,
                 schemaDrift || !parsedAnyLine);
-        return new ParsedSession(summary, counts, turns, events, rawById, attrs.size(), mtime);
+        return new ParsedSession(
+                summary, counts, turns, events, rawById, toolCounts, activityByHour, attrs.size(), mtime);
     }
 
     private static int turnIndexFor(
@@ -722,6 +907,33 @@ public class CopilotSessionStore {
         }
         events.add(event);
         rawById.put(event.id(), rawEventReference);
+    }
+
+    private static SessionAggregates aggregateEvents(List<CopilotActivityEvent> events) {
+        Map<String, Integer> toolCounts = new LinkedHashMap<>();
+        Map<Long, BucketCounts> activityByHour = new LinkedHashMap<>();
+        for (CopilotActivityEvent event : events) {
+            if (event.toolName() != null) {
+                toolCounts.merge(event.toolName(), 1, Integer::sum);
+            }
+            recordActivity(activityByHour, event);
+        }
+        return new SessionAggregates(toolCounts, activityByHour);
+    }
+
+    private static void recordActivity(Map<Long, BucketCounts> activityByHour, CopilotActivityEvent event) {
+        if (event.timestampEpochMillis() == null) {
+            return;
+        }
+        long bucketStart = hourStart(event.timestampEpochMillis());
+        BucketCounts existing = activityByHour.get(bucketStart);
+        int errorIncrement = Boolean.FALSE.equals(event.success()) ? 1 : 0;
+        if (existing == null) {
+            activityByHour.put(bucketStart, new BucketCounts(1, errorIncrement));
+        } else {
+            activityByHour.put(
+                    bucketStart, new BucketCounts(existing.eventCount() + 1, existing.errorCount() + errorIncrement));
+        }
     }
 
     private static String sessionIdFor(Path file) {
@@ -1102,6 +1314,8 @@ public class CopilotSessionStore {
         final List<CopilotTurn> turns;
         final List<CopilotActivityEvent> events;
         final Map<String, RawEventReference> rawById;
+        final Map<String, Integer> toolCounts;
+        final Map<Long, BucketCounts> activityByHour;
         final long fileSize;
         final long fileMtime;
 
@@ -1111,6 +1325,8 @@ public class CopilotSessionStore {
                 List<CopilotTurn> turns,
                 List<CopilotActivityEvent> events,
                 Map<String, RawEventReference> rawById,
+                Map<String, Integer> toolCounts,
+                Map<Long, BucketCounts> activityByHour,
                 long fileSize,
                 long fileMtime) {
             this.summary = Objects.requireNonNull(summary);
@@ -1118,6 +1334,8 @@ public class CopilotSessionStore {
             this.turns = List.copyOf(turns);
             this.events = List.copyOf(events);
             this.rawById = Map.copyOf(rawById);
+            this.toolCounts = Map.copyOf(toolCounts);
+            this.activityByHour = Map.copyOf(activityByHour);
             this.fileSize = fileSize;
             this.fileMtime = fileMtime;
         }
@@ -1146,6 +1364,20 @@ public class CopilotSessionStore {
     private record JsonNodeRawEventReference(JsonNode node) implements RawEventReference {}
 
     private record JsonlLineRawEventReference(Path file, int lineNumber) implements RawEventReference {}
+
+    private record SessionAggregates(Map<String, Integer> toolCounts, Map<Long, BucketCounts> activityByHour) {}
+
+    private record BucketCounts(int eventCount, int errorCount) {}
+
+    private static final class BucketAccumulator {
+        int eventCount;
+        int errorCount;
+
+        void add(BucketCounts counts) {
+            eventCount += counts.eventCount();
+            errorCount += counts.errorCount();
+        }
+    }
 
     private static final class TurnAccumulator {
         final int index;

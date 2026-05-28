@@ -12,6 +12,9 @@ import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,6 +35,12 @@ class CopilotControllerTests {
 
     private static CopilotSessionStore storeFor(BootUiProperties properties) {
         CopilotSessionStore store = new CopilotSessionStore(properties.getCopilot());
+        store.refresh();
+        return store;
+    }
+
+    private static CopilotSessionStore storeFor(BootUiProperties properties, Clock clock) {
+        CopilotSessionStore store = new CopilotSessionStore(properties.getCopilot(), clock);
         store.refresh();
         return store;
     }
@@ -109,6 +118,57 @@ class CopilotControllerTests {
                 .doesNotContain("secret transformed prompt")
                 .doesNotContain("secret output")
                 .doesNotContain("do not expose this");
+    }
+
+    @Test
+    void dashboardAggregatesJsonlSessions(@TempDir Path tempDir) throws Exception {
+        Path firstSession = tempDir.resolve("s1");
+        Path secondSession = tempDir.resolve("s2");
+        Files.createDirectories(firstSession);
+        Files.createDirectories(secondSession);
+        Files.writeString(firstSession.resolve("events.jsonl"), """
+                {"id":"s1-start","type":"session.start","timestamp":"2026-05-28T10:00:00Z","data":{"model":"gpt-5.5","context":{"cwd":"/work/one"}}}
+                {"id":"s1-edit","type":"tool.execution_start","timestamp":"2026-05-28T10:15:00Z","data":{"toolName":"apply_patch","success":true}}
+                {"id":"s1-search","type":"tool.execution_complete","timestamp":"2026-05-28T11:00:00Z","data":{"toolName":"grep","success":false}}
+                """);
+        Files.writeString(secondSession.resolve("events.jsonl"), """
+                {"id":"s2-start","type":"session.start","timestamp":"2026-05-27T12:30:00Z","data":{"model":"gpt-4o","context":{"cwd":"/work/two"}}}
+                {"id":"s2-mcp","type":"tool.execution_start","timestamp":"2026-05-27T13:00:00Z","data":{"toolName":"mcp.fetch","success":true}}
+                """);
+        BootUiProperties props = propertiesFor(tempDir);
+        Clock clock = Clock.fixed(Instant.parse("2026-05-28T12:00:00Z"), ZoneOffset.UTC);
+        CopilotSessionStore store = storeFor(props, clock);
+        MockMvc mvc = standaloneSetup(new CopilotController(store, props)).build();
+
+        mvc.perform(get("/bootui/api/copilot/dashboard").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.sessionCount").value(2))
+                .andExpect(jsonPath("$.eventCount").value(5))
+                .andExpect(jsonPath("$.errorCount").value(1))
+                .andExpect(jsonPath("$.activeLast24Hours").value(2))
+                .andExpect(jsonPath("$.activeLast7Days").value(2))
+                .andExpect(jsonPath("$.sessionsWithSchemaDrift").value(0))
+                .andExpect(jsonPath("$.categoryCounts[0].label").value("OTHER"))
+                .andExpect(jsonPath("$.categoryCounts[0].count").value(2))
+                .andExpect(jsonPath("$.topTools[0].label").value("apply_patch"))
+                .andExpect(jsonPath("$.modelCounts[0].count").value(1))
+                .andExpect(jsonPath("$.activityBuckets.length()").value(24))
+                .andExpect(jsonPath("$.recentSessions.length()").value(2));
+    }
+
+    @Test
+    void dashboardReturnsUnavailableWhenDirectoryMissing(@TempDir Path tempDir) throws Exception {
+        Path missing = tempDir.resolve("missing");
+        BootUiProperties props = propertiesFor(missing);
+        CopilotSessionStore store = storeFor(props);
+        MockMvc mvc = standaloneSetup(new CopilotController(store, props)).build();
+
+        mvc.perform(get("/bootui/api/copilot/dashboard").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andExpect(jsonPath("$.sessionCount").value(0))
+                .andExpect(jsonPath("$.activityBuckets.length()").value(0));
     }
 
     @Test

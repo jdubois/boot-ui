@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.BootUiDtos.CopilotDashboardDto;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotEventListDto;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotRawEventDto;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
@@ -43,6 +44,11 @@ public class CopilotController {
     @GetMapping("/sessions")
     public CopilotSessionListDto sessions() {
         return store.listSessions();
+    }
+
+    @GetMapping("/dashboard")
+    public CopilotDashboardDto dashboard() {
+        return store.dashboard();
     }
 
     @GetMapping("/sessions/{id}")
@@ -95,6 +101,7 @@ public class CopilotController {
 
         try {
             emitter.send(SseEmitter.event().name("sessions").data(store.listSessions(), MediaType.APPLICATION_JSON));
+            emitter.send(SseEmitter.event().name("dashboard").data(store.dashboard(), MediaType.APPLICATION_JSON));
         } catch (IOException ex) {
             cleanup(emitter, unsubscribeRef.get());
             emitter.completeWithError(ex);
@@ -105,6 +112,7 @@ public class CopilotController {
             try {
                 emitter.send(
                         SseEmitter.event().name("sessions").data(store.listSessions(), MediaType.APPLICATION_JSON));
+                emitter.send(SseEmitter.event().name("dashboard").data(store.dashboard(), MediaType.APPLICATION_JSON));
             } catch (IOException ex) {
                 cleanup(emitter, unsubscribeRef.get());
                 emitter.completeWithError(ex);
