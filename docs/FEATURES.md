@@ -167,9 +167,10 @@ content (`spring.ai.chat.client.observations.log-prompt`, `spring.ai.chat.observ
 `spring.ai.chat.observations.log-completion`). A small inline chart shows total token usage over recent calls so you can
 spot expensive interactions during local development. Vector store and embedding spans appear alongside chat spans when
 present. The sidebar dims the panel when telemetry is disabled or Spring AI is not on the classpath, and the view
-explains the unavailable state. Recent chats, model breakdowns, token-series windows, spans, and attributes are bounded
-so large local runs stay responsive. As with the Traces panel, data is sourced from the embedded OTLP receiver, is
-in-memory only, and is cleared on restart.
+explains the unavailable state. When both prerequisites are ready but no chat spans have arrived yet, the panel shows a
+ready empty state rather than setup guidance. Recent chats, model breakdowns, token-series windows, spans, and attributes
+are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from the embedded OTLP
+receiver, is in-memory only, and is cleared on restart.
 
 ![BootUI AI Usage panel](images/bootui-ai.png)
 
