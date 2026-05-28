@@ -83,16 +83,16 @@ test.describe('AI Usage view', () => {
         .first()
     ).toBeVisible()
     await expect(page.getByText('Spring AI detected')).toBeVisible()
-    await expect(page.locator('.card', {hasText: 'Total tokens'}).getByText('49', {exact: true})).toBeVisible()
+    await expect(page.locator('.kpi-card-body', {hasText: 'Total tokens'}).getByText('49', {exact: true})).toBeVisible()
     await expect(page.locator('.card', {hasText: 'Usage by model'}).getByText('qwen2.5:0.5b')).toBeVisible()
     await expect(page.getByText('Token usage (last 60 min)')).toBeVisible()
 
     await page.getByRole('button', {name: 'Toggle chat details'}).click()
     await expect(page.locator('.card', {hasText: `Chat ${chatSpanId}`})).toBeVisible()
-    await expect(page.getByText('getWeather')).toBeVisible()
-    await expect(page.getByText('docs')).toBeVisible()
-    await page.getByText(/Span attributes/).click()
-    await expect(page.getByText('gen_ai.system')).toBeVisible()
+    await expect(page.locator('.chat-detail-row').getByText('getWeather', {exact: true})).toBeVisible()
+    await expect(page.locator('.chat-detail-row').getByText('docs', {exact: true})).toBeVisible()
+    await page.locator('.chat-detail-row summary', {hasText: 'gen_ai'}).click()
+    await expect(page.locator('.chat-detail-row').getByText('gen_ai.system')).toBeVisible()
   })
 
   test('shows disabled mode when telemetry is unavailable', async ({page}) => {
@@ -112,6 +112,27 @@ test.describe('AI Usage view', () => {
     await page.goto('/bootui/#/ai')
     await expect(page.getByText('Enable the BootUI telemetry receiver')).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
+  })
+
+  test('shows ready empty state before the first chat is recorded', async ({page}) => {
+    await stubAi(page, {
+      ...overview,
+      totalChats: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      tokensByModel: {},
+      callsByModel: {},
+      toolCallCount: 0,
+      vectorOperationCount: 0,
+      embeddingCount: 0,
+      recent: []
+    })
+
+    await page.goto('/bootui/#/ai')
+    await expect(page.getByText('No AI chat completions recorded yet')).toBeVisible()
+    await expect(page.getByText('Telemetry ready')).toBeVisible()
+    await expect(page.getByText('Enable the BootUI telemetry receiver')).toHaveCount(0)
+    await expect(page.getByText('OTLP exporter configured')).toHaveCount(0)
   })
 
   test('shows unavailable mode when Spring AI is missing', async ({page}) => {

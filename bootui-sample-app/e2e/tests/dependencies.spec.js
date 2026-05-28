@@ -100,7 +100,7 @@ test.describe('Vulnerabilities view', () => {
     await expect(page.getByText('Run Scan with OSV.dev to populate the severity breakdown.')).toBeVisible()
 
     await page.getByRole('button', {name: 'Scan with OSV.dev'}).click()
-    await expect(page.getByText('SCANNED')).toBeVisible()
+    await expect(page.getByText('SCANNED', {exact: true})).toBeVisible()
     await expect(page.getByText('No vulnerability scan data yet')).toHaveCount(0)
     await expect(page.locator('#vulnerableOnly')).toBeChecked()
     await expect(page.getByText('1 of 2 dependencies')).toBeVisible()

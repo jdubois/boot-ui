@@ -490,16 +490,32 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-else-if="overview">
-      <div v-if="overview.contentBanner" class="alert alert-info small">
+      <div v-if="overview.contentBanner && hasAnyData" class="alert alert-info small">
         <i class="bi bi-info-circle me-1"></i>{{ overview.contentBanner }}
       </div>
 
       <AiSetupChecklist
-        v-if="!overview.enabled || !overview.springAiDetected || !hasAnyData"
+        v-if="!overview.enabled || !overview.springAiDetected"
         :enabled="overview.enabled"
         :has-data="hasAnyData"
         :spring-ai-detected="overview.springAiDetected"
       />
+
+      <div v-else-if="!hasAnyData" class="card mb-3 border-info-subtle">
+        <div class="card-body d-flex align-items-start gap-3">
+          <span class="text-info fs-3"><i class="bi bi-broadcast-pin"></i></span>
+          <div>
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+              <h5 class="mb-0">No AI chat completions recorded yet</h5>
+              <span class="badge text-bg-info">Telemetry ready</span>
+            </div>
+            <p class="text-muted mb-0">
+              BootUI's telemetry receiver is active and Spring AI is detected. Exercise a Spring AI chat flow; this
+              panel will refresh automatically when the first completion span arrives.
+            </p>
+          </div>
+        </div>
+      </div>
 
       <template v-else>
         <div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 mb-3">
