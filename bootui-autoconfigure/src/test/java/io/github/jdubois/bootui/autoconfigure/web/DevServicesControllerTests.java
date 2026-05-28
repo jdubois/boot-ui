@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,6 +10,13 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.core.BootUiDtos.DevServiceDto;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.service.connection.ConnectionDetails;
 import org.springframework.context.support.GenericApplicationContext;
@@ -26,7 +34,8 @@ class DevServicesControllerTests {
         mvc.perform(get("/bootui/api/dev-services"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0))
-                .andExpect(jsonPath("$.services").isEmpty());
+                .andExpect(jsonPath("$.services").isEmpty())
+                .andExpect(jsonPath("$.warnings").isEmpty());
 
         context.close();
     }
@@ -71,6 +80,26 @@ class DevServicesControllerTests {
     }
 
     @Test
+    void listSkipsLazyConnectionDetailsWithoutInitializingBean() throws Exception {
+        LazyConnectionDetails.initialized.set(false);
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean(
+                "lazyConnectionDetails", LazyConnectionDetails.class, definition -> definition.setLazyInit(true));
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.warnings[0]").value(containsString("lazyConnectionDetails")))
+                .andExpect(jsonPath("$.warnings[0]").value(containsString("lazy bean")));
+
+        assertThat(LazyConnectionDetails.initialized).isFalse();
+        context.close();
+    }
+
+    @Test
     void logsReturnsCappedTailForBeanBackedService() throws Exception {
         BootUiProperties properties = new BootUiProperties();
         properties.getDevServices().setLogTailBytes(12);
@@ -104,6 +133,23 @@ class DevServicesControllerTests {
     }
 
     @Test
+    void logsDoNotInitializeLazyBeanBackedService() throws Exception {
+        LazyTestcontainer.initialized.set(false);
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean(
+                "lazyPostgresTestcontainer", LazyTestcontainer.class, definition -> definition.setLazyInit(true));
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services/bean:lazyPostgresTestcontainer/logs"))
+                .andExpect(status().isConflict());
+
+        assertThat(LazyTestcontainer.initialized).isFalse();
+        context.close();
+    }
+
+    @Test
     void restartIsDisabledByDefault() throws Exception {
         GenericApplicationContext context = new GenericApplicationContext();
         context.registerBean("postgresTestcontainer", FakeTestcontainer.class);
@@ -132,8 +178,32 @@ class DevServicesControllerTests {
                 .andExpect(jsonPath("$.status").value("restarted"));
 
         FakeTestcontainer container = context.getBean(FakeTestcontainer.class);
-        org.assertj.core.api.Assertions.assertThat(container.restartCalls()).isEqualTo("stop,start");
+        assertThat(container.restartCalls()).isEqualTo("stop,start");
         context.close();
+    }
+
+    @Test
+    void dockerComposeDuplicateNamesReceiveUniqueIds() throws Exception {
+        DevServicesController controller =
+                new DevServicesController(new GenericApplicationContext(), new BootUiProperties());
+        Method method =
+                DevServicesController.class.getDeclaredMethod("dockerComposeDto", Object.class, Map.class, List.class);
+        method.setAccessible(true);
+        Map<String, Integer> ids = new HashMap<>();
+        List<String> warnings = new ArrayList<>();
+
+        DevServiceDto first = (DevServiceDto)
+                method.invoke(controller, new FakeComposeService("postgres", "postgres:16"), ids, warnings);
+        DevServiceDto second = (DevServiceDto)
+                method.invoke(controller, new FakeComposeService("postgres", "postgres:17"), ids, warnings);
+        DevServiceDto blank = (DevServiceDto) method.invoke(controller, new FakeComposeService("", ""), ids, warnings);
+
+        assertThat(first.id()).isEqualTo("compose:postgres");
+        assertThat(second.id()).isEqualTo("compose:postgres-2");
+        assertThat(blank.id()).isEqualTo("compose:service");
+        assertThat(warnings)
+                .anySatisfy(warning -> assertThat(warning).contains("duplicate service id 'compose:postgres'"));
+        assertThat(warnings).anySatisfy(warning -> assertThat(warning).contains("without a name"));
     }
 
     static class SampleConnectionDetails implements ConnectionDetails {
@@ -144,6 +214,19 @@ class DevServicesControllerTests {
 
         public String getPassword() {
             return "secret";
+        }
+    }
+
+    static class LazyConnectionDetails implements ConnectionDetails {
+
+        static final AtomicBoolean initialized = new AtomicBoolean();
+
+        LazyConnectionDetails() {
+            initialized.set(true);
+        }
+
+        public String getJdbcUrl() {
+            return "jdbc:postgresql://localhost:5432/app";
         }
     }
 
@@ -199,6 +282,49 @@ class DevServicesControllerTests {
 
         public String getLogs(String... outputTypes) {
             return "Redis container started";
+        }
+    }
+
+    static class LazyTestcontainer {
+
+        static final AtomicBoolean initialized = new AtomicBoolean();
+
+        LazyTestcontainer() {
+            initialized.set(true);
+        }
+
+        public String getDockerImageName() {
+            return "postgres:16";
+        }
+
+        public boolean isRunning() {
+            return true;
+        }
+
+        public String getLogs() {
+            return "lazy logs";
+        }
+    }
+
+    record FakeComposeService(String name, String image) {
+
+        public String host() {
+            return "localhost";
+        }
+
+        public Map<String, String> labels() {
+            return Map.of();
+        }
+
+        public FakeComposePorts ports() {
+            return new FakeComposePorts();
+        }
+    }
+
+    static class FakeComposePorts {
+
+        public List<Integer> getAll() {
+            return List.of(15432);
         }
     }
 }

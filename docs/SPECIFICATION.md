@@ -654,6 +654,8 @@ Features:
 - Show bounded logs when a bean-backed Testcontainers service exposes them.
 - Show a restart action for bean-backed services only when explicitly enabled with
   `bootui.dev-services.restart-enabled=true`.
+- Skip lazy, prototype, abstract, or otherwise uninitialized service beans instead of creating them from a read-only
+  panel request, and show a warning that explains why they were skipped.
 
 Status: implemented and supported for `0.1.0-alpha.1` as part of the harden-all-visible-panels release scope.
 
@@ -666,6 +668,8 @@ Acceptance criteria:
 - Works even when Docker is not installed.
 - Docker Compose services are clearly identified as startup snapshots because
   Spring Boot does not expose live per-service lifecycle state.
+- Docker Compose snapshots preserve duplicate or unnamed service entries by assigning stable synthetic IDs and warning
+  when BootUI had to adjust an entry for display.
 - Restart controls are disabled by default and warn that already-created client
   beans may not reconnect after container ports change.
 

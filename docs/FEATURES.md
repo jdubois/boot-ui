@@ -131,7 +131,9 @@ are shown only when available and require explicit confirmation before execution
 The Dev Services panel surfaces local development services discovered from Docker Compose snapshots, Testcontainers
 beans, and service connection metadata. It masks sensitive connection information, can show bounded logs for supported
 services, and shows restart controls only for supported Testcontainers services when
-`bootui.dev-services.restart-enabled=true`.
+`bootui.dev-services.restart-enabled=true`. To keep opening the panel side-effect free, BootUI skips lazy,
+prototype, or otherwise uninitialized service beans that would need to be created just for inspection and reports those
+skips as warnings in the panel.
 
 ![BootUI Dev Services panel](images/bootui-dev-services.png)
 

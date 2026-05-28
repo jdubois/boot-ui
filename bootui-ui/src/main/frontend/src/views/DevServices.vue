@@ -199,6 +199,13 @@ onMounted(load)
       bean-backed Testcontainers services when <code>bootui.dev-services.restart-enabled=true</code>.
     </div>
 
+    <div v-if="report?.warnings?.length" class="alert alert-warning">
+      <div class="fw-semibold mb-1">Some services were skipped or adjusted for safe inspection.</div>
+      <ul class="mb-0">
+        <li v-for="warning in report.warnings" :key="warning">{{ warning }}</li>
+      </ul>
+    </div>
+
     <div v-if="loading" class="text-muted">Loading…</div>
     <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">

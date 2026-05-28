@@ -527,7 +527,18 @@ public final class BootUiDtos {
             boolean testcontainersPresent,
             long snapshotTimestamp,
             int total,
-            List<DevServiceDto> services) {}
+            List<DevServiceDto> services,
+            List<String> warnings) {
+
+        public DevServicesReport(
+                boolean dockerComposePresent,
+                boolean testcontainersPresent,
+                long snapshotTimestamp,
+                int total,
+                List<DevServiceDto> services) {
+            this(dockerComposePresent, testcontainersPresent, snapshotTimestamp, total, services, List.of());
+        }
+    }
 
     /**
      * Tail of logs for one local development service.

@@ -35,7 +35,7 @@ for explanations and screenshots for every panel.
 | [Traces](docs/FEATURES.md#traces)                     | Inspect distributed tracing spans collected by the embedded OTLP receiver with a per-trace waterfall view. |
 | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                   |
 | [DevTools](docs/FEATURES.md#devtools)                 | Check Spring Boot DevTools status, LiveReload availability, and restart controls.                          |
-| [Dev Services](docs/FEATURES.md#dev-services)         | Inspect Docker Compose snapshots, Testcontainers beans, service connection metadata, and bounded logs.     |
+| [Dev Services](docs/FEATURES.md#dev-services)         | Inspect Docker Compose snapshots, safe Testcontainers beans, service connection metadata, and bounded logs. |
 | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)   | View registered scheduled tasks and their trigger metadata.                                                |
 | [Data](docs/FEATURES.md#data)                         | Explore Spring Data repositories, domain types, IDs, and query methods.                                    |
 | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                  |
