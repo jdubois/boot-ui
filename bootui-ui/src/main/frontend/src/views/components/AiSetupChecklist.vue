@@ -1,13 +1,23 @@
 <script setup>
+import {ref} from 'vue'
+
 defineProps({
   springAiDetected: Boolean,
   enabled: Boolean,
   hasData: Boolean
 })
 
-async function copyToClipboard(text) {
+const copiedKey = ref(null)
+let copiedTimer = null
+
+async function copyToClipboard(text, key) {
   try {
     await navigator.clipboard.writeText(text)
+    copiedKey.value = key
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => {
+      copiedKey.value = null
+    }, 1500)
   } catch (_) {
     // ignore
   }
@@ -50,10 +60,12 @@ const mavSnippet = `<dependency>
             <div class="d-flex align-items-center gap-1 mt-1">
               <code class="bg-light px-2 py-1 rounded">bootui.telemetry.enabled=true</code>
               <button
-                class="btn btn-sm btn-outline-secondary"
-                @click="copyToClipboard('bootui.telemetry.enabled=true')"
+                :class="copiedKey === 'telemetry' ? 'btn-success' : 'btn-outline-secondary'"
+                :title="copiedKey === 'telemetry' ? 'Copied!' : 'Copy'"
+                class="btn btn-sm"
+                @click="copyToClipboard('bootui.telemetry.enabled=true', 'telemetry')"
               >
-                <i class="bi bi-clipboard"></i>
+                <i :class="copiedKey === 'telemetry' ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
               </button>
             </div>
           </div>
@@ -70,15 +82,25 @@ const mavSnippet = `<dependency>
             Configure your application to export OTLP traces to BootUI:
             <div class="d-flex align-items-center gap-1 mt-1">
               <code class="bg-light px-2 py-1 rounded text-break">{{ otlpProps }}</code>
-              <button class="btn btn-sm btn-outline-secondary" @click="copyToClipboard(otlpProps)">
-                <i class="bi bi-clipboard"></i>
+              <button
+                :class="copiedKey === 'otlp' ? 'btn-success' : 'btn-outline-secondary'"
+                :title="copiedKey === 'otlp' ? 'Copied!' : 'Copy'"
+                class="btn btn-sm"
+                @click="copyToClipboard(otlpProps, 'otlp')"
+              >
+                <i :class="copiedKey === 'otlp' ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
               </button>
             </div>
             <div class="mt-2">Also add the tracing bridge dependency:</div>
             <div class="d-flex align-items-start gap-1 mt-1">
               <pre class="bg-light p-2 rounded small mb-0 flex-grow-1">{{ mavSnippet }}</pre>
-              <button class="btn btn-sm btn-outline-secondary" @click="copyToClipboard(mavSnippet)">
-                <i class="bi bi-clipboard"></i>
+              <button
+                :class="copiedKey === 'maven' ? 'btn-success' : 'btn-outline-secondary'"
+                :title="copiedKey === 'maven' ? 'Copied!' : 'Copy'"
+                class="btn btn-sm"
+                @click="copyToClipboard(mavSnippet, 'maven')"
+              >
+                <i :class="copiedKey === 'maven' ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
               </button>
             </div>
           </div>

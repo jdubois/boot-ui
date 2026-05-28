@@ -203,9 +203,17 @@ const filteredChats = computed(() => {
 
 const pagedChats = computed(() => filteredChats.value.slice(0, pageSize.value))
 
-async function copyToClipboard(text) {
+const copiedKey = ref(null)
+let copiedTimer = null
+
+async function copyToClipboard(text, key) {
   try {
     await navigator.clipboard.writeText(text)
+    copiedKey.value = key || text
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => {
+      copiedKey.value = null
+    }, 1500)
   } catch (_) {
     // ignore
   }
@@ -597,6 +605,7 @@ onBeforeUnmount(() => {
                   :x2="(tooltipData.x / 100) * chart.width"
                   :y1="0"
                   :y2="chart.height"
+                  aria-hidden="true"
                   stroke="#adb5bd"
                   stroke-width="1"
                 />
@@ -812,11 +821,12 @@ onBeforeUnmount(() => {
                   </td>
                   <td class="text-end text-nowrap">
                     <button
-                      class="btn btn-sm btn-outline-secondary me-1"
-                      title="Copy span id"
-                      @click="copyToClipboard(chat.spanId)"
+                      :class="copiedKey === chat.spanId ? 'btn-success' : 'btn-outline-secondary'"
+                      :title="copiedKey === chat.spanId ? 'Copied!' : 'Copy span id'"
+                      class="btn btn-sm me-1"
+                      @click="copyToClipboard(chat.spanId, chat.spanId)"
                     >
-                      <i class="bi bi-clipboard"></i>
+                      <i :class="copiedKey === chat.spanId ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
                     </button>
                     <a :href="'#/traces'" class="btn btn-sm btn-outline-secondary me-1" title="View trace">
                       <i class="bi bi-bezier2"></i>
@@ -839,11 +849,11 @@ onBeforeUnmount(() => {
                           <i class="bi bi-stars me-2"></i>Chat
                           <code>{{ selectedSpanId }}</code>
                           <button
+                            :title="copiedKey === selectedSpanId ? 'Copied!' : 'Copy span id'"
                             class="btn btn-sm btn-link p-0 ms-2"
-                            title="Copy span id"
-                            @click="copyToClipboard(selectedSpanId)"
+                            @click="copyToClipboard(selectedSpanId, selectedSpanId)"
                           >
-                            <i class="bi bi-clipboard"></i>
+                            <i :class="copiedKey === selectedSpanId ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
                           </button>
                         </div>
                         <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">
