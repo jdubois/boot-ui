@@ -69,4 +69,3 @@ source JSON for one event on demand. It is:
 - automatically disabled when `bootui.expose-values=METADATA_ONLY`;
 - subject to the standard loopback-only filter applied to every BootUI
   endpoint.
-
