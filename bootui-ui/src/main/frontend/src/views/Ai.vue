@@ -14,7 +14,10 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const [ovRes, tsRes] = await Promise.all([fetch('api/ai/overview'), fetch('api/ai/tokens')])
+    const [ovRes, tsRes] = await Promise.all([
+      fetch('api/ai/overview'),
+      fetch('api/ai/tokens?minutes=' + windowMinutes.value)
+    ])
     if (!ovRes.ok) throw new Error('HTTP ' + ovRes.status)
     overview.value = await ovRes.json()
     if (tsRes.ok) {
@@ -65,24 +68,98 @@ const callsByModelEntries = computed(() => {
   return Object.entries(overview.value.callsByModel).sort((a, b) => b[1] - a[1])
 })
 
-const sparkline = computed(() => {
+const windowMinutes = ref(60)
+const tooltipData = ref(null)
+const chartContainerRef = ref(null)
+
+async function loadTokenSeries() {
+  const res = await fetch('api/ai/tokens?minutes=' + windowMinutes.value)
+  if (res.ok) series.value = await res.json()
+}
+
+async function onWindowChange() {
+  await loadTokenSeries()
+}
+
+const chart = computed(() => {
   if (!series.value || !series.value.buckets || series.value.buckets.length === 0) return null
   const buckets = series.value.buckets
+  const n = buckets.length
+  const width = 600
+  const height = 80
+  const step = width / Math.max(n - 1, 1)
+
   const maxTokens = buckets.reduce((m, b) => {
     const t = (b.inputTokens || 0) + (b.outputTokens || 0)
     return t > m ? t : m
   }, 1)
-  const width = 600
-  const height = 80
-  const step = width / Math.max(buckets.length - 1, 1)
-  const points = buckets.map((b, i) => {
-    const t = (b.inputTokens || 0) + (b.outputTokens || 0)
-    const x = i * step
-    const y = height - (t / maxTokens) * height
-    return `${x},${y}`
-  })
-  return {width, height, polyline: points.join(' '), maxTokens, buckets}
+  const maxCalls = buckets.reduce((m, b) => Math.max(m, b.callCount || 0), 1)
+  const totalCalls = buckets.reduce((s, b) => s + (b.callCount || 0), 0)
+
+  const xs = buckets.map((_, i) => i * step)
+  const inputTops = buckets.map((b) => height - ((b.inputTokens || 0) / maxTokens) * height)
+  const stackedTops = buckets.map((b) => height - (((b.inputTokens || 0) + (b.outputTokens || 0)) / maxTokens) * height)
+  const callYs = buckets.map((b) => height - ((b.callCount || 0) / maxCalls) * height)
+
+  // Build input area polygon (bottom area)
+  const inputAreaPts = xs.map((x, i) => `${x},${inputTops[i]}`).join(' ') + ` ${xs[n - 1]},${height} ${xs[0]},${height}`
+
+  // Build output area polygon (stacked on top of input)
+  const outputAreaPts =
+    xs.map((x, i) => `${x},${stackedTops[i]}`).join(' ') +
+    ' ' +
+    xs.map((x, i) => `${xs[n - 1 - i]},${inputTops[n - 1 - i]}`).join(' ')
+
+  const inputLinePts = xs.map((x, i) => `${x},${inputTops[i]}`).join(' ')
+  const outputLinePts = xs.map((x, i) => `${x},${stackedTops[i]}`).join(' ')
+  const callLinePts = xs.map((x, i) => `${x},${callYs[i]}`).join(' ')
+
+  const halfY = height / 2
+  const firstTime = new Date(buckets[0].epochMinute * 60000).toLocaleTimeString()
+  const midTime = new Date(buckets[Math.floor((n - 1) / 2)].epochMinute * 60000).toLocaleTimeString()
+  const lastTime = new Date(buckets[n - 1].epochMinute * 60000).toLocaleTimeString()
+
+  return {
+    width,
+    height,
+    maxTokens,
+    totalCalls,
+    inputAreaPts,
+    outputAreaPts,
+    inputLinePts,
+    outputLinePts,
+    callLinePts,
+    halfY,
+    firstTime,
+    midTime,
+    lastTime,
+    buckets,
+    xs
+  }
 })
+
+function onChartMousemove(event) {
+  if (!chart.value) return
+  const rect = event.currentTarget.getBoundingClientRect()
+  const relX = ((event.clientX - rect.left) / rect.width) * chart.value.width
+  const idx = chart.value.xs.reduce(
+    (best, x, i) => (Math.abs(x - relX) < Math.abs(chart.value.xs[best] - relX) ? i : best),
+    0
+  )
+  const b = chart.value.buckets[idx]
+  tooltipData.value = {
+    idx,
+    x: (chart.value.xs[idx] / chart.value.width) * 100,
+    time: new Date(b.epochMinute * 60000).toLocaleTimeString(),
+    input: b.inputTokens || 0,
+    output: b.outputTokens || 0,
+    calls: b.callCount || 0
+  }
+}
+
+function onChartMouseleave() {
+  tooltipData.value = null
+}
 
 const avgLatency = computed(() => {
   const recent = overview.value && overview.value.recent
@@ -201,13 +278,75 @@ onMounted(load)
           </div>
         </div>
 
-        <div v-if="sparkline" class="card mb-3">
+        <div v-if="chart" class="card mb-3">
           <div class="card-body">
-            <h6 class="mb-2">Token usage (last {{ series.minutes }} min)</h6>
-            <svg :viewBox="'0 0 ' + sparkline.width + ' ' + sparkline.height" class="w-100" style="max-height: 100px">
-              <polyline :points="sparkline.polyline" fill="none" stroke="#0d6efd" stroke-width="2" />
-            </svg>
-            <div class="text-muted small">Peak {{ formatNumber(sparkline.maxTokens) }} tokens/min</div>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0">Token usage (last {{ series.minutes }} min)</h6>
+              <select v-model="windowMinutes" class="form-select form-select-sm w-auto" @change="onWindowChange">
+                <option :value="15">15 min</option>
+                <option :value="60">60 min</option>
+                <option :value="240">240 min</option>
+              </select>
+            </div>
+            <div
+              ref="chartContainerRef"
+              class="position-relative"
+              @mouseleave="onChartMouseleave"
+              @mousemove="onChartMousemove"
+            >
+              <svg
+                :aria-label="'Token usage over the last ' + windowMinutes + ' minutes'"
+                :viewBox="'0 0 ' + chart.width + ' ' + chart.height"
+                class="w-100"
+                role="img"
+                style="max-height: 100px"
+              >
+                <line :x1="0" :x2="chart.width" :y1="chart.halfY" :y2="chart.halfY" stroke="#dee2e6" stroke-width="1" />
+                <text :x="2" :y="8" fill="#6c757d" font-size="9">{{ formatNumber(chart.maxTokens) }}</text>
+                <text :x="2" :y="chart.halfY - 2" fill="#6c757d" font-size="9">
+                  {{ formatNumber(Math.round(chart.maxTokens / 2)) }}
+                </text>
+                <text :x="2" :y="chart.height - 1" fill="#6c757d" font-size="9">0</text>
+                <polygon :points="chart.inputAreaPts" fill="#0d6efd" fill-opacity="0.6" />
+                <polygon :points="chart.outputAreaPts" fill="#6610f2" fill-opacity="0.6" />
+                <polyline :points="chart.outputLinePts" fill="none" stroke="#6610f2" stroke-width="1.5" />
+                <polyline
+                  :points="chart.callLinePts"
+                  fill="none"
+                  stroke="#198754"
+                  stroke-dasharray="4 2"
+                  stroke-width="1.5"
+                />
+                <line
+                  v-if="tooltipData"
+                  :x1="(tooltipData.x / 100) * chart.width"
+                  :x2="(tooltipData.x / 100) * chart.width"
+                  :y1="0"
+                  :y2="chart.height"
+                  stroke="#adb5bd"
+                  stroke-width="1"
+                />
+              </svg>
+              <div
+                v-if="tooltipData"
+                :style="{left: tooltipData.x + '%'}"
+                class="position-absolute bg-white border rounded p-1 small shadow-sm"
+                style="top: 0; transform: translateX(-50%); pointer-events: none; white-space: nowrap; z-index: 10"
+              >
+                <div class="fw-semibold">{{ tooltipData.time }}</div>
+                <div style="color: #0d6efd">In: {{ tooltipData.input }}</div>
+                <div style="color: #6610f2">Out: {{ tooltipData.output }}</div>
+                <div style="color: #198754">Calls: {{ tooltipData.calls }}</div>
+              </div>
+            </div>
+            <div class="d-flex justify-content-between text-muted small mt-1 px-1">
+              <span>{{ chart.firstTime }}</span>
+              <span>{{ chart.midTime }}</span>
+              <span>{{ chart.lastTime }}</span>
+            </div>
+            <div class="text-muted small mt-1">
+              Peak {{ formatNumber(chart.maxTokens) }} tokens/min · {{ formatNumber(chart.totalCalls) }} calls
+            </div>
           </div>
         </div>
 
