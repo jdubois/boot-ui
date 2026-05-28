@@ -34,6 +34,7 @@ for explanations and screenshots for every panel.
 | [Log Tail](docs/FEATURES.md#log-tail)                 | Read recent application logs and stream new local log events from the running process.                     |
 | [Traces](docs/FEATURES.md#traces)                     | Inspect distributed tracing spans collected by the embedded OTLP receiver with a per-trace waterfall view. |
 | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                   |
+| [Copilot](docs/FEATURES.md#copilot)                   | Dashboard sanitized local GitHub Copilot CLI sessions: activity trends, tool mix, MCP, hooks, skills, errors. |
 | [DevTools](docs/FEATURES.md#devtools)                 | Check Spring Boot DevTools status, LiveReload availability, and restart controls.                          |
 | [Dev Services](docs/FEATURES.md#dev-services)         | Inspect Docker Compose snapshots, safe Testcontainers beans, service connection metadata, and bounded logs. |
 | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)   | View registered scheduled tasks and their trigger metadata.                                                |
@@ -110,6 +111,10 @@ Common properties:
 | `bootui.cache.clear-enabled`          | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
 | `bootui.dev-services.restart-enabled` | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |
 | `bootui.dev-services.log-tail-bytes`  | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                  |
+| `bootui.copilot.enabled`              | `AUTO`                                  | Enable the Copilot panel. `AUTO` activates when `~/.copilot/session-state/` exists.      |
+| `bootui.copilot.session-state-dir`    | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.          |
+| `bootui.copilot.max-sessions`         | `100`                                   | Maximum recent sessions returned by the Copilot session explorer.                        |
+| `bootui.copilot.allow-raw-reveal`     | `true`                                  | When `false`, the opt-in raw-event reveal endpoint returns 404 even on loopback.         |
 
 ## Runtime overrides
 

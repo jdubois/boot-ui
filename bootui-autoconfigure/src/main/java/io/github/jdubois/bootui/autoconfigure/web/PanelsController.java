@@ -89,6 +89,7 @@ public class PanelsController {
                         classPresent("ch.qos.logback.classic.Logger"),
                         "Logback not on the classpath"),
                 panel("http-probe", "HTTP Probe", true, null),
+                panel("copilot", "Copilot", copilotAvailable(), copilotUnavailableReason()),
                 panel("devtools", "DevTools", devToolsPresent(), "Spring Boot DevTools not on the classpath"),
                 panel(
                         "dev-services",
@@ -164,5 +165,21 @@ public class PanelsController {
             return "Telemetry receiver is disabled";
         }
         return "Spring AI ChatClient is not on the classpath";
+    }
+
+    private boolean copilotAvailable() {
+        if (properties.getCopilot().getEnabled() == BootUiProperties.Mode.OFF) {
+            return false;
+        }
+        java.nio.file.Path dir = CopilotSessionStore.resolveDir(properties.getCopilot());
+        return java.nio.file.Files.isDirectory(dir);
+    }
+
+    private String copilotUnavailableReason() {
+        if (properties.getCopilot().getEnabled() == BootUiProperties.Mode.OFF) {
+            return "Copilot panel is disabled via configuration";
+        }
+        return "Copilot CLI session-state directory not found at "
+                + CopilotSessionStore.resolveDir(properties.getCopilot());
     }
 }

@@ -119,6 +119,26 @@ duration, and body. It is designed for quick route checks from inside the same l
 
 ![BootUI HTTP Probe panel](images/bootui-http-probe.png)
 
+## Copilot
+
+The Copilot panel surfaces sanitized signals from local
+[GitHub Copilot CLI](https://github.com/github/copilot-cli) sessions. It reads the session directories and `events.jsonl`
+files Copilot CLI writes under `~/.copilot/session-state/` (configurable via `bootui.copilot.session-state-dir`) and
+aggregates recent activity into a clean dashboard: active sessions, total sanitized events, failures, 24-hour activity,
+7-day activity, event category mix, top tools, model usage, and recent sessions. The session explorer remains available
+for drilling into tool calls, edits, reads, searches, shell commands, web/docs lookups, MCP tool calls, hook callbacks,
+skills, sub-agents, and ASK/intent/plan calls. To keep large local histories responsive, the session explorer returns the
+most recent `bootui.copilot.max-sessions` sessions by default, and the activity charts can filter the explorer to sessions
+active during a selected hour or day. Failure lists use retained failure events and include sanitized tool/type context.
+Each event row shows only an allowlisted summary - raw prompts, tool arguments, command output, and diffs are deliberately
+excluded. The per-event "Reveal raw" action is an explicit, local-only escape hatch that returns the source JSON; it can be disabled with
+`bootui.copilot.allow-raw-reveal=false` and is also blocked when `bootui.expose-values=METADATA_ONLY`. The sidebar dims
+the panel when no session-state directory is found. Data is read-only - BootUI never modifies anything under
+`~/.copilot/`. The panel watches the directory through a Java NIO `WatchService` thread and pushes live updates via
+Server-Sent Events. Inspired by
+[copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control), which pioneered this dashboarding of
+Copilot CLI session state.
+
 ## DevTools
 
 The DevTools panel reports Spring Boot DevTools availability, LiveReload status, and restart support. Restart actions

@@ -26,6 +26,7 @@ import DevServices from './views/DevServices.vue'
 import DevTools from './views/DevTools.vue'
 import Traces from './views/Traces.vue'
 import Ai from './views/Ai.vue'
+import Copilot from './views/Copilot.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -55,6 +56,7 @@ const router = createRouter({
     {path: '/log-tail', name: 'log-tail', component: LogTail, meta: {icon: 'bi-terminal', title: 'Log Tail'}},
     {path: '/traces', name: 'traces', component: Traces, meta: {icon: 'bi-bezier2', title: 'Traces'}},
     {path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: {icon: 'bi-send', title: 'HTTP Probe'}},
+    {path: '/copilot', name: 'copilot', component: Copilot, meta: {icon: 'bi-robot', title: 'Copilot'}},
     {path: '/devtools', name: 'devtools', component: DevTools, meta: {icon: 'bi-lightning-charge', title: 'DevTools'}},
     {
       path: '/dev-services',

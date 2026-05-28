@@ -46,3 +46,27 @@ In-scope security issues include:
 - Secret values leaked in API responses despite default masking.
 - Stored XSS or RCE against the bundled Vue UI.
 - Path traversal through the runtime overrides file store.
+
+## Copilot panel local file read
+
+When enabled, the Copilot panel reads Copilot CLI session directories from
+`~/.copilot/session-state/` (or the path configured via
+`bootui.copilot.session-state-dir`), including each session's
+`events.jsonl` file. The data flow is local-only and **read-only** - BootUI
+never writes to or deletes from that directory.
+
+The default `/bootui/api/copilot/**` payloads contain only allowlisted,
+sanitized fields: event type, tool name, category, timestamp, success
+flag, and a short summary. Prompts, raw tool arguments, command output,
+file diffs, and other Copilot session content are deliberately excluded
+from the default payloads.
+
+The per-event raw reveal endpoint
+(`/bootui/api/copilot/sessions/{id}/events/{eventId}/raw`) returns the
+source JSON for one event on demand. It is:
+
+- gated by `bootui.copilot.allow-raw-reveal=true` (set to `false` to
+  hard-disable it);
+- automatically disabled when `bootui.expose-values=METADATA_ONLY`;
+- subject to the standard loopback-only filter applied to every BootUI
+  endpoint.
