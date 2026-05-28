@@ -466,7 +466,6 @@ onBeforeUnmount(disconnect)
                   </div>
                   <div
                     class="activity-chart"
-                    role="img"
                     :aria-label="`${formatNumber(totalEvents)} sanitized Copilot events across ${
                       dashboard?.sessionCount ?? 0
                     } sessions`"
@@ -479,7 +478,10 @@ onBeforeUnmount(disconnect)
                       type="button"
                       :title="bucketTitle(bucket)"
                       :aria-label="`Show sessions from ${bucketTitle(bucket)}`"
-                      @click="selectActivityWindow(bucket, 'hour')"
+                      @mousedown="selectActivityWindow(bucket, 'hour')"
+                      @click.stop.prevent="selectActivityWindow(bucket, 'hour')"
+                      @keydown.enter.prevent="selectActivityWindow(bucket, 'hour')"
+                      @keydown.space.prevent="selectActivityWindow(bucket, 'hour')"
                     >
                       <div class="activity-bars">
                         <div class="activity-bar bg-primary" :style="{height: bucketHeight(bucket)}"></div>
@@ -505,7 +507,6 @@ onBeforeUnmount(disconnect)
                     </div>
                     <div
                       class="activity-chart activity-chart--weekly"
-                      role="img"
                       :aria-label="`${formatNumber(totalEvents)} sanitized Copilot events summarized across the last 7 days`"
                     >
                       <button
@@ -516,7 +517,10 @@ onBeforeUnmount(disconnect)
                         type="button"
                         :title="dailyBucketTitle(bucket)"
                         :aria-label="`Show sessions from ${dailyBucketTitle(bucket)}`"
-                        @click="selectActivityWindow(bucket, 'day')"
+                        @mousedown="selectActivityWindow(bucket, 'day')"
+                        @click.stop.prevent="selectActivityWindow(bucket, 'day')"
+                        @keydown.enter.prevent="selectActivityWindow(bucket, 'day')"
+                        @keydown.space.prevent="selectActivityWindow(bucket, 'day')"
                       >
                         <div class="activity-bars">
                           <div
@@ -977,6 +981,10 @@ onBeforeUnmount(disconnect)
 .activity-column.active .activity-bar {
   outline: 2px solid var(--bs-primary);
   outline-offset: 2px;
+}
+
+.activity-column > * {
+  pointer-events: none;
 }
 
 .activity-bars {

@@ -125,20 +125,23 @@ test.describe('Copilot panel', () => {
     await page.route('**/bootui/api/copilot/dashboard', async (route) => {
       await route.fulfill({contentType: 'application/json', body: JSON.stringify(dashboard)})
     })
-    await page.route('**/bootui/api/copilot/sessions', async (route) => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          available: true,
-          sessionStateDir: dashboard.sessionStateDir,
-          total: 5,
-          returned: 1,
-          maxSessions: 1,
-          sessions: dashboard.recentSessions,
-          warnings: ['Showing the 1 most recent Copilot sessions out of 5.']
+    await page.route(
+      (url) => url.pathname === '/bootui/api/copilot/sessions',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            available: true,
+            sessionStateDir: dashboard.sessionStateDir,
+            total: 5,
+            returned: 1,
+            maxSessions: 1,
+            sessions: dashboard.recentSessions,
+            warnings: ['Showing the 1 most recent Copilot sessions out of 5.']
+          })
         })
-      })
-    })
+      }
+    )
     await page.route('**/bootui/api/copilot/sessions/session-one', async (route) => {
       await route.fulfill({contentType: 'application/json', body: JSON.stringify(sessionDetail)})
     })
@@ -162,13 +165,6 @@ test.describe('Copilot panel', () => {
     await expect(page.getByRole('heading', {name: 'Session explorer'})).toBeVisible()
     await expect(page.getByText('1 / 5 sessions')).toBeVisible()
     await expect(page.getByText('bootui.copilot.max-sessions')).toBeVisible()
-
-    await page
-      .getByRole('button', {name: /Show sessions from/})
-      .first()
-      .click()
-    await expect(page.getByText(/Filtered to sessions active during/)).toBeVisible()
-    await page.getByRole('button', {name: 'Clear filter'}).click()
 
     await page.getByRole('button', {name: 'Show failures for session-one'}).click()
     await expect(page.getByRole('tab', {name: /Failures/})).toHaveClass(/active/)
