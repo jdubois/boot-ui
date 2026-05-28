@@ -36,6 +36,16 @@ const sessions = computed(() => sessionList.value?.sessions ?? [])
 const available = computed(() => sessionList.value?.available !== false)
 const unavailableReason = computed(() => sessionList.value?.unavailableReason)
 const sessionStateDir = computed(() => sessionList.value?.sessionStateDir)
+const explorerReturned = computed(() => sessionList.value?.returned ?? sessions.value.length)
+const explorerTotal = computed(() => sessionList.value?.total ?? sessions.value.length)
+const explorerMaxSessions = computed(() => sessionList.value?.maxSessions)
+const explorerLimitMessage = computed(() => {
+  if (explorerTotal.value <= explorerReturned.value) return null
+  return `Showing ${formatNumber(explorerReturned.value)} most recent of ${formatNumber(explorerTotal.value)} sessions`
+})
+const sessionWarnings = computed(() =>
+  (sessionList.value?.warnings ?? []).filter((warning) => !warning.startsWith('Showing the '))
+)
 const totalEvents = computed(
   () => dashboard.value?.eventCount ?? sessions.value.reduce((sum, item) => sum + item.eventCount, 0)
 )
@@ -501,13 +511,25 @@ onBeforeUnmount(disconnect)
         <div class="card-header bg-body d-flex flex-wrap align-items-center justify-content-between gap-2">
           <div>
             <h4 class="mb-0">Session explorer</h4>
-            <div class="small text-muted">
-              Drill into sanitized events and reveal one raw event at a time when needed.
+            <div class="small text-muted d-flex flex-wrap gap-2">
+              <span>Drill into sanitized events and reveal one raw event at a time when needed.</span>
+              <span v-if="explorerMaxSessions">Limit: {{ formatNumber(explorerMaxSessions) }} sessions</span>
             </div>
           </div>
-          <span class="badge text-bg-secondary">{{ sessions.length }} sessions</span>
+          <span class="badge text-bg-secondary">
+            {{ formatNumber(explorerReturned) }} / {{ formatNumber(explorerTotal) }} sessions
+          </span>
         </div>
         <div class="card-body">
+          <div v-if="explorerLimitMessage" class="alert alert-info py-2 small">
+            <i class="bi bi-funnel me-1"></i>{{ explorerLimitMessage }}. Increase
+            <code>bootui.copilot.max-sessions</code> to show more.
+          </div>
+          <div v-if="sessionWarnings.length" class="mb-3">
+            <div v-for="warning in sessionWarnings" :key="warning" class="small text-warning">
+              <i class="bi bi-exclamation-triangle me-1"></i>{{ warning }}
+            </div>
+          </div>
           <div class="row g-3">
             <div class="col-lg-4">
               <div v-if="sessions.length === 0" class="alert alert-secondary">No Copilot sessions recorded yet.</div>

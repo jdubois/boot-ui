@@ -70,6 +70,7 @@ public class CopilotSessionStore {
     private static final int DASHBOARD_BUCKET_COUNT = 24;
     private static final int DASHBOARD_TOP_LIMIT = 10;
     private static final int DASHBOARD_RECENT_SESSION_LIMIT = 8;
+    private static final int HARD_MAX_SESSION_EXPLORER_ITEMS = 1000;
 
     /** Largest individual session-state file we will parse, in bytes. */
     private static final long MAX_FILE_BYTES = 32L * 1024 * 1024;
@@ -302,12 +303,15 @@ public class CopilotSessionStore {
 
     /** Build the list payload returned by {@code GET /bootui/api/copilot/sessions}. */
     public CopilotSessionListDto listSessions() {
+        int maxSessions = effectiveMaxSessions();
         if (!isDirectoryAvailable()) {
             return new CopilotSessionListDto(
                     false,
                     "Copilot CLI session-state directory not found at " + sessionStateDir,
                     sessionStateDir.toString(),
                     0,
+                    0,
+                    maxSessions,
                     List.of(),
                     List.of());
         }
@@ -315,11 +319,29 @@ public class CopilotSessionStore {
                 .map(ps -> ps.summary)
                 .sorted(sessionSummaryComparator())
                 .toList();
-        List<String> warnings = sorted.stream().anyMatch(CopilotSessionSummary::schemaDrift)
-                ? List.of(
-                        "One or more sessions did not match the expected Copilot CLI schema; some details may be missing.")
-                : List.<String>of();
-        return new CopilotSessionListDto(true, null, sessionStateDir.toString(), sorted.size(), sorted, warnings);
+        List<CopilotSessionSummary> limited = sorted.stream().limit(maxSessions).toList();
+        List<String> warnings = new ArrayList<>();
+        if (sorted.size() > limited.size()) {
+            warnings.add(
+                    "Showing the " + limited.size() + " most recent Copilot sessions out of " + sorted.size() + ".");
+        }
+        if (sorted.stream().anyMatch(CopilotSessionSummary::schemaDrift)) {
+            warnings.add(
+                    "One or more sessions did not match the expected Copilot CLI schema; some details may be missing.");
+        }
+        return new CopilotSessionListDto(
+                true,
+                null,
+                sessionStateDir.toString(),
+                sorted.size(),
+                limited.size(),
+                maxSessions,
+                limited,
+                List.copyOf(warnings));
+    }
+
+    private int effectiveMaxSessions() {
+        return Math.min(Math.max(1, properties.getMaxSessions()), HARD_MAX_SESSION_EXPLORER_ITEMS);
     }
 
     /** Build the aggregate dashboard payload returned by {@code GET /bootui/api/copilot/dashboard}. */

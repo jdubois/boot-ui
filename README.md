@@ -113,6 +113,7 @@ Common properties:
 | `bootui.dev-services.log-tail-bytes`  | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                  |
 | `bootui.copilot.enabled`              | `AUTO`                                  | Enable the Copilot panel. `AUTO` activates when `~/.copilot/session-state/` exists.      |
 | `bootui.copilot.session-state-dir`    | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.          |
+| `bootui.copilot.max-sessions`         | `100`                                   | Maximum recent sessions returned by the Copilot session explorer.                        |
 | `bootui.copilot.allow-raw-reveal`     | `true`                                  | When `false`, the opt-in raw-event reveal endpoint returns 404 even on loopback.         |
 
 ## Runtime overrides

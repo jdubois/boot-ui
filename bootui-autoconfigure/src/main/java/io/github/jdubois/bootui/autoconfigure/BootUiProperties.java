@@ -506,6 +506,11 @@ public class BootUiProperties {
         private int maxEventsPerSession = 2000;
 
         /**
+         * Maximum number of recent sessions returned to the session explorer.
+         */
+        private int maxSessions = 100;
+
+        /**
          * Debounce window applied to file-system events before refreshing parsed sessions
          * and notifying SSE subscribers.
          */
@@ -539,6 +544,14 @@ public class BootUiProperties {
 
         public void setMaxEventsPerSession(int maxEventsPerSession) {
             this.maxEventsPerSession = maxEventsPerSession;
+        }
+
+        public int getMaxSessions() {
+            return maxSessions;
+        }
+
+        public void setMaxSessions(int maxSessions) {
+            this.maxSessions = maxSessions;
         }
 
         public Duration getStreamDebounce() {

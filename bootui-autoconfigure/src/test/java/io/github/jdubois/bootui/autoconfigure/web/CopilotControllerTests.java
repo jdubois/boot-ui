@@ -79,6 +79,7 @@ class CopilotControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(true))
                 .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.returned").value(1))
                 .andExpect(jsonPath("$.sessions[0].id").value("abc123"))
                 .andExpect(jsonPath("$.sessions[0].model").value("gpt-4o"))
                 .andExpect(jsonPath("$.sessions[0].workingDirectory").value("/work"))
@@ -104,6 +105,7 @@ class CopilotControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(true))
                 .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.returned").value(1))
                 .andExpect(jsonPath("$.sessions[0].id").value("session-1"))
                 .andExpect(jsonPath("$.sessions[0].filename").value("session-1/events.jsonl"))
                 .andExpect(jsonPath("$.sessions[0].model").value("gpt-5.5"))
@@ -118,6 +120,26 @@ class CopilotControllerTests {
                 .doesNotContain("secret transformed prompt")
                 .doesNotContain("secret output")
                 .doesNotContain("do not expose this");
+    }
+
+    @Test
+    void sessionsListIsLimitedByConfiguredMaximum(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("old.json"), "{\"updated_at\":1700000000,\"events\":[{\"type\":\"t\"}]}");
+        Files.writeString(tempDir.resolve("middle.json"), "{\"updated_at\":1700000001,\"events\":[{\"type\":\"t\"}]}");
+        Files.writeString(tempDir.resolve("new.json"), "{\"updated_at\":1700000002,\"events\":[{\"type\":\"t\"}]}");
+        BootUiProperties props = propertiesFor(tempDir);
+        props.getCopilot().setMaxSessions(2);
+        CopilotSessionStore store = storeFor(props);
+        MockMvc mvc = standaloneSetup(new CopilotController(store, props)).build();
+
+        mvc.perform(get("/bootui/api/copilot/sessions").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.returned").value(2))
+                .andExpect(jsonPath("$.maxSessions").value(2))
+                .andExpect(jsonPath("$.sessions[0].id").value("new"))
+                .andExpect(jsonPath("$.sessions[1].id").value("middle"))
+                .andExpect(jsonPath("$.warnings[0]").value("Showing the 2 most recent Copilot sessions out of 3."));
     }
 
     @Test

@@ -62,9 +62,11 @@ test.describe('Copilot panel', () => {
         body: JSON.stringify({
           available: true,
           sessionStateDir: dashboard.sessionStateDir,
-          total: 1,
+          total: 5,
+          returned: 1,
+          maxSessions: 1,
           sessions: dashboard.recentSessions,
-          warnings: []
+          warnings: ['Showing the 1 most recent Copilot sessions out of 5.']
         })
       })
     })
@@ -81,5 +83,7 @@ test.describe('Copilot panel', () => {
     await expect(page.getByRole('heading', {name: 'Top tools'}).locator('..').getByText('apply_patch')).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Event mix'}).locator('..').getByText('FILE_EDIT')).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Session explorer'})).toBeVisible()
+    await expect(page.getByText('1 / 5 sessions')).toBeVisible()
+    await expect(page.getByText('bootui.copilot.max-sessions')).toBeVisible()
   })
 })

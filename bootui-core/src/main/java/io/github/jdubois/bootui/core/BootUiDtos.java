@@ -771,6 +771,8 @@ public final class BootUiDtos {
             String unavailableReason,
             String sessionStateDir,
             int total,
+            int returned,
+            int maxSessions,
             List<CopilotSessionSummary> sessions,
             List<String> warnings) {}
 
