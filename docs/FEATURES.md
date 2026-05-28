@@ -2,7 +2,7 @@
 
 BootUI panels are documented here in the same order as the application menu. When a panel's backing infrastructure is
 missing, the sidebar keeps the route visible but dims it so you can tell at a glance that the panel has no live data for
-the current application.
+the current application. Opening a dimmed panel also shows the unavailable reason at the top of the page.
 
 ## Overview
 

@@ -10,6 +10,13 @@ const error = ref(null)
 
 const routes = router.options.routes.filter((r) => r.name)
 const panelLookup = computed(() => new Map((panels.value?.panels ?? []).map((panel) => [panel.id, panel])))
+const activePanel = computed(() => (route.name ? panelLookup.value.get(route.name) : null))
+const activePanelUnavailable = computed(() => activePanel.value?.available === false)
+const activePanelUnavailableReason = computed(
+  () =>
+    activePanel.value?.unavailableReason ||
+    'Required classpath or endpoint support is unavailable for this application.'
+)
 const activeTitle = computed(() => route.meta?.title ?? 'BootUI')
 const activeIcon = computed(() => route.meta?.icon ?? 'bi-speedometer2')
 const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
@@ -48,6 +55,22 @@ async function loadShellData() {
   await Promise.all([loadOverview(), loadPanels()])
 }
 
+function panelForRoute(r) {
+  return panelLookup.value.get(r.name)
+}
+
+function routeUnavailable(r) {
+  return panelForRoute(r)?.available === false
+}
+
+function routeAvailabilityLabel(r) {
+  const panel = panelForRoute(r)
+  if (panel?.available === false) {
+    return `${r.meta.title} - unavailable: ${panel.unavailableReason || 'required support is unavailable'}`
+  }
+  return r.meta.title
+}
+
 onMounted(loadShellData)
 </script>
 
@@ -66,18 +89,23 @@ onMounted(loadShellData)
       </router-link>
 
       <nav class="nav nav-pills flex-column gap-1 sidebar-nav">
-        <router-link
-          v-for="r in routes"
-          :key="r.name"
-          :class="{
-            active: route.name === r.name,
-            'bootui-nav-link--unavailable': panelLookup.get(r.name)?.available === false
-          }"
-          :to="r.path"
-          class="nav-link bootui-nav-link"
-        >
-          <i :class="['bi', r.meta.icon]"></i>
-          <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+        <router-link v-for="r in routes" :key="r.name" v-slot="{href, navigate}" :to="r.path" custom>
+          <a
+            :aria-current="route.name === r.name ? 'page' : undefined"
+            :aria-label="routeAvailabilityLabel(r)"
+            :class="{
+              active: route.name === r.name,
+              'bootui-nav-link--unavailable': routeUnavailable(r)
+            }"
+            :href="href"
+            :title="routeAvailabilityLabel(r)"
+            class="nav-link bootui-nav-link"
+            @click="navigate"
+          >
+            <i :class="['bi', r.meta.icon]"></i>
+            <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+            <i v-if="routeUnavailable(r)" aria-hidden="true" class="bi bi-slash-circle bootui-nav-link__status"></i>
+          </a>
         </router-link>
       </nav>
 
@@ -128,6 +156,13 @@ onMounted(loadShellData)
             <div class="eyebrow">Current panel</div>
             <h2>{{ activeTitle }}</h2>
           </div>
+        </div>
+        <div v-if="activePanelUnavailable" class="alert alert-warning panel-availability-alert shadow-sm" role="status">
+          <div class="panel-availability-alert__title">
+            <i class="bi bi-slash-circle"></i>
+            <strong>Panel unavailable</strong>
+          </div>
+          <div>{{ activePanelUnavailableReason }}</div>
         </div>
 
         <router-view v-slot="{Component}">
@@ -331,6 +366,12 @@ onMounted(loadShellData)
   flex: 1;
 }
 
+.bootui-nav-link__status {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  opacity: 0.65;
+}
+
 .bootui-nav-link--unavailable {
   opacity: 0.55;
 }
@@ -468,6 +509,17 @@ onMounted(loadShellData)
 .panel-alert {
   border: 0;
   box-shadow: 0 0.75rem 1.75rem rgba(180, 83, 9, 0.12);
+}
+
+.panel-availability-alert {
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.panel-availability-alert__title {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.25rem;
 }
 
 .bootui-footer {

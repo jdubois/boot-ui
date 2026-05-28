@@ -46,7 +46,7 @@ for explanations and screenshots for every panel.
 
 Some panels depend on optional Spring, Actuator, or development infrastructure. When data is unavailable, BootUI returns
 stable empty responses or shows an explanatory empty state. The sidebar also dims panels whose backing classpath or
-endpoint support is unavailable so you can spot empty sections immediately.
+endpoint support is unavailable, and opening a dimmed panel shows the unavailable reason at the top of the page.
 
 ## Setup
 

@@ -20,14 +20,21 @@ test.describe('BootUI app shell', () => {
     await expect(contributeLink.locator('.bi-github')).toBeVisible()
   })
 
-  test('sidebar does not label unavailable panels', async ({page}) => {
+  test('sidebar dims unavailable panels and the active panel explains why', async ({page}) => {
     await page.route(
       (url) => url.pathname === '/bootui/api/panels',
       async (route) => {
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({
-            panels: [{id: 'overview', available: false}]
+            panels: [
+              {
+                id: 'overview',
+                title: 'Overview',
+                available: false,
+                unavailableReason: 'Overview support is unavailable in this test state'
+              }
+            ]
           })
         })
       }
@@ -36,7 +43,19 @@ test.describe('BootUI app shell', () => {
 
     const overviewLink = page.locator('aside .nav-link', {hasText: 'Overview'})
     await expect(overviewLink).toHaveClass(/bootui-nav-link--unavailable/)
+    await expect(overviewLink).toHaveAttribute(
+      'aria-label',
+      'Overview - unavailable: Overview support is unavailable in this test state'
+    )
+    await expect(overviewLink).toHaveAttribute(
+      'title',
+      'Overview - unavailable: Overview support is unavailable in this test state'
+    )
     await expect(overviewLink).not.toContainText('Unavailable')
+    await expect(page.locator('.panel-availability-alert')).toContainText('Panel unavailable')
+    await expect(page.locator('.panel-availability-alert')).toContainText(
+      'Overview support is unavailable in this test state'
+    )
   })
 
   test('sidebar links open every BootUI section', async ({page}) => {
