@@ -38,7 +38,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: bootui-sample-app/e2e/package-lock.json
+          cache-dependency-path: |
+            bootui-ui/src/main/frontend/package-lock.json
+            bootui-sample-app/e2e/package-lock.json
 
       - name: Check Maven formatting
         run: ./mvnw -B -ntp spotless:check

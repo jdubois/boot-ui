@@ -1,4 +1,4 @@
-import {defineConfig} from 'vite'
+import {defineConfig} from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 
 // Build the BootUI Vue app as a static SPA that lives under /bootui/.
@@ -12,5 +12,11 @@ export default defineConfig({
     emptyOutDir: true,
     assetsDir: 'assets',
     sourcemap: false
+  },
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.js'],
+    clearMocks: true,
+    restoreMocks: true
   }
 })
