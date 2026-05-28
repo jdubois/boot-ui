@@ -456,15 +456,16 @@ User-facing documentation is reconciled with current behavior: `README.md`, `doc
 Vue 3 frontend, and the full visible panel set. The repository now ships a `CHANGELOG.md` (release notes through
 `0.1.0-alpha.5`) and a sample-app walkthrough at `bootui-sample-app/README.md`.
 
-On 2026-05-28, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
+On 2026-05-29, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
 current branch. The Playwright run covered all 57 sample-app browser tests.
 
-The listed v0.2 candidate set is complete. The next workstream should be release validation for the next alpha or a new
-candidate promoted from §7, with docs kept in sync as behavior changes land.
+The listed v0.2 candidate set is complete, and release validation for the next alpha was refreshed on 2026-05-29. The
+next workstream should be preparing the next alpha or promoting a new candidate from §7, with docs kept in sync as
+behavior changes land.
 
 ## 10. Validation checklist
 
-Last completed on 2026-05-28:
+Last completed on 2026-05-29:
 
 - [x] `./mvnw -B -ntp clean install` passes.
 - [x] The UI build is executed automatically by Maven.
