@@ -30,19 +30,40 @@ test.describe('Beans view', () => {
       dependencies: []
     }))
 
-    await page.route('**/bootui/api/beans', (route) =>
-      route.fulfill({
+    await page.route('**/bootui/api/beans?*', (route) => {
+      const url = new URL(route.request().url())
+      const query = (url.searchParams.get('q') || '').toLowerCase()
+      const offset = Number(url.searchParams.get('offset') || 0)
+      const limit = Number(url.searchParams.get('limit') || 200)
+      const matched = query
+        ? beans.filter((bean) => bean.name.toLowerCase().includes(query) || bean.type.toLowerCase().includes(query))
+        : beans
+      const pageBeans = matched.slice(offset, offset + limit)
+
+      return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({total: beans.length, beans})
+        body: JSON.stringify({
+          total: beans.length,
+          beans: pageBeans,
+          page: {
+            total: beans.length,
+            matched: matched.length,
+            offset,
+            limit,
+            returned: pageBeans.length,
+            hasMore: offset + pageBeans.length < matched.length
+          }
+        })
       })
-    )
+    })
 
     await openView('beans', 'Beans')
 
     const rows = page.locator('table tbody tr')
     await expect(rows).toHaveCount(200)
-    await expect(page.getByText('Showing 200 of 205 beans.')).toBeVisible()
+    await expect(page.getByText(/Showing 200 of 205 matching beans/)).toBeVisible()
+    await expect(page.getByRole('button', {name: /Load next 5/})).toBeVisible()
 
     await page.getByPlaceholder(/Filter by name or type/).fill('demoBean204')
     await expect(rows).toHaveCount(1)

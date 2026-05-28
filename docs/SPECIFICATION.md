@@ -801,7 +801,8 @@ BootUI should expose its own development-only API under:
 ```
 
 The browser UI should not depend directly on raw Actuator response shapes. BootUI should normalize them into stable
-DTOs.
+DTOs. High-cardinality list endpoints should support bounded server-side `q` / filter / `offset` / `limit` access and
+return page metadata so the SPA can avoid fetching every row before filtering.
 
 Initial endpoints:
 
@@ -814,6 +815,7 @@ Initial endpoints:
 | `/bootui/api/config/overrides`          | POST   | Create or update a local runtime configuration property override         |
 | `/bootui/api/config/overrides/{name}`   | DELETE | Remove a local runtime configuration property override                   |
 | `/bootui/api/mappings`                  | GET    | HTTP mappings                                                            |
+| `/bootui/api/mappings/flat`             | GET    | Stable, paged HTTP mapping summaries                                     |
 | `/bootui/api/health`                    | GET    | Health tree                                                              |
 | `/bootui/api/loggers`                   | GET    | Logger levels                                                            |
 | `/bootui/api/loggers/{name}`            | POST   | Change logger level                                                      |

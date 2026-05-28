@@ -1,13 +1,11 @@
 <script setup>
-import {computed, nextTick, onMounted, ref} from 'vue'
+import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
-import {useVisibleItems} from '../utils/useVisibleItems.js'
-import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
+import {useServerPagedList} from '../utils/useServerPagedList.js'
+import ServerListFooter from './components/ServerListFooter.vue'
 
 const MAX_PROPERTY_SUGGESTIONS = 200
 
-const data = ref(null)
-const loading = ref(true)
 const filter = ref('')
 const sourceFilter = ref('')
 const showOnlyOverrides = ref(false)
@@ -22,6 +20,27 @@ const newRowError = ref(null)
 const newNameInput = ref(null)
 const editInput = ref(null)
 const banner = ref(null)
+
+const {
+  data,
+  error,
+  items: visibleProperties,
+  load,
+  loadMore,
+  loading,
+  loadingMore,
+  matchedCount,
+  pageSize,
+  scheduleReload,
+  shownCount,
+  totalCount
+} = useServerPagedList('api/config', 'properties', () => {
+  return {
+    q: filter.value.trim(),
+    source: sourceFilter.value,
+    overridesOnly: showOnlyOverrides.value ? 'true' : ''
+  }
+})
 
 const propertySuggestions = computed(() => data.value?.propertySuggestions || [])
 
@@ -73,53 +92,7 @@ const suggestionByName = computed(() => {
 
 const selectedNewSuggestion = computed(() => suggestionByName.value.get((newRowName.value || '').trim()) || null)
 
-async function load() {
-  loading.value = true
-  try {
-    const res = await fetch('api/config')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
-  } catch (e) {
-    flash(e.message, 'danger')
-  } finally {
-    loading.value = false
-  }
-}
-
-const filtered = computed(() => {
-  if (!data.value) return []
-  return data.value.properties.filter((p) => {
-    if (showOnlyOverrides.value && !p.override) return false
-    if (sourceFilter.value && p.source !== sourceFilter.value) return false
-    if (filter.value) {
-      const f = filter.value.toLowerCase()
-      return (
-        p.name.toLowerCase().includes(f) ||
-        String(p.value ?? '')
-          .toLowerCase()
-          .includes(f) ||
-        String(p.description ?? '')
-          .toLowerCase()
-          .includes(f) ||
-        String(p.defaultValue ?? '')
-          .toLowerCase()
-          .includes(f)
-      )
-    }
-    return true
-  })
-})
-
-const {
-  chunkSize,
-  visibleItems: visibleProperties,
-  shownCount,
-  hiddenCount,
-  showMore,
-  showAll
-} = useVisibleItems(filtered)
-
-const overrideCount = computed(() => (data.value ? data.value.properties.filter((p) => p.override).length : 0))
+const overrideCount = computed(() => data.value?.overrideCount || 0)
 
 function startEdit(p) {
   newRow.value = null
@@ -246,6 +219,7 @@ function flash(text, type) {
 }
 
 onMounted(load)
+watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
 </script>
 
 <template>
@@ -287,6 +261,7 @@ onMounted(load)
       </div>
       <button class="btn-close" @click="banner = null"></button>
     </div>
+    <div v-if="error" class="alert alert-danger">Could not load configuration properties: {{ error }}</div>
 
     <div class="row g-2 mb-3">
       <div class="col-md-6">
@@ -473,20 +448,21 @@ onMounted(load)
             </td>
           </tr>
 
-          <tr v-if="!loading && filtered.length === 0 && !newRow">
+          <tr v-if="!loading && matchedCount === 0 && !newRow">
             <td class="text-center text-muted py-4" colspan="5">No properties match your filters.</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <ProgressiveListFooter
-      :chunk-size="chunkSize"
-      :hidden="hiddenCount"
+    <ServerListFooter
+      v-if="!loading"
+      :loading="loadingMore"
+      :matched="matchedCount"
+      :page-size="pageSize"
       :shown="shownCount"
-      :total="filtered.length"
+      :total="totalCount"
       item-label="properties"
-      @show-all="showAll"
-      @show-more="showMore"
+      @load-more="loadMore"
     />
   </div>
 </template>

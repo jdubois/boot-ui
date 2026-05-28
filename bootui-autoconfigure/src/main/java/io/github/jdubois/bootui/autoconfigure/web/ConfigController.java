@@ -49,7 +49,12 @@ public class ConfigController {
     }
 
     @GetMapping
-    public ConfigReport list() {
+    public ConfigReport list(
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "source", required = false) String sourceFilter,
+            @RequestParam(name = "overridesOnly", required = false, defaultValue = "false") boolean overridesOnly,
+            @RequestParam(name = "offset", required = false) Integer offset,
+            @RequestParam(name = "limit", required = false) Integer limit) {
         List<String> sources = new ArrayList<>();
         Map<String, ConfigPropertyDto> merged = new LinkedHashMap<>();
 
@@ -69,8 +74,22 @@ public class ConfigController {
 
         List<ConfigPropertyDto> sorted = new ArrayList<>(merged.values());
         sorted.sort(Comparator.comparing(ConfigPropertyDto::name));
+        String normalizedQuery = PagedList.normalize(query);
+        String normalizedSource = sourceFilter == null ? "" : sourceFilter.trim();
+        PagedList.Result<ConfigPropertyDto> page = PagedList.from(
+                sorted,
+                property -> matchesSource(property, normalizedSource)
+                        && matchesOverrideFilter(property, overridesOnly)
+                        && matchesQuery(property, normalizedQuery),
+                offset,
+                limit);
         return new ConfigReport(
-                Arrays.asList(environment.getActiveProfiles()), sources, sorted, metadataCatalog.suggestions());
+                Arrays.asList(environment.getActiveProfiles()),
+                sources,
+                page.items(),
+                metadataCatalog.suggestions(),
+                page.page(),
+                (int) sorted.stream().filter(ConfigPropertyDto::override).count());
     }
 
     @PostMapping("/overrides")
@@ -108,5 +127,24 @@ public class ConfigController {
                 isOverride,
                 metadata == null ? null : metadata.description(),
                 metadata == null ? null : metadata.defaultValue());
+    }
+
+    private boolean matchesSource(ConfigPropertyDto property, String source) {
+        return source.isEmpty() || source.equals(property.source());
+    }
+
+    private boolean matchesOverrideFilter(ConfigPropertyDto property, boolean overridesOnly) {
+        return !overridesOnly || property.override();
+    }
+
+    private boolean matchesQuery(ConfigPropertyDto property, String query) {
+        return PagedList.contains(property.name(), query)
+                || PagedList.contains(text(property.value()), query)
+                || PagedList.contains(property.description(), query)
+                || PagedList.contains(text(property.defaultValue()), query);
+    }
+
+    private String text(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }
