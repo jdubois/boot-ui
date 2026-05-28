@@ -1,5 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import {useVisibleItems} from '../utils/useVisibleItems.js'
+import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
 
 const data = ref(null)
 const filter = ref('')
@@ -41,6 +43,8 @@ const flat = computed(() => {
   )
 })
 
+const {chunkSize, visibleItems: visibleMappings, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(flat)
+
 const methodClass = (m) =>
   ({
     GET: 'bg-success',
@@ -58,6 +62,7 @@ onMounted(load)
   <div>
     <h2><i class="bi bi-signpost-2 me-2"></i>HTTP mappings</h2>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
+    <p class="small text-muted">{{ flat.length }} matching mappings</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
         <thead>
@@ -68,7 +73,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(r, i) in flat" :key="i">
+          <tr v-for="(r, i) in visibleMappings" :key="`${r.method}:${r.pattern}:${r.handler}:${i}`">
             <td>
               <span :class="methodClass(r.method)" class="badge">{{ r.method }}</span>
             </td>
@@ -82,5 +87,14 @@ onMounted(load)
         </tbody>
       </table>
     </div>
+    <ProgressiveListFooter
+      :chunk-size="chunkSize"
+      :hidden="hiddenCount"
+      :shown="shownCount"
+      :total="flat.length"
+      item-label="mappings"
+      @show-all="showAll"
+      @show-more="showMore"
+    />
   </div>
 </template>

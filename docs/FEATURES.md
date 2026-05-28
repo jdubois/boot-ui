@@ -46,7 +46,8 @@ available measurements, and render a local live chart for a selected metric/tag 
 ## Conditions
 
 The Conditions panel explains Spring Boot auto-configuration decisions. It groups positive matches, negative matches,
-and unconditional classes so you can see why an auto-configuration applied or why it was skipped.
+and unconditional classes so you can see why an auto-configuration applied or why it was skipped. Large condition reports
+render progressively so the page stays responsive, while filtering still searches the full report.
 
 ![BootUI Conditions panel](images/bootui-conditions.png)
 
@@ -54,7 +55,8 @@ and unconditional classes so you can see why an auto-configuration applied or wh
 
 The Beans panel helps answer which Spring beans exist and where they came from. It supports search across bean names,
 classes, packages, scopes, resources, dependencies, aliases, and BootUI classifications such as application, BootUI,
-Spring framework, Java/Jakarta, and other beans.
+Spring framework, Java/Jakarta, and other beans. Large bean lists render progressively so the initial page stays usable;
+search and classification filters still apply to the full bean set.
 
 ![BootUI Beans panel](images/bootui-beans.png)
 
@@ -62,6 +64,7 @@ Spring framework, Java/Jakarta, and other beans.
 
 The Mappings panel lists HTTP routes from Actuator mappings data. It shows request methods, path patterns, handlers, and
 produces/consumes metadata so the running application's web surface is visible without reading controllers manually.
+Large mapping lists render progressively, and the filter continues to search every discovered route.
 
 ![BootUI Mappings panel](images/bootui-mappings.png)
 
@@ -69,7 +72,9 @@ produces/consumes metadata so the running application's web surface is visible w
 
 The Configuration panel shows effective configuration properties, sources, metadata descriptions, defaults when known,
 active profiles, and masked values. It can create, update, and delete local runtime overrides persisted to
-`.bootui/application-bootui.properties`, with restart and rebinding caveats shown for every mutation.
+`.bootui/application-bootui.properties`, with restart and rebinding caveats shown for every mutation. Large property
+tables render progressively, and the override property-name picker limits its datalist suggestions while narrowing
+against the full metadata catalog as you type.
 
 ![BootUI Configuration panel](images/bootui-configuration.png)
 
@@ -84,7 +89,8 @@ masking rules.
 ## Loggers
 
 The Loggers panel lists runtime logger configuration from Actuator. It shows configured and effective levels, supports
-search, and can update or clear logger levels without restarting the application.
+search, and can update or clear logger levels without restarting the application. Large logger lists render
+progressively, while filtering still searches the full logger set.
 
 ![BootUI Loggers panel](images/bootui-loggers.png)
 

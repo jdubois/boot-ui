@@ -1,5 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import {useVisibleItems} from '../utils/useVisibleItems.js'
+import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
 
 const data = ref(null)
 const tab = ref('positive')
@@ -20,6 +22,8 @@ const entries = computed(() => {
   )
 })
 
+const {chunkSize, visibleItems: visibleEntries, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(entries)
+
 onMounted(load)
 </script>
 
@@ -39,7 +43,8 @@ onMounted(load)
       </li>
     </ul>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
-    <div v-for="e in entries" :key="e.autoConfigurationClass + e.condition" class="mb-2">
+    <p class="small text-muted">{{ entries.length }} matching entries</p>
+    <div v-for="e in visibleEntries" :key="e.autoConfigurationClass + e.condition" class="mb-2">
       <div class="d-flex">
         <span :class="tab === 'positive' ? 'bg-success' : 'bg-secondary'" class="badge me-2">{{ e.outcome }}</span>
         <div>
@@ -49,5 +54,14 @@ onMounted(load)
         </div>
       </div>
     </div>
+    <ProgressiveListFooter
+      :chunk-size="chunkSize"
+      :hidden="hiddenCount"
+      :shown="shownCount"
+      :total="entries.length"
+      item-label="condition entries"
+      @show-all="showAll"
+      @show-more="showMore"
+    />
   </div>
 </template>
