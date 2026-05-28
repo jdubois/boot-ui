@@ -75,7 +75,9 @@ test.describe('Copilot panel', () => {
     await page.goto('/bootui/#/copilot')
 
     await expect(page.getByRole('heading', {name: 'Copilot activity overview'})).toBeVisible()
-    await expect(page.getByText('42')).toBeVisible()
+    await expect(
+      page.locator('.metric-card', {hasText: 'Sanitized events'}).getByText('42', {exact: true})
+    ).toBeVisible()
     await expect(page.getByText('apply_patch')).toBeVisible()
     await expect(page.getByText('FILE_EDIT')).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Session explorer'})).toBeVisible()
