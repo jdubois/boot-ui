@@ -53,6 +53,9 @@ const totalEvents = computed(
 const maxBucketEvents = computed(() =>
   Math.max(0, ...(dashboard.value?.activityBuckets ?? []).map((bucket) => bucket.eventCount))
 )
+const maxDailyBucketEvents = computed(() =>
+  Math.max(0, ...(dashboard.value?.dailyActivityBuckets ?? []).map((bucket) => bucket.eventCount))
+)
 
 const dashboardCards = computed(() => [
   {
@@ -154,6 +157,12 @@ function formatBucketTime(timestamp) {
   return date.toLocaleTimeString([], {hour12: false, hour: '2-digit'})
 }
 
+function formatBucketDay(timestamp) {
+  if (timestamp === null || timestamp === undefined) return '—'
+  const date = new Date(timestamp)
+  return date.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'})
+}
+
 function formatNumber(value) {
   return new Intl.NumberFormat().format(value ?? 0)
 }
@@ -171,13 +180,19 @@ function metricPercent(count, total) {
   return Math.round((count / total) * 100)
 }
 
-function bucketHeight(bucket) {
-  if (!bucket.eventCount || !maxBucketEvents.value) return '4%'
-  return `${Math.max(8, Math.round((bucket.eventCount / maxBucketEvents.value) * 100))}%`
+function bucketHeight(bucket, max = maxBucketEvents.value) {
+  if (!bucket.eventCount || !max) return '4%'
+  return `${Math.max(8, Math.round((bucket.eventCount / max) * 100))}%`
 }
 
 function bucketTitle(bucket) {
   return `${formatBucketTime(bucket.startEpochMillis)}: ${formatNumber(bucket.eventCount)} events, ${formatNumber(
+    bucket.errorCount
+  )} failures`
+}
+
+function dailyBucketTitle(bucket) {
+  return `${formatBucketDay(bucket.startEpochMillis)}: ${formatNumber(bucket.eventCount)} events, ${formatNumber(
     bucket.errorCount
   )} failures`
 }
@@ -434,6 +449,45 @@ onBeforeUnmount(disconnect)
                   </div>
                   <div class="small text-muted mt-2">
                     Blue bars show sanitized activity; red overlays show failures in the same hour.
+                  </div>
+
+                  <div class="border-top mt-4 pt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                      <h5 class="card-title mb-0">Activity, last 7 days</h5>
+                      <span class="small text-muted"
+                        >{{ formatNumber(dashboard?.activeLast7Days ?? 0) }} active sessions</span
+                      >
+                    </div>
+                    <div
+                      class="activity-chart activity-chart--weekly"
+                      role="img"
+                      :aria-label="`${formatNumber(totalEvents)} sanitized Copilot events summarized across the last 7 days`"
+                    >
+                      <div
+                        v-for="bucket in dashboard?.dailyActivityBuckets ?? []"
+                        :key="bucket.startEpochMillis"
+                        class="activity-column"
+                        :title="dailyBucketTitle(bucket)"
+                      >
+                        <div class="activity-bars">
+                          <div
+                            class="activity-bar bg-primary"
+                            :style="{height: bucketHeight(bucket, maxDailyBucketEvents)}"
+                          ></div>
+                          <div
+                            v-if="bucket.errorCount"
+                            class="activity-bar-error bg-danger"
+                            :style="{
+                              height: bucketHeight({...bucket, eventCount: bucket.errorCount}, maxDailyBucketEvents)
+                            }"
+                          ></div>
+                        </div>
+                        <div class="activity-label">{{ formatBucketDay(bucket.startEpochMillis) }}</div>
+                      </div>
+                    </div>
+                    <div class="small text-muted mt-2">
+                      Daily buckets use the same sanitized event stream as the 24-hour chart.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -873,6 +927,15 @@ onBeforeUnmount(disconnect)
   color: var(--bs-secondary-color);
   font-size: 0.7rem;
   margin-top: 0.35rem;
+  text-align: center;
+}
+
+.activity-chart--weekly {
+  min-height: 190px;
+}
+
+.activity-chart--weekly .activity-bars {
+  height: 135px;
 }
 
 .tool-label {

@@ -176,6 +176,10 @@ class CopilotControllerTests {
                 .andExpect(jsonPath("$.topTools[0].label").value("apply_patch"))
                 .andExpect(jsonPath("$.modelCounts[0].count").value(1))
                 .andExpect(jsonPath("$.activityBuckets.length()").value(24))
+                .andExpect(jsonPath("$.dailyActivityBuckets.length()").value(7))
+                .andExpect(jsonPath("$.dailyActivityBuckets[5].eventCount").value(2))
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].eventCount").value(3))
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].errorCount").value(1))
                 .andExpect(jsonPath("$.recentSessions.length()").value(2));
     }
 

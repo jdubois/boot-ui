@@ -750,6 +750,7 @@ public final class BootUiDtos {
             List<CopilotMetricCount> topTools,
             int otherToolEventCount,
             List<CopilotActivityBucket> activityBuckets,
+            List<CopilotActivityBucket> dailyActivityBuckets,
             List<CopilotSessionSummary> recentSessions,
             List<String> warnings) {}
 

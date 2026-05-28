@@ -68,6 +68,7 @@ public class CopilotSessionStore {
     private static final long HOUR_MILLIS = 60L * 60L * 1000L;
     private static final long DAY_MILLIS = 24L * HOUR_MILLIS;
     private static final int DASHBOARD_BUCKET_COUNT = 24;
+    private static final int DASHBOARD_DAILY_BUCKET_COUNT = 7;
     private static final int DASHBOARD_TOP_LIMIT = 10;
     private static final int DASHBOARD_RECENT_SESSION_LIMIT = 8;
     private static final int HARD_MAX_SESSION_EXPLORER_ITEMS = 1000;
@@ -375,6 +376,7 @@ public class CopilotSessionStore {
                 0,
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of());
     }
 
@@ -383,15 +385,21 @@ public class CopilotSessionStore {
         long activeDayCutoff = now - DAY_MILLIS;
         long activeWeekCutoff = now - (7L * DAY_MILLIS);
         long firstBucketStart = hourStart(now) - ((DASHBOARD_BUCKET_COUNT - 1L) * HOUR_MILLIS);
+        long firstDayBucketStart = dayStart(now) - ((DASHBOARD_DAILY_BUCKET_COUNT - 1L) * DAY_MILLIS);
 
         List<ParsedSession> snapshot = new ArrayList<>(sessions.values());
         Map<String, Integer> categoryCounts = new LinkedHashMap<>();
         Map<String, Integer> modelCounts = new LinkedHashMap<>();
         Map<String, Integer> toolCounts = new LinkedHashMap<>();
         Map<Long, BucketAccumulator> buckets = new LinkedHashMap<>();
+        Map<Long, BucketAccumulator> dailyBuckets = new LinkedHashMap<>();
         for (int i = 0; i < DASHBOARD_BUCKET_COUNT; i++) {
             long start = firstBucketStart + (i * HOUR_MILLIS);
             buckets.put(start, new BucketAccumulator());
+        }
+        for (int i = 0; i < DASHBOARD_DAILY_BUCKET_COUNT; i++) {
+            long start = firstDayBucketStart + (i * DAY_MILLIS);
+            dailyBuckets.put(start, new BucketAccumulator());
         }
 
         int eventCount = 0;
@@ -430,6 +438,10 @@ public class CopilotSessionStore {
                 if (bucket != null) {
                     bucket.add(entry.getValue());
                 }
+                BucketAccumulator dailyBucket = dailyBuckets.get(dayStart(entry.getKey()));
+                if (dailyBucket != null) {
+                    dailyBucket.add(entry.getValue());
+                }
             }
         }
 
@@ -444,6 +456,13 @@ public class CopilotSessionStore {
                 .map(entry -> new CopilotActivityBucket(
                         entry.getKey(),
                         entry.getKey() + HOUR_MILLIS,
+                        entry.getValue().eventCount,
+                        entry.getValue().errorCount))
+                .toList();
+        List<CopilotActivityBucket> dailyActivityBuckets = dailyBuckets.entrySet().stream()
+                .map(entry -> new CopilotActivityBucket(
+                        entry.getKey(),
+                        entry.getKey() + DAY_MILLIS,
                         entry.getValue().eventCount,
                         entry.getValue().errorCount))
                 .toList();
@@ -474,6 +493,7 @@ public class CopilotSessionStore {
                 topTools,
                 allToolEvents - visibleToolEvents,
                 activityBuckets,
+                dailyActivityBuckets,
                 recentSessions,
                 warnings);
     }
@@ -522,6 +542,10 @@ public class CopilotSessionStore {
 
     private static long hourStart(long epochMillis) {
         return Math.floorDiv(epochMillis, HOUR_MILLIS) * HOUR_MILLIS;
+    }
+
+    private static long dayStart(long epochMillis) {
+        return Math.floorDiv(epochMillis, DAY_MILLIS) * DAY_MILLIS;
     }
 
     /**

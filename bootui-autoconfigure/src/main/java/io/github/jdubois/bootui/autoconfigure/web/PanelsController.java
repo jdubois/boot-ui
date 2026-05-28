@@ -89,6 +89,7 @@ public class PanelsController {
                         classPresent("ch.qos.logback.classic.Logger"),
                         "Logback not on the classpath"),
                 panel("http-probe", "HTTP Probe", true, null),
+                panel("copilot", "Copilot", copilotAvailable(), copilotUnavailableReason()),
                 panel("devtools", "DevTools", devToolsPresent(), "Spring Boot DevTools not on the classpath"),
                 panel(
                         "dev-services",
@@ -104,7 +105,6 @@ public class PanelsController {
                 panel("cache", "Cache", beanPresent(CacheManager.class), "No CacheManager beans are available"),
                 panel("traces", "Traces", properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled"),
                 panel("ai", "AI Usage", aiAvailable(), aiUnavailableReason()),
-                panel("copilot", "Copilot", copilotAvailable(), copilotUnavailableReason()),
                 panel(
                         "security",
                         "Security",

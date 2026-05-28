@@ -34,6 +34,12 @@ test.describe('Copilot panel', () => {
         eventCount: index % 4 === 0 ? 10 : index,
         errorCount: index % 8 === 0 ? 1 : 0
       })),
+      dailyActivityBuckets: Array.from({length: 7}, (_, index) => ({
+        startEpochMillis: Date.now() - (6 - index) * 24 * 60 * 60 * 1000,
+        endEpochMillis: Date.now() - (5 - index) * 24 * 60 * 60 * 1000,
+        eventCount: (index + 1) * 3,
+        errorCount: index === 6 ? 1 : 0
+      })),
       recentSessions: [
         {
           id: 'session-one',
@@ -121,6 +127,7 @@ test.describe('Copilot panel', () => {
     await page.goto('/bootui/#/copilot')
 
     await expect(page.getByRole('heading', {name: 'Copilot activity overview'})).toBeVisible()
+    await expect(page.getByRole('heading', {name: 'Activity, last 7 days'})).toBeVisible()
     await expect(
       page.locator('.metric-card', {hasText: 'Sanitized events'}).getByText('42', {exact: true})
     ).toBeVisible()

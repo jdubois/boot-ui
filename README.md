@@ -34,13 +34,13 @@ for explanations and screenshots for every panel.
 | [Log Tail](docs/FEATURES.md#log-tail)                 | Read recent application logs and stream new local log events from the running process.                     |
 | [Traces](docs/FEATURES.md#traces)                     | Inspect distributed tracing spans collected by the embedded OTLP receiver with a per-trace waterfall view. |
 | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                   |
+| [Copilot](docs/FEATURES.md#copilot)                   | Dashboard sanitized local GitHub Copilot CLI sessions: activity trends, tool mix, MCP, hooks, skills, errors. |
 | [DevTools](docs/FEATURES.md#devtools)                 | Check Spring Boot DevTools status, LiveReload availability, and restart controls.                          |
 | [Dev Services](docs/FEATURES.md#dev-services)         | Inspect Docker Compose snapshots, Testcontainers beans, service connection metadata, and bounded logs.     |
 | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)   | View registered scheduled tasks and their trigger metadata.                                                |
 | [Data](docs/FEATURES.md#data)                         | Explore Spring Data repositories, domain types, IDs, and query methods.                                    |
 | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                  |
 | [AI Usage](docs/FEATURES.md#ai-usage)                 | Summarize Spring AI chat conversations, token usage, latency, and model details from OpenTelemetry spans.  |
-| [Copilot](docs/FEATURES.md#copilot)                   | Dashboard sanitized local GitHub Copilot CLI sessions: activity trends, tool mix, MCP, hooks, skills, errors. |
 | [Security](docs/FEATURES.md#security)                 | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                          |
 | [Vulnerabilities](docs/FEATURES.md#vulnerabilities)   | Review dependency inventory and local OSV vulnerability scan results.                                      |
 

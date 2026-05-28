@@ -56,6 +56,7 @@ const router = createRouter({
     {path: '/log-tail', name: 'log-tail', component: LogTail, meta: {icon: 'bi-terminal', title: 'Log Tail'}},
     {path: '/traces', name: 'traces', component: Traces, meta: {icon: 'bi-bezier2', title: 'Traces'}},
     {path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: {icon: 'bi-send', title: 'HTTP Probe'}},
+    {path: '/copilot', name: 'copilot', component: Copilot, meta: {icon: 'bi-robot', title: 'Copilot'}},
     {path: '/devtools', name: 'devtools', component: DevTools, meta: {icon: 'bi-lightning-charge', title: 'DevTools'}},
     {
       path: '/dev-services',
@@ -72,7 +73,6 @@ const router = createRouter({
     {path: '/data', name: 'data', component: Data, meta: {icon: 'bi-database', title: 'Data'}},
     {path: '/cache', name: 'cache', component: Cache, meta: {icon: 'bi-hdd-stack', title: 'Cache'}},
     {path: '/ai', name: 'ai', component: Ai, meta: {icon: 'bi-stars', title: 'AI Usage'}},
-    {path: '/copilot', name: 'copilot', component: Copilot, meta: {icon: 'bi-robot', title: 'Copilot'}},
     {path: '/security', name: 'security', component: Security, meta: {icon: 'bi-person-lock', title: 'Security'}},
     {
       path: '/vulnerabilities',
