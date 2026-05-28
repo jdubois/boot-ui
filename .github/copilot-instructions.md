@@ -171,6 +171,10 @@ Playwright coverage aligned for:
 - Feature screenshots in `docs/images/bootui-*.png` should stay at the current 1600x900 px size so the feature page
   remains visually consistent. When adding or refreshing screenshots, seed the sample app or local state with realistic
   non-sensitive sample data that demonstrates how the panel works instead of capturing empty/default states.
+  **Always scroll to the top of the page before capturing** (`page.evaluate(() => window.scrollTo(0, 0))` after the
+  prepare step and before `page.screenshot()`). `waitFor` / `waitForText` helpers scroll matching elements into view,
+  which leaves the viewport at the bottom of the panel; without an explicit scroll-to-top the screenshot shows empty
+  space instead of the panel header.
 
 ## Java conventions
 

@@ -1247,6 +1247,7 @@ try {
     await page.goto(`${baseUrl}/bootui/#/${route}`)
     await page.locator('.page-heading h2').filter({hasText: title}).first().waitFor()
     await prepare(page)
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.waitForTimeout(250)
     await page.screenshot({
       path: path.join(imagesDir, fileName),
