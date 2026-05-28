@@ -1,6 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
-import {formatDuration, formatNumber, formatTime} from '../utils/format.js'
+import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
 
 const overview = ref(null)
 const series = ref(null)
@@ -56,6 +56,78 @@ function toggleChat(spanId) {
 function closeDrawer() {
   selectedSpanId.value = null
   detail.value = null
+}
+
+const tableSearch = ref('')
+const providerFilter = ref('')
+const modelFilter = ref('')
+const statusFilter = ref('')
+const tableSort = ref('startEpochNanos')
+const tableSortDir = ref('desc')
+const pageSize = ref(25)
+
+function sortTable(col) {
+  if (tableSort.value === col) {
+    tableSortDir.value = tableSortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    tableSort.value = col
+    tableSortDir.value = 'desc'
+  }
+}
+
+const distinctProviders = computed(() => {
+  if (!overview.value || !overview.value.recent) return []
+  return [...new Set(overview.value.recent.map((c) => c.provider).filter(Boolean))].sort()
+})
+
+const distinctModels = computed(() => {
+  if (!overview.value || !overview.value.recent) return []
+  return [...new Set(overview.value.recent.map((c) => c.requestModel).filter(Boolean))].sort()
+})
+
+const filteredChats = computed(() => {
+  if (!overview.value || !overview.value.recent) return []
+  const q = tableSearch.value.trim().toLowerCase()
+  let rows = overview.value.recent.filter((c) => {
+    if (providerFilter.value && c.provider !== providerFilter.value) return false
+    if (modelFilter.value && c.requestModel !== modelFilter.value) return false
+    if (statusFilter.value && c.statusCode !== statusFilter.value) return false
+    if (q) {
+      const hay = ((c.requestModel || '') + ' ' + (c.provider || '') + ' ' + (c.spanId || '')).toLowerCase()
+      if (!hay.includes(q)) return false
+    }
+    return true
+  })
+  const col = tableSort.value
+  const dir = tableSortDir.value === 'asc' ? 1 : -1
+  rows = [...rows].sort((a, b) => {
+    let av = a[col] ?? 0
+    let bv = b[col] ?? 0
+    if (col === 'totalTokens') {
+      av = (a.inputTokens || 0) + (a.outputTokens || 0)
+      bv = (b.inputTokens || 0) + (b.outputTokens || 0)
+    }
+    return typeof av === 'string' ? av.localeCompare(bv) * dir : (av - bv) * dir
+  })
+  return rows
+})
+
+const pagedChats = computed(() => filteredChats.value.slice(0, pageSize.value))
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function durationClass(nanos) {
+  if (nanos == null) return ''
+  const ms = nanos / 1_000_000
+  if (ms > 10000) return 'text-danger'
+  if (ms > 2000) return 'text-warning'
+  return ''
 }
 
 const byModelSort = ref('totalTokens')
@@ -445,51 +517,156 @@ onMounted(load)
         </div>
 
         <h5>Recent chats</h5>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-4">
+            <input
+              v-model="tableSearch"
+              class="form-control form-control-sm"
+              placeholder="Search model, provider, span…"
+              type="search"
+            />
+          </div>
+          <div class="col-md-2">
+            <select v-model="providerFilter" class="form-select form-select-sm">
+              <option value="">All providers</option>
+              <option v-for="p in distinctProviders" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select v-model="modelFilter" class="form-select form-select-sm">
+              <option value="">All models</option>
+              <option v-for="m in distinctModels" :key="m" :value="m">{{ m }}</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <select v-model="statusFilter" class="form-select form-select-sm">
+              <option value="">All statuses</option>
+              <option value="OK">OK</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+          </div>
+        </div>
+
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle">
+            <caption class="visually-hidden">
+              Recent AI chats
+            </caption>
             <thead>
               <tr>
-                <th>Started</th>
-                <th>Provider</th>
-                <th>Model</th>
-                <th>Tokens in/out</th>
-                <th>Duration</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col" class="cursor-pointer user-select-none" @click="sortTable('startEpochNanos')">
+                  Started
+                  <i
+                    v-if="tableSort === 'startEpochNanos'"
+                    :class="tableSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                    class="bi"
+                  ></i>
+                </th>
+                <th scope="col" class="cursor-pointer user-select-none" @click="sortTable('provider')">
+                  Provider
+                  <i
+                    v-if="tableSort === 'provider'"
+                    :class="tableSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                    class="bi"
+                  ></i>
+                </th>
+                <th scope="col" class="cursor-pointer user-select-none" @click="sortTable('requestModel')">
+                  Model
+                  <i
+                    v-if="tableSort === 'requestModel'"
+                    :class="tableSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                    class="bi"
+                  ></i>
+                </th>
+                <th scope="col" class="cursor-pointer user-select-none" @click="sortTable('totalTokens')">
+                  Tokens
+                  <i
+                    v-if="tableSort === 'totalTokens'"
+                    :class="tableSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                    class="bi"
+                  ></i>
+                </th>
+                <th scope="col" class="cursor-pointer user-select-none" @click="sortTable('durationNanos')">
+                  Duration
+                  <i
+                    v-if="tableSort === 'durationNanos'"
+                    :class="tableSortDir === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'"
+                    class="bi"
+                  ></i>
+                </th>
+                <th scope="col">Status</th>
+                <th scope="col">Finish reason</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
-              <template v-for="chat in overview.recent" :key="chat.spanId">
+              <template v-for="chat in pagedChats" :key="chat.spanId">
                 <tr :class="{'table-active': chat.spanId === selectedSpanId}">
-                  <td class="text-muted small">{{ formatTime(chat.startEpochNanos) }}</td>
+                  <td class="small">
+                    <div>{{ formatTime(chat.startEpochNanos) }}</div>
+                    <small class="text-muted">{{
+                      formatRelative(chat.startEpochNanos ? Math.floor(chat.startEpochNanos / 1_000_000) : null)
+                    }}</small>
+                  </td>
                   <td>{{ chat.provider || '—' }}</td>
                   <td>
-                    <code>{{ chat.requestModel || '—' }}</code>
+                    <code
+                      :title="chat.requestModel"
+                      class="text-truncate d-inline-block align-middle"
+                      style="max-width: 16ch"
+                      >{{ chat.requestModel || '—' }}</code
+                    >
                   </td>
-                  <td>{{ formatNumber(chat.inputTokens) }} / {{ formatNumber(chat.outputTokens) }}</td>
-                  <td>{{ formatDuration(chat.durationNanos) }}</td>
+                  <td>{{ formatNumber((chat.inputTokens || 0) + (chat.outputTokens || 0)) }}</td>
+                  <td :class="durationClass(chat.durationNanos)">{{ formatDuration(chat.durationNanos) }}</td>
                   <td>
                     <span v-if="chat.statusCode === 'ERROR'" class="badge text-bg-danger">error</span>
-                    <span v-else class="badge text-bg-success">{{ chat.finishReason || 'ok' }}</span>
+                    <span v-else class="badge text-bg-success">ok</span>
                   </td>
-                  <td class="text-end">
+                  <td>
+                    <span v-if="chat.finishReason" class="badge text-bg-light">{{ chat.finishReason }}</span>
+                    <span v-else class="text-muted">—</span>
+                  </td>
+                  <td class="text-end text-nowrap">
+                    <button
+                      class="btn btn-sm btn-outline-secondary me-1"
+                      title="Copy span id"
+                      @click="copyToClipboard(chat.spanId)"
+                    >
+                      <i class="bi bi-clipboard"></i>
+                    </button>
+                    <a :href="'#/traces'" class="btn btn-sm btn-outline-secondary me-1" title="View trace">
+                      <i class="bi bi-bezier2"></i>
+                    </a>
                     <button
                       :aria-expanded="chat.spanId === selectedSpanId"
+                      aria-label="Toggle chat details"
                       class="btn btn-sm btn-outline-primary"
                       @click="toggleChat(chat.spanId)"
                     >
-                      {{ chat.spanId === selectedSpanId ? 'Close' : 'Open' }}
+                      <i :class="chat.spanId === selectedSpanId ? 'bi-chevron-up' : 'bi-chevron-down'" class="bi"></i>
                     </button>
                   </td>
                 </tr>
                 <tr v-if="chat.spanId === selectedSpanId" class="chat-detail-row">
-                  <td class="p-0" colspan="7">
+                  <td class="p-0" colspan="8">
                     <div class="card m-2">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                          <i class="bi bi-stars me-2"></i>Chat <code>{{ selectedSpanId }}</code>
+                          <i class="bi bi-stars me-2"></i>Chat
+                          <code>{{ selectedSpanId }}</code>
+                          <button
+                            class="btn btn-sm btn-link p-0 ms-2"
+                            title="Copy span id"
+                            @click="copyToClipboard(selectedSpanId)"
+                          >
+                            <i class="bi bi-clipboard"></i>
+                          </button>
                         </div>
-                        <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
+                        <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">
+                          <i class="bi bi-x"></i> Close
+                        </button>
                       </div>
                       <div class="card-body">
                         <div v-if="detailLoading" class="text-muted">Loading…</div>
@@ -581,6 +758,11 @@ onMounted(load)
             </tbody>
           </table>
         </div>
+        <div v-if="pagedChats.length < filteredChats.length" class="text-center mb-3">
+          <button class="btn btn-sm btn-outline-secondary" @click="pageSize += 25">
+            Load more (+{{ Math.min(25, filteredChats.length - pagedChats.length) }})
+          </button>
+        </div>
       </template>
     </template>
   </div>
@@ -589,5 +771,8 @@ onMounted(load)
 <style scoped>
 code {
   overflow-wrap: anywhere;
+}
+.cursor-pointer {
+  cursor: pointer;
 }
 </style>
