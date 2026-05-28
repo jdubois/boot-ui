@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
+import AiSetupChecklist from './components/AiSetupChecklist.vue'
 
 const overview = ref(null)
 const series = ref(null)
@@ -364,20 +365,12 @@ onMounted(load)
         <i class="bi bi-info-circle me-1"></i>{{ overview.contentBanner }}
       </div>
 
-      <div v-if="!overview.enabled" class="alert alert-info small">
-        Telemetry receiver is disabled. Set <code>bootui.telemetry.enabled=true</code> and export OTLP spans to
-        <code>/bootui/api/otlp/v1/traces</code> to populate AI usage.
-      </div>
-
-      <div v-else-if="!overview.springAiDetected" class="alert alert-secondary">
-        Spring AI is not on the classpath for this application, so BootUI cannot collect AI usage spans.
-      </div>
-
-      <div v-else-if="!hasAnyData" class="alert alert-secondary">
-        No AI chat completions recorded yet. Make sure your application uses Spring AI with OpenTelemetry tracing
-        enabled and exports OTLP to <code>/bootui/api/otlp/v1/traces</code>, then exercise a chat endpoint to populate
-        this panel.
-      </div>
+      <AiSetupChecklist
+        v-if="!overview.enabled || !overview.springAiDetected || !hasAnyData"
+        :enabled="overview.enabled"
+        :has-data="hasAnyData"
+        :spring-ai-detected="overview.springAiDetected"
+      />
 
       <template v-else>
         <div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 mb-3">
