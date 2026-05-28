@@ -52,6 +52,47 @@ test.describe('Copilot panel', () => {
       ],
       warnings: []
     }
+    const sessionDetail = {
+      summary: dashboard.recentSessions[0],
+      counts: {
+        total: 30,
+        byCategory: {FILE_EDIT: 18, SHELL: 12},
+        errors: 2,
+        lastActivityEpochMillis: dashboard.recentSessions[0].updatedAtEpochMillis
+      },
+      turns: [
+        {
+          index: 0,
+          startedAtEpochMillis: Date.now() - 120_000,
+          durationMillis: 1500,
+          summary: 'Investigating session',
+          eventCount: 2
+        }
+      ],
+      recentEvents: [
+        {
+          id: 'ok',
+          turnIndex: 0,
+          timestampEpochMillis: Date.now() - 90_000,
+          type: 'tool.execution_start',
+          toolName: 'apply_patch',
+          category: 'FILE_EDIT',
+          summary: 'FILE_EDIT · apply_patch',
+          success: true
+        },
+        {
+          id: 'failure',
+          turnIndex: 0,
+          timestampEpochMillis: Date.now() - 60_000,
+          type: 'tool.execution_complete',
+          toolName: 'bash',
+          category: 'SHELL',
+          summary: 'SHELL · bash',
+          success: false
+        }
+      ],
+      warnings: []
+    }
 
     await page.route('**/bootui/api/copilot/dashboard', async (route) => {
       await route.fulfill({contentType: 'application/json', body: JSON.stringify(dashboard)})
@@ -70,6 +111,9 @@ test.describe('Copilot panel', () => {
         })
       })
     })
+    await page.route('**/bootui/api/copilot/sessions/session-one', async (route) => {
+      await route.fulfill({contentType: 'application/json', body: JSON.stringify(sessionDetail)})
+    })
     await page.route('**/bootui/api/copilot/stream', async (route) => {
       await route.fulfill({contentType: 'text/event-stream', body: ''})
     })
@@ -85,5 +129,13 @@ test.describe('Copilot panel', () => {
     await expect(page.getByRole('heading', {name: 'Session explorer'})).toBeVisible()
     await expect(page.getByText('1 / 5 sessions')).toBeVisible()
     await expect(page.getByText('bootui.copilot.max-sessions')).toBeVisible()
+
+    await page.getByRole('button', {name: 'Show failures for session-one'}).click()
+    await expect(page.getByRole('tab', {name: /Failures/})).toHaveClass(/active/)
+    await expect(page.getByText('SHELL · bash')).toBeVisible()
+
+    await page.getByRole('tab', {name: 'Turn story'}).click()
+    await expect(page.getByRole('tab', {name: 'Turn story'})).toHaveClass(/active/)
+    await expect(page.getByText('Investigating session')).toBeVisible()
   })
 })

@@ -7,6 +7,7 @@ const selectedSessionId = ref(null)
 const detail = ref(null)
 const categoryFilter = ref('ALL')
 const textFilter = ref('')
+const activeDetailTab = ref('activity')
 const loading = ref(true)
 const detailLoading = ref(false)
 const error = ref(null)
@@ -224,6 +225,24 @@ async function loadDetail(sessionId) {
   }
 }
 
+function showActivity(category = 'ALL') {
+  activeDetailTab.value = 'activity'
+  categoryFilter.value = category
+  if (category !== 'ALL') {
+    textFilter.value = ''
+  }
+}
+
+function showTurns() {
+  activeDetailTab.value = 'turns'
+}
+
+function showFailures() {
+  activeDetailTab.value = 'failures'
+  categoryFilter.value = 'ALL'
+  textFilter.value = ''
+}
+
 async function revealRaw(event) {
   if (rawById.value[event.id] !== undefined) {
     rawById.value = {...rawById.value, [event.id]: undefined}
@@ -248,8 +267,17 @@ async function revealRaw(event) {
   }
 }
 
-function pickSession(sessionId) {
+function pickSession(sessionId, options = {}) {
   selectedSessionId.value = sessionId
+  if (options.tab === 'failures') {
+    showFailures()
+  } else if (options.tab === 'turns') {
+    showTurns()
+  } else if (options.category) {
+    showActivity(options.category)
+  } else {
+    showActivity()
+  }
   loadDetail(sessionId)
 }
 
@@ -534,12 +562,11 @@ onBeforeUnmount(disconnect)
             <div class="col-lg-4">
               <div v-if="sessions.length === 0" class="alert alert-secondary">No Copilot sessions recorded yet.</div>
               <div v-else class="list-group session-list">
-                <button
+                <div
                   v-for="session in sessions"
                   :key="session.id"
                   :class="{active: session.id === selectedSessionId}"
-                  class="list-group-item list-group-item-action"
-                  type="button"
+                  class="list-group-item list-group-item-action session-row"
                   @click="pickSession(session.id)"
                 >
                   <div class="d-flex justify-content-between align-items-start">
@@ -557,10 +584,23 @@ onBeforeUnmount(disconnect)
                     <div class="text-end small">
                       <div>{{ formatRelative(session.updatedAtEpochMillis) }}</div>
                       <div>
-                        <span class="badge text-bg-secondary me-1">{{ formatNumber(session.eventCount) }} events</span>
-                        <span v-if="session.errorCount > 0" class="badge text-bg-danger"
-                          >{{ formatNumber(session.errorCount) }} errors</span
+                        <button
+                          :aria-label="`Show activity for ${session.id}`"
+                          class="badge text-bg-secondary border-0 me-1"
+                          type="button"
+                          @click.stop="pickSession(session.id, {tab: 'activity'})"
                         >
+                          {{ formatNumber(session.eventCount) }} events
+                        </button>
+                        <button
+                          v-if="session.errorCount > 0"
+                          :aria-label="`Show failures for ${session.id}`"
+                          class="badge text-bg-danger border-0"
+                          type="button"
+                          @click.stop="pickSession(session.id, {tab: 'failures'})"
+                        >
+                          {{ formatNumber(session.errorCount) }} errors
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -570,7 +610,7 @@ onBeforeUnmount(disconnect)
                   <div v-if="session.schemaDrift" class="small text-warning mt-1">
                     <i class="bi bi-exclamation-triangle me-1"></i>schema drift
                   </div>
-                </button>
+                </div>
               </div>
             </div>
 
@@ -600,18 +640,42 @@ onBeforeUnmount(disconnect)
                       >
                     </div>
                     <div class="d-flex flex-wrap gap-2">
-                      <span class="badge text-bg-secondary">{{ formatNumber(detail.counts.total) }} events</span>
-                      <span class="badge text-bg-secondary">{{ formatNumber(detail.summary.turnCount) }} turns</span>
-                      <span v-if="detail.counts.errors > 0" class="badge text-bg-danger"
-                        >{{ formatNumber(detail.counts.errors) }} errors</span
+                      <button
+                        class="badge text-bg-secondary border-0"
+                        type="button"
+                        aria-label="Show activity feed"
+                        @click="showActivity()"
                       >
-                      <span
+                        {{ formatNumber(detail.counts.total) }} events
+                      </button>
+                      <button
+                        class="badge text-bg-secondary border-0"
+                        type="button"
+                        aria-label="Show turn story"
+                        @click="showTurns()"
+                      >
+                        {{ formatNumber(detail.summary.turnCount) }} turns
+                      </button>
+                      <button
+                        v-if="detail.counts.errors > 0"
+                        class="badge text-bg-danger border-0"
+                        type="button"
+                        aria-label="Show failures"
+                        @click="showFailures()"
+                      >
+                        {{ formatNumber(detail.counts.errors) }} errors
+                      </button>
+                      <button
                         v-for="entry in breakdown"
                         :key="entry.category"
                         :class="categoryBadgeClass(entry.category)"
-                        class="badge"
-                        >{{ entry.category }} · {{ formatNumber(entry.count) }}</span
+                        class="badge border-0"
+                        type="button"
+                        :aria-label="`Filter activity by ${entry.category}`"
+                        @click="showActivity(entry.category)"
                       >
+                        {{ entry.category }} · {{ formatNumber(entry.count) }}
+                      </button>
                     </div>
                     <div v-if="detail.warnings && detail.warnings.length" class="mt-2">
                       <div v-for="warning in detail.warnings" :key="warning" class="small text-warning">
@@ -639,15 +703,35 @@ onBeforeUnmount(disconnect)
 
                 <ul class="nav nav-tabs mb-3" role="tablist">
                   <li class="nav-item">
-                    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-activity">
+                    <button
+                      :class="{active: activeDetailTab === 'activity'}"
+                      class="nav-link"
+                      role="tab"
+                      type="button"
+                      @click="showActivity(categoryFilter)"
+                    >
                       Activity feed
                     </button>
                   </li>
                   <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-turns">Turn story</button>
+                    <button
+                      :class="{active: activeDetailTab === 'turns'}"
+                      class="nav-link"
+                      role="tab"
+                      type="button"
+                      @click="showTurns()"
+                    >
+                      Turn story
+                    </button>
                   </li>
                   <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-failures">
+                    <button
+                      :class="{active: activeDetailTab === 'failures'}"
+                      class="nav-link"
+                      role="tab"
+                      type="button"
+                      @click="showFailures()"
+                    >
                       Failures
                       <span v-if="failureEvents.length" class="badge text-bg-danger ms-1">{{
                         failureEvents.length
@@ -657,7 +741,7 @@ onBeforeUnmount(disconnect)
                 </ul>
 
                 <div class="tab-content">
-                  <div id="tab-activity" class="tab-pane fade show active">
+                  <div v-if="activeDetailTab === 'activity'" class="tab-pane active" role="tabpanel">
                     <div v-if="filteredEvents.length === 0" class="text-muted small">No events match this filter.</div>
                     <ul v-else class="list-group">
                       <li v-for="event in filteredEvents" :key="event.id" class="list-group-item">
@@ -693,7 +777,7 @@ onBeforeUnmount(disconnect)
                     </ul>
                   </div>
 
-                  <div id="tab-turns" class="tab-pane fade">
+                  <div v-else-if="activeDetailTab === 'turns'" class="tab-pane active" role="tabpanel">
                     <div v-if="!detail.turns || detail.turns.length === 0" class="text-muted small">
                       No turn information available.
                     </div>
@@ -713,7 +797,7 @@ onBeforeUnmount(disconnect)
                     </ol>
                   </div>
 
-                  <div id="tab-failures" class="tab-pane fade">
+                  <div v-else-if="activeDetailTab === 'failures'" class="tab-pane active" role="tabpanel">
                     <div v-if="failureEvents.length === 0" class="text-muted small">No failures recorded.</div>
                     <ul v-else class="list-group">
                       <li v-for="event in failureEvents" :key="event.id" class="list-group-item">
@@ -796,6 +880,10 @@ onBeforeUnmount(disconnect)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-row {
+  cursor: pointer;
 }
 
 .session-list {
