@@ -1,38 +1,40 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
-import {useVisibleItems} from '../utils/useVisibleItems.js'
-import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
+import {onMounted, ref, watch} from 'vue'
+import {useServerPagedList} from '../utils/useServerPagedList.js'
+import ServerListFooter from './components/ServerListFooter.vue'
 
-const data = ref(null)
 const filter = ref('')
 const classification = ref('')
 
-async function load() {
-  const res = await fetch('api/beans')
-  data.value = await res.json()
-}
-
-const filtered = computed(() => {
-  if (!data.value) return []
-  return data.value.beans.filter((b) => {
-    if (classification.value && b.classification !== classification.value) return false
-    if (filter.value) {
-      const f = filter.value.toLowerCase()
-      return b.name.toLowerCase().includes(f) || (b.type && b.type.toLowerCase().includes(f))
-    }
-    return true
-  })
+const {
+  data,
+  error,
+  items: visibleBeans,
+  load,
+  loadMore,
+  loading,
+  loadingMore,
+  matchedCount,
+  pageSize,
+  scheduleReload,
+  shownCount,
+  totalCount
+} = useServerPagedList('api/beans', 'beans', () => {
+  return {
+    q: filter.value.trim(),
+    classification: classification.value
+  }
 })
 
-const {chunkSize, visibleItems: visibleBeans, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(filtered)
-
 onMounted(load)
+watch([filter, classification], scheduleReload)
 </script>
 
 <template>
   <div>
     <h2><i class="bi bi-diagram-3 me-2"></i>Beans</h2>
-    <p class="text-muted">{{ data ? data.total : 0 }} beans · {{ filtered.length }} matched</p>
+    <p class="text-muted">{{ totalCount }} beans · {{ matchedCount }} matched</p>
+    <div v-if="error" class="alert alert-danger">Could not load beans: {{ error }}</div>
 
     <div class="row g-2 mb-3">
       <div class="col-md-8">
@@ -89,14 +91,15 @@ onMounted(load)
         </tbody>
       </table>
     </div>
-    <ProgressiveListFooter
-      :chunk-size="chunkSize"
-      :hidden="hiddenCount"
+    <ServerListFooter
+      v-if="!loading"
+      :loading="loadingMore"
+      :matched="matchedCount"
+      :page-size="pageSize"
       :shown="shownCount"
-      :total="filtered.length"
+      :total="totalCount"
       item-label="beans"
-      @show-all="showAll"
-      @show-more="showMore"
+      @load-more="loadMore"
     />
   </div>
 </template>

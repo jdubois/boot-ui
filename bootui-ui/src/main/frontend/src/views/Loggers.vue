@@ -1,26 +1,28 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
-import {useVisibleItems} from '../utils/useVisibleItems.js'
-import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
+import {useServerPagedList} from '../utils/useServerPagedList.js'
+import ServerListFooter from './components/ServerListFooter.vue'
 
-const data = ref(null)
 const filter = ref('')
 const message = ref(null)
 
-async function load() {
-  const res = await fetch('api/loggers')
-  data.value = await res.json()
-}
-
-const filtered = computed(() => {
-  if (!data.value) return []
-  if (!filter.value) return data.value.loggers
-  const f = filter.value.toLowerCase()
-  return data.value.loggers.filter((l) => l.name.toLowerCase().includes(f))
+const {
+  data,
+  error,
+  items: visibleLoggers,
+  load,
+  loadMore,
+  loading,
+  loadingMore,
+  matchedCount,
+  pageSize,
+  scheduleReload,
+  shownCount,
+  totalCount
+} = useServerPagedList('api/loggers', 'loggers', () => {
+  return {q: filter.value.trim()}
 })
-
-const {chunkSize, visibleItems: visibleLoggers, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(filtered)
 
 async function changeLevel(logger, level) {
   const body = level ? {level} : {}
@@ -52,14 +54,16 @@ const levelClass = (l) =>
   })[l] || 'text-secondary'
 
 onMounted(load)
+watch(filter, scheduleReload)
 </script>
 
 <template>
   <div>
     <h2><i class="bi bi-journal-text me-2"></i>Loggers</h2>
     <div v-if="message" class="alert alert-success">{{ message }}</div>
+    <div v-if="error" class="alert alert-danger">Could not load loggers: {{ error }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter loggers by name…" />
-    <p v-if="data" class="small text-muted">{{ filtered.length }} of {{ data.loggers.length }} loggers matched</p>
+    <p v-if="data" class="small text-muted">{{ matchedCount }} of {{ totalCount }} loggers matched</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover loggers-table">
         <colgroup>
@@ -101,14 +105,15 @@ onMounted(load)
         </tbody>
       </table>
     </div>
-    <ProgressiveListFooter
-      :chunk-size="chunkSize"
-      :hidden="hiddenCount"
+    <ServerListFooter
+      v-if="!loading"
+      :loading="loadingMore"
+      :matched="matchedCount"
+      :page-size="pageSize"
       :shown="shownCount"
-      :total="filtered.length"
+      :total="totalCount"
       item-label="loggers"
-      @show-all="showAll"
-      @show-more="showMore"
+      @load-more="loadMore"
     />
   </div>
 </template>

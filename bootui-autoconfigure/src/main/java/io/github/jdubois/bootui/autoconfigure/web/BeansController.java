@@ -10,6 +10,7 @@ import org.springframework.boot.actuate.beans.BeansEndpoint.BeansDescriptor;
 import org.springframework.boot.actuate.beans.BeansEndpoint.ContextBeansDescriptor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -23,7 +24,11 @@ public class BeansController {
     }
 
     @GetMapping
-    public BeanList beans() {
+    public BeanList beans(
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "classification", required = false) String classification,
+            @RequestParam(name = "offset", required = false) Integer offset,
+            @RequestParam(name = "limit", required = false) Integer limit) {
         BeansEndpoint be = endpoint.getIfAvailable();
         if (be == null) {
             return new BeanList(0, List.of());
@@ -38,7 +43,14 @@ public class BeansController {
             }
         }
         summaries.sort(Comparator.comparing(BeanSummary::name));
-        return new BeanList(summaries.size(), summaries);
+        String normalizedQuery = PagedList.normalize(query);
+        String normalizedClassification = PagedList.normalize(classification).toUpperCase(Locale.ROOT);
+        PagedList.Result<BeanSummary> page = PagedList.from(
+                summaries,
+                bean -> matchesClassification(bean, normalizedClassification) && matchesQuery(bean, normalizedQuery),
+                offset,
+                limit);
+        return new BeanList(summaries.size(), page.items(), page.page());
     }
 
     private BeanSummary toSummary(String name, BeanDescriptor descriptor) {
@@ -67,5 +79,13 @@ public class BeansController {
             return "PLATFORM";
         }
         return "APPLICATION";
+    }
+
+    private boolean matchesClassification(BeanSummary bean, String classification) {
+        return classification.isEmpty() || classification.equals(bean.classification());
+    }
+
+    private boolean matchesQuery(BeanSummary bean, String query) {
+        return PagedList.contains(bean.name(), query) || PagedList.contains(bean.type(), query);
     }
 }

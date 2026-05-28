@@ -27,7 +27,10 @@ public class LoggersController {
     }
 
     @GetMapping
-    public LoggersReport loggers() {
+    public LoggersReport loggers(
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "offset", required = false) Integer offset,
+            @RequestParam(name = "limit", required = false) Integer limit) {
         LoggersEndpoint le = endpoint.getIfAvailable();
         if (le == null) {
             return new LoggersReport(List.of(), List.of());
@@ -52,7 +55,10 @@ public class LoggersController {
             }
         }
         loggers.sort(Comparator.comparing(LoggerDto::name));
-        return new LoggersReport(levels, loggers);
+        String normalizedQuery = PagedList.normalize(query);
+        PagedList.Result<LoggerDto> page =
+                PagedList.from(loggers, logger -> PagedList.contains(logger.name(), normalizedQuery), offset, limit);
+        return new LoggersReport(levels, page.items(), page.page());
     }
 
     @PostMapping("/{name}")

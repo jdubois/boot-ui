@@ -168,4 +168,56 @@ class BeansControllerTests {
                 .andExpect(jsonPath("$.beans[0].name").value("apple"))
                 .andExpect(jsonPath("$.beans[1].name").value("zebra"));
     }
+
+    @Test
+    void beansSupportsServerSideFilteringAndPaging() throws Exception {
+        BeanDescriptor alphaBean = inlineMock(BeanDescriptor.class);
+        doReturn(String.class).when(alphaBean).getType();
+        when(alphaBean.getDependencies()).thenReturn(new String[0]);
+        when(alphaBean.getAliases()).thenReturn(new String[0]);
+
+        BeanDescriptor betaBean = inlineMock(BeanDescriptor.class);
+        doReturn(Runtime.class).when(betaBean).getType();
+        when(betaBean.getDependencies()).thenReturn(new String[0]);
+        when(betaBean.getAliases()).thenReturn(new String[0]);
+
+        BeanDescriptor springBean = inlineMock(BeanDescriptor.class);
+        doReturn(org.springframework.context.ApplicationContext.class)
+                .when(springBean)
+                .getType();
+        when(springBean.getDependencies()).thenReturn(new String[0]);
+        when(springBean.getAliases()).thenReturn(new String[0]);
+
+        ContextBeansDescriptor ctx = inlineMock(ContextBeansDescriptor.class);
+        when(ctx.getBeans())
+                .thenReturn(Map.of(
+                        "alphaBean", alphaBean,
+                        "betaBean", betaBean,
+                        "springBean", springBean));
+
+        BeansDescriptor descriptor = inlineMock(BeansDescriptor.class);
+        when(descriptor.getContexts()).thenReturn(Map.of("root", ctx));
+
+        BeansEndpoint endpoint = mock(BeansEndpoint.class);
+        when(endpoint.beans()).thenReturn(descriptor);
+
+        MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
+
+        mvc.perform(get("/bootui/api/beans")
+                        .param("q", "java")
+                        .param("classification", "PLATFORM")
+                        .param("offset", "1")
+                        .param("limit", "1")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.beans").isArray())
+                .andExpect(jsonPath("$.beans.length()").value(1))
+                .andExpect(jsonPath("$.beans[0].name").value("betaBean"))
+                .andExpect(jsonPath("$.page.total").value(3))
+                .andExpect(jsonPath("$.page.matched").value(2))
+                .andExpect(jsonPath("$.page.offset").value(1))
+                .andExpect(jsonPath("$.page.returned").value(1))
+                .andExpect(jsonPath("$.page.hasMore").value(false));
+    }
 }

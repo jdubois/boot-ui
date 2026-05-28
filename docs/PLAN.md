@@ -135,9 +135,12 @@ The harden-all-visible-panels alpha test expansion is complete. Coverage now inc
 11. Frontend unit test setup (v0.2, 2026-05-28): Vitest, Vue Test Utils, and jsdom are wired into the Vite frontend. The
     first tests cover the progressive rendering composable and footer component, and Maven runs `npm run test` during the
     `test` phase unless `-DskipTests` is set.
+12. Server-side filtering and pagination (v0.2, 2026-05-28): high-cardinality Beans, Conditions, Mappings, Configuration,
+    and Loggers reports now accept bounded query parameters and return page metadata. The Vue panels request server-side
+    pages instead of fetching every row up front, and the Mappings panel uses a stable BootUI DTO while the legacy raw
+    Actuator descriptor remains available at `/bootui/api/mappings`.
 
-Future backend test work should be incremental and tied to new or changed behavior, especially remaining v0.2
-candidates such as server-side filtering or pagination if payload-size bottlenecks show up.
+Future backend test work should be incremental and tied to new or changed behavior.
 
 ### 4.2 UI and product parity status
 
@@ -172,9 +175,9 @@ Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, 
 Playwright tests, and part of the supported alpha surface. Any new visible route or browser-facing behavior should
 update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
 
-The first v0.2 large-app pass is complete for the most obvious browser-rendering hotspots: Beans, Conditions, Mappings,
-Configuration, and Loggers progressively render large filtered result sets, while search/filter controls continue to
-operate over all received data.
+The v0.2 large-app hardening pass is complete for the most obvious list and payload hotspots: Beans, Conditions,
+Mappings, Configuration, and Loggers request bounded server-side pages with filter parameters and render only the rows
+already returned by the API.
 
 Optional UI gating is complete for the visible route set (v0.2, 2026-05-28). `/bootui/api/panels` reports classpath,
 endpoint, and configuration availability for each sidebar route. The Vue shell keeps routes visible, dims unavailable
@@ -344,8 +347,9 @@ Potential features:
 - ~~Frontend test setup if the project decides to add Vitest or another UI test runner.~~ Done (2026-05-28): Vitest,
   Vue Test Utils, and jsdom run through `npm run test` and the Maven `test` phase, with seed coverage for progressive
   list rendering.
-- Server-side filtering or pagination for Actuator-backed APIs if real-world large apps expose response-size bottlenecks
-  that browser-side progressive rendering cannot solve.
+- ~~Server-side filtering or pagination for Actuator-backed APIs if real-world large apps expose response-size
+  bottlenecks that browser-side progressive rendering cannot solve.~~ Done (2026-05-28): Beans, Conditions, Mappings,
+  Configuration, and Loggers now expose bounded server-side pages with filter-aware counts and page metadata.
 
 ## 7. v1.0 candidates
 
@@ -444,8 +448,8 @@ for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, Memory, and
 Dev Services edge-case hardening (first v0.2 item) was completed on 2026-05-28 (PR #88). Large-app browser-rendering
 hardening was completed next for high-cardinality lists. Optional UI gating was completed after that with the
 `/bootui/api/panels` availability report, sidebar dimming, accessible unavailable labels/tooltips, and an active-panel
-reason banner. Frontend unit test setup followed with Vitest, Vue Test Utils, jsdom, and Maven test-phase wiring. The
-remaining v0.2 candidate is server-side filtering or pagination if payload-size bottlenecks show up in real-world apps.
+reason banner. Frontend unit test setup followed with Vitest, Vue Test Utils, jsdom, and Maven test-phase wiring.
+Server-side filtering and pagination completed the listed v0.2 candidate set for high-cardinality list payloads.
 
 User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and
 `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript
@@ -455,8 +459,8 @@ Vue 3 frontend, and the full visible panel set. The repository now ships a `CHAN
 On 2026-05-28, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
 current branch. The Playwright run covered all 57 sample-app browser tests.
 
-The next workstream continues v0.2 with the remaining candidate in §6: server-side filtering or pagination if
-payload-size bottlenecks show up. Keep release validation and docs in sync as changes land.
+The listed v0.2 candidate set is complete. The next workstream should be release validation for the next alpha or a new
+candidate promoted from §7, with docs kept in sync as behavior changes land.
 
 ## 10. Validation checklist
 

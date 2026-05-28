@@ -56,18 +56,63 @@ public final class BootUiDtos {
             List<String> aliases,
             String classification) {}
 
-    public record BeanList(int total, List<BeanSummary> beans) {}
+    /**
+     * Paging metadata for list-style reports.
+     */
+    public record PageMetadata(int total, int matched, int offset, int limit, int returned, boolean hasMore) {}
+
+    public record BeanList(int total, List<BeanSummary> beans, PageMetadata page) {
+        public BeanList(int total, List<BeanSummary> beans) {
+            this(total, beans, new PageMetadata(total, beans.size(), 0, beans.size(), beans.size(), false));
+        }
+    }
 
     /**
      * One auto-configuration evaluation entry.
      */
     public record ConditionEntry(String autoConfigurationClass, String condition, String message, String outcome) {}
 
+    public record ConditionCounts(
+            int positiveTotal,
+            int positiveMatched,
+            int negativeTotal,
+            int negativeMatched,
+            int unconditionalTotal,
+            int exclusionsTotal) {}
+
     public record ConditionsReport(
             List<ConditionEntry> positiveMatches,
             List<ConditionEntry> negativeMatches,
             List<String> unconditionalClasses,
-            List<String> exclusions) {}
+            List<String> exclusions,
+            PageMetadata page,
+            ConditionCounts counts) {
+        public ConditionsReport(
+                List<ConditionEntry> positiveMatches,
+                List<ConditionEntry> negativeMatches,
+                List<String> unconditionalClasses,
+                List<String> exclusions) {
+            this(
+                    positiveMatches,
+                    negativeMatches,
+                    unconditionalClasses,
+                    exclusions,
+                    new PageMetadata(
+                            positiveMatches.size() + negativeMatches.size(),
+                            positiveMatches.size() + negativeMatches.size(),
+                            0,
+                            positiveMatches.size() + negativeMatches.size(),
+                            positiveMatches.size() + negativeMatches.size(),
+                            false),
+                    new ConditionCounts(
+                            positiveMatches.size(),
+                            positiveMatches.size(),
+                            negativeMatches.size(),
+                            negativeMatches.size(),
+                            unconditionalClasses.size(),
+                            exclusions.size()));
+        }
+    }
 
     /**
      * A single configuration property value, with its source.
@@ -91,7 +136,26 @@ public final class BootUiDtos {
             List<String> activeProfiles,
             List<String> sources,
             List<ConfigPropertyDto> properties,
-            List<ConfigPropertySuggestionDto> propertySuggestions) {}
+            List<ConfigPropertySuggestionDto> propertySuggestions,
+            PageMetadata page,
+            int overrideCount) {
+        public ConfigReport(
+                List<String> activeProfiles,
+                List<String> sources,
+                List<ConfigPropertyDto> properties,
+                List<ConfigPropertySuggestionDto> propertySuggestions) {
+            this(
+                    activeProfiles,
+                    sources,
+                    properties,
+                    propertySuggestions,
+                    new PageMetadata(
+                            properties.size(), properties.size(), 0, properties.size(), properties.size(), false),
+                    (int) properties.stream()
+                            .filter(ConfigPropertyDto::override)
+                            .count());
+        }
+    }
 
     /**
      * Request to add/update a runtime property override.
@@ -109,7 +173,11 @@ public final class BootUiDtos {
      */
     public record MappingDto(String method, String pattern, String handler, String produces, String consumes) {}
 
-    public record MappingsReport(int total, List<MappingDto> mappings) {}
+    public record MappingsReport(int total, List<MappingDto> mappings, PageMetadata page) {
+        public MappingsReport(int total, List<MappingDto> mappings) {
+            this(total, mappings, new PageMetadata(total, mappings.size(), 0, mappings.size(), mappings.size(), false));
+        }
+    }
 
     /**
      * Request from the browser to probe a local HTTP endpoint.
@@ -129,7 +197,14 @@ public final class BootUiDtos {
 
     public record LoggerDto(String name, String configuredLevel, String effectiveLevel) {}
 
-    public record LoggersReport(List<String> availableLevels, List<LoggerDto> loggers) {}
+    public record LoggersReport(List<String> availableLevels, List<LoggerDto> loggers, PageMetadata page) {
+        public LoggersReport(List<String> availableLevels, List<LoggerDto> loggers) {
+            this(
+                    availableLevels,
+                    loggers,
+                    new PageMetadata(loggers.size(), loggers.size(), 0, loggers.size(), loggers.size(), false));
+        }
+    }
 
     /**
      * A single log line for the live log tail.

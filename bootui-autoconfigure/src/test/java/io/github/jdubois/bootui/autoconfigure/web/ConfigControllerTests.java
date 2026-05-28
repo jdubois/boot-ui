@@ -63,6 +63,25 @@ class ConfigControllerTests {
     }
 
     @Test
+    void listSupportsServerSideFilteringAndPaging() throws Exception {
+        environment.setProperty("server.address", "127.0.0.1");
+        environment.setProperty("management.server.port", "8081");
+
+        mvc.perform(get("/bootui/api/config")
+                        .param("q", "server")
+                        .param("offset", "1")
+                        .param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties.length()").value(1))
+                .andExpect(jsonPath("$.properties[0].name").value("server.address"))
+                .andExpect(jsonPath("$.page.total").value(org.hamcrest.Matchers.greaterThanOrEqualTo(4)))
+                .andExpect(jsonPath("$.page.matched").value(3))
+                .andExpect(jsonPath("$.page.offset").value(1))
+                .andExpect(jsonPath("$.page.returned").value(1))
+                .andExpect(jsonPath("$.page.hasMore").value(true));
+    }
+
+    @Test
     void listMasksSecretValuesByDefault() throws Exception {
         mvc.perform(get("/bootui/api/config"))
                 .andExpect(status().isOk())

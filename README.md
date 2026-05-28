@@ -26,7 +26,7 @@ for explanations and screenshots for every panel.
 | [Health](docs/FEATURES.md#health)                     | Explore the Actuator health tree and contributor details.                                                  |
 | [Metrics](docs/FEATURES.md#metrics)                   | Browse Micrometer meters, tags, measurements, and a local live chart for selected metrics.                 |
 | [Conditions](docs/FEATURES.md#conditions)             | Understand why auto-configuration classes matched, did not match, or were unconditional.                   |
-| [Beans](docs/FEATURES.md#beans)                       | Search Spring beans by name, type, scope, resource, dependency, and BootUI classification.                 |
+| [Beans](docs/FEATURES.md#beans)                       | Search Spring beans by name, type, and BootUI classification with server-side paging.                      |
 | [Mappings](docs/FEATURES.md#mappings)                 | Review HTTP routes, handlers, methods, patterns, and produces/consumes metadata.                           |
 | [Configuration](docs/FEATURES.md#configuration)       | Inspect effective configuration values, metadata, masking, and local runtime overrides.                    |
 | [Profile Diff](docs/FEATURES.md#profile-diff)         | Compare profile-specific property sources and values while preserving secret masking.                      |

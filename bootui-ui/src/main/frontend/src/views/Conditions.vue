@@ -1,30 +1,84 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
-import {useVisibleItems} from '../utils/useVisibleItems.js'
-import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {SERVER_PAGE_SIZE} from '../utils/useServerPagedList.js'
+import ServerListFooter from './components/ServerListFooter.vue'
 
 const data = ref(null)
 const tab = ref('positive')
 const filter = ref('')
+const loading = ref(false)
+const loadingMore = ref(false)
+const error = ref(null)
 
-async function load() {
-  const res = await fetch('api/conditions')
-  data.value = await res.json()
+let requestId = 0
+let timer = null
+
+const entriesKey = computed(() => (tab.value === 'positive' ? 'positiveMatches' : 'negativeMatches'))
+const entries = computed(() => data.value?.[entriesKey.value] || [])
+const counts = computed(() => data.value?.counts || {})
+const matchedCount = computed(() =>
+  tab.value === 'positive' ? counts.value.positiveMatched || 0 : counts.value.negativeMatched || 0
+)
+const totalCount = computed(() =>
+  tab.value === 'positive' ? counts.value.positiveTotal || 0 : counts.value.negativeTotal || 0
+)
+const shownCount = computed(() => entries.value.length)
+const hiddenCount = computed(() => Math.max(matchedCount.value - shownCount.value, 0))
+
+function buildUrl(offset) {
+  const params = new URLSearchParams()
+  params.set('outcome', tab.value)
+  params.set('offset', String(offset))
+  params.set('limit', String(SERVER_PAGE_SIZE))
+  if (filter.value.trim()) params.set('q', filter.value.trim())
+  return `api/conditions?${params.toString()}`
 }
 
-const entries = computed(() => {
-  if (!data.value) return []
-  const items = tab.value === 'positive' ? data.value.positiveMatches : data.value.negativeMatches
-  if (!filter.value) return items
-  const f = filter.value.toLowerCase()
-  return items.filter(
-    (e) => (e.autoConfigurationClass || '').toLowerCase().includes(f) || (e.message || '').toLowerCase().includes(f)
-  )
-})
+async function load(options = {}) {
+  const append = options.append === true
+  const id = options.requestId || ++requestId
+  const targetLoading = append ? loadingMore : loading
+  targetLoading.value = true
+  error.value = null
+  try {
+    const res = await fetch(buildUrl(append ? entries.value.length : 0))
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const next = await res.json()
+    if (id !== requestId) return
+    data.value =
+      append && data.value
+        ? {
+            ...next,
+            [entriesKey.value]: [...entries.value, ...(next[entriesKey.value] || [])]
+          }
+        : next
+  } catch (e) {
+    if (id === requestId) error.value = e.message
+  } finally {
+    if (id === requestId) targetLoading.value = false
+  }
+}
 
-const {chunkSize, visibleItems: visibleEntries, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(entries)
+function scheduleReload() {
+  requestId += 1
+  const id = requestId
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(() => load({requestId: id}), 250)
+}
+
+function loadMore() {
+  if (hiddenCount.value > 0 && !loadingMore.value) {
+    return load({append: true})
+  }
+  return Promise.resolve()
+}
 
 onMounted(load)
+watch([tab, filter], scheduleReload)
+onBeforeUnmount(() => {
+  if (timer) clearTimeout(timer)
+  requestId += 1
+})
 </script>
 
 <template>
@@ -33,18 +87,19 @@ onMounted(load)
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item">
         <a :class="{active: tab === 'positive'}" class="nav-link" href="#" @click.prevent="tab = 'positive'">
-          Positive ({{ data ? data.positiveMatches.length : 0 }})
+          Positive ({{ counts.positiveMatched || 0 }})
         </a>
       </li>
       <li class="nav-item">
         <a :class="{active: tab === 'negative'}" class="nav-link" href="#" @click.prevent="tab = 'negative'">
-          Negative ({{ data ? data.negativeMatches.length : 0 }})
+          Negative ({{ counts.negativeMatched || 0 }})
         </a>
       </li>
     </ul>
+    <div v-if="error" class="alert alert-danger">Could not load conditions: {{ error }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
-    <p class="small text-muted">{{ entries.length }} matching entries</p>
-    <div v-for="e in visibleEntries" :key="e.autoConfigurationClass + e.condition" class="mb-2">
+    <p class="small text-muted">{{ matchedCount }} of {{ totalCount }} {{ tab }} entries matched</p>
+    <div v-for="e in entries" :key="e.autoConfigurationClass + e.condition + e.message" class="mb-2">
       <div class="d-flex">
         <span :class="tab === 'positive' ? 'bg-success' : 'bg-secondary'" class="badge me-2">{{ e.outcome }}</span>
         <div>
@@ -54,14 +109,15 @@ onMounted(load)
         </div>
       </div>
     </div>
-    <ProgressiveListFooter
-      :chunk-size="chunkSize"
-      :hidden="hiddenCount"
+    <ServerListFooter
+      v-if="!loading"
+      :loading="loadingMore"
+      :matched="matchedCount"
+      :page-size="SERVER_PAGE_SIZE"
       :shown="shownCount"
-      :total="entries.length"
+      :total="totalCount"
       item-label="condition entries"
-      @show-all="showAll"
-      @show-more="showMore"
+      @load-more="loadMore"
     />
   </div>
 </template>

@@ -1,49 +1,25 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
-import {useVisibleItems} from '../utils/useVisibleItems.js'
-import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
+import {onMounted, ref, watch} from 'vue'
+import {useServerPagedList} from '../utils/useServerPagedList.js'
+import ServerListFooter from './components/ServerListFooter.vue'
 
-const data = ref(null)
 const filter = ref('')
 
-async function load() {
-  const res = await fetch('api/mappings')
-  if (res.status === 204) return
-  data.value = await res.json()
-}
-
-const flat = computed(() => {
-  if (!data.value) return []
-  const rows = []
-  const contexts = data.value.contexts || {}
-  for (const ctxName of Object.keys(contexts)) {
-    const ctx = contexts[ctxName]
-    const dispatchers = ctx.mappings?.dispatcherServlets || ctx.mappings?.dispatcherHandlers || {}
-    for (const dispatcherName of Object.keys(dispatchers)) {
-      const handlers = dispatchers[dispatcherName] || []
-      for (const h of handlers) {
-        const conds = h.details?.requestMappingConditions || {}
-        const patterns = conds.patterns || []
-        const methods = conds.methods || ['ANY']
-        for (const pattern of patterns.length ? patterns : ['(any)']) {
-          for (const method of methods.length ? methods : ['ANY']) {
-            rows.push({method, pattern, handler: h.handler, predicate: h.predicate})
-          }
-        }
-      }
-    }
-  }
-  if (!filter.value) return rows
-  const f = filter.value.toLowerCase()
-  return rows.filter(
-    (r) =>
-      (r.pattern || '').toLowerCase().includes(f) ||
-      (r.handler || '').toLowerCase().includes(f) ||
-      (r.method || '').toLowerCase().includes(f)
-  )
+const {
+  error,
+  items: visibleMappings,
+  load,
+  loadMore,
+  loading,
+  loadingMore,
+  matchedCount,
+  pageSize,
+  scheduleReload,
+  shownCount,
+  totalCount
+} = useServerPagedList('api/mappings/flat', 'mappings', () => {
+  return {q: filter.value.trim()}
 })
-
-const {chunkSize, visibleItems: visibleMappings, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(flat)
 
 const methodClass = (m) =>
   ({
@@ -56,13 +32,15 @@ const methodClass = (m) =>
   })[m] || 'bg-secondary'
 
 onMounted(load)
+watch(filter, scheduleReload)
 </script>
 
 <template>
   <div>
     <h2><i class="bi bi-signpost-2 me-2"></i>HTTP mappings</h2>
+    <div v-if="error" class="alert alert-danger">Could not load mappings: {{ error }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
-    <p class="small text-muted">{{ flat.length }} matching mappings</p>
+    <p class="small text-muted">{{ matchedCount }} of {{ totalCount }} mappings matched</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
         <thead>
@@ -87,14 +65,15 @@ onMounted(load)
         </tbody>
       </table>
     </div>
-    <ProgressiveListFooter
-      :chunk-size="chunkSize"
-      :hidden="hiddenCount"
+    <ServerListFooter
+      v-if="!loading"
+      :loading="loadingMore"
+      :matched="matchedCount"
+      :page-size="pageSize"
       :shown="shownCount"
-      :total="flat.length"
+      :total="totalCount"
       item-label="mappings"
-      @show-all="showAll"
-      @show-more="showMore"
+      @load-more="loadMore"
     />
   </div>
 </template>
