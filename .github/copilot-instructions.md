@@ -45,6 +45,25 @@ runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers Java/Kotlin and Java
 enabled. The release workflow (`.github/workflows/release.yml`) publishes `v*` tags to Maven Central through the
 `release` Maven profile and the Sonatype Central Publishing plugin.
 
+## Formatting before PRs
+
+- Before marking a PR ready or creating one, run the formatters for the areas touched by the change; after broad
+  AI-generated edits, run all of them:
+
+```bash
+./mvnw -B -ntp spotless:apply
+(cd bootui-ui/src/main/frontend && npm run format)
+(cd bootui-sample-app/e2e && npm run format)
+```
+
+- Validate with the same formatting checks CI uses:
+
+```bash
+./mvnw -B -ntp spotless:check
+(cd bootui-ui/src/main/frontend && npm run format:check)
+(cd bootui-sample-app/e2e && npm run format:check)
+```
+
 ## Release plumbing (Maven Central)
 
 A few subtle constraints that have already burned us in past releases — preserve them when touching `pom.xml` files or
