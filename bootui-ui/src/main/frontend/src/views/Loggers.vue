@@ -1,6 +1,8 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {useVisibleItems} from '../utils/useVisibleItems.js'
+import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
 
 const data = ref(null)
 const filter = ref('')
@@ -17,6 +19,8 @@ const filtered = computed(() => {
   const f = filter.value.toLowerCase()
   return data.value.loggers.filter((l) => l.name.toLowerCase().includes(f))
 })
+
+const {chunkSize, visibleItems: visibleLoggers, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(filtered)
 
 async function changeLevel(logger, level) {
   const body = level ? {level} : {}
@@ -55,6 +59,7 @@ onMounted(load)
     <h2><i class="bi bi-journal-text me-2"></i>Loggers</h2>
     <div v-if="message" class="alert alert-success">{{ message }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter loggers by name…" />
+    <p v-if="data" class="small text-muted">{{ filtered.length }} of {{ data.loggers.length }} loggers matched</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover loggers-table">
         <colgroup>
@@ -72,7 +77,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="l in filtered" :key="l.name">
+          <tr v-for="l in visibleLoggers" :key="l.name">
             <td>
               <code :title="l.name" class="text-truncate d-block">{{ l.name }}</code>
             </td>
@@ -96,6 +101,15 @@ onMounted(load)
         </tbody>
       </table>
     </div>
+    <ProgressiveListFooter
+      :chunk-size="chunkSize"
+      :hidden="hiddenCount"
+      :shown="shownCount"
+      :total="filtered.length"
+      item-label="loggers"
+      @show-all="showAll"
+      @show-more="showMore"
+    />
   </div>
 </template>
 

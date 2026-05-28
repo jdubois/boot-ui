@@ -1,6 +1,10 @@
 <script setup>
 import {computed, nextTick, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {useVisibleItems} from '../utils/useVisibleItems.js'
+import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
+
+const MAX_PROPERTY_SUGGESTIONS = 200
 
 const data = ref(null)
 const loading = ref(true)
@@ -20,6 +24,46 @@ const editInput = ref(null)
 const banner = ref(null)
 
 const propertySuggestions = computed(() => data.value?.propertySuggestions || [])
+
+const propertySuggestionQuery = computed(() => (newRowName.value || '').trim().toLowerCase())
+
+function propertySuggestionMatches(suggestion, query) {
+  if (!query) return true
+  return (suggestion.name || '').toLowerCase().includes(query)
+}
+
+const matchingPropertySuggestionCount = computed(
+  () =>
+    propertySuggestions.value.filter((suggestion) =>
+      propertySuggestionMatches(suggestion, propertySuggestionQuery.value)
+    ).length
+)
+
+const visiblePropertySuggestions = computed(() => {
+  const query = propertySuggestionQuery.value
+  if (!query) return propertySuggestions.value.slice(0, MAX_PROPERTY_SUGGESTIONS)
+  const prefixMatches = []
+  for (const suggestion of propertySuggestions.value) {
+    const name = (suggestion.name || '').toLowerCase()
+    if (name.startsWith(query)) {
+      prefixMatches.push(suggestion)
+    }
+    if (prefixMatches.length >= MAX_PROPERTY_SUGGESTIONS) return prefixMatches
+  }
+  const containsMatches = []
+  for (const suggestion of propertySuggestions.value) {
+    const name = (suggestion.name || '').toLowerCase()
+    if (!name.startsWith(query) && name.includes(query)) {
+      containsMatches.push(suggestion)
+    }
+    if (prefixMatches.length + containsMatches.length >= MAX_PROPERTY_SUGGESTIONS) break
+  }
+  return [...prefixMatches, ...containsMatches].slice(0, MAX_PROPERTY_SUGGESTIONS)
+})
+
+const hiddenPropertySuggestionCount = computed(() =>
+  Math.max(matchingPropertySuggestionCount.value - visiblePropertySuggestions.value.length, 0)
+)
 
 const suggestionByName = computed(() => {
   const byName = new Map()
@@ -65,6 +109,15 @@ const filtered = computed(() => {
     return true
   })
 })
+
+const {
+  chunkSize,
+  visibleItems: visibleProperties,
+  shownCount,
+  hiddenCount,
+  showMore,
+  showAll
+} = useVisibleItems(filtered)
 
 const overrideCount = computed(() => (data.value ? data.value.properties.filter((p) => p.override).length : 0))
 
@@ -288,12 +341,16 @@ onMounted(load)
               />
               <datalist id="bootPropertySuggestions">
                 <option
-                  v-for="s in propertySuggestions"
+                  v-for="s in visiblePropertySuggestions"
                   :key="s.name"
                   :label="suggestionLabel(s)"
                   :value="s.name"
                 ></option>
               </datalist>
+              <div v-if="hiddenPropertySuggestionCount > 0" class="small text-muted mt-1">
+                Showing the first {{ visiblePropertySuggestions.length }} matching suggestions. Keep typing to narrow
+                large metadata catalogs.
+              </div>
               <div v-if="selectedNewSuggestion" class="small text-muted mt-1">
                 <div v-if="selectedNewSuggestion.description">{{ selectedNewSuggestion.description }}</div>
                 <div>
@@ -354,7 +411,7 @@ onMounted(load)
 
           <!-- Existing rows -->
           <tr
-            v-for="p in filtered"
+            v-for="p in visibleProperties"
             :key="p.name + ':' + p.source"
             :class="{'table-warning': p.override, 'table-active': editingName === p.name}"
           >
@@ -422,6 +479,15 @@ onMounted(load)
         </tbody>
       </table>
     </div>
+    <ProgressiveListFooter
+      :chunk-size="chunkSize"
+      :hidden="hiddenCount"
+      :shown="shownCount"
+      :total="filtered.length"
+      item-label="properties"
+      @show-all="showAll"
+      @show-more="showMore"
+    />
   </div>
 </template>
 

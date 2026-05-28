@@ -1,5 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import {useVisibleItems} from '../utils/useVisibleItems.js'
+import ProgressiveListFooter from './components/ProgressiveListFooter.vue'
 
 const data = ref(null)
 const filter = ref('')
@@ -22,13 +24,15 @@ const filtered = computed(() => {
   })
 })
 
+const {chunkSize, visibleItems: visibleBeans, shownCount, hiddenCount, showMore, showAll} = useVisibleItems(filtered)
+
 onMounted(load)
 </script>
 
 <template>
   <div>
     <h2><i class="bi bi-diagram-3 me-2"></i>Beans</h2>
-    <p class="text-muted">{{ data ? data.total : 0 }} beans · {{ filtered.length }} shown</p>
+    <p class="text-muted">{{ data ? data.total : 0 }} beans · {{ filtered.length }} matched</p>
 
     <div class="row g-2 mb-3">
       <div class="col-md-8">
@@ -65,7 +69,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="b in filtered" :key="b.name">
+          <tr v-for="b in visibleBeans" :key="b.name">
             <td>
               <code :title="b.name" class="text-truncate d-block">{{ b.name }}</code>
             </td>
@@ -85,6 +89,15 @@ onMounted(load)
         </tbody>
       </table>
     </div>
+    <ProgressiveListFooter
+      :chunk-size="chunkSize"
+      :hidden="hiddenCount"
+      :shown="shownCount"
+      :total="filtered.length"
+      item-label="beans"
+      @show-all="showAll"
+      @show-more="showMore"
+    />
   </div>
 </template>
 

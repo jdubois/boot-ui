@@ -101,7 +101,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 4. Beans and Conditions panels           | Implemented and covered by sample e2e    | API and UI panels exist; large-app edge cases should be handled incrementally as v0.2 hardening work.                                                                                                                                                   |
 | 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e    | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests.                                                                                                              |
 | 6. Post-MVP diagnostic panels            | Implemented and covered                  | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
-| 7. Documentation and release hardening   | Validated for the current alpha; ongoing | User-facing docs are reconciled with current behavior, the changelog is current through `0.1.0-alpha.5`, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-27. Keep release checks current as v0.2 work lands.             |
+| 7. Documentation and release hardening   | Validated for the current alpha; ongoing | User-facing docs are reconciled with current behavior, the changelog is current through `0.1.0-alpha.5`, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-28. Keep release checks current as v0.2 work lands.             |
 | 8. In-app OTLP sink + Traces + AI Usage  | Delivered in `0.1.0-alpha.5`             | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`.                                                         |
 
 ## 4. Current status and next work
@@ -128,13 +128,17 @@ The harden-all-visible-panels alpha test expansion is complete. Coverage now inc
    abstract bean definitions are silently excluded (documents actual Spring `getType` behavior). Testcontainers added
    as a `test`-scope dependency in `bootui-autoconfigure` so the `discoverTestcontainers` classpath guard does not
    short-circuit unit tests.
+10. Large-app rendering hardening (v0.2, 2026-05-28): high-cardinality Beans, Conditions, Mappings, Configuration, and
+    Loggers lists now render progressively instead of mounting every filtered row at once. Filters still search the full
+    in-memory result set, and the Configuration override property picker bounds its datalist suggestions while narrowing
+    against the full metadata catalog as the user types.
 
 Future backend test work should be incremental and tied to new or changed behavior, especially remaining v0.2
-candidates such as large-app edge cases and optional UI gating.
+candidates such as optional UI gating and server-side filtering or pagination if payload-size bottlenecks show up.
 
 ### 4.2 UI and product parity status
 
-The visible-route parity check is current. On 2026-05-28, the sample-app Playwright suite passed all 43 tests, covering:
+The visible-route parity check is current. On 2026-05-28, the sample-app Playwright suite passed all 57 tests, covering:
 
 1. Overview.
 2. Startup Timeline.
@@ -164,6 +168,10 @@ Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, 
 Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app
 Playwright tests, and part of the supported alpha surface. Any new visible route or browser-facing behavior should
 update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
+
+The first v0.2 large-app pass is complete for the most obvious browser-rendering hotspots: Beans, Conditions, Mappings,
+Configuration, and Loggers progressively render large filtered result sets, while search/filter controls continue to
+operate over all received data.
 
 ### 4.3 User-facing documentation status
 
@@ -203,7 +211,7 @@ Completed reconciliation points:
 Last validation completed on 2026-05-28:
 
 - `./mvnw -B -ntp clean install` passed.
-- The sample-app Playwright suite passed all 43 tests.
+- The sample-app Playwright suite passed all 57 tests.
 - The working tree remained clean after validation.
 
 Before each release, rerun the CI-equivalent build:
@@ -317,9 +325,12 @@ Still excluded:
 Potential features:
 
 - ~~Dev Services hardening for Docker Compose/Testcontainers edge cases.~~ Done (2026-05-28, PR #88).
-- Large-app edge-case hardening for current panels as real-world usage reveals gaps.
+- ~~Large-app edge-case hardening for current panels as real-world usage reveals gaps.~~ Done (2026-05-28): the first
+  pass protects high-cardinality browser lists with progressive rendering and a bounded Configuration metadata datalist.
 - Optional UI gating based on classpath/endpoint availability so irrelevant panels can be hidden or clearly disabled.
 - Frontend test setup if the project decides to add Vitest or another UI test runner.
+- Server-side filtering or pagination for Actuator-backed APIs if real-world large apps expose response-size bottlenecks
+  that browser-side progressive rendering cannot solve.
 
 ## 7. v1.0 candidates
 
@@ -415,8 +426,9 @@ endpoint, `AdditionalMissingActuatorEndpointsTests`, `ConfigControllerHttpCrudTe
 `LoggersControllerMutationTests`, `CacheControllerTests`, `SecretMaskerBrowserVisibleSurfaceTests`, and edge-case tests
 for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, Memory, and OTLP trace ingestion.
 
-Dev Services edge-case hardening (first v0.2 item) was completed on 2026-05-28 (PR #88). The remaining v0.2 candidates
-are large-app edge-case hardening, optional UI gating, and frontend test setup.
+Dev Services edge-case hardening (first v0.2 item) was completed on 2026-05-28 (PR #88). Large-app browser-rendering
+hardening was completed next for high-cardinality lists. The remaining v0.2 candidates are optional UI gating, frontend
+test setup, and server-side filtering or pagination if payload-size bottlenecks show up in real-world apps.
 
 User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and
 `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript
@@ -424,14 +436,14 @@ Vue 3 frontend, and the full visible panel set. The repository now ships a `CHAN
 `0.1.0-alpha.5`) and a sample-app walkthrough at `bootui-sample-app/README.md`.
 
 On 2026-05-28, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
-current branch. The Playwright run covered all 43 sample-app browser tests.
+current branch. The Playwright run covered all 57 sample-app browser tests.
 
 The next workstream continues v0.2 with the remaining candidates in §6. Keep release validation and docs in sync as
 changes land.
 
 ## 10. Validation checklist
 
-Last completed on 2026-05-27:
+Last completed on 2026-05-28:
 
 - [x] `./mvnw -B -ntp clean install` passes.
 - [x] The UI build is executed automatically by Maven.
