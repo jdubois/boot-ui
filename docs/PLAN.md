@@ -100,17 +100,17 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 1. Auto-configuration and safety         | Implemented and covered                  | Activation, auto-configuration, localhost filter, banner, and overview API exist. Activation, localhost behavior, and fail-closed edge cases have focused tests.                                                                                        |
 | 2. Static UI shell                       | Implemented and smoke-tested             | Vue shell, Maven frontend build, classpath packaging, and routes exist; Playwright verifies sidebar navigation across every visible section.                                                                                                            |
 | 3. Actuator bridge                       | Implemented and covered                  | Stable BootUI DTO endpoints exist for every visible panel; missing-Actuator behavior has explicit empty-DTO coverage.                                                                                                                                   |
-| 4. Beans and Conditions panels           | Implemented and covered by sample e2e    | API and UI panels exist; large-app edge cases should be handled incrementally as v0.2 hardening work.                                                                                                                                                   |
+| 4. Beans and Conditions panels           | Implemented and covered by sample e2e    | API and UI panels exist, with bounded server-side filtering and paging for large-app edge cases.                                                                                                                                                        |
 | 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e    | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests.                                                                                                              |
 | 6. Post-MVP diagnostic panels            | Implemented and covered                  | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
-| 7. Documentation and release hardening   | Validated for the current alpha; ongoing | User-facing docs are reconciled with current behavior, the changelog is current through `0.1.0-alpha.5`, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-28. Keep release checks current as v0.2 work lands.             |
-| 8. In-app OTLP sink + Traces + AI Usage  | Delivered in `0.1.0-alpha.5`             | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`.                                                         |
+| 7. Documentation and release hardening   | Validated for `0.1.0`; ongoing           | User-facing docs are reconciled with current behavior, the changelog is current through `0.1.0`, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-28. Keep release checks current as later work lands.                   |
+| 8. In-app OTLP sink + Traces + AI Usage  | Delivered for `0.1.0`                    | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`.                                                         |
 
 ## 4. Current status and next work
 
 ### 4.1 Backend test coverage status
 
-The harden-all-visible-panels alpha test expansion is complete. Coverage now includes:
+The harden-all-visible-panels release test expansion is complete. Coverage now includes:
 
 1. `BootUiProperties` binding defaults for public properties, including value exposure, overrides file, and endpoint
    timeout settings.
@@ -124,20 +124,20 @@ The harden-all-visible-panels alpha test expansion is complete. Coverage now inc
 7. Secret masking for browser-visible property names and values.
 8. Edge-case coverage for Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff masking, Spring
    Security, Micrometer Metrics, DevTools, Dev Services, JVM Memory, and OTLP trace ingestion.
-9. Dev Services edge-case hardening (v0.2, 2026-05-28): prototype-scoped Testcontainers beans skipped with a warning,
+9. Dev Services edge-case hardening (2026-05-28): prototype-scoped Testcontainers beans skipped with a warning,
    stopped container status reported as `STOPPED`, null `getLogs()` result yields an empty string, restart exception
    yields HTTP 500 with a non-null message (bug fix), `METADATA_ONLY` exposure hides connection detail values, and
    abstract bean definitions are silently excluded (documents actual Spring `getType` behavior). Testcontainers added
    as a `test`-scope dependency in `bootui-autoconfigure` so the `discoverTestcontainers` classpath guard does not
    short-circuit unit tests.
-10. Large-app rendering hardening (v0.2, 2026-05-28): high-cardinality Beans, Conditions, Mappings, Configuration, and
+10. Large-app rendering hardening (2026-05-28): high-cardinality Beans, Conditions, Mappings, Configuration, and
     Loggers lists now render progressively instead of mounting every filtered row at once. Filters still search the full
     in-memory result set, and the Configuration override property picker bounds its datalist suggestions while narrowing
     against the full metadata catalog as the user types.
-11. Frontend unit test setup (v0.2, 2026-05-28): Vitest, Vue Test Utils, and jsdom are wired into the Vite frontend. The
+11. Frontend unit test setup (2026-05-28): Vitest, Vue Test Utils, and jsdom are wired into the Vite frontend. The
     first tests cover the progressive rendering composable and footer component, and Maven runs `npm run test` during the
     `test` phase unless `-DskipTests` is set.
-12. Server-side filtering and pagination (v0.2, 2026-05-28): high-cardinality Beans, Conditions, Mappings, Configuration,
+12. Server-side filtering and pagination (2026-05-28): high-cardinality Beans, Conditions, Mappings, Configuration,
     and Loggers reports now accept bounded query parameters and return page metadata. The Vue panels request server-side
     pages instead of fetching every row up front, and the Mappings panel uses a stable BootUI DTO while the legacy raw
     Actuator descriptor remains available at `/bootui/api/mappings`.
@@ -157,25 +157,25 @@ The visible-route parity check is current. The sample-app Playwright suite cover
 7. Disabled / unavailable grouping for unavailable non-overview panels.
 
 Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code,
-Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app
-Playwright tests, and part of the supported alpha surface. Any new visible route or browser-facing behavior should
-update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
+Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by
+sample-app Playwright tests, and part of the supported `0.1.0` surface. Any new visible route or browser-facing behavior
+should update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
 
-The v0.2 large-app hardening pass is complete for the most obvious list and payload hotspots: Beans, Conditions,
+The large-app hardening pass is complete for the most obvious list and payload hotspots: Beans, Conditions,
 Mappings, Configuration, and Loggers request bounded server-side pages with filter parameters and render only the rows
 already returned by the API.
 
-Optional UI gating is complete for the visible route set (v0.2, 2026-05-28). `/bootui/api/panels` reports classpath,
+Optional UI gating is complete for the visible route set (2026-05-28). `/bootui/api/panels` reports classpath,
 endpoint, and configuration availability for each sidebar route. The Vue shell keeps routes reachable, moves unavailable
 non-overview panels into a collapsed Disabled / unavailable group, dims unavailable links, exposes the reason through
 accessible labels/tooltips, and shows a page-level unavailable-state banner when a dimmed panel is opened.
 
-Frontend unit test setup is complete for v0.2. The Vue app now uses Vitest with Vue Test Utils and jsdom for fast
+Frontend unit test setup is complete for `0.1.0`. The Vue app now uses Vitest with Vue Test Utils and jsdom for fast
 component/composable coverage that complements the browser-level Playwright suite.
 
 ### 4.3 User-facing documentation status
 
-The alpha documentation is current through `0.1.0-alpha.5`. Keep these user-facing topics current as behavior changes:
+The `0.1.0` documentation is current. Keep these user-facing topics current as behavior changes:
 
 1. Installation.
 2. Activation rules, including `bootui.enabled=AUTO|ON|OFF`, enabled profiles, disabled profiles, and devtools
@@ -198,13 +198,13 @@ Completed reconciliation points:
 - Runtime config overrides persist to the BootUI overrides file by default.
 - The frontend is plain JavaScript Vue 3.
 - Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot,
-  Claude Code, Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented alpha
+  Claude Code, Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented `0.1.0`
   surfaces, not deferred ideas.
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots,
   bean-backed Testcontainers services can expose bounded logs, and restart is disabled unless
   `bootui.dev-services.restart-enabled=true`.
 - Maven Central publishing has been exercised for the alpha line; the release profile signs and stages artifacts through
-  the Sonatype Central Publishing plugin, and release notes are current through `0.1.0-alpha.5`.
+  the Sonatype Central Publishing plugin, and release notes are current through `0.1.0`.
 
 ### 4.4 Release readiness validation
 
@@ -238,17 +238,18 @@ Manual smoke checks:
 8. Run the Playwright end-to-end suite in `bootui-sample-app/e2e`.
 9. Confirm no generated build output or secrets are accidentally committed.
 
-## 5. Alpha release scope
+## 5. `0.1.0` release scope
 
-The codebase contains more than the original v0.1 MVP. The first alpha used this release strategy:
+The codebase contains more than the original v0.1 MVP. The final `0.1.0` release keeps the strategy selected for the
+alpha line:
 
 | Strategy                       | Scope                                                                                                                                         | Trade-off                                                                                                                             |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Harden all visible panels      | Ship every current route as supported alpha functionality.                                                                                    | Delivered for `0.1.0-alpha.1` and extended through `0.1.0-alpha.5`; keep focused backend tests, docs, and release validation current. |
+| Harden all visible panels      | Ship every current route as supported `0.1.x` functionality.                                                                                 | Delivered for the alpha line and promoted to `0.1.0`; keep focused backend tests, docs, and release validation current.                |
 | Mark newer panels experimental | Keep all routes visible but clearly label Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations.                                                                                       |
-| Hide unfinished panels         | Only expose the original MVP routes plus any fully hardened additions.                                                                        | Safest alpha surface, but requires UI gating work.                                                                                    |
+| Hide unfinished panels         | Only expose the original MVP routes plus any fully hardened additions.                                                                        | Safest smaller surface, but requires UI gating work.                                                                                  |
 
-Delivered alpha stance: **harden all visible panels**.
+Delivered release stance: **harden all visible panels**.
 
 Included in the original MVP surface:
 
@@ -287,7 +288,7 @@ Already implemented beyond the original MVP surface:
 - Copilot panel for sanitized GitHub Copilot CLI session dashboarding and live SSE updates.
 - Claude Code panel for sanitized local Claude Code project-log dashboarding and live refresh updates.
 
-Added in `0.1.0-alpha.5` (2026-05):
+Added in the late alpha line and included in `0.1.0`:
 
 - **In-app OTLP/HTTP receiver**. BootUI exposes `POST /bootui/api/otlp/v1/traces` and accepts protobuf-encoded
   `ExportTraceServiceRequest` payloads from the host JVM (and from any cooperating local service that points its OTLP
@@ -301,7 +302,7 @@ Added in `0.1.0-alpha.5` (2026-05):
   and their spans show up in the same waterfall. This is the dev-time equivalent of Aspire's distributed-tracing view;
   BootUI does not run, schedule, or restart the other services.
 
-Added after `0.1.0-alpha.5`:
+Added for the final `0.1.0` release after `0.1.0-alpha.5`:
 
 - **Copilot panel**. Reads the session directories and `events.jsonl` files that GitHub Copilot CLI writes under
   `~/.copilot/session-state/` and presents a sanitized activity dashboard: session count, total events, failures,
@@ -327,9 +328,9 @@ Still excluded:
 - Hosted features.
 - Spring Boot 3.x compatibility.
 
-## 6. v0.2 candidates
+## 6. Completed final-release hardening candidates
 
-Potential features:
+The candidate hardening items originally tracked for a later `v0.2` were pulled into the final `0.1.0` release:
 
 - ~~Dev Services hardening for Docker Compose/Testcontainers edge cases.~~ Done (2026-05-28, PR #88).
 - ~~Large-app edge-case hardening for current panels as real-world usage reveals gaps.~~ Done (2026-05-28): the first
@@ -344,7 +345,7 @@ Potential features:
   bottlenecks that browser-side progressive rendering cannot solve.~~ Done (2026-05-28): Beans, Conditions, Mappings,
   Configuration, and Loggers now expose bounded server-side pages with filter-aware counts and page metadata.
 
-## 7. v1.0 candidates
+## 7. Later release candidates
 
 Potential features:
 
@@ -429,8 +430,9 @@ Reason:
 ## 9. Suggested next steps
 
 Maven Central publishing prerequisites (`central` server credentials, GPG signing key, and release-profile deploy
-configuration) are in place, and the alpha line is currently tagged at `0.1.0-alpha.5` via the `Prepare Release`
-workflow.
+configuration) are in place, and the alpha line is tagged at `0.1.0-alpha.5`. The final `0.1.0` version bump, release
+commit, and tag should be created with the `Prepare Release` workflow so all Maven modules and the README install snippet
+stay synchronized.
 
 Backend test coverage for the harden-all-visible-panels scope has been completed: `BootUiPropertiesTests`,
 `BootUiActivationConditionAdditionalTests`, controller mapping and DTO serialization tests for every `/bootui/api/**`
@@ -438,23 +440,23 @@ endpoint, `AdditionalMissingActuatorEndpointsTests`, `ConfigControllerHttpCrudTe
 `LoggersControllerMutationTests`, `CacheControllerTests`, `SecretMaskerBrowserVisibleSurfaceTests`, and edge-case tests
 for Scheduled, HTTP Probe, Log Tail, Profile Diff masking, Security, Memory, and OTLP trace ingestion.
 
-Dev Services edge-case hardening (first v0.2 item) was completed on 2026-05-28 (PR #88). Large-app browser-rendering
+Dev Services edge-case hardening was completed on 2026-05-28 (PR #88). Large-app browser-rendering
 hardening was completed next for high-cardinality lists. Optional UI gating was completed after that with the
 `/bootui/api/panels` availability report, sidebar dimming, accessible unavailable labels/tooltips, and an active-panel
 reason banner. Frontend unit test setup followed with Vitest, Vue Test Utils, jsdom, and Maven test-phase wiring.
-Server-side filtering and pagination completed the listed v0.2 candidate set for high-cardinality list payloads.
+Server-side filtering and pagination completed the final-release hardening set for high-cardinality list payloads.
 
 User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and
 `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript
 Vue 3 frontend, and the full visible panel set. The repository now ships a `CHANGELOG.md` (release notes through
-`0.1.0-alpha.5`) and a sample-app walkthrough at `bootui-sample-app/README.md`.
+`0.1.0`) and a sample-app walkthrough at `bootui-sample-app/README.md`.
 
 On 2026-05-29, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
 current branch. The Playwright run covered all 57 sample-app browser tests.
 
-The listed v0.2 candidate set is complete, and release validation for the next alpha was refreshed on 2026-05-29. The
-next workstream should be preparing the next alpha or promoting a new candidate from §7, with docs kept in sync as
-behavior changes land.
+The listed final-release hardening set is complete, and release validation for `0.1.0` was refreshed on 2026-05-29. The
+next workstream should be running the `Prepare Release` workflow for `0.1.0`, then promoting a new candidate from §7
+with docs kept in sync as behavior changes land.
 
 ## 10. Validation checklist
 
@@ -470,19 +472,19 @@ Last completed on 2026-05-29:
 - [x] Runtime config overrides persist through the BootUI overrides file and warn about restart/rebind caveats.
 - [x] Logger changes work.
 - [x] DevTools controls show unavailable states when Spring Boot DevTools is absent.
-- [x] Newer diagnostic panels have release-grade coverage/docs for the alpha.
+- [x] Newer diagnostic panels have release-grade coverage/docs for `0.1.0`.
 - [x] BootUI is disabled with `prod` and `production` profiles unless `bootui.enabled=ON`.
 - [x] Non-local requests are rejected by default.
 - [x] Documentation matches actual behavior.
 
-Before future alphas, rerun this checklist after any release-facing code or documentation change.
+Before future releases, rerun this checklist after any release-facing code or documentation change.
 
 ## 11. Risks
 
 | Risk                                 | Impact | Mitigation                                                                                                                                                         |
 | ------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Accidentally exposing sensitive data | High   | Localhost-only, dev-only activation, secret masking, value exposure controls, production fail-closed defaults, and focused tests for every panel surfacing values. |
-| Regressing visible panel hardening   | High   | Keep the current route set as the supported alpha surface, and require focused tests, docs, and release validation for release-facing changes.                     |
+| Regressing visible panel hardening   | High   | Keep the current route set as the supported `0.1.0` surface, and require focused tests, docs, and release validation for release-facing changes.                   |
 | Actuator endpoints unavailable       | Medium | Internal bridge, stable empty DTOs, graceful UI states, setup guidance.                                                                                            |
 | Optional Spring modules unavailable  | Medium | Classpath gating, empty DTOs, and clear UI empty states for Spring Data, Spring Cache, Security, scheduling, and startup data.                                     |
 | Duplicating Spring Boot Admin        | Medium | Stay focused on embedded local single-app developer experience.                                                                                                    |

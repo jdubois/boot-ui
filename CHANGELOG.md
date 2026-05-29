@@ -7,6 +7,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-29
+
+First final BootUI release. This promotes the alpha line to the final `0.1.x` coordinate while keeping the local-only,
+developer-console safety model and the full visible panel surface.
+
+### Added
+
+- Copilot and Claude Code panels for sanitized local activity dashboards, including session summaries, activity trends,
+  tool and model usage, failures, and bounded live refresh behavior.
+- Vitest, Vue Test Utils, and jsdom coverage for reusable frontend behavior, wired into the Maven test phase.
+
+### Changed
+
+- README, feature documentation, the release plan, and generated feature screenshots are aligned with the final `0.1.0`
+  panel surface and install coordinates.
+- Beans, Conditions, Mappings, Configuration, and Loggers use bounded server-side filtering and pagination for
+  high-cardinality applications.
+- The full visible route set is promoted from the supported alpha surface to the supported `0.1.0` release surface.
+
+### Fixed
+
+- Dev Services discovery and controls handle prototype-scoped Testcontainers beans, stopped containers, null log output,
+  restart failures, metadata-only connection detail masking, and abstract bean definitions more defensively.
+
 ## [0.1.0-alpha.5] - 2026-05-27
 
 Latest tagged alpha with the expanded panel surface, telemetry features, and release hardening.
@@ -108,7 +132,9 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.1.0-alpha.5...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.1.0...HEAD
+
+[0.1.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0-alpha.5...v0.1.0
 
 [0.1.0-alpha.5]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.5
 

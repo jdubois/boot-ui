@@ -20,33 +20,33 @@ const aiSpanId = '1111111111111111'
 
 const panelOrder = [
   ['overview', 'Overview'],
-  ['startup', 'Startup Timeline'],
-  ['memory', 'Memory'],
   ['health', 'Health'],
   ['metrics', 'Metrics'],
-  ['conditions', 'Conditions'],
-  ['beans', 'Beans'],
-  ['mappings', 'Mappings'],
+  ['memory', 'Memory'],
+  ['startup', 'Startup Timeline'],
   ['config', 'Configuration'],
   ['profiles', 'Profile Diff'],
   ['loggers', 'Loggers'],
-  ['log-tail', 'Log Tail'],
-  ['traces', 'Traces'],
-  ['http-probe', 'HTTP Probe'],
-  ['copilot', 'Copilot'],
-  ['claude-code', 'Claude Code'],
-  ['devtools', 'DevTools'],
-  ['dev-services', 'Dev Services'],
+  ['beans', 'Beans'],
+  ['conditions', 'Conditions'],
+  ['mappings', 'Mappings'],
   ['scheduled', 'Scheduled Tasks'],
   ['data', 'Data'],
   ['cache', 'Cache'],
-  ['ai', 'AI Usage'],
   ['security', 'Security'],
-  ['vulnerabilities', 'Vulnerabilities']
+  ['ai', 'AI Usage'],
+  ['traces', 'Traces'],
+  ['log-tail', 'Log Tail'],
+  ['http-probe', 'HTTP Probe'],
+  ['vulnerabilities', 'Vulnerabilities'],
+  ['devtools', 'DevTools'],
+  ['dev-services', 'Dev Services'],
+  ['copilot', 'Copilot'],
+  ['claude-code', 'Claude Code']
 ]
 
 const overview = {
-  bootUiVersion: '0.1.0-alpha.4',
+  bootUiVersion: '0.1.0',
   applicationName: 'bootui-sample',
   springBootVersion: '4.0.6',
   javaVersion: '25',
@@ -297,6 +297,20 @@ const mappings = {
     }
   }
 }
+
+const flatMappings = [
+  {method: 'GET', pattern: '/api/sample/hello', handler: 'SampleController#hello()', produces: null, consumes: null},
+  {
+    method: 'GET',
+    pattern: '/api/sample/products',
+    handler: 'SampleController#products()',
+    produces: null,
+    consumes: null
+  },
+  {method: 'POST', pattern: '/api/chat', handler: 'ChatController#chat(ChatRequest)', produces: null, consumes: null},
+  {method: 'GET', pattern: '/admin', handler: 'AdminController#admin()', produces: null, consumes: null},
+  {method: 'GET', pattern: '/bootui/api/cache', handler: 'CacheController#report()', produces: null, consumes: null}
+]
 
 const configuration = {
   activeProfiles: ['dev', 'local'],
@@ -1101,8 +1115,6 @@ const copilotSessionDetail = {
 
 const screenshots = [
   ['overview', 'Overview', 'bootui-overview.png', waitForText('Understand your Spring Boot app')],
-  ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
-  ['memory', 'Memory', 'bootui-memory.png', waitForText('JVM memory calculator')],
   ['health', 'Health', 'bootui-health.png', waitForText('Component tree')],
   [
     'metrics',
@@ -1113,14 +1125,30 @@ const screenshots = [
       await page.waitForTimeout(2300)
     }
   ],
-  ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
-  ['beans', 'Beans', 'bootui-beans.png', waitForText('sampleController')],
-  ['mappings', 'Mappings', 'bootui-mappings.png', waitForText('/api/sample/products')],
+  ['memory', 'Memory', 'bootui-memory.png', waitForText('JVM memory calculator')],
+  ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
   ['config', 'Configuration', 'bootui-configuration.png', waitForText('sample.greeting')],
   ['profiles', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
   ['loggers', 'Loggers', 'bootui-loggers.png', waitForText('io.github.jdubois.bootui')],
-  ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
+  ['beans', 'Beans', 'bootui-beans.png', waitForText('sampleController')],
+  ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
+  ['mappings', 'Mappings', 'bootui-mappings.png', waitForText('/api/sample/products')],
+  ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
+  [
+    'data',
+    'Data',
+    'bootui-data.png',
+    async (page) => {
+      await page.getByText('ProductRepository').waitFor()
+      await page.getByRole('button', {name: /ProductRepository/}).click()
+      await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
+    }
+  ],
+  ['cache', 'Cache', 'bootui-cache.png', waitForText('sample-products')],
+  ['security', 'Security', 'bootui-security.png', waitForText('/api/sample/hello')],
+  ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
+  ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
   [
     'http-probe',
     'HTTP Probe',
@@ -1131,6 +1159,9 @@ const screenshots = [
       await page.getByText('200 OK').waitFor()
     }
   ],
+  ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
+  ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
+  ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [
     'copilot',
     'Copilot',
@@ -1150,24 +1181,7 @@ const screenshots = [
       await page.getByText(claudeCodeSessionId).first().click()
       await page.getByText('FILE_EDIT · MultiEdit refactor').first().waitFor()
     }
-  ],
-  ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
-  ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
-  ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
-  [
-    'data',
-    'Data',
-    'bootui-data.png',
-    async (page) => {
-      await page.getByText('ProductRepository').waitFor()
-      await page.getByRole('button', {name: /ProductRepository/}).click()
-      await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
-    }
-  ],
-  ['cache', 'Cache', 'bootui-cache.png', waitForText('sample-products')],
-  ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
-  ['security', 'Security', 'bootui-security.png', waitForText('/api/sample/hello')],
-  ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')]
+  ]
 ]
 
 const claudeCodeSessionId = '4f7c5b8a-9d3e-42a1-b07c-1e9d4af86c11'
@@ -1541,6 +1555,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'conditions') return fulfillJson(route, conditions)
   if (endpoint === 'beans') return fulfillJson(route, beans)
   if (endpoint === 'mappings') return fulfillJson(route, mappings)
+  if (endpoint === 'mappings/flat') return fulfillJson(route, pagedReport('mappings', flatMappings, url))
   if (endpoint === 'config') return fulfillJson(route, configuration)
   if (endpoint === 'profiles') return fulfillJson(route, profileDiff)
   if (endpoint === 'loggers') return fulfillJson(route, loggers)
@@ -1640,6 +1655,24 @@ async function handleApiRoute(route) {
 
 function waitForText(text) {
   return (page) => page.getByText(text).first().waitFor()
+}
+
+function pagedReport(itemsKey, items, url) {
+  const offset = Number(url.searchParams.get('offset') || 0)
+  const limit = Number(url.searchParams.get('limit') || items.length)
+  const returnedItems = items.slice(offset, offset + limit)
+  return {
+    total: items.length,
+    [itemsKey]: returnedItems,
+    page: {
+      total: items.length,
+      matched: items.length,
+      offset,
+      limit,
+      returned: returnedItems.length,
+      hasMore: offset + returnedItems.length < items.length
+    }
+  }
 }
 
 function mapping(method, pattern, handler) {

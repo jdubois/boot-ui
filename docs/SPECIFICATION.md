@@ -657,7 +657,7 @@ Features:
 - Skip lazy, prototype, abstract, or otherwise uninitialized service beans instead of creating them from a read-only
   panel request, and show a warning that explains why they were skipped.
 
-Status: implemented and supported for `0.1.0-alpha.1` as part of the harden-all-visible-panels release scope.
+Status: implemented and supported for `0.1.0` as part of the harden-all-visible-panels release scope.
 
 Acceptance criteria:
 
@@ -1060,10 +1060,10 @@ BootUI v0.1 is complete when:
 
 ## 11. Release decisions
 
-Resolved for `0.1.0-alpha.1`:
+Resolved for `0.1.0`:
 
-1. Harden every visible panel and ship the full current route set as supported alpha functionality.
-2. Publish the alpha artifacts to Maven Central.
+1. Harden every visible panel and ship the full current route set as supported local-development functionality.
+2. Publish the final `0.1.0` artifacts to Maven Central.
 3. Keep optional panels visible and show clear unavailable/empty states when their classpath or data source is absent.
 4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for v0.1; revisit broader metadata
-   abstractions after the alpha.
+   abstractions after `0.1.x`.
