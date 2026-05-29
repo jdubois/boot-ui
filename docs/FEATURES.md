@@ -5,6 +5,10 @@ infrastructure is missing, the sidebar moves non-overview panels into the collap
 can tell at a glance which panels have no live data for the current application. Opening a dimmed panel also shows the
 unavailable reason at the top of the page.
 
+Every visible panel can be hidden with `bootui.panels.<panel-id>.enabled=false`. Panels with browser-triggered actions
+also support `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes the whole BootUI application
+read-only. The complete list is in the [property reference](PROPERTIES.md).
+
 ## Overview
 
 The Overview panel gives a fast summary of the running application: application name, Spring Boot version, Java version,

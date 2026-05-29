@@ -99,6 +99,10 @@ BootUI is intended for local development only. By default it:
 - disables itself for `prod` / `production` profiles
 - stores runtime configuration overrides in `.bootui/application-bootui.properties`, not in your source config files
 
+Every visible panel can be disabled with `bootui.panels.<panel-id>.enabled=false`. Panels with mutating browser actions
+can also be made read-only with `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes the whole
+BootUI application read-only. See the [property reference](docs/PROPERTIES.md) for the full panel list.
+
 Common properties:
 
 | Property                               | Default                                 | Description                                                                              |
@@ -108,6 +112,7 @@ Common properties:
 | `bootui.disabled-profiles`             | `prod,production`                       | Profiles that disable BootUI unless forced on.                                           |
 | `bootui.allow-non-localhost`           | `false`                                 | Explicit opt-out of loopback-only protection.                                            |
 | `bootui.expose-values`                 | `MASKED`                                | `MASKED`, `METADATA_ONLY`, or `FULL`; `FULL` can disclose secrets and should stay local. |
+| `bootui.read-only`                     | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.         |
 | `bootui.overrides-file`                | `.bootui/application-bootui.properties` | Runtime override persistence file.                                                       |
 | `bootui.cache.clear-enabled`           | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
 | `bootui.dev-services.restart-enabled`  | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |
@@ -150,6 +155,7 @@ app restarts; BootUI returns that warning with every override mutation.
 ## More docs
 
 - [Feature details](docs/FEATURES.md): panel-by-panel guide with screenshots
+- [Property reference](docs/PROPERTIES.md): global, per-panel, and action-gating configuration properties
 - [Sample app walkthrough](bootui-sample-app/README.md): the demo app behind the screenshots and Playwright suite
 - [CHANGELOG.md](CHANGELOG.md): release notes
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, build, test, and publishing instructions

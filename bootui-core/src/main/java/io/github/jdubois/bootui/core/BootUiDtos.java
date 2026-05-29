@@ -40,7 +40,19 @@ public final class BootUiDtos {
     /**
      * Availability status for one BootUI sidebar panel.
      */
-    public record PanelDto(String id, String title, boolean available, String unavailableReason) {}
+    public record PanelDto(
+            String id,
+            String title,
+            boolean available,
+            String unavailableReason,
+            boolean enabled,
+            boolean readOnly,
+            String readOnlyReason) {
+
+        public PanelDto(String id, String title, boolean available, String unavailableReason) {
+            this(id, title, available, unavailableReason, true, false, null);
+        }
+    }
 
     public record PanelsReport(List<PanelDto> panels) {}
 

@@ -1,11 +1,15 @@
 <script setup>
 import {onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
 
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const filter = ref('')
 const message = ref(null)
+const messageType = ref('success')
 
 const {
   data,
@@ -25,6 +29,10 @@ const {
 })
 
 async function changeLevel(logger, level) {
+  if (readOnly.value) {
+    showMessage(readOnlyReason.value, 'warning')
+    return
+  }
   const body = level ? {level} : {}
   const res = await apiFetch('api/loggers/' + encodeURIComponent(logger.name), {
     method: 'POST',
@@ -35,11 +43,16 @@ async function changeLevel(logger, level) {
     const updated = await res.json()
     const i = data.value.loggers.findIndex((l) => l.name === logger.name)
     if (i >= 0) data.value.loggers[i] = updated
-    message.value = 'Level updated for ' + logger.name
-    setTimeout(() => {
-      message.value = null
-    }, 3000)
+    showMessage('Level updated for ' + logger.name)
   }
+}
+
+function showMessage(text, type = 'success') {
+  message.value = text
+  messageType.value = type
+  setTimeout(() => {
+    message.value = null
+  }, 3000)
 }
 
 const levelClass = (l) =>
@@ -60,7 +73,11 @@ watch(filter, scheduleReload)
 <template>
   <div>
     <h2><i class="bi bi-journal-text me-2"></i>Loggers</h2>
-    <div v-if="message" class="alert alert-success">{{ message }}</div>
+    <div v-if="readOnly" class="alert alert-warning small">
+      <i class="bi bi-lock me-1"></i>
+      Logger levels are read-only. {{ readOnlyReason }}
+    </div>
+    <div v-if="message" :class="'alert-' + messageType" class="alert">{{ message }}</div>
     <div v-if="error" class="alert alert-danger">Could not load loggers: {{ error }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter loggers by name…" />
     <p v-if="data" class="small text-muted">{{ matchedCount }} of {{ totalCount }} loggers matched</p>
@@ -92,13 +109,21 @@ watch(filter, scheduleReload)
                 <button
                   v-for="lvl in data.availableLevels"
                   :key="lvl"
+                  :disabled="readOnly"
                   :class="{active: l.configuredLevel === lvl}"
                   class="btn btn-outline-secondary"
                   @click="changeLevel(l, lvl)"
                 >
                   {{ lvl }}
                 </button>
-                <button class="btn btn-outline-secondary" title="Reset" @click="changeLevel(l, null)">↺</button>
+                <button
+                  :disabled="readOnly"
+                  class="btn btn-outline-secondary"
+                  title="Reset"
+                  @click="changeLevel(l, null)"
+                >
+                  ↺
+                </button>
               </div>
             </td>
           </tr>

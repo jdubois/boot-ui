@@ -2,7 +2,10 @@
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {formatNumber} from '../utils/format.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const report = ref(null)
 const loading = ref(true)
 const error = ref(null)
@@ -87,6 +90,10 @@ function operationClass(operation) {
 }
 
 async function clearOne(cache) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   if (
     !confirm(
       `Clear cache "${cache.name}" from manager "${cache.managerName}"? Cached data will be recomputed on demand.`
@@ -105,6 +112,10 @@ async function clearOne(cache) {
 
 async function clearAll() {
   if (!report.value) return
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   if (
     !confirm(`Clear all ${report.value.cacheCount} known caches across ${report.value.managerCount} cache manager(s)?`)
   )
@@ -113,6 +124,10 @@ async function clearAll() {
 }
 
 async function clearCaches(payload, busyKey) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   busy.value = busyKey
   banner.value = null
   try {
@@ -142,6 +157,10 @@ function flash(text, type) {
   }, 6000)
 }
 
+function showReadOnlyMessage() {
+  flash(readOnlyReason.value, 'warning')
+}
+
 onMounted(load)
 </script>
 
@@ -159,7 +178,7 @@ onMounted(load)
       </div>
       <div class="d-flex gap-2">
         <button
-          :disabled="!report || !report.clearEnabled || report.cacheCount === 0 || busy"
+          :disabled="!report || readOnly || !report.clearEnabled || report.cacheCount === 0 || busy"
           class="btn btn-sm btn-outline-danger"
           @click="clearAll"
         >
@@ -184,6 +203,11 @@ onMounted(load)
     <template v-else-if="report">
       <div v-for="warning in report.warnings" :key="warning" class="alert alert-warning small">
         {{ warning }}
+      </div>
+
+      <div v-if="readOnly" class="alert alert-warning small">
+        <i class="bi bi-lock me-1"></i>
+        Cache clearing is read-only. {{ readOnlyReason }}
       </div>
 
       <div v-if="!report.clearEnabled" class="alert alert-info small">
@@ -249,7 +273,7 @@ onMounted(load)
                 </td>
                 <td class="text-end">
                   <button
-                    :disabled="!report.clearEnabled || busy"
+                    :disabled="readOnly || !report.clearEnabled || busy"
                     class="btn btn-sm btn-outline-danger"
                     @click="clearOne(cache)"
                   >

@@ -1,10 +1,13 @@
 <script setup>
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
 
 const MAX_PROPERTY_SUGGESTIONS = 200
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 
 const filter = ref('')
 const sourceFilter = ref('')
@@ -95,6 +98,10 @@ const selectedNewSuggestion = computed(() => suggestionByName.value.get((newRowN
 const overrideCount = computed(() => data.value?.overrideCount || 0)
 
 function startEdit(p) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   newRow.value = null
   editingName.value = p.name
   editedValue.value = p.value == null ? '' : String(p.value)
@@ -107,10 +114,18 @@ function cancelEdit() {
 }
 
 async function saveEdit(p) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   await postOverride(p.name, editedValue.value)
 }
 
 function startCreate() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   editingName.value = null
   newRow.value = {name: '', value: ''}
   newRowName.value = ''
@@ -143,6 +158,10 @@ function suggestionLabel(suggestion) {
 }
 
 function useSelectedDefault() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   if (hasDefaultValue(selectedNewSuggestion.value)) {
     newRowValue.value = formatDefaultValue(selectedNewSuggestion.value.defaultValue)
   }
@@ -153,6 +172,10 @@ function metadataFor(name) {
 }
 
 async function saveCreate() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   const name = (newRowName.value || '').trim()
   if (!name) {
     newRowError.value = 'Property name is required.'
@@ -170,6 +193,10 @@ async function saveCreate() {
 }
 
 async function postOverride(name, value, onSuccess) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   saving.value = true
   try {
     const res = await apiFetch('api/config/overrides', {
@@ -195,6 +222,10 @@ async function postOverride(name, value, onSuccess) {
 }
 
 async function removeOverride(name) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   if (!confirm('Remove override "' + name + '"? The property will fall back to its underlying value.')) return
   saving.value = true
   try {
@@ -218,6 +249,10 @@ function flash(text, type) {
   }, 8000)
 }
 
+function showReadOnlyMessage() {
+  flash(readOnlyReason.value, 'warning')
+}
+
 onMounted(load)
 watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
 </script>
@@ -230,7 +265,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
         <p class="text-muted mb-0 small">Inspect and override every Spring property the running application can see.</p>
       </div>
       <div class="d-flex gap-2">
-        <button :disabled="!!newRow" class="btn btn-success" @click="startCreate">
+        <button :disabled="readOnly || !!newRow" class="btn btn-success" @click="startCreate">
           <i class="bi bi-plus-lg me-1"></i> Add override
         </button>
         <button class="btn btn-outline-secondary" title="Refresh" @click="load">
@@ -239,18 +274,25 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
       </div>
     </div>
 
-    <div class="alert alert-info d-flex align-items-start mb-3">
-      <i class="bi bi-pencil-square fs-4 me-3"></i>
+    <div :class="readOnly ? 'alert-warning' : 'alert-info'" class="alert d-flex align-items-start mb-3">
+      <i :class="readOnly ? 'bi-lock' : 'bi-pencil-square'" class="bi fs-4 me-3"></i>
       <div class="flex-grow-1 small">
-        <strong>Properties are editable.</strong>
-        Click <span class="badge bg-primary"><i class="bi bi-pencil"></i> Edit</span>
-        on any row to set a runtime override, or use
-        <strong>Add override</strong> to add a new property. The new-property picker includes known Spring Boot
-        configuration keys and their defaults. Overrides are persisted to
-        <code>.bootui/application-bootui.properties</code> and take precedence over all other property sources.
-        <span class="text-muted">
-          Note: properties already bound to a <code>@ConfigurationProperties</code> bean keep their value until restart.
-        </span>
+        <template v-if="readOnly">
+          <strong>Configuration overrides are read-only.</strong>
+          {{ readOnlyReason }} Existing properties remain visible, but override edits are disabled.
+        </template>
+        <template v-else>
+          <strong>Properties are editable.</strong>
+          Click <span class="badge bg-primary"><i class="bi bi-pencil"></i> Edit</span>
+          on any row to set a runtime override, or use
+          <strong>Add override</strong> to add a new property. The new-property picker includes known Spring Boot
+          configuration keys and their defaults. Overrides are persisted to
+          <code>.bootui/application-bootui.properties</code> and take precedence over all other property sources.
+          <span class="text-muted">
+            Note: properties already bound to a <code>@ConfigurationProperties</code> bean keep their value until
+            restart.
+          </span>
+        </template>
       </div>
     </div>
 
@@ -308,6 +350,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
               <input
                 ref="newNameInput"
                 v-model="newRowName"
+                :disabled="readOnly"
                 class="form-control form-control-sm font-monospace"
                 list="bootPropertySuggestions"
                 placeholder="spring.application.name"
@@ -348,6 +391,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
               <div class="input-group input-group-sm">
                 <input
                   v-model="newRowValue"
+                  :disabled="readOnly"
                   :placeholder="
                     hasDefaultValue(selectedNewSuggestion)
                       ? 'default: ' + formatDefaultValue(selectedNewSuggestion.defaultValue)
@@ -359,6 +403,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
                 />
                 <button
                   v-if="hasDefaultValue(selectedNewSuggestion)"
+                  :disabled="readOnly"
                   class="btn btn-outline-secondary"
                   type="button"
                   @click="useSelectedDefault"
@@ -375,7 +420,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
             </td>
             <td><span class="badge bg-warning text-dark">new override</span></td>
             <td class="text-end">
-              <button :disabled="saving" class="btn btn-sm btn-success" @click="saveCreate">
+              <button :disabled="saving || readOnly" class="btn btn-sm btn-success" @click="saveCreate">
                 <i class="bi bi-check-lg"></i> Save
               </button>
               <button :disabled="saving" class="btn btn-sm btn-outline-secondary ms-1" @click="cancelCreate">
@@ -400,6 +445,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
                 <input
                   ref="editInput"
                   v-model="editedValue"
+                  :disabled="readOnly"
                   class="form-control form-control-sm font-monospace"
                   @keyup.enter="saveEdit(p)"
                   @keyup.esc="cancelEdit"
@@ -424,7 +470,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
             </td>
             <td class="text-end align-top pt-1">
               <template v-if="editingName === p.name">
-                <button :disabled="saving" class="btn btn-sm btn-success" @click="saveEdit(p)">
+                <button :disabled="saving || readOnly" class="btn btn-sm btn-success" @click="saveEdit(p)">
                   <i class="bi bi-check-lg"></i> Save
                 </button>
                 <button :disabled="saving" class="btn btn-sm btn-outline-secondary ms-1" @click="cancelEdit">
@@ -432,12 +478,12 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
                 </button>
               </template>
               <template v-else>
-                <button :disabled="saving" class="btn btn-sm btn-primary" @click="startEdit(p)">
+                <button :disabled="saving || readOnly" class="btn btn-sm btn-primary" @click="startEdit(p)">
                   <i class="bi bi-pencil"></i> Edit
                 </button>
                 <button
                   v-if="p.override"
-                  :disabled="saving"
+                  :disabled="saving || readOnly"
                   class="btn btn-sm btn-outline-danger ms-1"
                   title="Remove override"
                   @click="removeOverride(p.name)"

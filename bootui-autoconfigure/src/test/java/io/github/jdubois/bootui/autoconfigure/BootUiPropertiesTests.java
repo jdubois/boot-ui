@@ -66,6 +66,19 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultReadOnlyIsFalse() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.isReadOnly()).isFalse();
+    }
+
+    @Test
+    void defaultPanelSettingsAreEnabledAndWritable() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.isPanelEnabled("config")).isTrue();
+        assertThat(props.isPanelReadOnly("config")).isFalse();
+    }
+
+    @Test
     void defaultEnabledProfilesAreDevAndLocal() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getEnabledProfiles()).containsExactly("dev", "local");
@@ -231,6 +244,32 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.isShowBanner()).isFalse();
+    }
+
+    @Test
+    void bindsReadOnlyToTrue() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.read-only", "true");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.isReadOnly()).isTrue();
+        assertThat(props.isPanelReadOnly("config")).isTrue();
+    }
+
+    @Test
+    void bindsPanelSettings() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.panels.config.enabled", "false");
+        env.setProperty("bootui.panels.loggers.read-only", "true");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.isPanelEnabled("config")).isFalse();
+        assertThat(props.isPanelReadOnly("config")).isFalse();
+        assertThat(props.isPanelEnabled("loggers")).isTrue();
+        assertThat(props.isPanelReadOnly("loggers")).isTrue();
+        assertThat(props.getPanels()).containsOnlyKeys("config", "loggers");
     }
 
     @Test

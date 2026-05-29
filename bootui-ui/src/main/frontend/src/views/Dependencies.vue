@@ -1,9 +1,13 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const data = ref(null)
 const error = ref(null)
+const actionMessage = ref(null)
 const loading = ref(false)
 const search = ref('')
 const vulnerableOnly = ref(false)
@@ -66,6 +70,10 @@ async function loadDependencies() {
 }
 
 async function scanDependencies() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   loading.value = true
   try {
     const res = await apiFetch('api/dependencies/scan', {method: 'POST'})
@@ -82,6 +90,13 @@ async function scanDependencies() {
   }
 }
 
+function showReadOnlyMessage() {
+  actionMessage.value = readOnlyReason.value
+  setTimeout(() => {
+    actionMessage.value = null
+  }, 6000)
+}
+
 onMounted(loadDependencies)
 </script>
 
@@ -93,7 +108,7 @@ onMounted(loadDependencies)
         <p class="text-muted mb-0">Inspect runtime Maven JARs and scan them for known dependency vulnerabilities.</p>
       </div>
       <button
-        :disabled="loading || data?.scanningEnabled === false"
+        :disabled="loading || readOnly || data?.scanningEnabled === false"
         class="btn btn-primary"
         type="button"
         @click="scanDependencies"
@@ -104,11 +119,13 @@ onMounted(loadDependencies)
     </div>
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
+    <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>
 
     <template v-if="data">
       <div class="alert alert-info">
         <strong>On-demand external scan.</strong>
         BootUI only sends dependency package names and versions to OSV.dev when you click Scan.
+        <span v-if="readOnly">Scanning is read-only. {{ readOnlyReason }}</span>
         <span v-if="data.scanningEnabled === false">Scanning is disabled by configuration.</span>
       </div>
 

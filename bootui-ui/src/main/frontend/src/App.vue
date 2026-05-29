@@ -25,12 +25,20 @@ const expandedGroups = reactive({runtime: true})
 const panelLookup = computed(() => new Map((panels.value?.panels ?? []).map((panel) => [panel.id, panel])))
 const activeRoute = computed(() => routes.find((r) => r.name === route.name))
 const activePanel = computed(() => (route.name ? panelLookup.value.get(route.name) : null))
-const activePanelUnavailable = computed(() => activePanel.value?.available === false)
-const activePanelUnavailableReason = computed(
-  () =>
+const activePanelDisabled = computed(() => activePanel.value?.enabled === false)
+const activePanelUnavailable = computed(() => activePanelDisabled.value || activePanel.value?.available === false)
+const activePanelUnavailableTitle = computed(() => (activePanelDisabled.value ? 'Panel disabled' : 'Panel unavailable'))
+const activePanelUnavailableReason = computed(() => {
+  if (activePanelDisabled.value) {
+    return panelDisabledReason(activePanel.value)
+  }
+  return (
     activePanel.value?.unavailableReason ||
     'Required classpath or endpoint support is unavailable for this application.'
-)
+  )
+})
+const activePanelReadOnly = computed(() => activePanel.value?.readOnly === true && !activePanelUnavailable.value)
+const activePanelReadOnlyReason = computed(() => activePanel.value?.readOnlyReason || 'This panel is read-only.')
 const activeTitle = computed(() => route.meta?.title ?? 'BootUI')
 const activeIcon = computed(() => route.meta?.icon ?? 'bi-speedometer2')
 const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
@@ -103,13 +111,39 @@ function panelForRoute(r) {
 }
 
 function routeUnavailable(r) {
-  return panelForRoute(r)?.available === false
+  const panel = panelForRoute(r)
+  return panel?.enabled === false || panel?.available === false
+}
+
+function routeReadOnly(r) {
+  const panel = panelForRoute(r)
+  return panel?.readOnly === true && !routeUnavailable(r)
+}
+
+function routeStatusIcon(r) {
+  if (routeUnavailable(r)) {
+    return 'bi-slash-circle'
+  }
+  if (routeReadOnly(r)) {
+    return 'bi-lock'
+  }
+  return null
+}
+
+function panelDisabledReason(panel) {
+  return `Panel is disabled via bootui.panels.${panel?.id || 'panel'}.enabled=false`
 }
 
 function routeAvailabilityLabel(r) {
   const panel = panelForRoute(r)
+  if (panel?.enabled === false) {
+    return `${r.meta.title} - disabled: ${panelDisabledReason(panel)}`
+  }
   if (panel?.available === false) {
     return `${r.meta.title} - unavailable: ${panel.unavailableReason || 'required support is unavailable'}`
+  }
+  if (panel?.readOnly === true) {
+    return `${r.meta.title} - read-only: ${panel.readOnlyReason || 'mutating actions are disabled'}`
   }
   return r.meta.title
 }
@@ -210,7 +244,11 @@ onMounted(loadShellData)
               >
                 <i :class="['bi', r.meta.icon]"></i>
                 <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
-                <i v-if="routeUnavailable(r)" aria-hidden="true" class="bi bi-slash-circle bootui-nav-link__status"></i>
+                <i
+                  v-if="routeStatusIcon(r)"
+                  :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
+                  aria-hidden="true"
+                ></i>
               </a>
             </router-link>
           </div>
@@ -268,14 +306,21 @@ onMounted(loadShellData)
         <div v-if="activePanelUnavailable" class="alert alert-warning panel-availability-alert shadow-sm" role="status">
           <div class="panel-availability-alert__title">
             <i class="bi bi-slash-circle"></i>
-            <strong>Panel unavailable</strong>
+            <strong>{{ activePanelUnavailableTitle }}</strong>
           </div>
           <div>{{ activePanelUnavailableReason }}</div>
+        </div>
+        <div v-else-if="activePanelReadOnly" class="alert alert-info panel-read-only-alert shadow-sm" role="status">
+          <div class="panel-availability-alert__title">
+            <i class="bi bi-lock"></i>
+            <strong>Panel read-only</strong>
+          </div>
+          <div>{{ activePanelReadOnlyReason }}</div>
         </div>
 
         <router-view v-slot="{Component}">
           <transition mode="out-in" name="page-slide">
-            <component :is="Component" :key="route.fullPath" class="page-panel" />
+            <component :is="Component" :key="route.fullPath" :panel="activePanel" class="page-panel" />
           </transition>
         </router-view>
       </main>
@@ -706,6 +751,10 @@ onMounted(loadShellData)
 
 .panel-availability-alert {
   border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.panel-read-only-alert {
+  border: 1px solid rgba(13, 110, 253, 0.22);
 }
 
 .panel-availability-alert__title {

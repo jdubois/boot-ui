@@ -1,7 +1,10 @@
 <script setup>
 import {computed, onMounted, onUnmounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const status = ref(null)
 const loading = ref(true)
 const actionLoading = ref(null)
@@ -26,6 +29,10 @@ async function load() {
 }
 
 async function triggerLiveReload() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   actionLoading.value = 'livereload'
   try {
     const res = await apiFetch('api/devtools/livereload', {method: 'POST'})
@@ -45,6 +52,10 @@ async function triggerLiveReload() {
 }
 
 async function restart() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   if (!confirm('Restart this Spring Boot application now? In-memory state and in-flight requests will be interrupted.'))
     return
 
@@ -103,6 +114,10 @@ function flash(text, type) {
   }, 8000)
 }
 
+function showReadOnlyMessage() {
+  flash(readOnlyReason.value, 'warning')
+}
+
 onMounted(load)
 onUnmounted(clearReconnectTimer)
 </script>
@@ -127,6 +142,11 @@ onUnmounted(clearReconnectTimer)
         <span class="ms-2">{{ banner.text }}</span>
       </div>
       <button class="btn-close" @click="banner = null"></button>
+    </div>
+
+    <div v-if="readOnly" class="alert alert-warning small">
+      <i class="bi bi-lock me-1"></i>
+      DevTools actions are read-only. {{ readOnlyReason }}
     </div>
 
     <div v-if="restarting" class="alert alert-primary d-flex align-items-start gap-3">
@@ -167,7 +187,11 @@ onUnmounted(clearReconnectTimer)
               <span v-else>{{ status.liveReloadUnavailableReason || 'No LiveReload port reported.' }}</span>
             </div>
 
-            <button :disabled="!liveReloadReady || actionLoading" class="btn btn-primary" @click="triggerLiveReload">
+            <button
+              :disabled="readOnly || !liveReloadReady || actionLoading"
+              class="btn btn-primary"
+              @click="triggerLiveReload"
+            >
               <span v-if="actionLoading === 'livereload'" class="spinner-border spinner-border-sm me-2"></span>
               <i v-else class="bi bi-broadcast me-1"></i>
               Trigger LiveReload
@@ -196,7 +220,11 @@ onUnmounted(clearReconnectTimer)
               {{ status.restartUnavailableReason || 'Spring Boot DevTools restart is initialized.' }}
             </div>
 
-            <button :disabled="!restartReady || actionLoading || restarting" class="btn btn-warning" @click="restart">
+            <button
+              :disabled="readOnly || !restartReady || actionLoading || restarting"
+              class="btn btn-warning"
+              @click="restart"
+            >
               <span v-if="actionLoading === 'restart'" class="spinner-border spinner-border-sm me-2"></span>
               <i v-else class="bi bi-arrow-clockwise me-1"></i>
               Restart app

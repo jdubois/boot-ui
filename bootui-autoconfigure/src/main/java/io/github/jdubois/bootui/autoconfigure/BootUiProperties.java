@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -43,6 +45,10 @@ public class BootUiProperties {
      */
     private boolean showBanner = true;
     /**
+     * Disable every browser-triggered action while keeping read-only panel data visible.
+     */
+    private boolean readOnly = false;
+    /**
      * Profiles that trigger auto-activation.
      */
     private String[] enabledProfiles = {"dev", "local"};
@@ -54,6 +60,10 @@ public class BootUiProperties {
      * Where local runtime overrides are persisted.
      */
     private String overridesFile = ".bootui/application-bootui.properties";
+    /**
+     * Per-panel visibility and action settings keyed by panel id.
+     */
+    private Map<String, Panel> panels = new LinkedHashMap<>();
     /**
      * Dev Services panel settings.
      */
@@ -139,6 +149,14 @@ public class BootUiProperties {
         this.showBanner = showBanner;
     }
 
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    public void setReadOnly(boolean readOnly) {
+        this.readOnly = readOnly;
+    }
+
     public String[] getEnabledProfiles() {
         return enabledProfiles;
     }
@@ -161,6 +179,39 @@ public class BootUiProperties {
 
     public void setOverridesFile(String overridesFile) {
         this.overridesFile = overridesFile;
+    }
+
+    public Map<String, Panel> getPanels() {
+        return panels;
+    }
+
+    public void setPanels(Map<String, Panel> panels) {
+        this.panels = panels == null ? new LinkedHashMap<>() : new LinkedHashMap<>(panels);
+    }
+
+    public Panel panel(String id) {
+        return panels.computeIfAbsent(id, ignored -> new Panel());
+    }
+
+    public boolean isPanelEnabled(String id) {
+        Panel panel = panels.get(id);
+        return panel == null || panel.isEnabled();
+    }
+
+    public boolean isPanelReadOnly(String id) {
+        Panel panel = panels.get(id);
+        return readOnly || (panel != null && panel.isReadOnly());
+    }
+
+    public String panelDisabledReason(String id) {
+        return "Panel is disabled via bootui.panels." + id + ".enabled=false";
+    }
+
+    public String panelReadOnlyReason(String id) {
+        if (readOnly) {
+            return "BootUI is read-only via bootui.read-only=true";
+        }
+        return "Panel is read-only via bootui.panels." + id + ".read-only=true";
     }
 
     public DevServices getDevServices() {
@@ -244,6 +295,35 @@ public class BootUiProperties {
          * Show all values, including secrets. Discouraged.
          */
         FULL
+    }
+
+    public static class Panel {
+
+        /**
+         * Enable the panel and allow its API endpoints to respond.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Disable browser-triggered actions for this panel while keeping read endpoints visible.
+         */
+        private boolean readOnly = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
+        public void setReadOnly(boolean readOnly) {
+            this.readOnly = readOnly;
+        }
     }
 
     public static class DevServices {
