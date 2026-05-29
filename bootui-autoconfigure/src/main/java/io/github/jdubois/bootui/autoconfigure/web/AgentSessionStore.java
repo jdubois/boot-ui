@@ -30,11 +30,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -92,6 +94,9 @@ public abstract class AgentSessionStore {
     private volatile Thread watcherThread;
     private volatile boolean stopped;
     private volatile CopilotDashboardDto dashboardCache;
+    private volatile int availableSessionFileCount;
+    private volatile int selectedSessionFileCount;
+    private volatile int selectedSessionFileLimit;
 
     protected AgentSessionStore(BootUiProperties.Copilot properties) {
         this(properties, Clock.systemDefaultZone());
@@ -141,55 +146,70 @@ public abstract class AgentSessionStore {
         if (!isDirectoryAvailable()) {
             sessions.clear();
             dashboardCache = unavailableDashboard();
+            availableSessionFileCount = 0;
+            selectedSessionFileCount = 0;
+            selectedSessionFileLimit = 0;
             return 0;
         }
-        Map<String, Boolean> seen = new HashMap<>();
+        List<SessionFileCandidate> candidates = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(sessionStateDir)) {
             for (Path entry : stream) {
-                scanEntry(entry, seen);
+                collectEntry(entry, candidates);
             }
         } catch (IOException ex) {
             log.warn("BootUI {}: failed to list {}: {}", sourceName, sessionStateDir, ex.toString());
         }
-        // remove sessions whose files have disappeared
-        sessions.keySet().removeIf(id -> !seen.containsKey(id));
+        int maxParsedSessions = effectiveMaxParsedSessions();
+        List<SessionFileCandidate> selectedCandidates = candidates.stream()
+                .sorted(sessionFileCandidateComparator())
+                .limit(maxParsedSessions)
+                .toList();
+        Set<String> seen = new HashSet<>();
+        for (SessionFileCandidate candidate : selectedCandidates) {
+            scanCandidate(candidate, seen);
+        }
+        // remove sessions whose files disappeared or are outside the parse cap
+        sessions.keySet().removeIf(id -> !seen.contains(id));
+        availableSessionFileCount = candidates.size();
+        selectedSessionFileCount = selectedCandidates.size();
+        selectedSessionFileLimit = maxParsedSessions;
         dashboardCache = buildDashboard();
         return sessions.size();
     }
 
-    private void scanEntry(Path entry, Map<String, Boolean> seen) {
+    private void collectEntry(Path entry, List<SessionFileCandidate> candidates) {
         if (Files.isSymbolicLink(entry)) {
             return;
         }
         if (properties.isProjectSessionDirectoryLayout()) {
-            scanProjectLayoutEntry(entry, seen);
+            collectProjectLayoutEntry(entry, candidates);
             return;
         }
         if (Files.isDirectory(entry)) {
             Path eventsFile = entry.resolve(EVENTS_JSONL);
             if (Files.isRegularFile(eventsFile)) {
-                scanJsonlSession(entry.getFileName().toString(), eventsFile, seen);
+                addCandidate(entry.getFileName().toString(), eventsFile, SessionFileFormat.JSONL, candidates);
             }
             return;
         }
         String name = entry.getFileName().toString();
         if (Files.isRegularFile(entry) && name.toLowerCase(Locale.ROOT).endsWith(".json")) {
-            scanLegacyJsonSession(sessionIdFor(entry), entry, seen);
+            addCandidate(sessionIdFor(entry), entry, SessionFileFormat.LEGACY_JSON, candidates);
         }
     }
 
-    private void scanProjectLayoutEntry(Path entry, Map<String, Boolean> seen) {
+    private void collectProjectLayoutEntry(Path entry, List<SessionFileCandidate> candidates) {
         if (Files.isDirectory(entry)) {
-            scanProjectDirectory(entry, seen);
+            collectProjectDirectory(entry, candidates);
             return;
         }
         String name = entry.getFileName().toString().toLowerCase(Locale.ROOT);
         if (Files.isRegularFile(entry) && name.endsWith(".jsonl")) {
-            scanJsonlSession(jsonlSessionIdFor(entry), entry, seen);
+            addCandidate(jsonlSessionIdFor(entry), entry, SessionFileFormat.JSONL, candidates);
         }
     }
 
-    private void scanProjectDirectory(Path directory, Map<String, Boolean> seen) {
+    private void collectProjectDirectory(Path directory, List<SessionFileCandidate> candidates) {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
             for (Path file : stream) {
                 if (Files.isSymbolicLink(file)) {
@@ -197,7 +217,7 @@ public abstract class AgentSessionStore {
                 }
                 String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
                 if (Files.isRegularFile(file) && name.endsWith(".jsonl")) {
-                    scanJsonlSession(jsonlSessionIdFor(file), file, seen);
+                    addCandidate(jsonlSessionIdFor(file), file, SessionFileFormat.JSONL, candidates);
                 }
             }
         } catch (IOException ex) {
@@ -205,8 +225,7 @@ public abstract class AgentSessionStore {
         }
     }
 
-    private void scanLegacyJsonSession(String id, Path file, Map<String, Boolean> seen) {
-        seen.put(id, Boolean.TRUE);
+    private void addCandidate(String id, Path file, SessionFileFormat format, List<SessionFileCandidate> candidates) {
         try {
             BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
             if (attrs.size() > MAX_FILE_BYTES) {
@@ -218,6 +237,26 @@ public abstract class AgentSessionStore {
                         MAX_FILE_BYTES);
                 return;
             }
+            candidates.add(new SessionFileCandidate(id, file, attrs, format));
+        } catch (IOException ex) {
+            log.debug("BootUI {}: failed to inspect {}: {}", sourceName, file, ex.toString());
+        }
+    }
+
+    private void scanCandidate(SessionFileCandidate candidate, Set<String> seen) {
+        seen.add(candidate.id());
+        if (candidate.format() == SessionFileFormat.LEGACY_JSON) {
+            scanLegacyJsonSession(candidate);
+            return;
+        }
+        scanJsonlSession(candidate);
+    }
+
+    private void scanLegacyJsonSession(SessionFileCandidate candidate) {
+        String id = candidate.id();
+        Path file = candidate.file();
+        BasicFileAttributes attrs = candidate.attrs();
+        try {
             long mtime = attrs.lastModifiedTime().toMillis();
             ParsedSession existing = sessions.get(id);
             if (existing != null && existing.fileSize == attrs.size() && existing.fileMtime == mtime) {
@@ -226,24 +265,16 @@ public abstract class AgentSessionStore {
             JsonNode root = objectMapper.readTree(file.toFile());
             ParsedSession parsed = parse(id, file, root, attrs);
             sessions.put(id, parsed);
-        } catch (IOException ex) {
+        } catch (RuntimeException ex) {
             log.debug("BootUI {}: failed to parse {}: {}", sourceName, file, ex.toString());
         }
     }
 
-    private void scanJsonlSession(String id, Path file, Map<String, Boolean> seen) {
-        seen.put(id, Boolean.TRUE);
+    private void scanJsonlSession(SessionFileCandidate candidate) {
+        String id = candidate.id();
+        Path file = candidate.file();
+        BasicFileAttributes attrs = candidate.attrs();
         try {
-            BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
-            if (attrs.size() > MAX_FILE_BYTES) {
-                log.warn(
-                        "BootUI {}: skipping {} ({} bytes exceeds {} byte limit)",
-                        sourceName,
-                        file.getFileName(),
-                        attrs.size(),
-                        MAX_FILE_BYTES);
-                return;
-            }
             long mtime = attrs.lastModifiedTime().toMillis();
             ParsedSession existing = sessions.get(id);
             if (existing != null && existing.fileSize == attrs.size() && existing.fileMtime == mtime) {
@@ -394,6 +425,7 @@ public abstract class AgentSessionStore {
                 .toList();
         List<CopilotSessionSummary> limited = sorted.stream().limit(maxSessions).toList();
         List<String> warnings = new ArrayList<>();
+        addParsedSessionCapWarning(warnings);
         if (sorted.size() > limited.size()) {
             warnings.add("Showing the "
                     + limited.size()
@@ -421,6 +453,32 @@ public abstract class AgentSessionStore {
 
     private int effectiveMaxSessions() {
         return Math.min(Math.max(1, properties.getMaxSessions()), HARD_MAX_SESSION_EXPLORER_ITEMS);
+    }
+
+    private int effectiveMaxParsedSessions() {
+        return Math.min(Math.max(1, properties.getMaxParsedSessions()), HARD_MAX_SESSION_EXPLORER_ITEMS);
+    }
+
+    private static Comparator<SessionFileCandidate> sessionFileCandidateComparator() {
+        return Comparator.comparingLong(SessionFileCandidate::lastModifiedTimeMillis)
+                .reversed()
+                .thenComparing(SessionFileCandidate::id)
+                .thenComparing(candidate -> candidate.file().toString());
+    }
+
+    private void addParsedSessionCapWarning(List<String> warnings) {
+        if (availableSessionFileCount <= selectedSessionFileCount || selectedSessionFileLimit <= 0) {
+            return;
+        }
+        warnings.add("Loaded the "
+                + selectedSessionFileCount
+                + " most recently modified "
+                + properties.getPanelTitle()
+                + " session files out of "
+                + availableSessionFileCount
+                + "; increase "
+                + properties.maxParsedSessionsPropertyName()
+                + " to inspect older sessions.");
     }
 
     private static boolean matchesActivityWindow(ParsedSession session, Long sinceEpochMillis, Long untilEpochMillis) {
@@ -573,12 +631,14 @@ public abstract class AgentSessionStore {
                 .sorted(sessionSummaryComparator())
                 .limit(DASHBOARD_RECENT_SESSION_LIMIT)
                 .toList();
-        List<String> warnings = sessionsWithSchemaDrift > 0
-                ? List.of(sessionsWithSchemaDrift
-                        + " "
-                        + properties.getPanelTitle()
-                        + " sessions did not match the expected schema; some metrics may be incomplete.")
-                : List.of();
+        List<String> warnings = new ArrayList<>();
+        addParsedSessionCapWarning(warnings);
+        if (sessionsWithSchemaDrift > 0) {
+            warnings.add(sessionsWithSchemaDrift
+                    + " "
+                    + properties.getPanelTitle()
+                    + " sessions did not match the expected schema; some metrics may be incomplete.");
+        }
 
         return new CopilotDashboardDto(
                 true,
@@ -599,7 +659,7 @@ public abstract class AgentSessionStore {
                 activityBuckets,
                 dailyActivityBuckets,
                 recentSessions,
-                warnings);
+                List.copyOf(warnings));
     }
 
     private String displaySessionStateDir() {
@@ -1753,6 +1813,18 @@ public abstract class AgentSessionStore {
     private record JsonNodeRawEventReference(JsonNode node) implements RawEventReference {}
 
     private record JsonlLineRawEventReference(Path file, int lineNumber) implements RawEventReference {}
+
+    private enum SessionFileFormat {
+        LEGACY_JSON,
+        JSONL
+    }
+
+    private record SessionFileCandidate(String id, Path file, BasicFileAttributes attrs, SessionFileFormat format) {
+
+        long lastModifiedTimeMillis() {
+            return attrs.lastModifiedTime().toMillis();
+        }
+    }
 
     private record SessionAggregates(Map<String, Integer> toolCounts, Map<Long, BucketCounts> activityByHour) {}
 

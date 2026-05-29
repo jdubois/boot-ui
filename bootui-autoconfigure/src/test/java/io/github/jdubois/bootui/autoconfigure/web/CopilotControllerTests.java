@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -166,6 +167,40 @@ class CopilotControllerTests {
                 .andExpect(jsonPath("$.sessions[0].id").value("new"))
                 .andExpect(jsonPath("$.sessions[1].id").value("middle"))
                 .andExpect(jsonPath("$.warnings[0]").value("Showing the 2 most recent Copilot sessions out of 3."));
+    }
+
+    @Test
+    void refreshParsesOnlyMostRecentlyModifiedSessions(@TempDir Path tempDir) throws Exception {
+        Path old = tempDir.resolve("old.json");
+        Path middle = tempDir.resolve("middle.json");
+        Path latest = tempDir.resolve("new.json");
+        Files.writeString(old, "{\"updated_at\":1700000000,\"events\":[{\"type\":\"t\"}]}");
+        Files.writeString(middle, "{\"updated_at\":1700000001,\"events\":[{\"type\":\"t\"}]}");
+        Files.writeString(latest, "{\"updated_at\":1700000002,\"events\":[{\"type\":\"t\"}]}");
+        Files.setLastModifiedTime(old, FileTime.fromMillis(1));
+        Files.setLastModifiedTime(middle, FileTime.fromMillis(2));
+        Files.setLastModifiedTime(latest, FileTime.fromMillis(3));
+        BootUiProperties props = propertiesFor(tempDir);
+        props.getCopilot().setMaxSessions(10);
+        props.getCopilot().setMaxParsedSessions(2);
+        CopilotSessionStore store = storeFor(props);
+
+        CopilotSessionListDto first = store.listSessions();
+        assertThat(first.total()).isEqualTo(2);
+        assertThat(first.returned()).isEqualTo(2);
+        assertThat(first.sessions()).extracting(summary -> summary.id()).containsExactly("new", "middle");
+        assertThat(first.warnings())
+                .containsExactly(
+                        "Loaded the 2 most recently modified Copilot session files out of 3; increase bootui.copilot.max-parsed-sessions to inspect older sessions.");
+        assertThat(store.getSession("old")).isNull();
+
+        Files.setLastModifiedTime(old, FileTime.fromMillis(4));
+        store.refresh();
+
+        CopilotSessionListDto refreshed = store.listSessions();
+        assertThat(refreshed.sessions()).extracting(summary -> summary.id()).containsExactly("new", "old");
+        assertThat(store.getSession("old")).isNotNull();
+        assertThat(store.getSession("middle")).isNull();
     }
 
     @Test

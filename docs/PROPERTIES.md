@@ -168,8 +168,10 @@ bootui.dev-services.restart-enabled=true
 | `bootui.copilot.enabled` | `AUTO` | Enable the Copilot panel. `AUTO` activates when the session-state directory exists. |
 | `bootui.copilot.session-state-dir` | `~/.copilot/session-state` | Directory scanned for Copilot CLI sessions. |
 | `bootui.copilot.max-sessions` | `100` | Maximum recent Copilot sessions returned by the explorer. |
+| `bootui.copilot.max-parsed-sessions` | `100` | Maximum recent Copilot session files parsed and retained in memory. |
 | `bootui.copilot.allow-raw-reveal` | `true` | Allow explicit raw event reveal when value exposure is not `METADATA_ONLY`. |
 | `bootui.claude-code.enabled` | `AUTO` | Enable the Claude Code panel. `AUTO` activates when the project log directory exists. |
 | `bootui.claude-code.session-state-dir` | `~/.claude/projects` | Directory scanned for Claude Code project JSONL logs. |
 | `bootui.claude-code.max-sessions` | `100` | Maximum recent Claude Code sessions returned by the explorer. |
+| `bootui.claude-code.max-parsed-sessions` | `100` | Maximum recent Claude Code JSONL files parsed and retained in memory. |
 | `bootui.claude-code.allow-raw-reveal` | `false` | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs. |
