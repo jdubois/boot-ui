@@ -18,6 +18,8 @@ public final class SecretMasker {
     private static final Set<String> DEFAULT_KEY_PATTERNS = Set.of(
             "password",
             "passwd",
+            "passphrase",
+            "pwd",
             "secret",
             "token",
             "key",

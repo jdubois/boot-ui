@@ -19,6 +19,12 @@ class SecretMaskerTests {
     }
 
     @Test
+    void detectsPassphraseAndPwdAbbreviations() {
+        assertThat(masker.isSecret("keystore.passphrase")).isTrue();
+        assertThat(masker.isSecret("DB_PWD")).isTrue();
+    }
+
+    @Test
     void masksValueWhenKeyMatches() {
         assertThat(masker.mask("spring.datasource.password", "hunter2")).isEqualTo(SecretMasker.MASKED_VALUE);
         assertThat(masker.mask("server.port", 8080)).isEqualTo(8080);
