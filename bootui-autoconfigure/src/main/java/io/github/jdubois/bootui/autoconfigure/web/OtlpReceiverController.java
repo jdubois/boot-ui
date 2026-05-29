@@ -112,8 +112,8 @@ public class OtlpReceiverController {
                 store.add(span);
                 kept++;
             }
-            if (log.isDebugEnabled()) {
-                log.debug("OTLP receiver stored {} spans (of {} received)", kept, spans.size());
+            if (log.isTraceEnabled()) {
+                log.trace("OTLP receiver stored {} spans (of {} received)", kept, spans.size());
             }
             return okResponse();
         } catch (InvalidProtocolBufferException ex) {
