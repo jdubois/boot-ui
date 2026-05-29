@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.BindResult;
@@ -149,7 +150,9 @@ class BootUiPropertiesTests {
     @Test
     void defaultClaudeCodeSessionDirectoryIsProjectsDirectory() {
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getClaudeCode().defaultSessionStateDir().toString()).endsWith(".claude/projects");
+        Path defaultSessionStateDir = props.getClaudeCode().defaultSessionStateDir();
+        assertThat(defaultSessionStateDir.getFileName()).hasToString("projects");
+        assertThat(defaultSessionStateDir.getParent().getFileName()).hasToString(".claude");
     }
 
     @Test
