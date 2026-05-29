@@ -1,7 +1,10 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const report = ref(null)
 const detail = ref(null)
 const loading = ref(true)
@@ -55,6 +58,10 @@ function closeDrawer() {
 }
 
 async function clearAll() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
   if (!confirm('Clear all retained traces? This cannot be undone.')) return
   busy.value = true
   try {
@@ -71,6 +78,13 @@ async function clearAll() {
   } finally {
     busy.value = false
   }
+}
+
+function showReadOnlyMessage() {
+  banner.value = {type: 'warning', text: readOnlyReason.value}
+  setTimeout(() => {
+    banner.value = null
+  }, 4000)
 }
 
 const filteredTraces = computed(() => {
@@ -143,7 +157,7 @@ onMounted(load)
       </div>
       <div class="d-flex gap-2">
         <button
-          :disabled="!report || report.retained === 0 || busy"
+          :disabled="!report || readOnly || report.retained === 0 || busy"
           class="btn btn-sm btn-outline-danger"
           @click="clearAll"
         >
@@ -169,6 +183,11 @@ onMounted(load)
         Telemetry receiver is disabled. Set <code>bootui.telemetry.enabled=true</code> and configure your application to
         export OTLP to <code>http://localhost:8080/bootui/api/otlp/v1/traces</code>.
         <span v-if="report.retained > 0">Showing spans retained before telemetry was disabled.</span>
+      </div>
+
+      <div v-if="readOnly" class="alert alert-warning small">
+        <i class="bi bi-lock me-1"></i>
+        Trace clearing is read-only. {{ readOnlyReason }}
       </div>
 
       <div v-if="report.enabled && report.retained === 0" class="alert alert-secondary">

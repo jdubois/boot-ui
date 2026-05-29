@@ -864,6 +864,7 @@ Initial properties:
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
+| `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                  |
 | `bootui.show-banner`                         | `true`                                  | Print BootUI URL on startup.                                                                      |
 | `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                    |
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
@@ -896,6 +897,10 @@ Initial properties:
 | `bootui.claude-code.max-sessions`            | `100`                                   | Maximum recent sessions returned by the Claude Code session explorer.                             |
 | `bootui.claude-code.stream-debounce`         | `400ms`                                 | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.   |
 | `bootui.claude-code.allow-raw-reveal`        | `false`                                 | Allows opt-in raw Claude Code JSONL reveal; disabled by default because logs can include content. |
+
+Every visible panel must support `bootui.panels.<panel-id>.enabled`; panels with mutating browser actions must also
+support `bootui.panels.<panel-id>.read-only`. These properties are specified panel-by-panel in
+[PROPERTIES.md](PROPERTIES.md).
 
 ### 6.6 Security model
 

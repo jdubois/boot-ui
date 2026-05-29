@@ -3,7 +3,9 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
+import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
+import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,6 +95,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public PanelAccessFilter bootUiPanelAccessFilter(BootUiProperties properties) {
+        return new PanelAccessFilter(properties);
+    }
+
+    @Bean
     public TelemetryStore bootUiTelemetryStore(BootUiProperties properties) {
         return new TelemetryStore(properties.getTelemetry());
     }
@@ -135,9 +142,25 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public FilterRegistrationBean<PanelAccessFilter> bootUiPanelAccessFilterRegistration(
+            PanelAccessFilter filter, BootUiProperties properties) {
+        FilterRegistrationBean<PanelAccessFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.addUrlPatterns(properties.getApiPath() + "/*");
+        registration.setOrder(Integer.MIN_VALUE + 1);
+        registration.setName("bootUiPanelAccessFilter");
+        return registration;
+    }
+
+    @Bean
     public ApplicationListener<ApplicationReadyEvent> bootUiStartupBanner(
             BootUiProperties properties, Environment environment) {
         return event -> {
+            properties.getPanels().keySet().stream()
+                    .filter(panelId -> !BootUiPanels.ids().contains(panelId))
+                    .forEach(panelId -> log.warn(
+                            "Unknown BootUI panel id '{}' configured under bootui.panels; known ids are {}",
+                            panelId,
+                            BootUiPanels.ids()));
             if (!properties.isShowBanner()) {
                 return;
             }

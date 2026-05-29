@@ -1,7 +1,10 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const report = ref(null)
 const loading = ref(true)
 const error = ref(null)
@@ -146,6 +149,10 @@ async function openLogs(service) {
 }
 
 async function restart(service) {
+  if (readOnly.value) {
+    actionMessage.value = {type: 'warning', text: readOnlyReason.value}
+    return
+  }
   if (selected.value?.id !== service.id) {
     logs.value = null
   }
@@ -197,6 +204,7 @@ onMounted(load)
     <div class="alert alert-info">
       Docker Compose services are shown from Spring Boot's startup snapshot. Restart controls appear only for
       bean-backed Testcontainers services when <code>bootui.dev-services.restart-enabled=true</code>.
+      <span v-if="readOnly"> Restart actions are read-only. {{ readOnlyReason }}</span>
     </div>
 
     <div v-if="report?.warnings?.length" class="alert alert-warning">
@@ -278,7 +286,7 @@ onMounted(load)
                       </button>
                       <button
                         v-if="service.restartable"
-                        :disabled="busyService === service.id"
+                        :disabled="readOnly || busyService === service.id"
                         class="btn btn-sm btn-outline-danger"
                         @click="restart(service)"
                       >

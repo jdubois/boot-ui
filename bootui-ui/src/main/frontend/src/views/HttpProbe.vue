@@ -1,7 +1,10 @@
 <script setup>
 import {computed, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {panelProps, usePanelState} from '../utils/panelState.js'
 
+const props = defineProps(panelProps)
+const {readOnly, readOnlyReason} = usePanelState(props)
 const method = ref('GET')
 const path = ref('')
 const requestBody = ref('')
@@ -40,6 +43,17 @@ const statusBadgeClass = computed(() => {
 })
 
 async function sendProbe() {
+  if (readOnly.value) {
+    response.value = {
+      status: 0,
+      statusText: 'Read-only',
+      headers: {},
+      body: null,
+      durationMs: 0,
+      error: readOnlyReason.value
+    }
+    return
+  }
   loading.value = true
   try {
     const res = await apiFetch('api/probe', {
@@ -95,12 +109,17 @@ function clearForm() {
         <button :disabled="loading" class="btn btn-outline-secondary" @click="clearForm">
           <i class="bi bi-x-circle me-1"></i>Clear
         </button>
-        <button :disabled="loading" class="btn btn-primary" @click="sendProbe">
+        <button :disabled="loading || readOnly" class="btn btn-primary" @click="sendProbe">
           <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-2"></span>
           <i v-else class="bi bi-send me-1"></i>
           {{ loading ? 'Sending…' : 'Send' }}
         </button>
       </div>
+    </div>
+
+    <div v-if="readOnly" class="alert alert-warning small">
+      <i class="bi bi-lock me-1"></i>
+      HTTP probes are read-only. {{ readOnlyReason }}
     </div>
 
     <div class="card mb-4">

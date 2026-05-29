@@ -1,0 +1,244 @@
+// @ts-check
+import {spawn} from 'node:child_process'
+import fs from 'node:fs'
+import net from 'node:net'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
+import {expect, test} from './fixtures.js'
+
+const testDir = path.dirname(fileURLToPath(import.meta.url))
+const e2eDir = path.resolve(testDir, '..')
+const sampleAppDir = path.resolve(e2eDir, '..')
+const repoRoot = path.resolve(sampleAppDir, '..')
+const mvnw = path.join(repoRoot, process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw')
+const startupTimeoutMs = 240_000
+
+test.describe.configure({mode: 'serial'})
+test.describe('Read-only properties', () => {
+  test.setTimeout(300_000)
+
+  test('global read-only locks action panels in the API and browser UI', async ({page, request}) => {
+    const app = await startSampleApp({'bootui.read-only': 'true'})
+
+    try {
+      const panels = await fetchPanels(request, app.baseUrl)
+      const overviewPanel = panels.find((panel) => panel.id === 'overview')
+      const probePanel = panels.find((panel) => panel.id === 'http-probe')
+
+      expect(overviewPanel?.readOnly).toBe(false)
+      expect(probePanel).toMatchObject({
+        id: 'http-probe',
+        readOnly: true,
+        readOnlyReason: 'BootUI is read-only via bootui.read-only=true'
+      })
+
+      const probeResponse = await request.post(`${app.baseUrl}/bootui/api/probe`, {
+        data: {method: 'GET', path: '/api/hello', headers: {}, body: ''}
+      })
+      expect(probeResponse.status()).toBe(403)
+      await assertBlockedPanelAccess(probeResponse, 'http-probe', 'BootUI is read-only via bootui.read-only=true')
+
+      await assertHttpProbeReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
+    } finally {
+      await app.stop()
+    }
+  })
+
+  test('per-panel read-only locks only the configured action panel', async ({page, request}) => {
+    const app = await startSampleApp({'bootui.panels.http-probe.read-only': 'true'})
+
+    try {
+      const panels = await fetchPanels(request, app.baseUrl)
+      const configPanel = panels.find((panel) => panel.id === 'config')
+      const probePanel = panels.find((panel) => panel.id === 'http-probe')
+
+      expect(configPanel?.readOnly).toBe(false)
+      expect(probePanel).toMatchObject({
+        id: 'http-probe',
+        readOnly: true,
+        readOnlyReason: 'Panel is read-only via bootui.panels.http-probe.read-only=true'
+      })
+
+      const probeResponse = await request.post(`${app.baseUrl}/bootui/api/probe`, {
+        data: {method: 'GET', path: '/api/hello', headers: {}, body: ''}
+      })
+      expect(probeResponse.status()).toBe(403)
+      await assertBlockedPanelAccess(
+        probeResponse,
+        'http-probe',
+        'Panel is read-only via bootui.panels.http-probe.read-only=true'
+      )
+
+      await assertHttpProbeReadOnly(page, app.baseUrl, 'Panel is read-only via bootui.panels.http-probe.read-only=true')
+    } finally {
+      await app.stop()
+    }
+  })
+})
+
+/**
+ * @param {import('@playwright/test').APIRequestContext} request
+ * @param {string} baseUrl
+ */
+async function fetchPanels(request, baseUrl) {
+  const response = await request.get(`${baseUrl}/bootui/api/panels`)
+  expect(response.ok()).toBe(true)
+  return (await response.json()).panels
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ * @param {string} baseUrl
+ * @param {string} reason
+ */
+async function assertHttpProbeReadOnly(page, baseUrl, reason) {
+  await page.goto(`${baseUrl}/bootui/#/http-probe`)
+  await expect(
+    page
+      .locator('main h2')
+      .filter({hasText: /^HTTP Probe/})
+      .first()
+  ).toBeVisible()
+
+  await expect(page.locator('.panel-read-only-alert')).toContainText('Panel read-only')
+  await expect(page.locator('.panel-read-only-alert')).toContainText(reason)
+  await expect(page.locator('.alert-warning', {hasText: 'HTTP probes are read-only'})).toContainText(reason)
+  await expect(page.locator('button.btn-primary', {hasText: 'Send'})).toBeDisabled()
+}
+
+/**
+ * @param {import('@playwright/test').APIResponse} response
+ * @param {string} panel
+ * @param {string} reason
+ */
+async function assertBlockedPanelAccess(response, panel, reason) {
+  expect(await response.json()).toEqual({
+    error: 'BootUI panel access denied',
+    panel,
+    reason
+  })
+}
+
+/**
+ * @param {Record<string, string>} properties
+ */
+async function startSampleApp(properties) {
+  const port = await findAvailablePort()
+  const baseUrl = `http://127.0.0.1:${port}`
+  const output = createOutputBuffer()
+  const springArguments = [
+    `--server.port=${port}`,
+    '--spring.devtools.restart.enabled=false',
+    ...Object.entries(properties).map(([name, value]) => `--${name}=${value}`)
+  ].join(' ')
+
+  if (!fs.existsSync(mvnw)) {
+    throw new Error(`Maven Wrapper not found at ${mvnw}`)
+  }
+
+  const child = spawn(
+    mvnw,
+    [
+      '-f',
+      path.join(sampleAppDir, 'pom.xml'),
+      '-q',
+      'spring-boot:run',
+      '-Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false',
+      `-Dspring-boot.run.arguments=${springArguments}`
+    ],
+    {
+      cwd: e2eDir,
+      env: {...process.env},
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  )
+
+  let exitDetails = null
+  const exitPromise = new Promise((resolve) => {
+    child.once('exit', (code, signal) => {
+      exitDetails = {code, signal}
+      resolve(exitDetails)
+    })
+  })
+  child.stdout.on('data', (chunk) => output.append(chunk))
+  child.stderr.on('data', (chunk) => output.append(chunk))
+
+  async function stop() {
+    if (exitDetails) return
+    child.kill('SIGTERM')
+    await Promise.race([
+      exitPromise,
+      sleep(15_000).then(() => {
+        if (!exitDetails) child.kill('SIGKILL')
+        return exitPromise
+      })
+    ])
+  }
+
+  try {
+    await waitForServer(`${baseUrl}/bootui/api/overview`, () => exitDetails, output)
+  } catch (error) {
+    await stop()
+    throw error
+  }
+
+  return {baseUrl, stop}
+}
+
+async function findAvailablePort() {
+  const server = net.createServer()
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address()
+  const port = typeof address === 'object' && address ? address.port : null
+  await new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()))
+  })
+  if (!port) throw new Error('Unable to allocate a port for the read-only sample app')
+  return port
+}
+
+async function waitForServer(url, exitDetails, output) {
+  const deadline = Date.now() + startupTimeoutMs
+  while (Date.now() < deadline) {
+    const exit = exitDetails()
+    if (exit) {
+      throw new Error(
+        `Sample app exited before it was ready (code=${exit.code}, signal=${exit.signal}).\n${output.text()}`
+      )
+    }
+
+    if (await isServerReady(url)) return
+    await sleep(500)
+  }
+
+  throw new Error(`Timed out waiting for ${url}.\n${output.text()}`)
+}
+
+async function isServerReady(url) {
+  try {
+    const response = await fetch(url, {headers: {'X-Forwarded-For': '127.0.0.1'}})
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+function createOutputBuffer() {
+  let output = ''
+  return {
+    append(chunk) {
+      output = `${output}${chunk.toString()}`
+      if (output.length > 20_000) output = output.slice(-20_000)
+    },
+    text() {
+      return output
+    }
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}

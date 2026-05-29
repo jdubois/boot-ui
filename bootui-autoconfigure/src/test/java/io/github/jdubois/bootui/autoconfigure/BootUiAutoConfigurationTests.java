@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
+import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -28,6 +29,7 @@ class BootUiAutoConfigurationTests {
                 .run(context -> assertThat(context)
                         .hasSingleBean(BootUiAutoConfiguration.class)
                         .hasSingleBean(LocalhostOnlyFilter.class)
+                        .hasSingleBean(PanelAccessFilter.class)
                         .hasSingleBean(ConfigOverrideService.class)
                         .hasSingleBean(DevToolsBridge.class)
                         .hasSingleBean(DevToolsController.class)
@@ -100,7 +102,10 @@ class BootUiAutoConfigurationTests {
                         "bootui.api-path=/admin/api",
                         "bootui.mask-secrets=false",
                         "bootui.expose-values=FULL",
+                        "bootui.read-only=true",
                         "bootui.overrides-file=/tmp/bootui.properties",
+                        "bootui.panels.config.enabled=false",
+                        "bootui.panels.loggers.read-only=true",
                         "bootui.dev-services.restart-enabled=true",
                         "bootui.dev-services.log-tail-bytes=2048",
                         "bootui.cache.clear-enabled=false",
@@ -113,7 +118,10 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getApiPath()).isEqualTo("/admin/api");
                     assertThat(properties.isMaskSecrets()).isFalse();
                     assertThat(properties.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.FULL);
+                    assertThat(properties.isReadOnly()).isTrue();
                     assertThat(properties.getOverridesFile()).isEqualTo("/tmp/bootui.properties");
+                    assertThat(properties.isPanelEnabled("config")).isFalse();
+                    assertThat(properties.isPanelReadOnly("loggers")).isTrue();
                     assertThat(properties.getDevServices().isRestartEnabled()).isTrue();
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
                     assertThat(properties.getCache().isClearEnabled()).isFalse();

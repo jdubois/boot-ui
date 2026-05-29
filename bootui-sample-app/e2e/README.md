@@ -31,6 +31,7 @@ flow) exposed by the sample app:
 | `metrics.spec.js`      | Micrometer meter browser, live graph, measurements, and type filtering                                                |
 | `devtools.spec.js`     | DevTools LiveReload / restart status cards and guarded action feedback                                                |
 | `dev-services.spec.js` | Dev Services snapshot, filtering, details, log viewing, and disabled restart controls                                 |
+| `read-only.spec.js`    | Global and per-panel read-only properties block unsafe APIs and lock mutating browser controls                        |
 | `sample-api.spec.js`   | Sample REST API (`/api/hello`, `/api/secure`, `/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
 
 ## Prerequisites

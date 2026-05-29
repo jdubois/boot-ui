@@ -1,9 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
+import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.core.BootUiDtos.PanelDto;
 import io.github.jdubois.bootui.core.BootUiDtos.PanelsReport;
-import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
@@ -46,84 +47,85 @@ public class PanelsController {
 
     @GetMapping
     public PanelsReport panels() {
-        return new PanelsReport(List.of(
-                panel("overview", "Overview", true, null),
-                panel(
-                        "startup",
-                        "Startup Timeline",
-                        beanPresent(StartupEndpoint.class),
-                        "Actuator startup endpoint not available"),
-                panel("memory", "Memory", true, null),
-                panel("health", "Health", beanPresent(HealthEndpoint.class), "Actuator health endpoint not available"),
-                panel(
-                        "metrics",
-                        "Metrics",
-                        classPresent("io.micrometer.core.instrument.MeterRegistry")
-                                && beanPresent(MetricsEndpoint.class),
-                        "Actuator metrics endpoint or MeterRegistry not available"),
-                panel(
-                        "conditions",
-                        "Conditions",
-                        beanPresent(ConditionsReportEndpoint.class),
-                        "Actuator conditions endpoint not available"),
-                panel("beans", "Beans", beanPresent(BeansEndpoint.class), "Actuator beans endpoint not available"),
-                panel(
-                        "mappings",
-                        "Mappings",
-                        beanPresent(MappingsEndpoint.class),
-                        "Actuator mappings endpoint not available"),
-                panel("config", "Configuration", true, null),
-                panel(
-                        "profiles",
-                        "Profile Diff",
-                        profilesAvailable(),
-                        "No active profiles or profile-specific config sources available"),
-                panel(
-                        "loggers",
-                        "Loggers",
-                        beanPresent(LoggersEndpoint.class),
-                        "Actuator loggers endpoint not available"),
-                panel(
-                        "log-tail",
-                        "Log Tail",
-                        classPresent("ch.qos.logback.classic.Logger"),
-                        "Logback not on the classpath"),
-                panel("http-probe", "HTTP Probe", true, null),
-                panel(
-                        "copilot",
-                        "Copilot",
-                        cliSessionPanelAvailable(properties.getCopilot()),
-                        cliSessionUnavailableReason(properties.getCopilot())),
-                panel(
-                        "claude-code",
-                        "Claude Code",
-                        cliSessionPanelAvailable(properties.getClaudeCode()),
-                        cliSessionUnavailableReason(properties.getClaudeCode())),
-                panel("devtools", "DevTools", devToolsPresent(), "Spring Boot DevTools not on the classpath"),
-                panel(
-                        "dev-services",
-                        "Dev Services",
-                        devServicesPresent(),
-                        "Docker Compose or Testcontainers not on the classpath"),
-                panel("scheduled", "Scheduled Tasks", scheduledAvailable(), "Scheduling is not enabled"),
-                panel(
-                        "data",
-                        "Data",
-                        classPresent("org.springframework.data.repository.Repository"),
-                        "Spring Data not on the classpath"),
-                panel("cache", "Cache", beanPresent(CacheManager.class), "No CacheManager beans are available"),
-                panel("traces", "Traces", properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled"),
-                panel("ai", "AI Usage", aiAvailable(), aiUnavailableReason()),
-                panel(
-                        "security",
-                        "Security",
-                        classPresent("org.springframework.security.web.SecurityFilterChain"),
-                        "Spring Security not on the classpath"),
-                panel("vulnerabilities", "Vulnerabilities", true, null)));
+        return new PanelsReport(BootUiPanels.all().stream().map(this::panel).toList());
     }
 
-    private PanelDto panel(String id, String title, boolean available, String unavailableReason) {
-        return new PanelDto(id, title, available, available ? null : unavailableReason);
+    private PanelDto panel(Panel definition) {
+        Availability availability = availability(definition.id());
+        boolean readOnly = definition.readOnlyCapable() && properties.isPanelReadOnly(definition.id());
+        return new PanelDto(
+                definition.id(),
+                definition.title(),
+                availability.available(),
+                availability.available() ? null : availability.unavailableReason(),
+                properties.isPanelEnabled(definition.id()),
+                readOnly,
+                readOnly ? properties.panelReadOnlyReason(definition.id()) : null);
+    }
+
+    private Availability availability(String id) {
+        return switch (id) {
+            case BootUiPanels.OVERVIEW,
+                    BootUiPanels.MEMORY,
+                    BootUiPanels.CONFIG,
+                    BootUiPanels.HTTP_PROBE,
+                    BootUiPanels.VULNERABILITIES -> available();
+            case BootUiPanels.HEALTH ->
+                availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");
+            case BootUiPanels.METRICS ->
+                availability(
+                        classPresent("io.micrometer.core.instrument.MeterRegistry")
+                                && beanPresent(MetricsEndpoint.class),
+                        "Actuator metrics endpoint or MeterRegistry not available");
+            case BootUiPanels.STARTUP ->
+                availability(beanPresent(StartupEndpoint.class), "Actuator startup endpoint not available");
+            case BootUiPanels.SCHEDULED -> availability(scheduledAvailable(), "Scheduling is not enabled");
+            case BootUiPanels.PROFILES ->
+                availability(profilesAvailable(), "No active profiles or profile-specific config sources available");
+            case BootUiPanels.LOGGERS ->
+                availability(beanPresent(LoggersEndpoint.class), "Actuator loggers endpoint not available");
+            case BootUiPanels.BEANS ->
+                availability(beanPresent(BeansEndpoint.class), "Actuator beans endpoint not available");
+            case BootUiPanels.CONDITIONS ->
+                availability(beanPresent(ConditionsReportEndpoint.class), "Actuator conditions endpoint not available");
+            case BootUiPanels.MAPPINGS ->
+                availability(beanPresent(MappingsEndpoint.class), "Actuator mappings endpoint not available");
+            case BootUiPanels.DATA ->
+                availability(
+                        classPresent("org.springframework.data.repository.Repository"),
+                        "Spring Data not on the classpath");
+            case BootUiPanels.CACHE ->
+                availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
+            case BootUiPanels.SECURITY ->
+                availability(
+                        classPresent("org.springframework.security.web.SecurityFilterChain"),
+                        "Spring Security not on the classpath");
+            case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
+            case BootUiPanels.TRACES ->
+                availability(properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled");
+            case BootUiPanels.LOG_TAIL ->
+                availability(classPresent("ch.qos.logback.classic.Logger"), "Logback not on the classpath");
+            case BootUiPanels.DEVTOOLS -> availability(devToolsPresent(), "Spring Boot DevTools not on the classpath");
+            case BootUiPanels.DEV_SERVICES ->
+                availability(devServicesPresent(), "Docker Compose or Testcontainers not on the classpath");
+            case BootUiPanels.COPILOT ->
+                availability(
+                        cliSessionPanelAvailable(properties.getCopilot()),
+                        cliSessionUnavailableReason(properties.getCopilot()));
+            case BootUiPanels.CLAUDE_CODE ->
+                availability(
+                        cliSessionPanelAvailable(properties.getClaudeCode()),
+                        cliSessionUnavailableReason(properties.getClaudeCode()));
+            default -> availability(false, "Unknown BootUI panel");
+        };
+    }
+
+    private Availability available() {
+        return availability(true, null);
+    }
+
+    private Availability availability(boolean available, String unavailableReason) {
+        return new Availability(available, unavailableReason);
     }
 
     private boolean beanPresent(Class<?> type) {
@@ -191,4 +193,6 @@ public class PanelsController {
         return settings.getSessionSourceName() + " session directory not found at "
                 + AgentSessionStore.resolveDir(settings);
     }
+
+    private record Availability(boolean available, String unavailableReason) {}
 }
