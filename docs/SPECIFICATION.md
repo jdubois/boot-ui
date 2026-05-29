@@ -943,7 +943,6 @@ Top-level navigation:
   - Metrics.
   - Memory.
   - Startup Timeline.
-  - Scheduled Tasks.
 - Configuration:
   - Configuration.
   - Profile Diff.
@@ -952,6 +951,7 @@ Top-level navigation:
   - Conditions.
   - Mappings.
 - Services:
+  - Scheduled Tasks.
   - Data.
   - Cache.
   - Security.

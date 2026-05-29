@@ -7,13 +7,13 @@ const allPanelLinks = [
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
   {id: 'memory', title: 'Memory', heading: /^Memory/},
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
-  {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
   {id: 'profiles', title: 'Profile Diff', heading: /Profile Diff/},
   {id: 'loggers', title: 'Loggers', heading: /^Loggers/},
   {id: 'beans', title: 'Beans', heading: /^Beans/},
   {id: 'conditions', title: 'Conditions', heading: /Auto-configuration conditions/},
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
+  {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'data', title: 'Data', heading: /Spring Data repositories/},
   {id: 'cache', title: 'Cache', heading: /Spring Cache/},
   {id: 'security', title: 'Security', heading: /Spring Security/},
@@ -82,9 +82,9 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Runtime', count: 5},
+      {title: 'Runtime', count: 4},
       {title: 'Configuration', count: 6},
-      {title: 'Services', count: 4},
+      {title: 'Services', count: 5},
       {title: 'Diagnostics', count: 4},
       {title: 'Developer tools', count: 4}
     ]
@@ -95,10 +95,14 @@ test.describe('BootUI app shell', () => {
       await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Runtime' ? 'true' : 'false')
     }
 
-    await page.getByRole('button', {name: /Services\s+4/}).click()
-    await expect(page.locator('aside .nav-link', {hasText: 'Data'})).toBeVisible()
-    await expect(page.locator('aside .nav-link', {hasText: 'Security'})).toBeVisible()
-    await expect(page.locator('aside .nav-link', {hasText: 'AI Usage'})).toBeVisible()
+    await page.getByRole('button', {name: /Services\s+5/}).click()
+    await expect(page.getByRole('group', {name: 'Services panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Scheduled Tasks',
+      'Data',
+      'Cache',
+      'Security',
+      'AI Usage'
+    ])
   })
 
   test('sidebar dims unavailable panels and the active panel explains why', async ({page}) => {

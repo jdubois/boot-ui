@@ -38,13 +38,13 @@ Panel settings are consistent across the UI and API:
 | Runtime | Metrics | `metrics` | `bootui.panels.metrics.enabled` | Not applicable; view-only. |
 | Runtime | Memory | `memory` | `bootui.panels.memory.enabled` | Not applicable; view-only. |
 | Runtime | Startup Timeline | `startup` | `bootui.panels.startup.enabled` | Not applicable; view-only. |
-| Runtime | Scheduled Tasks | `scheduled` | `bootui.panels.scheduled.enabled` | Not applicable; view-only. |
 | Configuration | Configuration | `config` | `bootui.panels.config.enabled` | `bootui.panels.config.read-only` |
 | Configuration | Profile Diff | `profiles` | `bootui.panels.profiles.enabled` | Not applicable; view-only. |
 | Configuration | Loggers | `loggers` | `bootui.panels.loggers.enabled` | `bootui.panels.loggers.read-only` |
 | Configuration | Beans | `beans` | `bootui.panels.beans.enabled` | Not applicable; view-only. |
 | Configuration | Conditions | `conditions` | `bootui.panels.conditions.enabled` | Not applicable; view-only. |
 | Configuration | Mappings | `mappings` | `bootui.panels.mappings.enabled` | Not applicable; view-only. |
+| Services | Scheduled Tasks | `scheduled` | `bootui.panels.scheduled.enabled` | Not applicable; view-only. |
 | Services | Data | `data` | `bootui.panels.data.enabled` | Not applicable; view-only. |
 | Services | Cache | `cache` | `bootui.panels.cache.enabled` | `bootui.panels.cache.read-only` |
 | Services | Security | `security` | `bootui.panels.security.enabled` | Not applicable; view-only. |

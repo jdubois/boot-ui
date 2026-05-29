@@ -149,9 +149,9 @@ Future backend test work should be incremental and tied to new or changed behavi
 The visible-route parity check is current. The sample-app Playwright suite covers the grouped navigation order:
 
 1. Overview.
-2. Runtime: Health, Metrics, Memory, Startup Timeline, Scheduled Tasks.
+2. Runtime: Health, Metrics, Memory, Startup Timeline.
 3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
-4. Services: Data, Cache, Security, AI Usage.
+4. Services: Scheduled Tasks, Data, Cache, Security, AI Usage.
 5. Diagnostics: Traces, Log Tail, HTTP Probe, Vulnerabilities.
 6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
 7. Disabled / unavailable grouping for unavailable non-overview panels.
