@@ -375,11 +375,12 @@ public abstract class AgentSessionStore {
     /** Build the list payload, optionally limited to sessions active in a time window. */
     public CopilotSessionListDto listSessions(Long sinceEpochMillis, Long untilEpochMillis) {
         int maxSessions = effectiveMaxSessions();
+        String displaySessionStateDir = displaySessionStateDir();
         if (!isDirectoryAvailable()) {
             return new CopilotSessionListDto(
                     false,
-                    sourceName + " session directory not found at " + sessionStateDir,
-                    sessionStateDir.toString(),
+                    sourceName + " session directory not found at " + displaySessionStateDir,
+                    displaySessionStateDir,
                     0,
                     0,
                     maxSessions,
@@ -410,7 +411,7 @@ public abstract class AgentSessionStore {
         return new CopilotSessionListDto(
                 true,
                 null,
-                sessionStateDir.toString(),
+                displaySessionStateDir,
                 sorted.size(),
                 limited.size(),
                 maxSessions,
@@ -458,10 +459,11 @@ public abstract class AgentSessionStore {
     }
 
     private CopilotDashboardDto unavailableDashboard() {
+        String displaySessionStateDir = displaySessionStateDir();
         return new CopilotDashboardDto(
                 false,
-                sourceName + " session directory not found at " + sessionStateDir,
-                sessionStateDir.toString(),
+                sourceName + " session directory not found at " + displaySessionStateDir,
+                displaySessionStateDir,
                 0,
                 0,
                 0,
@@ -581,7 +583,7 @@ public abstract class AgentSessionStore {
         return new CopilotDashboardDto(
                 true,
                 null,
-                sessionStateDir.toString(),
+                displaySessionStateDir(),
                 snapshot.size(),
                 eventCount,
                 turnCount,
@@ -598,6 +600,26 @@ public abstract class AgentSessionStore {
                 dailyActivityBuckets,
                 recentSessions,
                 warnings);
+    }
+
+    private String displaySessionStateDir() {
+        return displayPath(sessionStateDir);
+    }
+
+    private static String displayPath(Path path) {
+        Path normalized = path.toAbsolutePath().normalize();
+        String home = System.getProperty("user.home");
+        if (home == null || home.isBlank()) {
+            return normalized.toString();
+        }
+        Path homePath = Paths.get(home).toAbsolutePath().normalize();
+        if (normalized.equals(homePath)) {
+            return "~";
+        }
+        if (normalized.startsWith(homePath)) {
+            return "~/" + homePath.relativize(normalized).toString().replace('\\', '/');
+        }
+        return normalized.toString();
     }
 
     public CopilotSessionDetail getSession(String id) {

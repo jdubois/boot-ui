@@ -42,12 +42,6 @@ class BootUiPropertiesTests {
     }
 
     @Test
-    void defaultLocalhostOnlyIsTrue() {
-        BootUiProperties props = new BootUiProperties();
-        assertThat(props.isLocalhostOnly()).isTrue();
-    }
-
-    @Test
     void defaultAllowNonLocalhostIsFalse() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.isAllowNonLocalhost()).isFalse();
@@ -87,12 +81,6 @@ class BootUiPropertiesTests {
     void defaultOverridesFileIsRelativePath() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getOverridesFile()).isEqualTo(".bootui/application-bootui.properties");
-    }
-
-    @Test
-    void defaultEndpointTimeoutIsFiveSeconds() {
-        BootUiProperties props = new BootUiProperties();
-        assertThat(props.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(5));
     }
 
     @Test
@@ -213,16 +201,6 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getOverridesFile()).isEqualTo("/etc/myapp/overrides.properties");
-    }
-
-    @Test
-    void bindsEndpointTimeoutAsDuration() {
-        MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.endpoint-timeout", "30s");
-
-        BootUiProperties props = bind(env);
-
-        assertThat(props.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(30));
     }
 
     @Test
@@ -354,10 +332,8 @@ class BootUiPropertiesTests {
         BootUiProperties props = result.orElseGet(BootUiProperties::new);
 
         assertThat(props.getEnabled()).isEqualTo(BootUiProperties.Mode.AUTO);
-        assertThat(props.isLocalhostOnly()).isTrue();
         assertThat(props.isMaskSecrets()).isTrue();
         assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.MASKED);
         assertThat(props.getOverridesFile()).isEqualTo(".bootui/application-bootui.properties");
-        assertThat(props.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(5));
     }
 }

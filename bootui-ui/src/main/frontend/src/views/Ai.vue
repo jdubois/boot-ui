@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
   <div>
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
       <div>
-        <h2 class="mb-1"><i class="bi bi-stars me-2"></i>AI Usage</h2>
+        <h2 class="mb-1"><i class="bi bi-cpu me-2"></i>AI Usage</h2>
         <div v-if="overview" class="text-muted small">
           <span v-if="overview.springAiDetected" class="badge text-bg-success me-1">Spring AI detected</span>
           <span v-else class="badge text-bg-secondary me-1">Spring AI not on classpath</span>

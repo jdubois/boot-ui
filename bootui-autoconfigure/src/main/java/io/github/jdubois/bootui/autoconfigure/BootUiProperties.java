@@ -27,10 +27,6 @@ public class BootUiProperties {
      */
     private String apiPath = "/bootui/api";
     /**
-     * Reject non-loopback requests.
-     */
-    private boolean localhostOnly = true;
-    /**
      * Allow non-loopback requests (explicit opt-out of safety).
      */
     private boolean allowNonLocalhost = false;
@@ -58,10 +54,6 @@ public class BootUiProperties {
      * Where local runtime overrides are persisted.
      */
     private String overridesFile = ".bootui/application-bootui.properties";
-    /**
-     * Timeout applied to Actuator endpoint calls.
-     */
-    private Duration endpointTimeout = Duration.ofSeconds(5);
     /**
      * Dev Services panel settings.
      */
@@ -113,14 +105,6 @@ public class BootUiProperties {
 
     public void setApiPath(String apiPath) {
         this.apiPath = apiPath;
-    }
-
-    public boolean isLocalhostOnly() {
-        return localhostOnly;
-    }
-
-    public void setLocalhostOnly(boolean localhostOnly) {
-        this.localhostOnly = localhostOnly;
     }
 
     public boolean isAllowNonLocalhost() {
@@ -177,14 +161,6 @@ public class BootUiProperties {
 
     public void setOverridesFile(String overridesFile) {
         this.overridesFile = overridesFile;
-    }
-
-    public Duration getEndpointTimeout() {
-        return endpointTimeout;
-    }
-
-    public void setEndpointTimeout(Duration endpointTimeout) {
-        this.endpointTimeout = endpointTimeout;
     }
 
     public DevServices getDevServices() {

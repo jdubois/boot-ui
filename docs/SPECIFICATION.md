@@ -861,7 +861,6 @@ Initial properties:
 | `bootui.enabled`                             | `AUTO`                                  | Enables BootUI. Values: `AUTO`, `ON`, `OFF`.                                                      |
 | `bootui.path`                                | `/bootui`                               | UI base path used by the banner and safety filter; `/bootui` is the supported v0.1 route.         |
 | `bootui.api-path`                            | `/bootui/api`                           | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`.   |
-| `bootui.localhost-only`                      | `true`                                  | Reject non-local requests.                                                                        |
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
@@ -869,7 +868,6 @@ Initial properties:
 | `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                    |
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
-| `bootui.endpoint-timeout`                    | `5s`                                    | Timeout for endpoint-related calls.                                                               |
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
 | `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
@@ -888,11 +886,15 @@ Initial properties:
 | `bootui.ai.show-content-capture-banner`      | `true`                                  | Shows guidance when Spring AI prompt/completion content is not captured in spans.                 |
 | `bootui.copilot.enabled`                     | `AUTO`                                  | Enable the Copilot panel when local Copilot CLI session state exists.                             |
 | `bootui.copilot.session-state-dir`           | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.                   |
+| `bootui.copilot.max-events-per-session`      | `2000`                                  | Maximum Copilot events retained per parsed session.                                               |
 | `bootui.copilot.max-sessions`                | `100`                                   | Maximum recent sessions returned by the Copilot session explorer.                                 |
+| `bootui.copilot.stream-debounce`             | `400ms`                                 | Debounce window before refreshing parsed Copilot sessions and notifying stream subscribers.       |
 | `bootui.copilot.allow-raw-reveal`            | `true`                                  | Allows opt-in raw Copilot event JSON reveal on loopback.                                          |
 | `bootui.claude-code.enabled`                 | `AUTO`                                  | Enable the Claude Code panel when local Claude Code project logs exist.                           |
 | `bootui.claude-code.session-state-dir`       | `~/.claude/projects`                    | Directory scanned for Claude Code project JSONL logs.                                             |
+| `bootui.claude-code.max-events-per-session`  | `2000`                                  | Maximum Claude Code events retained per parsed session.                                           |
 | `bootui.claude-code.max-sessions`            | `100`                                   | Maximum recent sessions returned by the Claude Code session explorer.                             |
+| `bootui.claude-code.stream-debounce`         | `400ms`                                 | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.   |
 | `bootui.claude-code.allow-raw-reveal`        | `false`                                 | Allows opt-in raw Claude Code JSONL reveal; disabled by default because logs can include content. |
 
 ### 6.6 Security model
