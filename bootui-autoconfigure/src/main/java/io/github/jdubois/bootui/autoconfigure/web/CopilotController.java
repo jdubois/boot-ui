@@ -40,6 +40,9 @@ public class CopilotController {
     private final BootUiProperties properties;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
+    /** Upper bound on simultaneous activity streams; this is a local dev tool, not a fan-out hub. */
+    static final int MAX_CONCURRENT_STREAMS = 20;
+
     @Autowired
     public CopilotController(
             @Qualifier("bootUiCopilotSessionStore") ObjectProvider<CopilotSessionStore> storeProvider,
@@ -112,6 +115,10 @@ public class CopilotController {
     public SseEmitter stream() {
         CopilotSessionStore store = store();
         SseEmitter emitter = new SseEmitter(0L);
+        if (emitters.size() >= MAX_CONCURRENT_STREAMS) {
+            emitter.completeWithError(new IllegalStateException("Too many concurrent BootUI Copilot streams"));
+            return emitter;
+        }
         emitters.add(emitter);
 
         AtomicReference<Runnable> unsubscribeRef = new AtomicReference<>(() -> {});

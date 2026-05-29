@@ -20,6 +20,9 @@ public class LogTailController {
     private final BootUiLogAppender appender;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
+    /** Upper bound on simultaneous log-tail streams; this is a local dev tool, not a fan-out hub. */
+    static final int MAX_CONCURRENT_STREAMS = 20;
+
     public LogTailController() {
         this.appender = BootUiLogAppender.install();
     }
@@ -36,6 +39,10 @@ public class LogTailController {
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
         SseEmitter emitter = new SseEmitter(0L);
+        if (emitters.size() >= MAX_CONCURRENT_STREAMS) {
+            emitter.completeWithError(new IllegalStateException("Too many concurrent BootUI log-tail streams"));
+            return emitter;
+        }
         emitters.add(emitter);
 
         AtomicReference<Runnable> unsubscribeRef = new AtomicReference<>(() -> {});
