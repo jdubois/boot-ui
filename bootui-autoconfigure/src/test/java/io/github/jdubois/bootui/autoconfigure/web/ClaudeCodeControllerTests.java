@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.BootUiDtos.CopilotActivityEvent;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -87,6 +88,33 @@ class ClaudeCodeControllerTests {
                 .doesNotContain("SECRET_COMMAND")
                 .doesNotContain("SECRET_FILE")
                 .doesNotContain("SECRET_OUTPUT");
+    }
+
+    @Test
+    void refreshParsesOnlyMostRecentlyModifiedProjectSessions(@TempDir Path tempDir) throws Exception {
+        Path old = tempDir.resolve("project-one").resolve("session-old.jsonl");
+        Path middle = tempDir.resolve("project-one").resolve("session-middle.jsonl");
+        Path latest = tempDir.resolve("project-two").resolve("session-new.jsonl");
+        writeClaudeSession(old);
+        writeClaudeSession(middle);
+        writeClaudeSession(latest);
+        Files.setLastModifiedTime(old, FileTime.fromMillis(1));
+        Files.setLastModifiedTime(middle, FileTime.fromMillis(2));
+        Files.setLastModifiedTime(latest, FileTime.fromMillis(3));
+        BootUiProperties props = propertiesFor(tempDir);
+        props.getClaudeCode().setMaxSessions(10);
+        props.getClaudeCode().setMaxParsedSessions(1);
+        ClaudeCodeSessionStore store = storeFor(props);
+
+        var list = store.listSessions();
+        assertThat(list.total()).isEqualTo(1);
+        assertThat(list.returned()).isEqualTo(1);
+        assertThat(list.sessions()).extracting(summary -> summary.id()).containsExactly("session-new");
+        assertThat(list.warnings())
+                .containsExactly(
+                        "Loaded the 1 most recently modified Claude Code session files out of 3; increase bootui.claude-code.max-parsed-sessions to inspect older sessions.");
+        assertThat(store.getSession("session-old")).isNull();
+        assertThat(store.getSession("session-middle")).isNull();
     }
 
     @Test

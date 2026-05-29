@@ -93,6 +93,8 @@ class BootUiAutoConfigurationTests {
             assertThat(properties.getDevServices().isRestartEnabled()).isFalse();
             assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(64 * 1024);
             assertThat(properties.getCache().isClearEnabled()).isTrue();
+            assertThat(properties.getCopilot().getMaxParsedSessions()).isEqualTo(100);
+            assertThat(properties.getClaudeCode().getMaxParsedSessions()).isEqualTo(100);
         });
     }
 
@@ -113,7 +115,9 @@ class BootUiAutoConfigurationTests {
                         "bootui.cache.clear-enabled=false",
                         "bootui.dependencies.osv-enabled=false",
                         "bootui.dependencies.max-packages=42",
-                        "bootui.dependencies.max-advisories=24")
+                        "bootui.dependencies.max-advisories=24",
+                        "bootui.copilot.max-parsed-sessions=12",
+                        "bootui.claude-code.max-parsed-sessions=8")
                 .run(context -> {
                     BootUiProperties properties = context.getBean(BootUiProperties.class);
                     assertThat(properties.getPath()).isEqualTo("/admin");
@@ -130,6 +134,9 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
                     assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
                     assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
+                    assertThat(properties.getCopilot().getMaxParsedSessions()).isEqualTo(12);
+                    assertThat(properties.getClaudeCode().getMaxParsedSessions())
+                            .isEqualTo(8);
                 });
     }
 

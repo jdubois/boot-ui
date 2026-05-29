@@ -307,15 +307,16 @@ Added for the final `0.1.0` release after `0.1.0-alpha.5`:
 - **Copilot panel**. Reads the session directories and `events.jsonl` files that GitHub Copilot CLI writes under
   `~/.copilot/session-state/` and presents a sanitized activity dashboard: session count, total events, failures,
   24-hour and 7-day activity charts, event category mix, top tools, and model usage. The session explorer lets you
-  drill into individual sessions with a turn-by-turn story, recent events, and failure list. Raw event JSON is
-  opt-in and local-only. Live updates are pushed via SSE. Inspired by
+  drill into individual sessions with a turn-by-turn story, recent events, and failure list, while a configurable
+  parsed-session cap bounds heap usage for large local histories. Raw event JSON is opt-in and local-only. Live updates
+  are pushed via SSE. Inspired by
   [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control).
 - **Claude Code panel**. Reads Claude Code JSONL project logs under `~/.claude/projects/` and presents the same
   sanitized session dashboard shape for local Claude Code usage. Normal responses only expose tool names, categories,
   timestamps, model names, coarse status, and failure state; prompts, assistant text, tool inputs, command output, file
-  contents, and tool-result content stay out of the browser payload. Raw JSONL reveal is disabled by default because
-  Claude Code logs can inline sensitive local content, and the panel refreshes through bounded polling to handle
-  per-project subdirectories.
+  contents, and tool-result content stay out of the browser payload. A configurable parsed-session cap bounds heap usage
+  for large project-log directories. Raw JSONL reveal is disabled by default because Claude Code logs can inline
+  sensitive local content, and the panel refreshes through bounded polling to handle per-project subdirectories.
 
 Still excluded from the already released `0.1.0`:
 

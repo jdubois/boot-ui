@@ -581,6 +581,11 @@ public class BootUiProperties {
         private int maxSessions = 100;
 
         /**
+         * Maximum number of recent session files parsed and retained in memory.
+         */
+        private int maxParsedSessions = 100;
+
+        /**
          * Debounce window applied to file-system events before refreshing parsed sessions
          * and notifying SSE subscribers.
          */
@@ -606,6 +611,10 @@ public class BootUiProperties {
 
         public String getWatcherThreadName() {
             return "bootui-copilot-watcher";
+        }
+
+        public String maxParsedSessionsPropertyName() {
+            return "bootui.copilot.max-parsed-sessions";
         }
 
         public boolean isProjectSessionDirectoryLayout() {
@@ -642,6 +651,14 @@ public class BootUiProperties {
 
         public void setMaxSessions(int maxSessions) {
             this.maxSessions = maxSessions;
+        }
+
+        public int getMaxParsedSessions() {
+            return maxParsedSessions;
+        }
+
+        public void setMaxParsedSessions(int maxParsedSessions) {
+            this.maxParsedSessions = maxParsedSessions;
         }
 
         public Duration getStreamDebounce() {
@@ -692,6 +709,11 @@ public class BootUiProperties {
         @Override
         public String getWatcherThreadName() {
             return "bootui-claude-code-watcher";
+        }
+
+        @Override
+        public String maxParsedSessionsPropertyName() {
+            return "bootui.claude-code.max-parsed-sessions";
         }
 
         @Override
