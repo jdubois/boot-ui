@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, onMounted, reactive, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 
 const router = useRouter()
@@ -8,8 +8,22 @@ const overview = ref(null)
 const panels = ref(null)
 const error = ref(null)
 
+const semanticNavigationGroups = [
+  {key: 'runtime', title: 'Runtime', icon: 'bi-activity'},
+  {key: 'configuration', title: 'Configuration', icon: 'bi-sliders'},
+  {key: 'services', title: 'Services', icon: 'bi-hdd-network'},
+  {key: 'diagnostics', title: 'Diagnostics', icon: 'bi-search'},
+  {key: 'developer-tools', title: 'Developer tools', icon: 'bi-tools'}
+]
+const unavailableNavigationGroup = {
+  key: 'unavailable',
+  title: 'Disabled / unavailable',
+  icon: 'bi-slash-circle'
+}
 const routes = router.options.routes.filter((r) => r.name)
+const expandedGroups = reactive({runtime: true})
 const panelLookup = computed(() => new Map((panels.value?.panels ?? []).map((panel) => [panel.id, panel])))
+const activeRoute = computed(() => routes.find((r) => r.name === route.name))
 const activePanel = computed(() => (route.name ? panelLookup.value.get(route.name) : null))
 const activePanelUnavailable = computed(() => activePanel.value?.available === false)
 const activePanelUnavailableReason = computed(
@@ -30,6 +44,35 @@ const activationLabel = computed(() => {
   return overview.value.activation.enabled ? 'Active' : 'Disabled'
 })
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
+const navigationSections = computed(() => {
+  const sections = [
+    {
+      key: 'overview',
+      title: 'Overview',
+      collapsible: false,
+      routes: routes.filter((r) => r.meta?.group === 'overview')
+    }
+  ]
+
+  for (const group of semanticNavigationGroups) {
+    const groupRoutes = routes.filter((r) => r.meta?.group === group.key && !routeUnavailable(r))
+    if (groupRoutes.length) {
+      sections.push({...group, collapsible: true, unavailable: false, routes: groupRoutes})
+    }
+  }
+
+  const unavailableRoutes = routes.filter((r) => r.meta?.group !== 'overview' && routeUnavailable(r))
+  if (unavailableRoutes.length) {
+    sections.push({...unavailableNavigationGroup, collapsible: true, unavailable: true, routes: unavailableRoutes})
+  }
+
+  return sections
+})
+const activeNavigationGroupKey = computed(() => {
+  const currentRoute = activeRoute.value
+  if (!currentRoute || currentRoute.meta?.group === 'overview') return null
+  return routeUnavailable(currentRoute) ? unavailableNavigationGroup.key : currentRoute.meta?.group
+})
 
 async function loadOverview() {
   try {
@@ -71,6 +114,32 @@ function routeAvailabilityLabel(r) {
   return r.meta.title
 }
 
+function groupDomId(group) {
+  return `bootui-nav-group-${group.key}`
+}
+
+function groupHasActiveRoute(group) {
+  return group.routes.some((r) => r.name === route.name)
+}
+
+function isGroupExpanded(groupKey) {
+  return expandedGroups[groupKey] === true
+}
+
+function toggleGroup(groupKey) {
+  expandedGroups[groupKey] = !isGroupExpanded(groupKey)
+}
+
+watch(
+  activeNavigationGroupKey,
+  (groupKey) => {
+    if (groupKey) {
+      expandedGroups[groupKey] = true
+    }
+  },
+  {immediate: true}
+)
+
 onMounted(loadShellData)
 </script>
 
@@ -88,25 +157,64 @@ onMounted(loadShellData)
         </span>
       </router-link>
 
-      <nav class="nav nav-pills flex-column gap-1 sidebar-nav">
-        <router-link v-for="r in routes" :key="r.name" v-slot="{href, navigate}" :to="r.path" custom>
-          <a
-            :aria-current="route.name === r.name ? 'page' : undefined"
-            :aria-label="routeAvailabilityLabel(r)"
-            :class="{
-              active: route.name === r.name,
-              'bootui-nav-link--unavailable': routeUnavailable(r)
-            }"
-            :href="href"
-            :title="routeAvailabilityLabel(r)"
-            class="nav-link bootui-nav-link"
-            @click="navigate"
+      <nav aria-label="BootUI panels" class="nav nav-pills flex-column sidebar-nav">
+        <div
+          v-for="section in navigationSections"
+          :key="section.key"
+          :class="{
+            'bootui-nav-section--overview': !section.collapsible,
+            'bootui-nav-section--unavailable': section.unavailable
+          }"
+          class="bootui-nav-section"
+        >
+          <button
+            v-if="section.collapsible"
+            :aria-controls="groupDomId(section)"
+            :aria-expanded="isGroupExpanded(section.key)"
+            :class="{active: groupHasActiveRoute(section)}"
+            class="bootui-nav-group__toggle"
+            type="button"
+            @click="toggleGroup(section.key)"
           >
-            <i :class="['bi', r.meta.icon]"></i>
-            <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
-            <i v-if="routeUnavailable(r)" aria-hidden="true" class="bi bi-slash-circle bootui-nav-link__status"></i>
-          </a>
-        </router-link>
+            <span class="bootui-nav-group__label">
+              <i :class="['bi', section.icon]"></i>
+              <span>{{ section.title }}</span>
+            </span>
+            <span class="bootui-nav-group__count">{{ section.routes.length }}</span>
+            <i
+              :class="['bi', isGroupExpanded(section.key) ? 'bi-chevron-up' : 'bi-chevron-down']"
+              aria-hidden="true"
+              class="bootui-nav-group__chevron"
+            ></i>
+          </button>
+
+          <div
+            v-show="!section.collapsible || isGroupExpanded(section.key)"
+            :id="groupDomId(section)"
+            :aria-label="`${section.title} panels`"
+            class="bootui-nav-group__items"
+            role="group"
+          >
+            <router-link v-for="r in section.routes" :key="r.name" v-slot="{href, navigate}" :to="r.path" custom>
+              <a
+                :aria-current="route.name === r.name ? 'page' : undefined"
+                :aria-label="routeAvailabilityLabel(r)"
+                :class="{
+                  active: route.name === r.name,
+                  'bootui-nav-link--unavailable': routeUnavailable(r)
+                }"
+                :href="href"
+                :title="routeAvailabilityLabel(r)"
+                class="nav-link bootui-nav-link"
+                @click="navigate"
+              >
+                <i :class="['bi', r.meta.icon]"></i>
+                <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+                <i v-if="routeUnavailable(r)" aria-hidden="true" class="bi bi-slash-circle bootui-nav-link__status"></i>
+              </a>
+            </router-link>
+          </div>
+        </div>
       </nav>
 
       <div class="sidebar-bottom mt-auto">
@@ -322,6 +430,7 @@ onMounted(loadShellData)
 
 .sidebar-nav {
   animation: fade-up 420ms ease both;
+  gap: 0.45rem;
 }
 
 .eyebrow {
@@ -344,6 +453,90 @@ onMounted(loadShellData)
     background 160ms ease,
     color 160ms ease,
     transform 160ms ease;
+}
+
+.bootui-nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.bootui-nav-section:not(.bootui-nav-section--overview) .bootui-nav-group__items {
+  border-left: 1px solid rgba(100, 116, 139, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-left: 0.85rem;
+  padding-left: 0.5rem;
+}
+
+.bootui-nav-group__items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.bootui-nav-group__toggle {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 0.9rem;
+  color: #64748b;
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 0.45rem;
+  letter-spacing: 0.06em;
+  padding: 0.56rem 0.7rem;
+  text-align: left;
+  text-transform: uppercase;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+  width: 100%;
+}
+
+.bootui-nav-group__toggle:hover,
+.bootui-nav-group__toggle.active {
+  background: rgba(25, 135, 84, 0.08);
+  border-color: rgba(25, 135, 84, 0.18);
+  color: #146c43;
+  transform: translateX(2px);
+}
+
+.bootui-nav-group__label {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.bootui-nav-group__count {
+  background: rgba(100, 116, 139, 0.1);
+  border-radius: 999px;
+  color: #64748b;
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 0.22rem 0.42rem;
+}
+
+.bootui-nav-group__chevron {
+  font-size: 0.8rem;
+}
+
+.bootui-nav-section--unavailable .bootui-nav-group__toggle {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(100, 116, 139, 0.12);
+  color: #94a3b8;
+  opacity: 0.72;
+}
+
+.bootui-nav-section--unavailable .bootui-nav-group__count {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
 }
 
 .bootui-nav-link:hover {

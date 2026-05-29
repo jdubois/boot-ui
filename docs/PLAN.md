@@ -95,7 +95,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 ## 3. Milestone status
 
 | Milestone                                | Status                                   | Notes                                                                                                                                                                                                                                                   |
-|------------------------------------------|------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ---------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0. Project foundation                    | Done                                     | Multi-module build, Java/Spring baseline, sample app, docs, and CI exist.                                                                                                                                                                               |
 | 1. Auto-configuration and safety         | Implemented and covered                  | Activation, auto-configuration, localhost filter, banner, and overview API exist. Activation, localhost behavior, and fail-closed edge cases have focused tests.                                                                                        |
 | 2. Static UI shell                       | Implemented and smoke-tested             | Vue shell, Maven frontend build, classpath packaging, and routes exist; Playwright verifies sidebar navigation across every visible section.                                                                                                            |
@@ -146,32 +146,15 @@ Future backend test work should be incremental and tied to new or changed behavi
 
 ### 4.2 UI and product parity status
 
-The visible-route parity check is current. On 2026-05-28, the sample-app Playwright suite passed all 57 tests, covering:
+The visible-route parity check is current. The sample-app Playwright suite covers the grouped navigation order:
 
 1. Overview.
-2. Startup Timeline.
-3. Memory.
-4. Health.
-5. Metrics.
-6. Conditions.
-7. Beans.
-8. Mappings.
-9. Configuration.
-10. Profile Diff.
-11. Loggers.
-12. Log Tail.
-13. Traces.
-14. HTTP Probe.
-15. Copilot.
-16. Claude Code.
-17. DevTools.
-18. Dev Services.
-19. Scheduled Tasks.
-20. Data.
-21. Cache.
-22. AI Usage.
-23. Security.
-24. Vulnerabilities.
+2. Runtime: Health, Metrics, Memory, Startup Timeline, Scheduled Tasks.
+3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
+4. Services: Data, Cache, Security, AI Usage.
+5. Diagnostics: Traces, Log Tail, HTTP Probe, Vulnerabilities.
+6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
+7. Disabled / unavailable grouping for unavailable non-overview panels.
 
 Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code,
 Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app
@@ -183,9 +166,9 @@ Mappings, Configuration, and Loggers request bounded server-side pages with filt
 already returned by the API.
 
 Optional UI gating is complete for the visible route set (v0.2, 2026-05-28). `/bootui/api/panels` reports classpath,
-endpoint, and configuration availability for each sidebar route. The Vue shell keeps routes visible, dims unavailable
-links, exposes the reason through accessible labels/tooltips, and shows a page-level unavailable-state banner when a
-dimmed panel is opened.
+endpoint, and configuration availability for each sidebar route. The Vue shell keeps routes reachable, moves unavailable
+non-overview panels into a collapsed Disabled / unavailable group, dims unavailable links, exposes the reason through
+accessible labels/tooltips, and shows a page-level unavailable-state banner when a dimmed panel is opened.
 
 Frontend unit test setup is complete for v0.2. The Vue app now uses Vitest with Vue Test Utils and jsdom for fast
 component/composable coverage that complements the browser-level Playwright suite.
@@ -259,11 +242,11 @@ Manual smoke checks:
 
 The codebase contains more than the original v0.1 MVP. The first alpha used this release strategy:
 
-| Strategy                       | Scope                                                                                                                                         | Trade-off                                                                                        |
-|--------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| Strategy                       | Scope                                                                                                                                         | Trade-off                                                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Harden all visible panels      | Ship every current route as supported alpha functionality.                                                                                    | Delivered for `0.1.0-alpha.1` and extended through `0.1.0-alpha.5`; keep focused backend tests, docs, and release validation current. |
-| Mark newer panels experimental | Keep all routes visible but clearly label Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations.                                                  |
-| Hide unfinished panels         | Only expose the original MVP routes plus any fully hardened additions.                                                                        | Safest alpha surface, but requires UI gating work.                                               |
+| Mark newer panels experimental | Keep all routes visible but clearly label Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations.                                                                                       |
+| Hide unfinished panels         | Only expose the original MVP routes plus any fully hardened additions.                                                                        | Safest alpha surface, but requires UI gating work.                                                                                    |
 
 Delivered alpha stance: **harden all visible panels**.
 
@@ -497,7 +480,7 @@ Before future alphas, rerun this checklist after any release-facing code or docu
 ## 11. Risks
 
 | Risk                                 | Impact | Mitigation                                                                                                                                                         |
-|--------------------------------------|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Accidentally exposing sensitive data | High   | Localhost-only, dev-only activation, secret masking, value exposure controls, production fail-closed defaults, and focused tests for every panel surfacing values. |
 | Regressing visible panel hardening   | High   | Keep the current route set as the supported alpha surface, and require focused tests, docs, and release validation for release-facing changes.                     |
 | Actuator endpoints unavailable       | Medium | Internal bridge, stable empty DTOs, graceful UI states, setup guidance.                                                                                            |
