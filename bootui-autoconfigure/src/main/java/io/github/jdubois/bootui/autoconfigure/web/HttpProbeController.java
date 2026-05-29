@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,6 +24,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class HttpProbeController {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+
+    /**
+     * Hop-by-hop and connection-management headers that the {@link HttpClient}
+     * manages itself. The JDK rejects attempts to set these, so a probe that
+     * forwarded them verbatim would fail with an opaque error; they are stripped
+     * instead so the rest of the request still goes through.
+     */
+    private static final Set<String> RESTRICTED_HEADERS = Set.of(
+            "host",
+            "connection",
+            "content-length",
+            "expect",
+            "upgrade",
+            "transfer-encoding",
+            "proxy-connection",
+            "keep-alive",
+            "te");
 
     private final Environment environment;
 
@@ -40,9 +58,6 @@ public class HttpProbeController {
         String method = normalizeMethod(request == null ? null : request.method());
         String path = normalizePath(request == null ? null : request.path());
         String url = "http://localhost:" + resolveServerPort() + path;
-        if (!url.startsWith("http://localhost:") && !url.startsWith("http://127.0.0.1:")) {
-            return new HttpProbeResponse(0, "Forbidden", Map.of(), null, 0, "Only loopback probes allowed");
-        }
 
         try {
             HttpRequest.Builder builder =
@@ -78,6 +93,9 @@ public class HttpProbeController {
         }
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            if (RESTRICTED_HEADERS.contains(entry.getKey().trim().toLowerCase(Locale.ROOT))) {
                 continue;
             }
             builder.header(entry.getKey(), entry.getValue());

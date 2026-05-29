@@ -279,6 +279,37 @@ class HttpProbeControllerTests {
                 .andExpect(jsonPath("$.durationMs").isNumber());
     }
 
+    // ── request header handling ───────────────────────────────────────────────
+
+    @Test
+    void forwardsCustomRequestHeadersAndStripsRestrictedOnes() throws Exception {
+        server.createContext("/echo-headers", exchange -> {
+            String custom = exchange.getRequestHeaders().getFirst("X-Custom");
+            String host = exchange.getRequestHeaders().getFirst("Host");
+            String body = "custom=" + custom + ";host=" + host;
+            byte[] bytes = body.getBytes();
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        MockMvc mvc = buildMvc();
+
+        var headers = new java.util.LinkedHashMap<String, String>();
+        headers.put("X-Custom", "forwarded");
+        headers.put("Host", "evil.example.com");
+
+        mvc.perform(post("/bootui/api/probe")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toJson(new HttpProbeRequest("GET", "/echo-headers", null, headers))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                // custom header forwarded; the spoofed Host is stripped so it never reaches the target
+                .andExpect(jsonPath("$.body").value(org.hamcrest.Matchers.containsString("custom=forwarded")))
+                .andExpect(jsonPath("$.body")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.containsString("host=evil.example.com"))));
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private MockMvc buildMvc() {
