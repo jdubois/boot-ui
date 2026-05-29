@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -84,6 +86,10 @@ public class BootUiProperties {
      * Copilot panel settings.
      */
     private Copilot copilot = new Copilot();
+    /**
+     * Claude Code panel settings.
+     */
+    private ClaudeCode claudeCode = new ClaudeCode();
 
     public Mode getEnabled() {
         return enabled;
@@ -227,6 +233,14 @@ public class BootUiProperties {
 
     public void setCopilot(Copilot copilot) {
         this.copilot = copilot;
+    }
+
+    public ClaudeCode getClaudeCode() {
+        return claudeCode;
+    }
+
+    public void setClaudeCode(ClaudeCode claudeCode) {
+        this.claudeCode = claudeCode;
     }
 
     /**
@@ -522,6 +536,26 @@ public class BootUiProperties {
          */
         private boolean allowRawReveal = true;
 
+        public Path defaultSessionStateDir() {
+            return Paths.get(System.getProperty("user.home", ""), ".copilot", "session-state");
+        }
+
+        public String getPanelTitle() {
+            return "Copilot";
+        }
+
+        public String getSessionSourceName() {
+            return "Copilot CLI";
+        }
+
+        public String getWatcherThreadName() {
+            return "bootui-copilot-watcher";
+        }
+
+        public boolean isProjectSessionDirectoryLayout() {
+            return false;
+        }
+
         public Mode getEnabled() {
             return enabled;
         }
@@ -568,6 +602,45 @@ public class BootUiProperties {
 
         public void setAllowRawReveal(boolean allowRawReveal) {
             this.allowRawReveal = allowRawReveal;
+        }
+    }
+
+    /**
+     * Claude Code panel settings.
+     *
+     * <p>The Claude Code panel reads sanitized JSONL session logs written by the
+     * local Claude Code CLI under {@code ~/.claude/projects/}. It is read-only and
+     * never modifies anything under that directory.</p>
+     */
+    public static class ClaudeCode extends Copilot {
+
+        public ClaudeCode() {
+            setAllowRawReveal(false);
+        }
+
+        @Override
+        public Path defaultSessionStateDir() {
+            return Paths.get(System.getProperty("user.home", ""), ".claude", "projects");
+        }
+
+        @Override
+        public String getPanelTitle() {
+            return "Claude Code";
+        }
+
+        @Override
+        public String getSessionSourceName() {
+            return "Claude Code";
+        }
+
+        @Override
+        public String getWatcherThreadName() {
+            return "bootui-claude-code-watcher";
+        }
+
+        @Override
+        public boolean isProjectSessionDirectoryLayout() {
+            return true;
         }
     }
 }

@@ -34,6 +34,7 @@ const panelOrder = [
   ['traces', 'Traces'],
   ['http-probe', 'HTTP Probe'],
   ['copilot', 'Copilot'],
+  ['claude-code', 'Claude Code'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['scheduled', 'Scheduled Tasks'],
@@ -1140,6 +1141,16 @@ const screenshots = [
       await page.getByText('Updated docs and screenshot script').waitFor()
     }
   ],
+  [
+    'claude-code',
+    'Claude Code',
+    'bootui-claude-code.png',
+    async (page) => {
+      await page.getByText('Claude Code activity overview').waitFor()
+      await page.getByText(claudeCodeSessionId).first().click()
+      await page.getByText('FILE_EDIT · MultiEdit refactor').first().waitFor()
+    }
+  ],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
@@ -1158,6 +1169,219 @@ const screenshots = [
   ['security', 'Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')]
 ]
+
+const claudeCodeSessionId = '4f7c5b8a-9d3e-42a1-b07c-1e9d4af86c11'
+const claudeCodeSession2Id = '2b3a16f0-77c8-4d9a-9e21-58aa3eb1d6c4'
+const claudeCodeProjectSlug = '-workspace-BootUI-jdubois-laughing-succotash'
+
+const claudeCodeDashboard = {
+  available: true,
+  unavailableReason: null,
+  sessionStateDir: '~/.claude/projects',
+  sessionCount: 18,
+  eventCount: 1264,
+  turnCount: 247,
+  errorCount: 3,
+  activeLast24Hours: 2,
+  activeLast7Days: 9,
+  sessionsWithSchemaDrift: 0,
+  lastActivityEpochMillis: nowMillis - 6 * 60 * 1000,
+  categoryCounts: [
+    {label: 'FILE_EDIT', count: 318},
+    {label: 'FILE_READ', count: 281},
+    {label: 'SEARCH', count: 196},
+    {label: 'SHELL', count: 152},
+    {label: 'WEB', count: 64},
+    {label: 'MCP', count: 38},
+    {label: 'ASK', count: 27},
+    {label: 'SKILL', count: 14},
+    {label: 'OTHER', count: 174}
+  ],
+  modelCounts: [
+    {label: 'claude-sonnet-4-20250514', count: 14},
+    {label: 'claude-opus-4-1-20250915', count: 4}
+  ],
+  topTools: [
+    {label: 'Edit', count: 248},
+    {label: 'Read', count: 281},
+    {label: 'Bash', count: 152},
+    {label: 'Grep', count: 124},
+    {label: 'Glob', count: 72}
+  ],
+  otherToolEventCount: 387,
+  activityBuckets: Array.from({length: 24}, (_, i) => {
+    const hour = i
+    const base = [0, 0, 0, 0, 0, 0, 0, 0, 12, 36, 58, 74, 41, 0, 0, 0, 0, 22, 64, 96, 82, 51, 27, 8][i]
+    return {
+      startEpochMillis: nowMillis - (23 - i) * 3600 * 1000,
+      endEpochMillis: nowMillis - (22 - i) * 3600 * 1000,
+      eventCount: base + Math.round(hour * 0.3),
+      errorCount: base > 0 ? Math.min(1, Math.floor(base * 0.015)) : 0
+    }
+  }),
+  dailyActivityBuckets: Array.from({length: 7}, (_, i) => ({
+    startEpochMillis: nowMillis - (6 - i) * 86400 * 1000,
+    endEpochMillis: nowMillis - (5 - i) * 86400 * 1000,
+    eventCount: [0, 28, 167, 241, 142, 312, 482][i],
+    errorCount: [0, 0, 0, 1, 0, 1, 1][i]
+  })),
+  recentSessions: [
+    {
+      id: claudeCodeSessionId,
+      filename: `${claudeCodeProjectSlug}/${claudeCodeSessionId}.jsonl`,
+      startedAtEpochMillis: nowMillis - 38 * 60 * 1000,
+      updatedAtEpochMillis: nowMillis - 6 * 60 * 1000,
+      model: 'claude-sonnet-4-20250514',
+      workingDirectory: '/workspace/BootUI/jdubois-laughing-succotash',
+      status: 'active',
+      eventCount: 214,
+      turnCount: 36,
+      errorCount: 0,
+      lastActivitySummary: 'FILE_EDIT · MultiEdit refactor',
+      schemaDrift: false
+    },
+    {
+      id: claudeCodeSession2Id,
+      filename: `-workspace-BootUI-jdubois-crispy-broccoli/${claudeCodeSession2Id}.jsonl`,
+      startedAtEpochMillis: nowMillis - 2.7 * 3600 * 1000,
+      updatedAtEpochMillis: nowMillis - 2.2 * 3600 * 1000,
+      model: 'claude-opus-4-1-20250915',
+      workingDirectory: '/workspace/BootUI/jdubois-crispy-broccoli',
+      status: 'complete',
+      eventCount: 154,
+      turnCount: 23,
+      errorCount: 1,
+      lastActivitySummary: 'SHELL · Bash · failed',
+      schemaDrift: false
+    }
+  ],
+  warnings: []
+}
+
+const claudeCodeSessions = {
+  available: true,
+  unavailableReason: null,
+  sessionStateDir: '~/.claude/projects',
+  total: 18,
+  returned: 18,
+  maxSessions: 100,
+  sessions: claudeCodeDashboard.recentSessions,
+  warnings: []
+}
+
+const claudeCodeSessionDetail = {
+  summary: claudeCodeDashboard.recentSessions[0],
+  counts: {
+    total: 214,
+    byCategory: {
+      FILE_EDIT: 58,
+      FILE_READ: 51,
+      SEARCH: 36,
+      SHELL: 29,
+      WEB: 12,
+      MCP: 8,
+      ASK: 6,
+      SKILL: 4,
+      OTHER: 10
+    },
+    errors: 0,
+    lastActivityEpochMillis: nowMillis - 6 * 60 * 1000
+  },
+  turns: [
+    {
+      index: 0,
+      startedAtEpochMillis: nowMillis - 38 * 60 * 1000,
+      durationMillis: 9800,
+      summary: 'Exploring project structure with Glob',
+      eventCount: 11
+    },
+    {
+      index: 1,
+      startedAtEpochMillis: nowMillis - 32 * 60 * 1000,
+      durationMillis: 21400,
+      summary: 'Reading source files: CopilotSessionStore, BootUiProperties',
+      eventCount: 19
+    },
+    {
+      index: 2,
+      startedAtEpochMillis: nowMillis - 22 * 60 * 1000,
+      durationMillis: 48700,
+      summary: 'Refactor to AgentSessionStore with Edit and MultiEdit',
+      eventCount: 27
+    },
+    {
+      index: 3,
+      startedAtEpochMillis: nowMillis - 8 * 60 * 1000,
+      durationMillis: 14600,
+      summary: 'Running ./mvnw test to verify the refactor',
+      eventCount: 16
+    }
+  ],
+  recentEvents: [
+    {
+      id: 'toolu_01',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 11 * 60 * 1000,
+      type: 'tool_use',
+      toolName: 'Read',
+      category: 'FILE_READ',
+      summary: 'FILE_READ · Read',
+      success: true
+    },
+    {
+      id: 'toolu_02',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 10 * 60 * 1000,
+      type: 'tool_use',
+      toolName: 'Grep',
+      category: 'SEARCH',
+      summary: 'SEARCH · Grep',
+      success: true
+    },
+    {
+      id: 'toolu_03',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 9 * 60 * 1000,
+      type: 'tool_use',
+      toolName: 'Edit',
+      category: 'FILE_EDIT',
+      summary: 'FILE_EDIT · Edit',
+      success: true
+    },
+    {
+      id: 'toolu_04',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 8 * 60 * 1000,
+      type: 'tool_use',
+      toolName: 'MultiEdit',
+      category: 'FILE_EDIT',
+      summary: 'FILE_EDIT · MultiEdit',
+      success: true
+    },
+    {
+      id: 'toolu_05',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 7 * 60 * 1000,
+      type: 'tool_use',
+      toolName: 'Bash',
+      category: 'SHELL',
+      summary: 'SHELL · Bash',
+      success: true
+    },
+    {
+      id: 'toolu_06',
+      turnIndex: 3,
+      timestampEpochMillis: nowMillis - 6 * 60 * 1000,
+      type: 'tool_result',
+      toolName: 'Bash',
+      category: 'SHELL',
+      summary: 'SHELL · Bash',
+      success: true
+    }
+  ],
+  failureEvents: [],
+  warnings: []
+}
 
 let viteProcess
 let browser
@@ -1354,6 +1578,35 @@ async function handleApiRoute(route) {
       total: copilotSessionDetail.recentEvents.length,
       returned: copilotSessionDetail.recentEvents.length,
       events: copilotSessionDetail.recentEvents
+    })
+  if (endpoint === 'claude-code/dashboard') return fulfillJson(route, claudeCodeDashboard)
+  if (endpoint === 'claude-code/sessions') return fulfillJson(route, claudeCodeSessions)
+  if (endpoint === `claude-code/sessions/${claudeCodeSessionId}`) return fulfillJson(route, claudeCodeSessionDetail)
+  if (endpoint === `claude-code/sessions/${claudeCodeSession2Id}`)
+    return fulfillJson(route, {
+      ...claudeCodeSessionDetail,
+      summary: claudeCodeDashboard.recentSessions[1],
+      counts: {...claudeCodeSessionDetail.counts, total: 154, errors: 1},
+      recentEvents: claudeCodeSessionDetail.recentEvents.slice(0, 3),
+      failureEvents: [
+        {
+          id: 'toolu_fail_01',
+          turnIndex: 2,
+          timestampEpochMillis: nowMillis - 2.3 * 3600 * 1000,
+          type: 'tool_result',
+          toolName: 'Bash',
+          category: 'SHELL',
+          summary: 'SHELL · Bash · failed',
+          success: false
+        }
+      ]
+    })
+  if (endpoint.startsWith('claude-code/sessions/') && endpoint.endsWith('/events'))
+    return fulfillJson(route, {
+      sessionId: claudeCodeSessionId,
+      total: claudeCodeSessionDetail.recentEvents.length,
+      returned: claudeCodeSessionDetail.recentEvents.length,
+      events: claudeCodeSessionDetail.recentEvents
     })
   if (endpoint === 'devtools') return fulfillJson(route, devTools)
   if (endpoint === 'dev-services') return fulfillJson(route, devServices)

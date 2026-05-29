@@ -841,6 +841,8 @@ Initial endpoints:
 | `/bootui/api/security`                  | GET    | Spring Security filter chain report                                      |
 | `/bootui/api/security/explain`          | GET    | Best-effort chain match for a method/path                                |
 | `/bootui/api/security/endpoints`        | GET    | Best-effort per-endpoint authorization report                            |
+| `/bootui/api/copilot/**`                | GET    | Sanitized GitHub Copilot CLI session dashboard, explorer, raw reveal, SSE |
+| `/bootui/api/claude-code/**`            | GET    | Sanitized Claude Code project-log dashboard, explorer, raw reveal, SSE   |
 
 ### 6.5 Configuration properties
 
@@ -882,6 +884,14 @@ Initial properties:
 | `bootui.ai.token-series-minutes`             | `60`                                    | Default token-usage chart window for the AI Usage panel, capped by the API.                     |
 | `bootui.ai.max-recent-chats`                 | `100`                                   | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API.                     |
 | `bootui.ai.show-content-capture-banner`      | `true`                                  | Shows guidance when Spring AI prompt/completion content is not captured in spans.               |
+| `bootui.copilot.enabled`                     | `AUTO`                                  | Enable the Copilot panel when local Copilot CLI session state exists.                           |
+| `bootui.copilot.session-state-dir`           | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.                 |
+| `bootui.copilot.max-sessions`                | `100`                                   | Maximum recent sessions returned by the Copilot session explorer.                               |
+| `bootui.copilot.allow-raw-reveal`            | `true`                                  | Allows opt-in raw Copilot event JSON reveal on loopback.                                        |
+| `bootui.claude-code.enabled`                 | `AUTO`                                  | Enable the Claude Code panel when local Claude Code project logs exist.                         |
+| `bootui.claude-code.session-state-dir`       | `~/.claude/projects`                    | Directory scanned for Claude Code project JSONL logs.                                           |
+| `bootui.claude-code.max-sessions`            | `100`                                   | Maximum recent sessions returned by the Claude Code session explorer.                           |
+| `bootui.claude-code.allow-raw-reveal`        | `false`                                 | Allows opt-in raw Claude Code JSONL reveal; disabled by default because logs can include content. |
 
 ### 6.6 Security model
 
@@ -932,6 +942,8 @@ Top-level tabs:
 - Log Tail.
 - Traces.
 - HTTP Probe.
+- Copilot.
+- Claude Code.
 - DevTools.
 - Dev Services.
 - Scheduled Tasks.
@@ -1022,8 +1034,8 @@ BootUI v0.1 is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile
-  Diff, Loggers, Log Tail, Traces, HTTP Probe, DevTools, Dev Services, Scheduled Tasks, Data, Cache, AI Usage, Security,
-  and Vulnerabilities.
+  Diff, Loggers, Log Tail, Traces, HTTP Probe, Copilot, Claude Code, DevTools, Dev Services, Scheduled Tasks, Data,
+  Cache, AI Usage, Security, and Vulnerabilities.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

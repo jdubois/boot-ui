@@ -35,6 +35,7 @@ for explanations and screenshots for every panel.
 | [Traces](docs/FEATURES.md#traces)                     | Inspect distributed tracing spans collected by the embedded OTLP receiver with a per-trace waterfall view. |
 | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                   |
 | [Copilot](docs/FEATURES.md#copilot)                   | Dashboard sanitized local GitHub Copilot CLI sessions: activity trends, tool mix, MCP, hooks, skills, errors. |
+| [Claude Code](docs/FEATURES.md#claude-code)           | Dashboard sanitized local Claude Code project logs: activity trends, tool mix, models, and failures.       |
 | [DevTools](docs/FEATURES.md#devtools)                 | Check Spring Boot DevTools status, LiveReload availability, and restart controls.                          |
 | [Dev Services](docs/FEATURES.md#dev-services)         | Inspect Docker Compose snapshots, safe Testcontainers beans, service connection metadata, and bounded logs. |
 | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)   | View registered scheduled tasks and their trigger metadata.                                                |
@@ -115,6 +116,10 @@ Common properties:
 | `bootui.copilot.session-state-dir`    | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.          |
 | `bootui.copilot.max-sessions`         | `100`                                   | Maximum recent sessions returned by the Copilot session explorer.                        |
 | `bootui.copilot.allow-raw-reveal`     | `true`                                  | When `false`, the opt-in raw-event reveal endpoint returns 404 even on loopback.         |
+| `bootui.claude-code.enabled`          | `AUTO`                                  | Enable the Claude Code panel. `AUTO` activates when `~/.claude/projects/` exists.        |
+| `bootui.claude-code.session-state-dir` | `~/.claude/projects`                    | Directory scanned for Claude Code project JSONL logs.                                    |
+| `bootui.claude-code.max-sessions`     | `100`                                   | Maximum recent sessions returned by the Claude Code session explorer.                    |
+| `bootui.claude-code.allow-raw-reveal` | `false`                                 | Explicitly enable raw JSONL reveal; raw Claude Code logs can include prompts and output. |
 
 ## Runtime overrides
 

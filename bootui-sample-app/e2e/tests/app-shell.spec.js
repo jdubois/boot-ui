@@ -75,6 +75,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Traces', heading: /^Traces/},
       {title: 'HTTP Probe', heading: /HTTP Probe/},
       {title: 'Copilot', heading: /^Copilot/},
+      {title: 'Claude Code', heading: /^Claude Code/},
       {title: 'DevTools', heading: /^DevTools/},
       {title: 'Dev Services', heading: /^Dev Services/},
       {title: 'Scheduled Tasks', heading: /Scheduled Tasks/},

@@ -58,6 +58,7 @@ import org.springframework.core.env.Environment;
     AiController.class,
     OtlpReceiverController.class,
     CopilotController.class,
+    ClaudeCodeController.class,
     BootUiIndexController.class
 })
 public class BootUiAutoConfiguration {
@@ -107,6 +108,17 @@ public class BootUiAutoConfiguration {
         io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore store =
                 new io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore(properties.getCopilot());
         if (properties.getCopilot().getEnabled() != BootUiProperties.Mode.OFF) {
+            store.start();
+        }
+        return store;
+    }
+
+    @Bean(destroyMethod = "stop")
+    public io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore bootUiClaudeCodeSessionStore(
+            BootUiProperties properties) {
+        io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore store =
+                new io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore(properties.getClaudeCode());
+        if (properties.getClaudeCode().getEnabled() != BootUiProperties.Mode.OFF) {
             store.start();
         }
         return store;

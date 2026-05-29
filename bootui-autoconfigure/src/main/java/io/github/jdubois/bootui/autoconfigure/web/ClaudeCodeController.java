@@ -21,24 +21,18 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * REST endpoints backing the BootUI Copilot panel.
- *
- * <p>Read-only by design. The default response payload contains only allowlisted,
- * sanitized fields - never raw prompts, tool arguments, command output, or diffs.
- * The {@code /raw} endpoint is the single opt-in escape hatch for inspecting the
- * source JSON locally, and is gated by {@code bootui.copilot.allow-raw-reveal} and
- * the existing {@code bootui.expose-values} setting.</p>
+ * REST endpoints backing the BootUI Claude Code panel.
  */
 @RestController
-@RequestMapping("/bootui/api/copilot")
-public class CopilotController {
+@RequestMapping("/bootui/api/claude-code")
+public class ClaudeCodeController {
 
-    private final CopilotSessionStore store;
+    private final ClaudeCodeSessionStore store;
     private final BootUiProperties properties;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
-    public CopilotController(
-            @Qualifier("bootUiCopilotSessionStore") CopilotSessionStore store, BootUiProperties properties) {
+    public ClaudeCodeController(
+            @Qualifier("bootUiClaudeCodeSessionStore") ClaudeCodeSessionStore store, BootUiProperties properties) {
         this.store = store;
         this.properties = properties;
     }

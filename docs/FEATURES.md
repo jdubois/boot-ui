@@ -147,6 +147,22 @@ Copilot CLI session state.
 
 ![BootUI Copilot panel](images/bootui-copilot.png)
 
+## Claude Code
+
+The Claude Code panel mirrors the Copilot dashboard for local
+[Claude Code](https://www.anthropic.com/claude-code) project logs. It reads JSONL session files under
+`~/.claude/projects/` (configurable via `bootui.claude-code.session-state-dir`) and surfaces sanitized activity trends,
+tool usage, model usage, failures, recent sessions, and per-session event drill-downs. BootUI treats Claude Code logs as
+especially sensitive: prompts, assistant text, tool inputs, file contents, command output, and tool-result content are
+excluded from normal responses. The raw JSONL reveal endpoint is disabled by default with
+`bootui.claude-code.allow-raw-reveal=false`; enabling it is an explicit local-only escape hatch and is still blocked when
+`bootui.expose-values=METADATA_ONLY`. The sidebar dims the panel when no Claude Code projects directory is found. Data is
+read-only - BootUI never modifies anything under `~/.claude/`. Because Claude Code writes sessions inside per-project
+subdirectories, BootUI refreshes this panel through bounded polling rather than relying on root-directory file-system
+events.
+
+![BootUI Claude Code panel](images/bootui-claude-code.png)
+
 ## DevTools
 
 The DevTools panel reports Spring Boot DevTools availability, LiveReload status, and restart support. Restart actions

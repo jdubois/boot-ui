@@ -89,7 +89,16 @@ public class PanelsController {
                         classPresent("ch.qos.logback.classic.Logger"),
                         "Logback not on the classpath"),
                 panel("http-probe", "HTTP Probe", true, null),
-                panel("copilot", "Copilot", copilotAvailable(), copilotUnavailableReason()),
+                panel(
+                        "copilot",
+                        "Copilot",
+                        cliSessionPanelAvailable(properties.getCopilot()),
+                        cliSessionUnavailableReason(properties.getCopilot())),
+                panel(
+                        "claude-code",
+                        "Claude Code",
+                        cliSessionPanelAvailable(properties.getClaudeCode()),
+                        cliSessionUnavailableReason(properties.getClaudeCode())),
                 panel("devtools", "DevTools", devToolsPresent(), "Spring Boot DevTools not on the classpath"),
                 panel(
                         "dev-services",
@@ -167,19 +176,19 @@ public class PanelsController {
         return "Spring AI ChatClient is not on the classpath";
     }
 
-    private boolean copilotAvailable() {
-        if (properties.getCopilot().getEnabled() == BootUiProperties.Mode.OFF) {
+    private boolean cliSessionPanelAvailable(BootUiProperties.Copilot settings) {
+        if (settings.getEnabled() == BootUiProperties.Mode.OFF) {
             return false;
         }
-        java.nio.file.Path dir = CopilotSessionStore.resolveDir(properties.getCopilot());
+        java.nio.file.Path dir = AgentSessionStore.resolveDir(settings);
         return java.nio.file.Files.isDirectory(dir);
     }
 
-    private String copilotUnavailableReason() {
-        if (properties.getCopilot().getEnabled() == BootUiProperties.Mode.OFF) {
-            return "Copilot panel is disabled via configuration";
+    private String cliSessionUnavailableReason(BootUiProperties.Copilot settings) {
+        if (settings.getEnabled() == BootUiProperties.Mode.OFF) {
+            return settings.getPanelTitle() + " panel is disabled via configuration";
         }
-        return "Copilot CLI session-state directory not found at "
-                + CopilotSessionStore.resolveDir(properties.getCopilot());
+        return settings.getSessionSourceName() + " session directory not found at "
+                + AgentSessionStore.resolveDir(settings);
     }
 }
