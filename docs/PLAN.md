@@ -317,13 +317,12 @@ Added for the final `0.1.0` release after `0.1.0-alpha.5`:
   Claude Code logs can inline sensitive local content, and the panel refreshes through bounded polling to handle
   per-project subdirectories.
 
-Still excluded:
+Still excluded from the already released `0.1.0`:
 
 - Live Docker Compose lifecycle control beyond the existing snapshot view.
 - Production-grade tracing or APM replacement. The OTLP receiver is dev-only and bounded in memory.
 - Request history.
-- Extension SPI.
-- CLI.
+- Service Extension SPI and modular service integrations. This is now the preferred next workstream.
 - Gradle plugin.
 - Hosted features.
 - Spring Boot 3.x compatibility.
@@ -345,16 +344,46 @@ The candidate hardening items originally tracked for a later `v0.2` were pulled 
   bottlenecks that browser-side progressive rendering cannot solve.~~ Done (2026-05-28): Beans, Conditions, Mappings,
   Configuration, and Loggers now expose bounded server-side pages with filter-aware counts and page metadata.
 
-## 7. Later release candidates
+## 7. Next release candidate: Service Extension SPI
 
-Potential features:
+The next preferred workstream is to turn the current Services menu group into first-party BootUI service extensions.
+This keeps the released `0.1.0` behavior intact while making service-specific integrations modular and easier to grow.
 
-- Extension SPI.
-- Spring Batch panel.
-- Spring Cloud panel.
-- CLI attach mode.
-- Gradle-first documentation.
-- Spring Boot 3.5 compatibility if adoption requires it.
+Scope:
+
+- Introduce a Service Extension SPI that lets a module contribute a service panel, route metadata, availability status,
+  stable DTO endpoints, documentation metadata, and optional frontend assets.
+- Move the current Services menu group behind that SPI over time: Scheduled Tasks, Data, Cache, Security, and AI Usage.
+- Add exactly three new service extensions: Elasticsearch, Flyway/Liquibase, and MongoDB. No other service technology
+  candidates are planned for this workstream.
+- Put all first-party service extensions under a top-level `services/` Maven directory, with one Maven submodule per
+  service, for example:
+  - `services/bootui-service-scheduled`
+  - `services/bootui-service-data`
+  - `services/bootui-service-cache`
+  - `services/bootui-service-security`
+  - `services/bootui-service-ai-usage`
+  - `services/bootui-service-elasticsearch`
+  - `services/bootui-service-migrations`
+  - `services/bootui-service-mongodb`
+- Preserve the default starter's current batteries-included developer experience unless a separate lean starter or
+  opt-in dependency model is explicitly introduced.
+
+Design constraints:
+
+- Service extensions remain local-only and fail closed when their required classes, Actuator endpoints, clients, or
+  configuration are unavailable.
+- Browser-facing service data still uses stable BootUI DTOs and must route any sensitive property names or values
+  through the existing masking/value-exposure model.
+- Elasticsearch support should be read-only at first: connection/status, cluster metadata where safely available,
+  index inventory, health, and bounded sample diagnostics. Destructive index or document operations stay out of scope
+  unless they are later designed with explicit confirmation and safety controls.
+- Flyway/Liquibase support should be read-only at first: configured migration tools, current schema version, applied and
+  pending migrations where available, validation/checksum state, and clear degraded states when either tool is absent.
+- MongoDB support should be read-only at first: connection/status, database and collection inventory, index metadata,
+  document counts, and bounded sample diagnostics without exposing document contents by default.
+- Tests, docs, router ordering, `/bootui/api/panels` availability, and sample-app Playwright coverage should move in
+  sync with each extracted or newly added service extension.
 
 ## 8. Technical decisions
 
@@ -454,8 +483,10 @@ On 2026-05-29, `./mvnw -B -ntp clean install` and the Playwright suite under `bo
 current branch. The Playwright run covered all 57 sample-app browser tests.
 
 The listed final-release hardening set is complete, `0.1.0` is released, and release validation was refreshed on
-2026-05-29. The next workstream should promote a new candidate from §7, with tests, docs, and release validation kept in
-sync as behavior changes land.
+2026-05-29. The next workstream should be the Service Extension SPI in §7: extract the existing Services menu entries
+into first-party service modules under `services/`, add only Elasticsearch, Flyway/Liquibase, and MongoDB as new
+service extensions, and keep tests, docs, router ordering, `/bootui/api/panels` availability, sample-app Playwright
+coverage, and release validation in sync as behavior changes land.
 
 ## 10. Validation checklist
 
