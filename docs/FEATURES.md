@@ -50,13 +50,6 @@ startup data, the panel shows an empty state instead of failing.
 
 ![BootUI Startup Timeline panel](images/bootui-startup-timeline.png)
 
-### Scheduled Tasks
-
-The Scheduled Tasks panel lists scheduled jobs registered with Spring scheduling infrastructure. It shows task type and
-trigger metadata so background activity is visible during local development.
-
-![BootUI Scheduled Tasks panel](images/bootui-scheduled-tasks.png)
-
 ## Configuration
 
 ### Configuration
@@ -113,6 +106,13 @@ on the server.
 ![BootUI Mappings panel](images/bootui-mappings.png)
 
 ## Services
+
+### Scheduled Tasks
+
+The Scheduled Tasks panel lists scheduled jobs registered with Spring scheduling infrastructure. It shows task type and
+trigger metadata so background activity is visible during local development.
+
+![BootUI Scheduled Tasks panel](images/bootui-scheduled-tasks.png)
 
 ### Data
 

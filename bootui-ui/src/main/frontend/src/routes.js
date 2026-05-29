@@ -64,12 +64,6 @@ export const routes = [
     meta: {group: groups.runtime, icon: 'bi-bar-chart-steps', title: 'Startup Timeline'}
   },
   {
-    path: '/scheduled',
-    name: 'scheduled',
-    component: Scheduled,
-    meta: {group: groups.runtime, icon: 'bi-clock-history', title: 'Scheduled Tasks'}
-  },
-  {
     path: '/config',
     name: 'config',
     component: Config,
@@ -104,6 +98,12 @@ export const routes = [
     name: 'mappings',
     component: Mappings,
     meta: {group: groups.configuration, icon: 'bi-signpost-2', title: 'Mappings'}
+  },
+  {
+    path: '/scheduled',
+    name: 'scheduled',
+    component: Scheduled,
+    meta: {group: groups.services, icon: 'bi-clock-history', title: 'Scheduled Tasks'}
   },
   {path: '/data', name: 'data', component: Data, meta: {group: groups.services, icon: 'bi-database', title: 'Data'}},
   {

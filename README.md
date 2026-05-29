@@ -25,13 +25,13 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Runtime         | [Metrics](docs/FEATURES.md#metrics)                   | Browse Micrometer meters, tags, measurements, and a local live chart for selected metrics.                    |
 | Runtime         | [Memory](docs/FEATURES.md#memory)                     | Review JVM heap, non-heap, memory pools, garbage collectors, and suggested JVM options.                       |
 | Runtime         | [Startup Timeline](docs/FEATURES.md#startup-timeline) | Inspect Spring Boot startup steps and durations when startup data is available.                               |
-| Runtime         | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)   | View registered scheduled tasks and their trigger metadata.                                                   |
 | Configuration   | [Configuration](docs/FEATURES.md#configuration)       | Inspect effective configuration values, metadata, masking, and local runtime overrides.                       |
 | Configuration   | [Profile Diff](docs/FEATURES.md#profile-diff)         | Compare profile-specific property sources and values while preserving secret masking.                         |
 | Configuration   | [Loggers](docs/FEATURES.md#loggers)                   | Inspect and change logger levels at runtime through the Actuator loggers endpoint.                            |
 | Configuration   | [Beans](docs/FEATURES.md#beans)                       | Search Spring beans by name, type, and BootUI classification with server-side paging.                         |
 | Configuration   | [Conditions](docs/FEATURES.md#conditions)             | Understand why auto-configuration classes matched, did not match, or were unconditional.                      |
 | Configuration   | [Mappings](docs/FEATURES.md#mappings)                 | Review HTTP routes, handlers, methods, patterns, and produces/consumes metadata.                              |
+| Services        | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)   | View registered scheduled tasks and their trigger metadata.                                                   |
 | Services        | [Data](docs/FEATURES.md#data)                         | Explore Spring Data repositories, domain types, IDs, and query methods.                                       |
 | Services        | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                     |
 | Services        | [Security](docs/FEATURES.md#security)                 | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                             |
