@@ -103,7 +103,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 4. Beans and Conditions panels           | Implemented and covered by sample e2e    | API and UI panels exist, with bounded server-side filtering and paging for large-app edge cases.                                                                                                                                                        |
 | 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e    | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests.                                                                                                              |
 | 6. Post-MVP diagnostic panels            | Implemented and covered                  | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
-| 7. Documentation and release hardening   | Validated for `0.1.0`; ongoing           | User-facing docs are reconciled with current behavior, the changelog is current through `0.1.0`, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-28. Keep release checks current as later work lands.                   |
+| 7. Documentation and release hardening   | Released as `0.1.0`; ongoing             | User-facing docs are reconciled with current behavior, the changelog is current through `0.1.0`, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-29. Keep release checks current as later work lands.                   |
 | 8. In-app OTLP sink + Traces + AI Usage  | Delivered for `0.1.0`                    | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`.                                                         |
 
 ## 4. Current status and next work
@@ -203,12 +203,12 @@ Completed reconciliation points:
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots,
   bean-backed Testcontainers services can expose bounded logs, and restart is disabled unless
   `bootui.dev-services.restart-enabled=true`.
-- Maven Central publishing has been exercised for the alpha line; the release profile signs and stages artifacts through
-  the Sonatype Central Publishing plugin, and release notes are current through `0.1.0`.
+- Maven Central publishing has completed for `0.1.0`; the release profile signs and stages artifacts through the Sonatype
+  Central Publishing plugin, and release notes are current through `0.1.0`.
 
 ### 4.4 Release readiness validation
 
-Last validation completed on 2026-05-28:
+Last validation completed on 2026-05-29:
 
 - `./mvnw -B -ntp clean install` passed.
 - The sample-app Playwright suite passed all 57 tests.
@@ -240,8 +240,8 @@ Manual smoke checks:
 
 ## 5. `0.1.0` release scope
 
-The codebase contains more than the original v0.1 MVP. The final `0.1.0` release keeps the strategy selected for the
-alpha line:
+The codebase contains more than the original v0.1 MVP. The released `0.1.0` keeps the strategy selected for the alpha
+line:
 
 | Strategy                       | Scope                                                                                                                                         | Trade-off                                                                                                                             |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -429,10 +429,9 @@ Reason:
 
 ## 9. Suggested next steps
 
-Maven Central publishing prerequisites (`central` server credentials, GPG signing key, and release-profile deploy
-configuration) are in place, and the alpha line is tagged at `0.1.0-alpha.5`. The final `0.1.0` version bump, release
-commit, and tag should be created with the `Prepare Release` workflow so all Maven modules and the README install snippet
-stay synchronized.
+`0.1.0` has been released to Maven Central. The final version bump, release commit, tag, Maven module versions, and README
+install snippet were kept synchronized through the `Prepare Release` workflow; keep using that workflow for future version
+bumps.
 
 Backend test coverage for the harden-all-visible-panels scope has been completed: `BootUiPropertiesTests`,
 `BootUiActivationConditionAdditionalTests`, controller mapping and DTO serialization tests for every `/bootui/api/**`
@@ -454,9 +453,9 @@ Vue 3 frontend, and the full visible panel set. The repository now ships a `CHAN
 On 2026-05-29, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
 current branch. The Playwright run covered all 57 sample-app browser tests.
 
-The listed final-release hardening set is complete, and release validation for `0.1.0` was refreshed on 2026-05-29. The
-next workstream should be running the `Prepare Release` workflow for `0.1.0`, then promoting a new candidate from §7
-with docs kept in sync as behavior changes land.
+The listed final-release hardening set is complete, `0.1.0` is released, and release validation was refreshed on
+2026-05-29. The next workstream should promote a new candidate from §7, with tests, docs, and release validation kept in
+sync as behavior changes land.
 
 ## 10. Validation checklist
 
