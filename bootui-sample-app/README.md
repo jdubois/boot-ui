@@ -32,6 +32,21 @@ From the repository root:
 Spring Boot will start Docker Compose, wait for Postgres and Redis, and then
 bind the sample app to `http://localhost:8080`.
 
+## Run the published JAR from Maven Central
+
+Future releases package the sample app as an executable Spring Boot JAR. To
+download it with `curl` and run it with `java -jar`:
+
+```bash
+BOOTUI_VERSION=<version> ./scripts/run-sample-app-from-maven-central.sh
+```
+
+The script defaults to the latest Maven Central version, enables the `dev`
+profile unless you pass `--spring.profiles.active=...`, and uses the embedded
+Docker Compose file so the downloaded JAR can start its Postgres, Redis, and
+Ollama services. Versions published before the executable JAR change exit with
+a clear message because their sample app artifacts are thin, non-runnable JARs.
+
 ## Visit BootUI
 
 Open <http://localhost:8080/bootui> in a browser running on the same machine.

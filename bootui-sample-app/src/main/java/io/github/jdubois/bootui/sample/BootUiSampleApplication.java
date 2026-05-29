@@ -1,8 +1,11 @@
 package io.github.jdubois.bootui.sample;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,7 +45,24 @@ public class BootUiSampleApplication {
             return Optional.empty();
         }
         Path moduleComposeFile = workingDirectory.resolve(Path.of("bootui-sample-app", "compose.yaml"));
-        return Files.isRegularFile(moduleComposeFile) ? Optional.of(moduleComposeFile) : Optional.empty();
+        if (Files.isRegularFile(moduleComposeFile)) {
+            return Optional.of(moduleComposeFile);
+        }
+        return embeddedComposeFile();
+    }
+
+    private static Optional<Path> embeddedComposeFile() {
+        try (InputStream inputStream = BootUiSampleApplication.class.getResourceAsStream("/compose.yaml")) {
+            if (inputStream == null) {
+                return Optional.empty();
+            }
+            Path composeFile = Files.createTempFile("bootui-sample-app-", "-compose.yaml");
+            Files.copy(inputStream, composeFile, StandardCopyOption.REPLACE_EXISTING);
+            composeFile.toFile().deleteOnExit();
+            return Optional.of(composeFile);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to prepare the embedded Docker Compose file.", ex);
+        }
     }
 
     @ConfigurationProperties(prefix = "sample")

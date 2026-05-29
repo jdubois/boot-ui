@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,7 +28,11 @@ class BootUiSampleApplicationTests {
     }
 
     @Test
-    void leavesDockerComposeDiscoveryAloneWhenNoSampleComposeFileExists(@TempDir Path workingDirectory) {
-        assertThat(BootUiSampleApplication.composeFileDefault(workingDirectory)).isEmpty();
+    void usesEmbeddedDockerComposeFileWhenNoSampleComposeFileExists(@TempDir Path workingDirectory) throws Exception {
+        Optional<Path> composeFile = BootUiSampleApplication.composeFileDefault(workingDirectory);
+
+        assertThat(composeFile).isPresent();
+        assertThat(composeFile.get()).exists();
+        assertThat(Files.readString(composeFile.get())).contains("postgres:", "redis:", "ollama:");
     }
 }
