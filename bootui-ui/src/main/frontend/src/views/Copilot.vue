@@ -1,5 +1,35 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {useRoute} from 'vue-router'
+
+const route = useRoute()
+const panelConfigs = {
+  copilot: {
+    apiBase: 'api/copilot',
+    title: 'Copilot',
+    icon: 'bi-robot',
+    description: 'Sanitized command activity, tool usage, failures, and recent sessions.',
+    propertyPrefix: 'bootui.copilot',
+    emptyTitle: 'No Copilot session state found',
+    emptyHint: 'Run the local Copilot CLI at least once to create it',
+    eventLabel: 'Copilot events',
+    inspiration: {
+      label: 'copilot-mission-control',
+      href: 'https://github.com/DanWahlin/copilot-mission-control'
+    }
+  },
+  'claude-code': {
+    apiBase: 'api/claude-code',
+    title: 'Claude Code',
+    icon: 'bi-stars',
+    description: 'Sanitized Claude Code tool use, failures, project activity, and recent sessions.',
+    propertyPrefix: 'bootui.claude-code',
+    emptyTitle: 'No Claude Code project logs found',
+    emptyHint: 'Run Claude Code at least once to create project logs',
+    eventLabel: 'Claude Code events'
+  }
+}
+const panelConfig = computed(() => panelConfigs[route.name] ?? panelConfigs.copilot)
 
 const sessionList = ref(null)
 const dashboard = ref(null)
@@ -206,7 +236,7 @@ function bucketWindowLabel(bucket, granularity) {
 
 async function loadDashboard() {
   try {
-    const res = await fetch('api/copilot/dashboard')
+    const res = await fetch(`${panelConfig.value.apiBase}/dashboard`)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     dashboard.value = await res.json()
     error.value = null
@@ -217,7 +247,7 @@ async function loadDashboard() {
 
 async function loadSessions(window = activeSessionWindow.value) {
   try {
-    let url = 'api/copilot/sessions'
+    let url = `${panelConfig.value.apiBase}/sessions`
     if (window) {
       const params = new URLSearchParams()
       params.set('since', window.since)
@@ -233,23 +263,23 @@ async function loadSessions(window = activeSessionWindow.value) {
   } finally {
     loading.value = false
   }
+}
 
-  async function selectActivityWindow(bucket, granularity) {
-    activeSessionWindow.value = {
-      since: bucket.startEpochMillis,
-      until: bucket.endEpochMillis,
-      label: bucketWindowLabel(bucket, granularity),
-      granularity
-    }
-    selectedSessionId.value = null
-    detail.value = null
-    await loadSessions(activeSessionWindow.value)
+async function selectActivityWindow(bucket, granularity) {
+  activeSessionWindow.value = {
+    since: bucket.startEpochMillis,
+    until: bucket.endEpochMillis,
+    label: bucketWindowLabel(bucket, granularity),
+    granularity
   }
+  selectedSessionId.value = null
+  detail.value = null
+  await loadSessions(activeSessionWindow.value)
+}
 
-  async function clearActivityWindow() {
-    activeSessionWindow.value = null
-    await loadSessions(null)
-  }
+async function clearActivityWindow() {
+  activeSessionWindow.value = null
+  await loadSessions(null)
 }
 
 async function loadDetail(sessionId) {
@@ -259,7 +289,7 @@ async function loadDetail(sessionId) {
   }
   detailLoading.value = true
   try {
-    const res = await fetch(`api/copilot/sessions/${encodeURIComponent(sessionId)}`)
+    const res = await fetch(`${panelConfig.value.apiBase}/sessions/${encodeURIComponent(sessionId)}`)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
     rawById.value = {}
@@ -297,7 +327,9 @@ async function revealRaw(event) {
   rawLoadingId.value = event.id
   try {
     const res = await fetch(
-      `api/copilot/sessions/${encodeURIComponent(selectedSessionId.value)}/events/${encodeURIComponent(event.id)}/raw`
+      `${panelConfig.value.apiBase}/sessions/${encodeURIComponent(selectedSessionId.value)}/events/${encodeURIComponent(
+        event.id
+      )}/raw`
     )
     if (res.status === 404) {
       rawById.value = {...rawById.value, [event.id]: 'Raw reveal is disabled.'}
@@ -329,7 +361,7 @@ function pickSession(sessionId, options = {}) {
 
 function connectStream() {
   disconnect()
-  eventSource = new EventSource('api/copilot/stream')
+  eventSource = new EventSource(`${panelConfig.value.apiBase}/stream`)
   eventSource.addEventListener('sessions', async (event) => {
     try {
       if (activeSessionWindow.value) {
@@ -382,12 +414,13 @@ onBeforeUnmount(disconnect)
   <div>
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
       <div>
-        <h2 class="mb-1"><i class="bi bi-robot me-2"></i>Copilot</h2>
-        <div class="text-muted">Sanitized command activity, tool usage, failures, and recent sessions.</div>
-        <div class="small text-muted mt-1">
+        <h2 class="mb-1"><i :class="['bi', panelConfig.icon, 'me-2']"></i>{{ panelConfig.title }}</h2>
+        <div class="text-muted">{{ panelConfig.description }}</div>
+        <div v-if="panelConfig.inspiration" class="small text-muted mt-1">
           Inspired by
-          <a href="https://github.com/DanWahlin/copilot-mission-control" target="_blank" rel="noopener noreferrer"
-            >copilot-mission-control</a
+          <a :href="panelConfig.inspiration.href" target="_blank" rel="noopener noreferrer">{{
+            panelConfig.inspiration.label
+          }}</a
           >.
         </div>
       </div>
@@ -398,14 +431,13 @@ onBeforeUnmount(disconnect)
     <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-else-if="!available" class="card border-info">
       <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-info-circle me-2"></i>No Copilot session state found</h5>
+        <h5 class="card-title"><i class="bi bi-info-circle me-2"></i>{{ panelConfig.emptyTitle }}</h5>
         <p class="card-text mb-1">
           BootUI looked for sessions under <code>{{ sessionStateDir }}</code
           >.
         </p>
         <p class="card-text small text-muted mb-0">
-          Run the local Copilot CLI at least once to create it, or set
-          <code>bootui.copilot.session-state-dir</code>.
+          {{ panelConfig.emptyHint }}, or set <code>{{ panelConfig.propertyPrefix }}.session-state-dir</code>.
         </p>
       </div>
     </div>
@@ -421,7 +453,7 @@ onBeforeUnmount(disconnect)
           <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
             <div>
               <div class="text-uppercase small text-muted fw-semibold">Dashboard</div>
-              <h3 class="mb-1">Copilot activity overview</h3>
+              <h3 class="mb-1">{{ panelConfig.title }} activity overview</h3>
               <div class="small text-muted">
                 <span v-if="dashboard?.lastActivityEpochMillis">
                   Last activity {{ formatRelative(dashboard.lastActivityEpochMillis) }}
@@ -466,7 +498,7 @@ onBeforeUnmount(disconnect)
                   </div>
                   <div
                     class="activity-chart"
-                    :aria-label="`${formatNumber(totalEvents)} sanitized Copilot events across ${
+                    :aria-label="`${formatNumber(totalEvents)} sanitized ${panelConfig.eventLabel} across ${
                       dashboard?.sessionCount ?? 0
                     } sessions`"
                   >
@@ -507,7 +539,7 @@ onBeforeUnmount(disconnect)
                     </div>
                     <div
                       class="activity-chart activity-chart--weekly"
-                      :aria-label="`${formatNumber(totalEvents)} sanitized Copilot events summarized across the last 7 days`"
+                      :aria-label="`${formatNumber(totalEvents)} sanitized ${panelConfig.eventLabel} summarized across the last 7 days`"
                     >
                       <button
                         v-for="bucket in dashboard?.dailyActivityBuckets ?? []"
@@ -658,7 +690,7 @@ onBeforeUnmount(disconnect)
         <div class="card-body">
           <div v-if="explorerLimitMessage" class="alert alert-info py-2 small">
             <i class="bi bi-funnel me-1"></i>{{ explorerLimitMessage }}. Increase
-            <code>bootui.copilot.max-sessions</code> to show more.
+            <code>{{ panelConfig.propertyPrefix }}.max-sessions</code> to show more.
           </div>
           <div v-if="activeSessionWindow" class="alert alert-primary py-2 small d-flex justify-content-between gap-2">
             <span>
@@ -674,7 +706,9 @@ onBeforeUnmount(disconnect)
           </div>
           <div class="row g-3">
             <div class="col-lg-4">
-              <div v-if="sessions.length === 0" class="alert alert-secondary">No Copilot sessions recorded yet.</div>
+              <div v-if="sessions.length === 0" class="alert alert-secondary">
+                No {{ panelConfig.title }} sessions recorded yet.
+              </div>
               <div v-else class="list-group session-list">
                 <div
                   v-for="session in sessions"

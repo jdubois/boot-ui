@@ -141,6 +141,18 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultClaudeCodeRawRevealIsFalse() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getClaudeCode().isAllowRawReveal()).isFalse();
+    }
+
+    @Test
+    void defaultClaudeCodeSessionDirectoryIsProjectsDirectory() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getClaudeCode().defaultSessionStateDir().toString()).endsWith(".claude/projects");
+    }
+
+    @Test
     void bindsEnabledModeOn() {
         MockEnvironment env = new MockEnvironment();
         env.setProperty("bootui.enabled", "ON");
@@ -308,6 +320,22 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getDependencies().getMaxAdvisories()).isEqualTo(50);
+    }
+
+    @Test
+    void bindsClaudeCodeSettings() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.claude-code.enabled", "ON");
+        env.setProperty("bootui.claude-code.session-state-dir", "/tmp/claude-projects");
+        env.setProperty("bootui.claude-code.max-sessions", "25");
+        env.setProperty("bootui.claude-code.allow-raw-reveal", "true");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getClaudeCode().getEnabled()).isEqualTo(BootUiProperties.Mode.ON);
+        assertThat(props.getClaudeCode().getSessionStateDir()).isEqualTo("/tmp/claude-projects");
+        assertThat(props.getClaudeCode().getMaxSessions()).isEqualTo(25);
+        assertThat(props.getClaudeCode().isAllowRawReveal()).isTrue();
     }
 
     // -------------------------------------------------------------------------

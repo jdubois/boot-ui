@@ -57,6 +57,12 @@ const router = createRouter({
     {path: '/traces', name: 'traces', component: Traces, meta: {icon: 'bi-bezier2', title: 'Traces'}},
     {path: '/http-probe', name: 'http-probe', component: HttpProbe, meta: {icon: 'bi-send', title: 'HTTP Probe'}},
     {path: '/copilot', name: 'copilot', component: Copilot, meta: {icon: 'bi-robot', title: 'Copilot'}},
+    {
+      path: '/claude-code',
+      name: 'claude-code',
+      component: Copilot,
+      meta: {icon: 'bi-stars', title: 'Claude Code'}
+    },
     {path: '/devtools', name: 'devtools', component: DevTools, meta: {icon: 'bi-lightning-charge', title: 'DevTools'}},
     {
       path: '/dev-services',

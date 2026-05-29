@@ -56,6 +56,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - dependency inventory and OSV vulnerability scan
   - DevTools reload/restart
   - Copilot session dashboard, session explorer, and live SSE stream
+  - Claude Code project-log dashboard, session explorer, and live refresh stream
   - OTLP traces receiver (`/bootui/api/otlp/v1/traces`), Traces panel API, and AI Usage panel API
 - Vue 3 UI shell with routes for:
   - Overview
@@ -73,6 +74,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Traces
   - HTTP Probe
   - Copilot
+  - Claude Code
   - DevTools
   - Dev Services
   - Scheduled Tasks
@@ -87,8 +89,8 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   persistence, override property sources, override file storage, environment post-processing, config metadata loading,
   selected web controllers, missing Actuator behavior, and sample-app integration.
 - Playwright end-to-end tests in `bootui-sample-app/e2e` covering the sample API, every visible BootUI route including
-  Traces and AI Usage, and focused flows for panels such as Metrics, Redis-backed Cache, Vulnerabilities, DevTools, and
-  Dev Services.
+  Traces, AI Usage, and Claude Code, and focused flows for panels such as Metrics, Redis-backed Cache, Vulnerabilities,
+  DevTools, and Dev Services.
 
 ## 3. Milestone status
 
@@ -161,17 +163,18 @@ The visible-route parity check is current. On 2026-05-28, the sample-app Playwri
 13. Traces.
 14. HTTP Probe.
 15. Copilot.
-16. DevTools.
-17. Dev Services.
-18. Scheduled Tasks.
-19. Data.
-20. Cache.
-21. AI Usage.
-22. Security.
-23. Vulnerabilities.
+16. Claude Code.
+17. DevTools.
+18. Dev Services.
+19. Scheduled Tasks.
+20. Data.
+21. Cache.
+22. AI Usage.
+23. Security.
+24. Vulnerabilities.
 
-Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Scheduled Tasks,
-Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app
+Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code,
+Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by sample-app
 Playwright tests, and part of the supported alpha surface. Any new visible route or browser-facing behavior should
 update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
 
@@ -200,8 +203,8 @@ The alpha documentation is current through `0.1.0-alpha.5`. Keep these user-faci
 6. Runtime configuration override behavior, persistence to `.bootui/application-bootui.properties`, and restart/rebind
    caveats.
 7. Actuator requirements and degraded behavior when endpoints are unavailable.
-8. Panel-by-panel feature guide for every visible route, including Metrics, Traces, AI Usage, DevTools, Dev Services,
-   and the JVM memory panel with its suggested JVM options.
+8. Panel-by-panel feature guide for every visible route, including Metrics, Traces, AI Usage, Copilot, Claude Code,
+   DevTools, Dev Services, and the JVM memory panel with its suggested JVM options.
 9. Troubleshooting.
 10. Sample app walkthrough.
 11. Release notes.
@@ -212,8 +215,8 @@ Completed reconciliation points:
 - Runtime config overrides persist to the BootUI overrides file by default.
 - The frontend is plain JavaScript Vue 3.
 - Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot,
-  Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented alpha surfaces, not
-  deferred ideas.
+  Claude Code, Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented alpha
+  surfaces, not deferred ideas.
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots,
   bean-backed Testcontainers services can expose bounded logs, and restart is disabled unless
   `bootui.dev-services.restart-enabled=true`.
@@ -299,6 +302,7 @@ Already implemented beyond the original MVP surface:
 - DevTools reload/restart controls.
 - In-app OTLP/HTTP traces receiver, Traces panel, and AI Usage panel.
 - Copilot panel for sanitized GitHub Copilot CLI session dashboarding and live SSE updates.
+- Claude Code panel for sanitized local Claude Code project-log dashboarding and live refresh updates.
 
 Added in `0.1.0-alpha.5` (2026-05):
 
@@ -322,6 +326,12 @@ Added after `0.1.0-alpha.5`:
   drill into individual sessions with a turn-by-turn story, recent events, and failure list. Raw event JSON is
   opt-in and local-only. Live updates are pushed via SSE. Inspired by
   [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control).
+- **Claude Code panel**. Reads Claude Code JSONL project logs under `~/.claude/projects/` and presents the same
+  sanitized session dashboard shape for local Claude Code usage. Normal responses only expose tool names, categories,
+  timestamps, model names, coarse status, and failure state; prompts, assistant text, tool inputs, command output, file
+  contents, and tool-result content stay out of the browser payload. Raw JSONL reveal is disabled by default because
+  Claude Code logs can inline sensitive local content, and the panel refreshes through bounded polling to handle
+  per-project subdirectories.
 
 Still excluded:
 
