@@ -355,12 +355,14 @@ Scope:
 - Introduce a Service Extension SPI that lets a module contribute a service panel, route metadata, availability status,
   stable DTO endpoints, documentation metadata, and optional frontend assets.
 - Move the current Services menu group behind that SPI over time: Scheduled Tasks, Data, Cache, Security, and AI Usage.
-- Add exactly three new service extensions: Elasticsearch, Flyway/Liquibase, and MongoDB. No other service technology
-  candidates are planned for this workstream.
+- Add HikariCP connection-pool visibility as the first database-pool slice, plus Elasticsearch, Flyway/Liquibase, and
+  MongoDB. The HikariCP work is intentionally implementation-specific for this release; generic JDBC/R2DBC pool support
+  can be revisited after the Hikari UX and DTO shape are proven.
 - Put all first-party service extensions under a top-level `services/` Maven directory, with one Maven submodule per
   service, for example:
   - `services/bootui-service-scheduled`
   - `services/bootui-service-data`
+  - `services/bootui-service-hikari`
   - `services/bootui-service-cache`
   - `services/bootui-service-security`
   - `services/bootui-service-ai-usage`
@@ -376,6 +378,13 @@ Design constraints:
   configuration are unavailable.
 - Browser-facing service data still uses stable BootUI DTOs and must route any sensitive property names or values
   through the existing masking/value-exposure model.
+- HikariCP support should be read-only at first and exposed as its own **Connection Pools** panel in the Services group,
+  placed after **Data** and before **Cache**. It should discover `HikariDataSource` beans only, fail closed when HikariCP
+  is absent, and show pool identity, masked JDBC connection metadata, current active/idle/total/pending counts, min/max
+  sizing, timeout/lifetime settings, and unavailable reasons for closed or inaccessible pools. The panel should include a
+  local live chart like the Metrics panel, polling bounded snapshots for active, idle, total, and pending connections so
+  users can see saturation trends without leaving BootUI. It should not execute SQL, borrow connections, resize pools, or
+  attempt generic JDBC/R2DBC abstraction in the first iteration.
 - Elasticsearch support should be read-only at first: connection/status, cluster metadata where safely available,
   index inventory, health, and bounded sample diagnostics. Destructive index or document operations stay out of scope
   unless they are later designed with explicit confirmation and safety controls.
