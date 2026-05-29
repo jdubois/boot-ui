@@ -22,7 +22,7 @@ class PanelsControllerTests {
 
             mvc.perform(get("/bootui/api/panels"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.panels.length()").value(24))
+                    .andExpect(jsonPath("$.panels.length()").value(25))
                     .andExpect(jsonPath("$.panels[0].id").value("overview"))
                     .andExpect(jsonPath("$.panels[6].id").value("config"))
                     .andExpect(jsonPath("$.panels[16].id").value("traces"))
