@@ -6,7 +6,9 @@ import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
@@ -128,6 +130,41 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
                     assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
                     assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
+                });
+    }
+
+    @Test
+    void copilotAndClaudeCodeSessionStoresAreLazy(@TempDir Path tempDir) {
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.copilot.enabled=ON",
+                        "bootui.copilot.session-state-dir=" + tempDir.resolve("copilot"),
+                        "bootui.claude-code.enabled=ON",
+                        "bootui.claude-code.session-state-dir=" + tempDir.resolve("claude"))
+                .run(context -> {
+                    var beanFactory = context.getBeanFactory();
+                    assertThat(beanFactory
+                                    .getBeanDefinition("bootUiCopilotSessionStore")
+                                    .isLazyInit())
+                            .isTrue();
+                    assertThat(beanFactory
+                                    .getBeanDefinition("bootUiClaudeCodeSessionStore")
+                                    .isLazyInit())
+                            .isTrue();
+                    assertThat(beanFactory.containsSingleton("bootUiCopilotSessionStore"))
+                            .isFalse();
+                    assertThat(beanFactory.containsSingleton("bootUiClaudeCodeSessionStore"))
+                            .isFalse();
+
+                    context.getBean(CopilotController.class).dashboard();
+                    assertThat(beanFactory.containsSingleton("bootUiCopilotSessionStore"))
+                            .isTrue();
+                    assertThat(beanFactory.containsSingleton("bootUiClaudeCodeSessionStore"))
+                            .isFalse();
+
+                    context.getBean(ClaudeCodeController.class).dashboard();
+                    assertThat(beanFactory.containsSingleton("bootUiClaudeCodeSessionStore"))
+                            .isTrue();
                 });
     }
 

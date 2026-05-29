@@ -10,6 +10,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,12 +30,22 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/bootui/api/claude-code")
 public class ClaudeCodeController {
 
-    private final ClaudeCodeSessionStore store;
+    private final Supplier<ClaudeCodeSessionStore> store;
     private final BootUiProperties properties;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
+    @Autowired
     public ClaudeCodeController(
-            @Qualifier("bootUiClaudeCodeSessionStore") ClaudeCodeSessionStore store, BootUiProperties properties) {
+            @Qualifier("bootUiClaudeCodeSessionStore") ObjectProvider<ClaudeCodeSessionStore> storeProvider,
+            BootUiProperties properties) {
+        this(storeProvider::getObject, properties);
+    }
+
+    ClaudeCodeController(ClaudeCodeSessionStore store, BootUiProperties properties) {
+        this(() -> store, properties);
+    }
+
+    private ClaudeCodeController(Supplier<ClaudeCodeSessionStore> store, BootUiProperties properties) {
         this.store = store;
         this.properties = properties;
     }
@@ -41,17 +54,17 @@ public class ClaudeCodeController {
     public CopilotSessionListDto sessions(
             @RequestParam(name = "since", required = false) Long since,
             @RequestParam(name = "until", required = false) Long until) {
-        return store.listSessions(since, until);
+        return store().listSessions(since, until);
     }
 
     @GetMapping("/dashboard")
     public CopilotDashboardDto dashboard() {
-        return store.dashboard();
+        return store().dashboard();
     }
 
     @GetMapping("/sessions/{id}")
     public ResponseEntity<CopilotSessionDetail> session(@PathVariable String id) {
-        CopilotSessionDetail detail = store.getSession(id);
+        CopilotSessionDetail detail = store().getSession(id);
         if (detail == null) {
             return ResponseEntity.notFound().build();
         }
@@ -64,6 +77,7 @@ public class ClaudeCodeController {
             @RequestParam(name = "category", required = false) String category,
             @RequestParam(name = "since", required = false) Long since,
             @RequestParam(name = "limit", required = false, defaultValue = "200") int limit) {
+        ClaudeCodeSessionStore store = store();
         if (store.getSession(id) == null) {
             return ResponseEntity.notFound().build();
         }
@@ -74,6 +88,7 @@ public class ClaudeCodeController {
 
     @GetMapping("/sessions/{id}/events/{eventId}/raw")
     public ResponseEntity<CopilotRawEventDto> raw(@PathVariable String id, @PathVariable String eventId) {
+        ClaudeCodeSessionStore store = store();
         if (!store.isRawRevealAllowed()) {
             return ResponseEntity.notFound().build();
         }
@@ -89,6 +104,7 @@ public class ClaudeCodeController {
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
+        ClaudeCodeSessionStore store = store();
         SseEmitter emitter = new SseEmitter(0L);
         emitters.add(emitter);
 
@@ -131,5 +147,9 @@ public class ClaudeCodeController {
     // exposed only for testing
     List<SseEmitter> emittersForTesting() {
         return emitters;
+    }
+
+    private ClaudeCodeSessionStore store() {
+        return store.get();
     }
 }

@@ -20,6 +20,7 @@ import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 
@@ -110,6 +111,7 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean(destroyMethod = "stop")
+    @Lazy
     public io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore bootUiCopilotSessionStore(
             BootUiProperties properties) {
         io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore store =
@@ -121,6 +123,7 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean(destroyMethod = "stop")
+    @Lazy
     public io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore bootUiClaudeCodeSessionStore(
             BootUiProperties properties) {
         io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore store =
