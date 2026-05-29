@@ -21,6 +21,7 @@ import DevTools from './views/DevTools.vue'
 import Traces from './views/Traces.vue'
 import Ai from './views/Ai.vue'
 import Copilot from './views/Copilot.vue'
+import CamelRoutes from './views/CamelRoutes.vue'
 
 export const groups = {
   overview: 'overview',
@@ -119,6 +120,12 @@ export const routes = [
     meta: {group: groups.services, icon: 'bi-person-lock', title: 'Security'}
   },
   {path: '/ai', name: 'ai', component: Ai, meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage'}},
+  {
+    path: '/camel-routes',
+    name: 'camel-routes',
+    component: CamelRoutes,
+    meta: {group: groups.services, icon: 'bi-signpost-split', title: 'Camel Routes'}
+  },
   {
     path: '/traces',
     name: 'traces',

@@ -751,6 +751,32 @@ public final class BootUiDtos {
      */
     public record AiTokenSeriesDto(int minutes, List<AiTokenBucketDto> buckets) {}
 
+    // ----- Apache Camel integration ----------------------------------------------------------
+
+    /**
+     * Summary of one Camel route.
+     */
+    public record CamelRouteDto(
+            String routeId, String from, String status, String uptime, long uptimeMillis, String description) {}
+
+    /**
+     * Top-level Camel routes report with context metadata.
+     */
+    public record CamelRoutesReport(
+            String camelVersion,
+            String contextStatus,
+            int total,
+            List<CamelRouteDto> routes,
+            boolean diagramAvailable,
+            CamelStatsDto stats) {}
+
+    /**
+     * Aggregated exchange statistics across all Camel routes.
+     */
+    public record CamelStatsDto(
+            long exchangesTotal, long exchangesFailed, long exchangesInflight, long meanProcessingTime,
+            long maxProcessingTime) {}
+
     /**
      * AI Usage overview payload.
      */
