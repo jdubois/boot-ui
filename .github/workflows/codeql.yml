@@ -58,6 +58,9 @@ jobs:
 
       - name: Build (Java)
         if: steps.code-scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
+        # CodeQL only needs the Java sources compiled for analysis, so we skip
+        # tests and the frontend bundling/release plumbing that the full
+        # build.yml `clean install` runs. `package` is sufficient and faster here.
         run: ./mvnw -B -ntp -DskipTests package
 
       - name: Perform CodeQL Analysis
