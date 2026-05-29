@@ -109,6 +109,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+    <div v-if="!loading && matchedCount === 0" class="text-muted py-3">No {{ tab }} entries match your filter.</div>
     <ServerListFooter
       v-if="!loading"
       :loading="loadingMore"

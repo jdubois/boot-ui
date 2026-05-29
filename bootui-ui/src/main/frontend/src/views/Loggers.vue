@@ -127,6 +127,9 @@ watch(filter, scheduleReload)
               </div>
             </td>
           </tr>
+          <tr v-if="!loading && matchedCount === 0">
+            <td class="text-center text-muted py-4" colspan="4">No loggers match your filters.</td>
+          </tr>
         </tbody>
       </table>
     </div>

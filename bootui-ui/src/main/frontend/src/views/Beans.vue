@@ -88,6 +88,9 @@ watch([filter, classification], scheduleReload)
               }}</small>
             </td>
           </tr>
+          <tr v-if="!loading && matchedCount === 0">
+            <td class="text-center text-muted py-4" colspan="5">No beans match your filters.</td>
+          </tr>
         </tbody>
       </table>
     </div>
