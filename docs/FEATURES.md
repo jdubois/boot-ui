@@ -211,6 +211,12 @@ services, and shows restart controls only for supported Testcontainers services 
 otherwise uninitialized service beans that would need to be created just for inspection and reports those skips as
 warnings in the panel.
 
+> **Masking scope:** BootUI masks discovered *connection details* (for example credentials embedded in a JDBC URL or
+> connection properties) before they reach the browser. Raw container **log output** is streamed verbatim, bounded by
+> `bootui.dev-services.log-tail-bytes`, and is **not** scanned for secrets — a service that prints credentials to its
+> own logs will surface them in this panel. This is consistent with BootUI being a local-only, loopback-restricted
+> developer console.
+
 ![BootUI Dev Services panel](images/bootui-dev-services.png)
 
 ### Copilot
