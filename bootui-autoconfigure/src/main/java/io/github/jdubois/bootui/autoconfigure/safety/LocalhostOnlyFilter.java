@@ -41,7 +41,7 @@ public class LocalhostOnlyFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        if (properties.isAllowNonLocalhost() || !properties.isLocalhostOnly()) {
+        if (properties.isAllowNonLocalhost()) {
             chain.doFilter(request, response);
             return;
         }

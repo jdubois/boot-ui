@@ -5,14 +5,20 @@ export async function apiFetch(input, init = {}) {
   const method = (options.method || 'GET').toUpperCase()
 
   if (!SAFE_METHODS.has(method)) {
-    let token = csrfToken()
-    if (!token) {
-      await fetch('api/overview', {cache: 'no-store'})
-      token = csrfToken()
+    const headers = new Headers(options.headers || {})
+    let shouldSetHeaders = options.headers !== undefined
+    if (!headers.has('X-XSRF-TOKEN')) {
+      let token = csrfToken()
+      if (!token) {
+        await fetch('api/overview', {cache: 'no-store'})
+        token = csrfToken()
+      }
+      if (token) {
+        headers.set('X-XSRF-TOKEN', token)
+        shouldSetHeaders = true
+      }
     }
-    if (token) {
-      const headers = new Headers(options.headers || {})
-      headers.set('X-XSRF-TOKEN', token)
+    if (shouldSetHeaders) {
       options.headers = headers
     }
   }

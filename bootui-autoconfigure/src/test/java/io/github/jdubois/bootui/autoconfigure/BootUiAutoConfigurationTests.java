@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
@@ -80,7 +79,6 @@ class BootUiAutoConfigurationTests {
             assertThat(properties.getEnabled()).isEqualTo(BootUiProperties.Mode.ON);
             assertThat(properties.getPath()).isEqualTo("/bootui");
             assertThat(properties.getApiPath()).isEqualTo("/bootui/api");
-            assertThat(properties.isLocalhostOnly()).isTrue();
             assertThat(properties.isAllowNonLocalhost()).isFalse();
             assertThat(properties.isMaskSecrets()).isTrue();
             assertThat(properties.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.MASKED);
@@ -88,7 +86,6 @@ class BootUiAutoConfigurationTests {
             assertThat(properties.getEnabledProfiles()).containsExactly("dev", "local");
             assertThat(properties.getDisabledProfiles()).containsExactly("prod", "production");
             assertThat(properties.getOverridesFile()).isEqualTo(".bootui/application-bootui.properties");
-            assertThat(properties.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(5));
             assertThat(properties.getDevServices().isRestartEnabled()).isFalse();
             assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(64 * 1024);
             assertThat(properties.getCache().isClearEnabled()).isTrue();
@@ -104,7 +101,6 @@ class BootUiAutoConfigurationTests {
                         "bootui.mask-secrets=false",
                         "bootui.expose-values=FULL",
                         "bootui.overrides-file=/tmp/bootui.properties",
-                        "bootui.endpoint-timeout=2s",
                         "bootui.dev-services.restart-enabled=true",
                         "bootui.dev-services.log-tail-bytes=2048",
                         "bootui.cache.clear-enabled=false",
@@ -118,7 +114,6 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.isMaskSecrets()).isFalse();
                     assertThat(properties.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.FULL);
                     assertThat(properties.getOverridesFile()).isEqualTo("/tmp/bootui.properties");
-                    assertThat(properties.getEndpointTimeout()).isEqualTo(Duration.ofSeconds(2));
                     assertThat(properties.getDevServices().isRestartEnabled()).isTrue();
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
                     assertThat(properties.getCache().isClearEnabled()).isFalse();

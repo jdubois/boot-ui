@@ -67,17 +67,6 @@ class LocalhostOnlyFilterTests {
     }
 
     @Test
-    void allowsNonLoopbackWhenLocalhostOnlyDisabled() throws Exception {
-        properties.setLocalhostOnly(false);
-        MockHttpServletRequest request = bootUiRequest("/bootui/", "10.0.0.5");
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        filter.doFilter(request, response, new MockFilterChain());
-
-        assertThat(response.getStatus()).isEqualTo(200);
-    }
-
-    @Test
     void skipsFilterForNonBootUiPaths() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/sample/hello");
         request.setRequestURI("/api/sample/hello");

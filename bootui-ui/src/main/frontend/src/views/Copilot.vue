@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
+import {formatNumber} from '../utils/format.js'
 
 const route = useRoute()
 const panelConfigs = {
@@ -194,10 +195,6 @@ function formatBucketDay(timestamp) {
   if (timestamp === null || timestamp === undefined) return '—'
   const date = new Date(timestamp)
   return date.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'})
-}
-
-function formatNumber(value) {
-  return new Intl.NumberFormat().format(value ?? 0)
 }
 
 function formatRelative(timestamp) {

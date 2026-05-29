@@ -59,6 +59,32 @@ class CopilotControllerTests {
     }
 
     @Test
+    void sessionsAndDashboardUseHomeRelativeSessionDirectory(@TempDir Path tempDir) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        Path sessionStateDir = tempDir.resolve(".copilot").resolve("session-state");
+        Files.createDirectories(sessionStateDir);
+        try {
+            System.setProperty("user.home", tempDir.toString());
+            BootUiProperties props = propertiesFor(sessionStateDir);
+            CopilotSessionStore store = storeFor(props);
+            MockMvc mvc = standaloneSetup(new CopilotController(store, props)).build();
+
+            mvc.perform(get("/bootui/api/copilot/sessions").accept(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.sessionStateDir").value("~/.copilot/session-state"));
+            mvc.perform(get("/bootui/api/copilot/dashboard").accept(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.sessionStateDir").value("~/.copilot/session-state"));
+        } finally {
+            if (previousHome == null) {
+                System.clearProperty("user.home");
+            } else {
+                System.setProperty("user.home", previousHome);
+            }
+        }
+    }
+
+    @Test
     void sessionsListsParsedSessionsWithCounts(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("abc123.json"), """
                 {

@@ -47,7 +47,8 @@ export default defineConfig({
     ? undefined
     : {
         // Run from the e2e module through the root Maven Wrapper.
-        command: '../../mvnw -f ../pom.xml -q spring-boot:run',
+        command:
+          '../../mvnw -f ../pom.xml -q spring-boot:run -Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false',
         url: `${BASE_URL}/bootui/api/overview`,
         reuseExistingServer: !process.env.CI,
         stdout: 'pipe',

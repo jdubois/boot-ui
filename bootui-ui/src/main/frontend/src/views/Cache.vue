@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {formatNumber} from '../utils/format.js'
 
 const report = ref(null)
 const loading = ref(true)
@@ -64,11 +65,6 @@ function shortName(name) {
   if (!name) return '—'
   const i = name.lastIndexOf('.')
   return i < 0 ? name : name.substring(i + 1)
-}
-
-function formatNumber(value) {
-  if (value === null || value === undefined) return '—'
-  return Number(value).toLocaleString()
 }
 
 function formatRatio(value) {

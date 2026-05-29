@@ -53,7 +53,7 @@ public class OverviewController {
                 startupMs,
                 new ActivationStatus(
                         activation.enabled(),
-                        properties.isLocalhostOnly() && !properties.isAllowNonLocalhost(),
+                        !properties.isAllowNonLocalhost(),
                         activation.reason(),
                         activation.warnings() == null ? List.of() : activation.warnings()),
                 detectOpenApiUrl());
