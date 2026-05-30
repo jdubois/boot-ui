@@ -1,0 +1,108 @@
+package io.github.jdubois.bootui.autoconfigure.otlp;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.sdk.resources.Resource;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
+
+class BootUiSpanExporterTests {
+
+    private static final AttributeKey<String> SERVICE_NAME = AttributeKey.stringKey("service.name");
+
+    @Test
+    void exportsOpenTelemetrySpansToTheBootUiStore() {
+        BootUiProperties properties = new BootUiProperties();
+        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        try {
+            Tracer tracer = provider.get("bootui-test-scope");
+            Span span = tracer.spanBuilder("GET /api/orders")
+                    .setSpanKind(SpanKind.SERVER)
+                    .setAttribute("http.route", "/api/orders")
+                    .setAttribute("http.response.status_code", 200L)
+                    .setAttribute(AttributeKey.stringArrayKey("sample.tags"), List.of("orders", "local"))
+                    .startSpan();
+            span.addEvent("controller.done", Attributes.of(AttributeKey.stringKey("sample.event"), "ok"));
+            span.setStatus(StatusCode.OK);
+            span.end();
+            provider.forceFlush().join(1, TimeUnit.SECONDS);
+
+            assertThat(store.retainedTraceCount()).isEqualTo(1);
+            NormalizedSpan stored = store.recentTraces(1).get(0).spans().get(0);
+            assertThat(stored.name()).isEqualTo("GET /api/orders");
+            assertThat(stored.kind()).isEqualTo("SERVER");
+            assertThat(stored.serviceName()).isEqualTo("sample-service");
+            assertThat(stored.scope()).isEqualTo("bootui-test-scope");
+            assertThat(stored.statusCode()).isEqualTo("OK");
+            assertThat(stored.attributes().get("http.route").asString()).isEqualTo("/api/orders");
+            assertThat(stored.attributes().get("http.response.status_code").asLong())
+                    .isEqualTo(200L);
+            assertThat(stored.attributes().get("sample.tags").value()).isEqualTo(List.of("orders", "local"));
+            assertThat(stored.events()).singleElement().satisfies(event -> {
+                assertThat(event.name()).isEqualTo("controller.done");
+                assertThat(event.attributes().get("sample.event").asString()).isEqualTo("ok");
+            });
+        } finally {
+            provider.shutdown().join(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void dropsBootUiSelfSpansByDefault() {
+        BootUiProperties properties = new BootUiProperties();
+        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        try {
+            Span span = provider.get("bootui-test-scope")
+                    .spanBuilder("GET /bootui/api/traces")
+                    .setSpanKind(SpanKind.SERVER)
+                    .setAttribute("http.route", "/bootui/api/traces")
+                    .startSpan();
+            span.end();
+            provider.forceFlush().join(1, TimeUnit.SECONDS);
+
+            assertThat(store.retainedTraceCount()).isZero();
+        } finally {
+            provider.shutdown().join(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void doesNotCaptureSpansWhenTelemetryIsDisabled() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getTelemetry().setEnabled(false);
+        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        try {
+            Span span = provider.get("bootui-test-scope")
+                    .spanBuilder("GET /api/orders")
+                    .setSpanKind(SpanKind.SERVER)
+                    .setAttribute("http.route", "/api/orders")
+                    .startSpan();
+            span.end();
+            provider.forceFlush().join(1, TimeUnit.SECONDS);
+
+            assertThat(store.retainedTraceCount()).isZero();
+        } finally {
+            provider.shutdown().join(1, TimeUnit.SECONDS);
+        }
+    }
+
+    private SdkTracerProvider tracerProvider(BootUiSpanExporter exporter) {
+        return SdkTracerProvider.builder()
+                .setResource(Resource.create(Attributes.of(SERVICE_NAME, "sample-service")))
+                .addSpanProcessor(SimpleSpanProcessor.create(exporter))
+                .build();
+    }
+}

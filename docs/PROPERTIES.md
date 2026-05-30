@@ -90,7 +90,7 @@ Panel settings are consistent across the UI and API:
 | --- | --- | --- |
 | `bootui.panels.traces.enabled` | `true` | Show the Traces panel and its retained trace data. |
 | `bootui.panels.traces.read-only` | `false` | Disable clearing retained traces. OTLP ingestion remains controlled by `bootui.telemetry.enabled`. |
-| `bootui.telemetry.enabled` | `true` | Accept OTLP/HTTP trace payloads at BootUI's OTLP endpoint. |
+| `bootui.telemetry.enabled` | `true` | Enables local in-memory trace capture and accepts OTLP/HTTP trace payloads at BootUI's OTLP endpoint. |
 | `bootui.telemetry.max-traces` | `500` | Maximum distinct traces retained in memory. |
 | `bootui.telemetry.max-spans-per-trace` | `500` | Maximum spans retained per trace. |
 | `bootui.telemetry.max-attribute-value-bytes` | `4096` | Maximum attribute string length before truncation. |

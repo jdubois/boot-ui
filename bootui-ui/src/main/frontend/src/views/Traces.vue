@@ -180,8 +180,8 @@ onMounted(load)
 
     <template v-else-if="report">
       <div v-if="!report.enabled" class="alert alert-info small">
-        Telemetry receiver is disabled. Set <code>bootui.telemetry.enabled=true</code> and configure your application to
-        export OTLP to <code>http://localhost:8080/bootui/api/otlp/v1/traces</code>.
+        Telemetry capture is disabled. Set <code>bootui.telemetry.enabled=true</code> to re-enable BootUI's local
+        in-memory trace capture.
         <span v-if="report.retained > 0">Showing spans retained before telemetry was disabled.</span>
       </div>
 
@@ -191,8 +191,9 @@ onMounted(load)
       </div>
 
       <div v-if="report.enabled && report.retained === 0" class="alert alert-secondary">
-        No traces received yet. Add an OTLP exporter pointed at
-        <code>/bootui/api/otlp/v1/traces</code> and exercise your application to populate this panel.
+        No traces received yet. With the BootUI starter on the classpath, local application spans are captured
+        automatically. Exercise your application to populate this panel; cooperating services can still export OTLP to
+        <code>/bootui/api/otlp/v1/traces</code>.
       </div>
 
       <template v-if="report.retained > 0">

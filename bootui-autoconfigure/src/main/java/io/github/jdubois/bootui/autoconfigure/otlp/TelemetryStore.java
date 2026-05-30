@@ -4,7 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import java.util.*;
 
 /**
- * Bounded in-memory store for OTLP spans received over the BootUI OTLP receiver.
+ * Bounded in-memory store for telemetry spans captured by BootUI.
  *
  * <p>Spans are grouped by trace id. When the configured trace capacity is
  * exceeded the oldest trace bucket is dropped. Each trace also caps its span

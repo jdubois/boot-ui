@@ -429,7 +429,8 @@ public class BootUiProperties {
     public static class Telemetry {
 
         /**
-         * Accept OTLP/HTTP trace payloads at the BootUI OTLP endpoint.
+         * Capture local trace spans and accept OTLP/HTTP trace payloads at the
+         * BootUI OTLP endpoint.
          */
         private boolean enabled = true;
 
