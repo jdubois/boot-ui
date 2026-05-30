@@ -1,0 +1,16 @@
+{
+  "properties": [
+    {
+      "name": "bootui.startup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Install a BufferingApplicationStartup automatically while BootUI is active so the Startup Timeline panel has data.",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.startup.capacity",
+      "type": "java.lang.Integer",
+      "description": "Maximum startup steps retained by BootUI's auto-installed startup buffer. Values less than or equal to zero disable the buffer.",
+      "defaultValue": 4096
+    }
+  ]
+}

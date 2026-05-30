@@ -3,6 +3,9 @@ package io.github.jdubois.bootui.autoconfigure.safety;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -86,25 +89,51 @@ class PanelAccessFilterTests {
     @Test
     void globalReadOnlyBlocksActionCapablePanelActions() throws Exception {
         properties.setReadOnly(true);
-        MockHttpServletRequest request = request("DELETE", "/bootui/api/traces");
-        MockHttpServletResponse response = new MockHttpServletResponse();
+        Map<String, ActionRequest> actionRequestsByPanel = actionRequestsByPanel();
 
-        filter.doFilter(request, response, new MockFilterChain());
+        assertThat(actionRequestsByPanel.keySet())
+                .containsExactlyElementsOf(BootUiPanels.all().stream()
+                        .filter(BootUiPanels.Panel::readOnlyCapable)
+                        .map(BootUiPanels.Panel::id)
+                        .toList());
+        for (Map.Entry<String, ActionRequest> entry : actionRequestsByPanel.entrySet()) {
+            MockHttpServletRequest request =
+                    request(entry.getValue().method(), entry.getValue().uri());
+            MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThat(response.getStatus()).isEqualTo(403);
-        assertThat(response.getContentAsString()).contains("bootui.read-only=true");
+            filter.doFilter(request, response, new MockFilterChain());
+
+            assertThat(response.getStatus()).as(entry.getKey()).isEqualTo(403);
+            assertThat(response.getContentAsString())
+                    .as(entry.getKey())
+                    .contains("\"panel\":\"" + entry.getKey() + "\"")
+                    .contains("bootui.read-only=true");
+        }
     }
 
     @Test
-    void globalReadOnlyBlocksPentestScanAction() throws Exception {
-        properties.setReadOnly(true);
+    void perPanelReadOnlyBlocksPentestScanAction() throws Exception {
+        properties.panel("pentest").setReadOnly(true);
         MockHttpServletRequest request = request("POST", "/bootui/api/pentest/scan");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, new MockFilterChain());
 
         assertThat(response.getStatus()).isEqualTo(403);
-        assertThat(response.getContentAsString()).contains("\"panel\":\"pentest\"");
+        assertThat(response.getContentAsString())
+                .contains("\"panel\":\"pentest\"")
+                .contains("bootui.panels.pentest.read-only=true");
+    }
+
+    @Test
+    void perPanelReadOnlyAllowsPentestReportRead() throws Exception {
+        properties.panel("pentest").setReadOnly(true);
+        MockHttpServletRequest request = request("GET", "/bootui/api/pentest");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
     }
 
     @Test
@@ -159,4 +188,20 @@ class PanelAccessFilterTests {
         request.setRequestURI(uri);
         return request;
     }
+
+    private Map<String, ActionRequest> actionRequestsByPanel() {
+        Map<String, ActionRequest> requests = new LinkedHashMap<>();
+        requests.put("config", new ActionRequest("POST", "/bootui/api/config/overrides"));
+        requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
+        requests.put("cache", new ActionRequest("POST", "/bootui/api/cache/clear"));
+        requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
+        requests.put("http-probe", new ActionRequest("POST", "/bootui/api/probe"));
+        requests.put("pentest", new ActionRequest("POST", "/bootui/api/pentest/scan"));
+        requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/dependencies/scan"));
+        requests.put("devtools", new ActionRequest("POST", "/bootui/api/devtools/restart"));
+        requests.put("dev-services", new ActionRequest("POST", "/bootui/api/dev-services/services/demo/restart"));
+        return requests;
+    }
+
+    private record ActionRequest(String method, String uri) {}
 }

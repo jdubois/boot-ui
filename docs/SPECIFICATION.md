@@ -358,7 +358,8 @@ Purpose: answer "What made startup slow?"
 Data sources:
 
 - Actuator `startup` endpoint when configured.
-- Spring `ApplicationStartup`.
+- Spring `ApplicationStartup`; BootUI installs a `BufferingApplicationStartup` automatically while active unless
+  `bootui.startup.enabled=false` or `bootui.startup.capacity<=0`.
 
 Features:
 
@@ -366,7 +367,7 @@ Features:
 - Show timeline view.
 - Filter by tag.
 - Highlight slowest steps.
-- Explain when startup data is unavailable and how to enable it.
+- Explain when startup data is unavailable and how to re-enable or provide startup buffering.
 
 Acceptance criteria:
 
@@ -506,8 +507,8 @@ Data sources:
 
 - Passive Spring application context metadata.
 - Spring MVC request mapping metadata when available.
-- Explicit synthetic localhost requests to a host-application missing-resource path under the app root context, never
-  under BootUI's `/bootui` or `/bootui/api` paths.
+- Explicit synthetic localhost requests to a host-application missing-resource path under the application context path,
+  never under BootUI's `/bootui` or `/bootui/api` paths.
 
 Features:
 
@@ -904,6 +905,8 @@ Initial properties:
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
 | `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                  |
 | `bootui.show-banner`                         | `true`                                  | Print BootUI URL on startup.                                                                      |
+| `bootui.startup.enabled`                     | `true`                                  | Install a `BufferingApplicationStartup` automatically while BootUI is active.                      |
+| `bootui.startup.capacity`                    | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                          |
 | `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                    |
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
@@ -1035,7 +1038,8 @@ Examples:
 - No Actuator health details:
   - "Health details are hidden. In local development, set `management.endpoint.health.show-details=always`."
 - No startup timeline:
-  - "Startup data is unavailable. Configure `BufferingApplicationStartup` to collect startup steps."
+  - "Startup data is unavailable. Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero,
+    or provide your own `BufferingApplicationStartup`."
 - No mappings:
   - "No web mappings found. This may be a non-web application."
 

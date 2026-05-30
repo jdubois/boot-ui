@@ -118,6 +118,8 @@ Common properties:
 | `bootui.expose-values`                 | `MASKED`                                | `MASKED`, `METADATA_ONLY`, or `FULL`; `FULL` can disclose secrets and should stay local. |
 | `bootui.read-only`                     | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.         |
 | `bootui.overrides-file`                | `.bootui/application-bootui.properties` | Runtime override persistence file.                                                       |
+| `bootui.startup.enabled`               | `true`                                  | Auto-install startup buffering for the Startup Timeline panel while BootUI is active.     |
+| `bootui.startup.capacity`              | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                 |
 | `bootui.cache.clear-enabled`           | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
 | `bootui.dev-services.restart-enabled`  | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |
 | `bootui.dev-services.log-tail-bytes`   | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                  |
@@ -149,7 +151,7 @@ app restarts; BootUI returns that warning with every override mutation.
 | Browser is rejected          | BootUI accepts loopback callers by default. Use `bootui.allow-non-localhost=true` only for a trusted local network.             |
 | Spring Security blocks UI    | BootUI auto-registers a `/bootui/**` permit-all chain when Spring Security is active; check for a custom higher-priority chain. |
 | A panel is empty             | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable. |
-| Startup Timeline is empty    | Configure `BufferingApplicationStartup` in the host app.                                                                        |
+| Startup Timeline is empty    | Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero, or provide your own `BufferingApplicationStartup`. |
 | Secrets are hidden           | Default exposure is `MASKED`; use `METADATA_ONLY` to hide all values or `FULL` only in trusted local sessions.                  |
 
 ## Repository modules

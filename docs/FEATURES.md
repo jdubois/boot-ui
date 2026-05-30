@@ -49,8 +49,10 @@ needs tuning.
 ### Startup Timeline
 
 The Startup Timeline panel visualizes Spring Boot startup steps from Actuator startup data. It helps identify expensive
-startup phases, slow bean initialization, and the overall application startup shape. If the host app does not expose
-startup data, the panel shows an empty state instead of failing.
+startup phases, slow bean initialization, and the overall application startup shape. When BootUI is active, the starter
+installs a `BufferingApplicationStartup` by default so the panel has data without host-app setup; disable that with
+`bootui.startup.enabled=false` or tune the retained step count with `bootui.startup.capacity`. If startup data is still
+unavailable, the panel shows an empty state instead of failing.
 
 ![BootUI Startup Timeline panel](images/bootui-startup-timeline.png)
 
@@ -198,7 +200,7 @@ duration, and body. It is designed for quick route checks from inside the same l
 
 The Pentesting panel runs explicit, local-only OWASP hygiene checks against the host application, not BootUI's
 `/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the application
-root context for security headers, CORS behavior, cookie flags, verbose error exposure, Spring Security wiring, and
+context path for security headers, CORS behavior, cookie flags, verbose error exposure, Spring Security wiring, and
 actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such as an enabled H2 console,
 in-config security credentials, value-revealing actuator endpoints, and DevTools left on the classpath. It intentionally
 does not sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies.
