@@ -323,7 +323,8 @@ Still excluded from the already released `0.1.0`:
 - Live Docker Compose lifecycle control beyond the existing snapshot view.
 - Production-grade tracing or APM replacement. The OTLP receiver is dev-only and bounded in memory.
 - Request history.
-- Service Extension SPI and modular service integrations. This is now the preferred next workstream.
+- Service Extension SPI and modular service integrations, starting with an AI Usage panel refactor that adds
+  LangChain4j OpenTelemetry support.
 - Gradle plugin.
 - Hosted features.
 - Spring Boot 3.x compatibility.
@@ -345,19 +346,25 @@ The candidate hardening items originally tracked for a later `v0.2` were pulled 
   bottlenecks that browser-side progressive rendering cannot solve.~~ Done (2026-05-28): Beans, Conditions, Mappings,
   Configuration, and Loggers now expose bounded server-side pages with filter-aware counts and page metadata.
 
-## 7. Next release candidate: Service Extension SPI
+## 7. Next release candidate: AI Usage service extension and Service Extension SPI
 
-The next preferred workstream is to turn the current Services menu group into first-party BootUI service extensions.
-This keeps the released `0.1.0` behavior intact while making service-specific integrations modular and easier to grow.
+The next preferred workstream is to refactor the current **AI Usage** panel into the first BootUI service extension and
+extend it beyond Spring AI to support LangChain4j. LangChain4j can emit OpenTelemetry spans, so BootUI
+should normalize those spans through the same in-app OTLP path used for Spring AI while keeping the released `0.1.0`
+Spring AI behavior intact. This should establish the Service Extension SPI before the remaining Services menu entries
+move behind it.
 
 Scope:
 
 - Introduce a Service Extension SPI that lets a module contribute a service panel, route metadata, availability status,
   stable DTO endpoints, documentation metadata, and optional frontend assets.
-- Move the current Services menu group behind that SPI over time: Scheduled Tasks, Data, Cache, Security, and AI Usage.
-- Add HikariCP connection-pool visibility as the first database-pool slice, plus Elasticsearch, Flyway/Liquibase, and
-  MongoDB. The HikariCP work is intentionally implementation-specific for this release; generic JDBC/R2DBC pool support
-  can be revisited after the Hikari UX and DTO shape are proven.
+- Extract **AI Usage** into `services/bootui-service-ai-usage` first. Preserve the existing Spring AI observation
+  aggregation and add LangChain4j OpenTelemetry span support to the same panel and DTO shape where possible.
+- Move the remaining current Services menu entries behind that SPI over time: Scheduled Tasks, Data, Cache, and
+  Security.
+- Add HikariCP connection-pool visibility as the first database-pool slice after the AI Usage extraction, plus
+  Elasticsearch, Flyway/Liquibase, and MongoDB. The HikariCP work is intentionally implementation-specific for this
+  release; generic JDBC/R2DBC pool support can be revisited after the Hikari UX and DTO shape are proven.
 - Put all first-party service extensions under a top-level `services/` Maven directory, with one Maven submodule per
   service, for example:
   - `services/bootui-service-scheduled`
@@ -378,6 +385,11 @@ Design constraints:
   configuration are unavailable.
 - Browser-facing service data still uses stable BootUI DTOs and must route any sensitive property names or values
   through the existing masking/value-exposure model.
+- AI Usage support should stay OTLP-backed and framework-neutral at the DTO boundary. The service should recognize
+  Spring AI and LangChain4j span conventions, preserve source/framework labels when they are known, aggregate chat,
+  embedding, tool, token, latency, error, and vector-store signals when present, and degrade gracefully when a framework
+  omits optional attributes. Prompt/response content must remain opt-in through captured trace attributes and continue
+  to follow the existing masking/value-exposure rules.
 - HikariCP support should be read-only at first and exposed as its own **Connection Pools** panel in the Services group,
   placed after **Data** and before **Cache**. It should discover `HikariDataSource` beans only, fail closed when HikariCP
   is absent, and show pool identity, masked JDBC connection metadata, current active/idle/total/pending counts, min/max
@@ -493,10 +505,11 @@ On 2026-05-29, `./mvnw -B -ntp clean install` and the Playwright suite under `bo
 current branch. The Playwright run covered all 57 sample-app browser tests.
 
 The listed final-release hardening set is complete, `0.1.0` is released, and release validation was refreshed on
-2026-05-29. The next workstream should be the Service Extension SPI in §7: extract the existing Services menu entries
-into first-party service modules under `services/`, add only Elasticsearch, Flyway/Liquibase, and MongoDB as new
-service extensions, and keep tests, docs, router ordering, `/bootui/api/panels` availability, sample-app Playwright
-coverage, and release validation in sync as behavior changes land.
+2026-05-29. The next workstream should be the AI Usage service extension and Service Extension SPI in §7: extract
+AI Usage into `services/bootui-service-ai-usage`, add LangChain4j OpenTelemetry support alongside Spring AI, then move
+the remaining Services menu entries behind first-party modules under `services/`. Keep tests, docs, router ordering,
+`/bootui/api/panels` availability, sample-app Playwright coverage, and release validation in sync as behavior changes
+land.
 
 ## 10. Validation checklist
 
