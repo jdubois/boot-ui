@@ -1,0 +1,26 @@
+package io.github.jdubois.bootui.autoconfigure.architecture;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class ArchitectureRuleRegistryTests {
+
+    @Test
+    void everyRuleHasACompleteAndUniqueDefinition() {
+        List<ArchitectureRule> rules = ArchitectureRuleRegistry.activeRules();
+
+        assertThat(rules).isNotEmpty();
+        assertThat(rules).extracting(rule -> rule.definition().id()).doesNotHaveDuplicates();
+        assertThat(rules).allSatisfy(rule -> {
+            ArchitectureRuleDefinition definition = rule.definition();
+            assertThat(definition.id()).isNotBlank();
+            assertThat(definition.name()).isNotBlank();
+            assertThat(definition.description()).isNotBlank();
+            assertThat(definition.recommendation()).isNotBlank();
+            assertThat(definition.category()).isNotNull();
+            assertThat(definition.severity()).isIn("HIGH", "MEDIUM", "LOW", "INFO");
+        });
+    }
+}
