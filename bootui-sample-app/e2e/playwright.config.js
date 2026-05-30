@@ -21,7 +21,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: process.env.CI ? [['list'], ['html', {open: 'never'}]] : 'list',
+  reporter: process.env.CI
+    ? [['list'], ['html', {open: 'never'}], ['junit', {outputFile: 'test-results/junit/results.xml'}]]
+    : 'list',
   timeout: 60_000,
   expect: {timeout: 10_000},
 

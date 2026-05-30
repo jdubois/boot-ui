@@ -17,6 +17,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.js'],
     clearMocks: true,
-    restoreMocks: true
+    restoreMocks: true,
+    reporters: process.env.CI ? ['default', 'junit'] : 'default',
+    outputFile: {junit: './test-results/vitest-junit.xml'}
   }
 })

@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   build:
@@ -68,14 +69,56 @@ jobs:
         working-directory: bootui-sample-app/e2e
         run: npm test
 
+      - name: Publish Java test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: Java tests (Surefire)
+          path: '**/target/surefire-reports/TEST-*.xml'
+          reporter: java-junit
+          fail-on-error: false
+          fail-on-empty: false
+
+      - name: Publish frontend unit test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: Frontend unit tests (Vitest)
+          path: bootui-ui/src/main/frontend/test-results/vitest-junit.xml
+          reporter: jest-junit
+          fail-on-error: false
+          fail-on-empty: false
+
+      - name: Publish end-to-end test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: End-to-end tests (Playwright)
+          path: bootui-sample-app/e2e/test-results/junit/results.xml
+          reporter: jest-junit
+          fail-on-error: false
+          fail-on-empty: false
+
       - name: Upload Playwright report
-        if: failure()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
             bootui-sample-app/e2e/playwright-report/
             bootui-sample-app/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload JUnit test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-test-reports
+          path: |
+            **/target/surefire-reports/TEST-*.xml
+            bootui-ui/src/main/frontend/test-results/vitest-junit.xml
+            bootui-sample-app/e2e/test-results/junit/results.xml
           if-no-files-found: ignore
           retention-days: 7
 
