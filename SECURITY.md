@@ -61,7 +61,8 @@ The per-event raw reveal endpoint
 returns the source JSON for one event on demand. It is:
 
 - gated by `bootui.copilot.allow-raw-reveal` / `bootui.claude-code.allow-raw-reveal`
-  (the Claude Code panel disables it by default);
+  (Copilot enables it by default; Claude Code disables it by default because its
+  logs can contain prompts and outputs);
 - automatically disabled when `bootui.expose-values=METADATA_ONLY`;
 - subject to the standard loopback-only filter applied to every BootUI
   endpoint.
