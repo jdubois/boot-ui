@@ -4,6 +4,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
+import io.github.jdubois.bootui.autoconfigure.otlp.TelemetrySpanFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import jakarta.servlet.http.HttpServletRequest;
@@ -50,33 +51,6 @@ public class OtlpReceiverController {
         this.properties = properties;
     }
 
-    private static boolean isSelfSpan(NormalizedSpan span, String apiPath) {
-        if (apiPath == null || apiPath.isEmpty()) {
-            return false;
-        }
-        if (span.attributes() == null) {
-            return false;
-        }
-        String route = stringAttribute(span, "http.route");
-        if (route != null && (route.startsWith(apiPath) || route.startsWith("/bootui"))) {
-            return true;
-        }
-        String urlPath = stringAttribute(span, "url.path");
-        if (urlPath != null && (urlPath.startsWith(apiPath) || urlPath.startsWith("/bootui"))) {
-            return true;
-        }
-        String target = stringAttribute(span, "http.target");
-        return target != null && (target.startsWith(apiPath) || target.startsWith("/bootui"));
-    }
-
-    private static String stringAttribute(NormalizedSpan span, String key) {
-        if (span.attributes() == null) {
-            return null;
-        }
-        var av = span.attributes().get(key);
-        return av != null ? av.asString() : null;
-    }
-
     private static ResponseEntity<byte[]> okResponse() {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("application/x-protobuf"))
@@ -106,7 +80,7 @@ public class OtlpReceiverController {
             String apiPath = properties.getApiPath();
             int kept = 0;
             for (NormalizedSpan span : spans) {
-                if (telemetry.isExcludeSelfSpans() && isSelfSpan(span, apiPath)) {
+                if (telemetry.isExcludeSelfSpans() && TelemetrySpanFilter.isSelfSpan(span, apiPath)) {
                     continue;
                 }
                 store.add(span);

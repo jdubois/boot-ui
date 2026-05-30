@@ -497,8 +497,8 @@ onBeforeUnmount(() => {
               <span class="badge text-bg-info">Telemetry ready</span>
             </div>
             <p class="text-muted mb-0">
-              BootUI's telemetry receiver is active and Spring AI is detected. Exercise a Spring AI chat flow; this
-              panel will refresh automatically when the first completion span arrives.
+              BootUI's telemetry capture is active and Spring AI is detected. Exercise a Spring AI chat flow; this panel
+              will refresh automatically when the first completion span arrives.
             </p>
           </div>
         </div>

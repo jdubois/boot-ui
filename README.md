@@ -36,7 +36,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Services        | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                     |
 | Services        | [Security](docs/FEATURES.md#security)                 | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                             |
 | Services        | [AI Usage](docs/FEATURES.md#ai-usage)                 | Summarize Spring AI chat conversations, token usage, latency, and model details from OpenTelemetry spans.     |
-| Diagnostics     | [Traces](docs/FEATURES.md#traces)                     | Inspect distributed tracing spans collected by the embedded OTLP receiver with a per-trace waterfall view.    |
+| Diagnostics     | [Traces](docs/FEATURES.md#traces)                     | Inspect local spans captured automatically by the starter, plus OTLP spans from cooperating services.         |
 | Diagnostics     | [Log Tail](docs/FEATURES.md#log-tail)                 | Read recent application logs and stream new local log events from the running process.                        |
 | Diagnostics     | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                      |
 | Diagnostics     | [Vulnerabilities](docs/FEATURES.md#vulnerabilities)   | Review dependency inventory and local OSV vulnerability scan results.                                         |
@@ -98,6 +98,7 @@ BootUI is intended for local development only. By default it:
   console remains directly reachable while the loopback-only filter still applies
 - masks secret-like configuration values
 - exposes the local Actuator endpoints used by BootUI panels when BootUI is active
+- captures local application spans for the Traces panel when telemetry and the panel are enabled
 - disables itself for `prod` / `production` profiles
 - stores runtime configuration overrides in `.bootui/application-bootui.properties`, not in your source config files
 
@@ -119,6 +120,7 @@ Common properties:
 | `bootui.cache.clear-enabled`           | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
 | `bootui.dev-services.restart-enabled`  | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |
 | `bootui.dev-services.log-tail-bytes`   | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                  |
+| `bootui.telemetry.enabled`             | `true`                                  | Enables local in-memory trace capture and the OTLP receiver used by Traces and AI Usage. |
 | `bootui.copilot.enabled`               | `AUTO`                                  | Enable the Copilot panel. `AUTO` activates when `~/.copilot/session-state/` exists.      |
 | `bootui.copilot.session-state-dir`     | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.          |
 | `bootui.copilot.max-sessions`          | `100`                                   | Maximum recent sessions returned by the Copilot session explorer.                        |

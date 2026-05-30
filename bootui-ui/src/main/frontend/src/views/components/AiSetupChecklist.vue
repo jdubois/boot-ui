@@ -9,11 +9,7 @@ defineProps({
 
 const {copiedKey, copyToClipboard} = useCopyToClipboard()
 
-const otlpProps = `management.opentelemetry.tracing.export.otlp.endpoint=http://localhost:8080/bootui/api/otlp/v1/traces`
-const mavSnippet = `<dependency>
-  <groupId>io.micrometer</groupId>
-  <artifactId>micrometer-tracing-bridge-otel</artifactId>
-</dependency>`
+const otlpEndpoint = `/bootui/api/otlp/v1/traces`
 </script>
 
 <template>
@@ -39,7 +35,7 @@ const mavSnippet = `<dependency>
           <i :class="enabled ? 'bi-check-circle-fill' : 'bi-x-circle-fill'" class="bi"></i>
         </span>
         <div>
-          <div class="fw-semibold">Enable the BootUI telemetry receiver</div>
+          <div class="fw-semibold">Enable BootUI telemetry capture</div>
           <div v-if="!enabled" class="text-muted small">
             Add to your
             <code>application.properties</code>:
@@ -55,7 +51,7 @@ const mavSnippet = `<dependency>
               </button>
             </div>
           </div>
-          <div v-else class="text-muted small">Telemetry receiver is active.</div>
+          <div v-else class="text-muted small">Telemetry capture is active.</div>
         </div>
       </li>
       <li class="list-group-item d-flex align-items-start gap-3">
@@ -63,31 +59,24 @@ const mavSnippet = `<dependency>
           <i :class="hasData ? 'bi-check-circle-fill' : 'bi-circle'" class="bi"></i>
         </span>
         <div class="w-100">
-          <div class="fw-semibold">OTLP exporter configured</div>
+          <div class="fw-semibold">Trace capture ready</div>
           <div class="text-muted small">
-            Configure your application to export OTLP traces to BootUI:
+            The BootUI starter captures local application spans automatically. Exercise a Spring AI chat flow to
+            populate this panel.
             <div class="d-flex align-items-center gap-1 mt-1">
-              <code class="bg-light px-2 py-1 rounded text-break">{{ otlpProps }}</code>
+              <code class="bg-light px-2 py-1 rounded text-break">{{ otlpEndpoint }}</code>
               <button
                 :class="copiedKey === 'otlp' ? 'btn-success' : 'btn-outline-secondary'"
                 :title="copiedKey === 'otlp' ? 'Copied!' : 'Copy'"
                 class="btn btn-sm"
-                @click="copyToClipboard(otlpProps, 'otlp')"
+                @click="copyToClipboard(otlpEndpoint, 'otlp')"
               >
                 <i :class="copiedKey === 'otlp' ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
               </button>
             </div>
-            <div class="mt-2">Also add the tracing bridge dependency:</div>
-            <div class="d-flex align-items-start gap-1 mt-1">
-              <pre class="bg-light p-2 rounded small mb-0 flex-grow-1">{{ mavSnippet }}</pre>
-              <button
-                :class="copiedKey === 'maven' ? 'btn-success' : 'btn-outline-secondary'"
-                :title="copiedKey === 'maven' ? 'Copied!' : 'Copy'"
-                class="btn btn-sm"
-                @click="copyToClipboard(mavSnippet, 'maven')"
-              >
-                <i :class="copiedKey === 'maven' ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>
-              </button>
+            <div class="mt-2">
+              Cooperating local services can still export OTLP traces to this endpoint when they are not using the
+              BootUI starter.
             </div>
           </div>
         </div>

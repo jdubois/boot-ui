@@ -20,6 +20,9 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
         assertThat(env.getProperty("management.endpoints.web.exposure.include"))
                 .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.REQUIRED_ENDPOINTS);
         assertThat(env.getProperty("management.endpoint.health.show-details")).isEqualTo("always");
+        assertThat(env.getProperty(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY);
     }
 
     @Test
@@ -27,12 +30,47 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
         MockEnvironment env = new MockEnvironment()
                 .withProperty("bootui.enabled", "ON")
                 .withProperty("management.endpoints.web.exposure.include", "health,info")
-                .withProperty("management.endpoint.health.show-details", "never");
+                .withProperty("management.endpoint.health.show-details", "never")
+                .withProperty(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY, "0.25");
 
         processor.postProcessEnvironment(env, new SpringApplication());
 
         assertThat(env.getProperty("management.endpoints.web.exposure.include")).isEqualTo("health,info");
         assertThat(env.getProperty("management.endpoint.health.show-details")).isEqualTo("never");
+        assertThat(env.getProperty(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
+                .isEqualTo("0.25");
+    }
+
+    @Test
+    void doesNotContributeTracingDefaultsWhenTelemetryIsDisabled() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("bootui.telemetry.enabled", "false");
+
+        processor.postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("management.endpoints.web.exposure.include"))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.REQUIRED_ENDPOINTS);
+        assertThat(env.getProperty(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
+                .isNull();
+    }
+
+    @Test
+    void doesNotContributeTracingDefaultsWhenTracesPanelIsDisabled() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("bootui.panels.traces.enabled", "false");
+
+        processor.postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("management.endpoints.web.exposure.include"))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.REQUIRED_ENDPOINTS);
+        assertThat(env.getProperty(
+                        BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
+                .isNull();
     }
 
     @Test

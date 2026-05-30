@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -31,6 +32,9 @@ import org.springframework.core.env.Environment;
  * is a servlet web application, and when Spring MVC is on the classpath.</p>
  */
 @AutoConfiguration
+@AutoConfigureBefore(
+        name =
+                "org.springframework.boot.micrometer.tracing.opentelemetry.autoconfigure.OpenTelemetryTracingAutoConfiguration")
 @Conditional(BootUiActivationCondition.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
@@ -62,7 +66,8 @@ import org.springframework.core.env.Environment;
     OtlpReceiverController.class,
     CopilotController.class,
     ClaudeCodeController.class,
-    BootUiIndexController.class
+    BootUiIndexController.class,
+    BootUiOpenTelemetryConfiguration.class
 })
 public class BootUiAutoConfiguration {
 

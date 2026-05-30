@@ -43,12 +43,14 @@ Make a running Spring Boot application understandable in minutes.
 ### 2.3 Non-goals for MVP
 
 - Production monitoring.
-- Multi-application _runtime_ orchestration. BootUI accepts OTLP traces from cooperating local services as a dev-time
-  sink, but it does not run, schedule, restart, or supervise other processes the way .NET Aspire's AppHost does.
+- Multi-application _runtime_ orchestration. BootUI captures host-application traces locally and accepts OTLP traces from
+  cooperating local services as a dev-time sink, but it does not run, schedule, restart, or supervise other processes the
+  way .NET Aspire's AppHost does.
 - Kubernetes workflow management.
 - Hosted dashboards.
 - Authentication and user management.
-- Full APM/tracing replacement. The OTLP receiver is dev-only, bounded in memory, and never forwards data anywhere.
+- Full APM/tracing replacement. BootUI's telemetry capture is dev-only, bounded in memory, and never forwards data
+  anywhere.
 - Upgrade automation.
 - Code editing.
 - Replacing Spring Boot Admin.
@@ -876,7 +878,7 @@ Initial properties:
 | `bootui.dependencies.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
 | `bootui.dev-services.restart-enabled`        | `false`                                 | Enables restart controls for bean-backed Testcontainers services.                                 |
 | `bootui.dev-services.log-tail-bytes`         | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                           |
-| `bootui.telemetry.enabled`                   | `true`                                  | Enables the local OTLP/HTTP trace receiver used by the Traces and AI Usage panels.                |
+| `bootui.telemetry.enabled`                   | `true`                                  | Enables local trace capture and the OTLP/HTTP receiver used by the Traces and AI Usage panels.    |
 | `bootui.telemetry.max-traces`                | `500`                                   | Maximum distinct traces retained in memory; internally capped for UI safety.                      |
 | `bootui.telemetry.max-spans-per-trace`       | `500`                                   | Maximum spans retained for one trace; internally capped for UI safety.                            |
 | `bootui.telemetry.max-attribute-value-bytes` | `4096`                                  | Maximum attribute string length before truncation; internally capped for UI safety.               |
@@ -920,7 +922,7 @@ Rules:
 - Never display `.env` contents.
 - Never write configuration values back to application source files.
 - Persist runtime overrides only to BootUI's configured override file.
-- Never send telemetry by default.
+- Never forward telemetry off-process by default.
 - Never proxy arbitrary external URLs.
 - Never perform dependency vulnerability lookups until the developer explicitly starts an OSV scan.
 

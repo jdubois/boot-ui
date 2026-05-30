@@ -108,7 +108,7 @@ test.describe('Traces view', () => {
     )
 
     await page.goto('/bootui/#/traces')
-    await expect(page.getByText('Telemetry receiver is disabled')).toBeVisible()
+    await expect(page.getByText('Telemetry capture is disabled')).toBeVisible()
     await expect(page.getByText('No traces received yet')).toHaveCount(0)
   })
 })
