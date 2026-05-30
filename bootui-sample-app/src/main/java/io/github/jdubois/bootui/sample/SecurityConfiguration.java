@@ -2,12 +2,11 @@ package io.github.jdubois.bootui.sample;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 
-import java.io.IOException;
-
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -30,11 +29,9 @@ class SecurityConfiguration {
     @Bean
     @Order(1)
     SecurityFilterChain bootUiSecurity(HttpSecurity http) throws Exception {
-        return http
-                .securityMatcher("/bootui/**")
+        return http.securityMatcher("/bootui/**")
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-                .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(csrfTokenRequestHandler())
                         .ignoringRequestMatchers("/bootui/api/otlp/**"))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
@@ -44,8 +41,7 @@ class SecurityConfiguration {
     @Bean
     @Order(2)
     SecurityFilterChain adminSecurity(HttpSecurity http) throws Exception {
-        return http
-                .securityMatcher("/admin/**", "/api/secure")
+        return http.securityMatcher("/admin/**", "/api/secure")
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().hasRole("ADMIN"))
                 .httpBasic(withDefaults())
                 .build();
@@ -54,8 +50,7 @@ class SecurityConfiguration {
     @Bean
     @Order(3)
     SecurityFilterChain applicationSecurity(HttpSecurity http) throws Exception {
-        return http
-                .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
+        return http.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/chat"))
                 .build();
     }
@@ -87,7 +82,8 @@ class SecurityConfiguration {
     private static final class CsrfCookieFilter extends OncePerRequestFilter {
 
         @Override
-        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+        protected void doFilterInternal(
+                HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
                 throws ServletException, IOException {
             CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
             if (csrfToken != null) {
