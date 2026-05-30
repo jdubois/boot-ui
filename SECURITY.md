@@ -2,12 +2,13 @@
 
 ## Supported versions
 
-BootUI is currently pre-1.0. Only the latest release on `main` receives
-security fixes.
+BootUI is currently pre-1.0. Only the latest released version receives
+security fixes; older releases do not.
 
-| Version          | Supported |
-|------------------|-----------|
-| 0.1.x (snapshot) | ✅         |
+| Version | Supported |
+|---------|-----------|
+| 0.2.x   | ✅         |
+| < 0.2   | ❌         |
 
 ## Reporting a vulnerability
 
@@ -31,7 +32,40 @@ BootUI is a **local developer console**. By design it:
 - exposes its endpoints on the loopback interface only — non-loopback
   requests are rejected unless `bootui.allow-non-localhost=true` is set;
 - masks values for property keys that look like secrets (`password`, `token`,
-  `secret`, `key`, …).
+  `secret`, `key`, …) — controlled by `bootui.expose-values`, which defaults to
+  `MASKED`.
+
+### Local agent session panels (Copilot and Claude Code)
+
+The Copilot and Claude Code panels surface activity from local AI coding
+agents by reading the session state each CLI writes on disk:
+
+- the Copilot panel reads `~/.copilot/session-state/` (or the path configured
+  via `bootui.copilot.session-state-dir`), including each session's
+  `events.jsonl` file;
+- the Claude Code panel reads `~/.claude/projects/` (or the path configured
+  via `bootui.claude-code.session-state-dir`), including its per-session JSONL
+  logs.
+
+Both data flows are local-only and **read-only** — BootUI never writes to or
+deletes from those directories.
+
+The default `/bootui/api/copilot/**` and `/bootui/api/claude-code/**` payloads
+contain only allowlisted, sanitized fields: event type, tool name, category,
+timestamp, success flag, and a short summary. Prompts, raw tool arguments,
+command output, file diffs, and other agent session content are deliberately
+excluded from the default payloads.
+
+The per-event raw reveal endpoint
+(`/bootui/api/{copilot,claude-code}/sessions/{id}/events/{eventId}/raw`)
+returns the source JSON for one event on demand. It is:
+
+- gated by `bootui.copilot.allow-raw-reveal` / `bootui.claude-code.allow-raw-reveal`
+  (Copilot enables it by default; Claude Code disables it by default because its
+  logs can contain prompts and outputs);
+- automatically disabled when `bootui.expose-values=METADATA_ONLY`;
+- subject to the standard loopback-only filter applied to every BootUI
+  endpoint.
 
 **BootUI must never be enabled in production.** Issues that require running
 BootUI in a production-like setting (publicly exposed, with security
@@ -45,28 +79,8 @@ In-scope security issues include:
   profile is active, DevTools is present, nor `bootui.enabled=ON`.
 - Secret values leaked in API responses despite default masking.
 - Stored XSS or RCE against the bundled Vue UI.
-- Path traversal through the runtime overrides file store.
-
-## Copilot panel local file read
-
-When enabled, the Copilot panel reads Copilot CLI session directories from
-`~/.copilot/session-state/` (or the path configured via
-`bootui.copilot.session-state-dir`), including each session's
-`events.jsonl` file. The data flow is local-only and **read-only** - BootUI
-never writes to or deletes from that directory.
-
-The default `/bootui/api/copilot/**` payloads contain only allowlisted,
-sanitized fields: event type, tool name, category, timestamp, success
-flag, and a short summary. Prompts, raw tool arguments, command output,
-file diffs, and other Copilot session content are deliberately excluded
-from the default payloads.
-
-The per-event raw reveal endpoint
-(`/bootui/api/copilot/sessions/{id}/events/{eventId}/raw`) returns the
-source JSON for one event on demand. It is:
-
-- gated by `bootui.copilot.allow-raw-reveal=true` (set to `false` to
-  hard-disable it);
-- automatically disabled when `bootui.expose-values=METADATA_ONLY`;
-- subject to the standard loopback-only filter applied to every BootUI
-  endpoint.
+- Path traversal through the runtime overrides file store, or through the
+  Copilot/Claude Code session-state directories.
+- Sanitized agent session payloads leaking prompts, raw tool arguments,
+  command output, or diffs that should only be reachable through the gated raw
+  reveal endpoint.
