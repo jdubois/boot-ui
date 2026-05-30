@@ -194,10 +194,27 @@ duration, and body. It is designed for quick route checks from inside the same l
 
 ![BootUI HTTP Probe panel](images/bootui-http-probe.png)
 
+### Pentesting
+
+The Pentesting panel runs explicit, local-only OWASP hygiene checks against the host application, not BootUI's
+`/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the application
+root context for security headers, CORS behavior, cookie flags, verbose error exposure, Spring Security wiring, and
+actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such as an enabled H2 console,
+in-config security credentials, value-revealing actuator endpoints, and DevTools left on the classpath. It intentionally
+does not sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies.
+Findings are heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
+
+Each hygiene check is registered with a stable identifier, OWASP category, evidence source, and recommendation so new
+checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
+full catalogue of checks and what each one inspects.
+
+![BootUI Pentesting panel](images/bootui-pentesting.png)
+
 ### Vulnerabilities
 
 The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
-vulnerable dependencies from the running project's dependency set during the local development loop.
+vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
+ordered by severity first, with dependencies and advisories alphabetized within the same severity.
 
 ![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
 

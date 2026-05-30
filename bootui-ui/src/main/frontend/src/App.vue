@@ -57,8 +57,6 @@ const activePanelUnavailableReason = computed(() => {
 })
 const activePanelReadOnly = computed(() => activePanel.value?.readOnly === true && !activePanelUnavailable.value)
 const activePanelReadOnlyReason = computed(() => activePanel.value?.readOnlyReason || 'This panel is read-only.')
-const activeTitle = computed(() => route.meta?.title ?? 'BootUI')
-const activeIcon = computed(() => route.meta?.icon ?? 'bi-speedometer2')
 const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
 const runtimeSummary = computed(() => {
   if (!overview.value) return 'Loading runtime details'
@@ -326,13 +324,6 @@ onMounted(loadShellData)
 
       <main class="content-stage">
         <div v-if="error" class="alert alert-danger shadow-sm">{{ error }}</div>
-        <div class="page-heading">
-          <span class="page-icon"><i :class="['bi', activeIcon]"></i></span>
-          <div>
-            <div class="eyebrow">Current panel</div>
-            <h2>{{ activeTitle }}</h2>
-          </div>
-        </div>
         <div v-if="activePanelUnavailable" class="alert alert-warning panel-availability-alert shadow-sm" role="status">
           <div class="panel-availability-alert__title">
             <i class="bi bi-slash-circle"></i>
@@ -747,27 +738,6 @@ onMounted(loadShellData)
 .content-stage {
   flex: 1;
   padding: 0 2rem 1.5rem;
-}
-
-.page-heading {
-  align-items: center;
-  display: flex;
-  gap: 0.85rem;
-  margin-bottom: 1rem;
-}
-
-.page-heading h2 {
-  font-size: 1.25rem;
-  font-weight: 800;
-  margin: 0;
-}
-
-.page-icon {
-  background: linear-gradient(135deg, #198754, #0d6efd);
-  box-shadow: 0 0.8rem 1.5rem rgba(13, 110, 253, 0.2);
-  color: #fff;
-  height: 2.75rem;
-  width: 2.75rem;
 }
 
 .page-panel {

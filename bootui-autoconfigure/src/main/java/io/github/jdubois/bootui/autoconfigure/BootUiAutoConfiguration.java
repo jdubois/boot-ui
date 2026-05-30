@@ -5,11 +5,15 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
+import io.github.jdubois.bootui.autoconfigure.pentest.*;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -56,6 +60,7 @@ import org.springframework.core.env.Environment;
     DependenciesController.class,
     ScheduledController.class,
     HttpProbeController.class,
+    PentestController.class,
     LogTailController.class,
     ProfileController.class,
     SecurityController.class,
@@ -73,6 +78,51 @@ import org.springframework.core.env.Environment;
 public class BootUiAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(BootUiAutoConfiguration.class);
+
+    private static final Set<String> LAZY_CONTROLLER_CLASS_NAMES = Set.of(
+            AiController.class.getName(),
+            BeansController.class.getName(),
+            BootUiIndexController.class.getName(),
+            CacheController.class.getName(),
+            ClaudeCodeController.class.getName(),
+            ConditionsController.class.getName(),
+            ConfigController.class.getName(),
+            CopilotController.class.getName(),
+            DataController.class.getName(),
+            DependenciesController.class.getName(),
+            DevToolsController.class.getName(),
+            HealthController.class.getName(),
+            HttpProbeController.class.getName(),
+            LoggersController.class.getName(),
+            MappingsController.class.getName(),
+            MemoryController.class.getName(),
+            MetricsController.class.getName(),
+            OtlpReceiverController.class.getName(),
+            OverviewController.class.getName(),
+            PanelsController.class.getName(),
+            PentestController.class.getName(),
+            ProfileController.class.getName(),
+            ScheduledController.class.getName(),
+            SecurityController.class.getName(),
+            StartupController.class.getName(),
+            TracesController.class.getName());
+
+    private static final Set<String> LAZY_BEAN_NAMES =
+            Set.of("bootUiConfigOverrideService", "bootUiDevToolsBridge", "bootUiOtlpSpanDecoder");
+
+    @Bean
+    static BeanFactoryPostProcessor bootUiLazyBeanPostProcessor() {
+        return beanFactory -> {
+            for (String beanName : beanFactory.getBeanDefinitionNames()) {
+                BeanDefinition beanDefinition = beanFactory.getBeanDefinition(beanName);
+                String beanClassName = beanDefinition.getBeanClassName();
+                if (LAZY_BEAN_NAMES.contains(beanName)
+                        || (beanClassName != null && LAZY_CONTROLLER_CLASS_NAMES.contains(beanClassName))) {
+                    beanDefinition.setLazyInit(true);
+                }
+            }
+        };
+    }
 
     @Bean
     public BootUiActivation bootUiActivation(Environment environment) {

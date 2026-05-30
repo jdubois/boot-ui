@@ -21,15 +21,60 @@ const severityClasses = {
   NONE: 'text-bg-success'
 }
 
+const severityRanks = {
+  CRITICAL: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+  UNKNOWN: 4,
+  NONE: 5
+}
+
+function severityRank(severity) {
+  return severityRanks[severity] ?? 6
+}
+
+function compareText(left, right) {
+  const leftText = (left || '').toString()
+  const rightText = (right || '').toString()
+  const leftNormalized = leftText.toLowerCase()
+  const rightNormalized = rightText.toLowerCase()
+  if (leftNormalized < rightNormalized) return -1
+  if (leftNormalized > rightNormalized) return 1
+  if (leftText < rightText) return -1
+  if (leftText > rightText) return 1
+  return 0
+}
+
+function compareDependencies(left, right) {
+  const severity = severityRank(left.highestSeverity) - severityRank(right.highestSeverity)
+  if (severity !== 0) return severity
+  const packageName = compareText(left.packageName, right.packageName)
+  if (packageName !== 0) return packageName
+  return compareText(left.version, right.version)
+}
+
+function compareVulnerabilities(left, right) {
+  const severity = severityRank(left.severity) - severityRank(right.severity)
+  if (severity !== 0) return severity
+  return compareText(left.id, right.id)
+}
+
+function sortedVulnerabilities(vulnerabilities) {
+  return [...(vulnerabilities || [])].sort(compareVulnerabilities)
+}
+
 const filteredDependencies = computed(() => {
   if (!data.value) return []
   const q = search.value.trim().toLowerCase()
-  return data.value.dependencies.filter((dependency) => {
-    const matchesSearch =
-      !q || dependency.packageName.toLowerCase().includes(q) || dependency.version.toLowerCase().includes(q)
-    const matchesVulnerable = !vulnerableOnly.value || dependency.vulnerabilityCount > 0
-    return matchesSearch && matchesVulnerable
-  })
+  return data.value.dependencies
+    .filter((dependency) => {
+      const matchesSearch =
+        !q || dependency.packageName.toLowerCase().includes(q) || dependency.version.toLowerCase().includes(q)
+      const matchesVulnerable = !vulnerableOnly.value || dependency.vulnerabilityCount > 0
+      return matchesSearch && matchesVulnerable
+    })
+    .sort(compareDependencies)
 })
 
 const maxSeverityCount = computed(() => {
@@ -233,7 +278,11 @@ onMounted(loadDependencies)
                 <td>
                   <span v-if="dependency.vulnerabilityCount === 0" class="text-muted">None found</span>
                   <div v-else class="vulnerability-list">
-                    <div v-for="vulnerability in dependency.vulnerabilities" :key="vulnerability.id" class="mb-2">
+                    <div
+                      v-for="vulnerability in sortedVulnerabilities(dependency.vulnerabilities)"
+                      :key="vulnerability.id"
+                      class="mb-2"
+                    >
                       <div class="d-flex flex-wrap align-items-center gap-2">
                         <span :class="severityClass(vulnerability.severity)" class="badge">{{
                           vulnerability.severity
