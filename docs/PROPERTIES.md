@@ -52,6 +52,7 @@ Panel settings are consistent across the UI and API:
 | Diagnostics | Traces | `traces` | `bootui.panels.traces.enabled` | `bootui.panels.traces.read-only` |
 | Diagnostics | Log Tail | `log-tail` | `bootui.panels.log-tail.enabled` | Not applicable; view-only. |
 | Diagnostics | HTTP Probe | `http-probe` | `bootui.panels.http-probe.enabled` | `bootui.panels.http-probe.read-only` |
+| Diagnostics | Pentesting | `pentest` | `bootui.panels.pentest.enabled` | `bootui.panels.pentest.read-only` |
 | Diagnostics | Vulnerabilities | `vulnerabilities` | `bootui.panels.vulnerabilities.enabled` | `bootui.panels.vulnerabilities.read-only` |
 | Developer tools | DevTools | `devtools` | `bootui.panels.devtools.enabled` | `bootui.panels.devtools.read-only` |
 | Developer tools | Dev Services | `dev-services` | `bootui.panels.dev-services.enabled` | `bootui.panels.dev-services.read-only` |
@@ -103,6 +104,13 @@ Panel settings are consistent across the UI and API:
 | --- | --- | --- |
 | `bootui.panels.http-probe.enabled` | `true` | Show the HTTP Probe panel. |
 | `bootui.panels.http-probe.read-only` | `false` | Disable sending probe requests through BootUI. |
+
+### Pentesting
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.pentest.enabled` | `true` | Show the host-application OWASP hygiene panel and its latest report. |
+| `bootui.panels.pentest.read-only` | `false` | Disable the explicit local scan action. |
 
 ### Vulnerabilities
 

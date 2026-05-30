@@ -69,6 +69,7 @@ public class PanelsController {
                     BootUiPanels.MEMORY,
                     BootUiPanels.CONFIG,
                     BootUiPanels.HTTP_PROBE,
+                    BootUiPanels.PENTEST,
                     BootUiPanels.VULNERABILITIES -> available();
             case BootUiPanels.HEALTH ->
                 availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");

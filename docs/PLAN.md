@@ -49,6 +49,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Spring Cache managers, metrics, annotations, and confirmed clear controls
   - scheduled tasks
   - HTTP probe
+  - Pentesting
   - log tail
   - profile diff
   - Spring Security
@@ -73,6 +74,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Log Tail
   - Traces
   - HTTP Probe
+  - Pentesting
   - Copilot
   - Claude Code
   - DevTools
@@ -102,7 +104,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 | 3. Actuator bridge                       | Implemented and covered                  | Stable BootUI DTO endpoints exist for every visible panel; missing-Actuator behavior has explicit empty-DTO coverage.                                                                                                                                   |
 | 4. Beans and Conditions panels           | Implemented and covered by sample e2e    | API and UI panels exist, with bounded server-side filtering and paging for large-app edge cases.                                                                                                                                                        |
 | 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e    | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests.                                                                                                              |
-| 6. Post-MVP diagnostic panels            | Implemented and covered                  | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
+| 6. Post-MVP diagnostic panels            | Implemented and covered                  | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Pentesting, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
 | 7. Documentation and release hardening   | Released as `0.1.0`; ongoing             | User-facing docs are reconciled with current behavior, the changelog is current through `0.1.0`, and the CI-equivalent build plus sample-app Playwright suite passed on 2026-05-29. Keep release checks current as later work lands.                   |
 | 8. In-app OTLP sink + Traces + AI Usage  | Delivered for `0.1.0`                    | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`.                                                         |
 
@@ -152,14 +154,15 @@ The visible-route parity check is current. The sample-app Playwright suite cover
 2. Runtime: Health, Metrics, Memory, Startup Timeline.
 3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
 4. Services: Scheduled Tasks, Data, Cache, Security, AI Usage.
-5. Diagnostics: Traces, Log Tail, HTTP Probe, Vulnerabilities.
+5. Diagnostics: Traces, Log Tail, HTTP Probe, Pentesting, Vulnerabilities.
 6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
 7. Disabled / unavailable grouping for unavailable non-overview panels.
 
-Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code,
-Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented, documented, covered by
-sample-app Playwright tests, and part of the supported `0.1.0` surface. Any new visible route or browser-facing behavior
-should update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage together.
+Startup, Memory, Spring Data, Spring Cache, HTTP Probe, Pentesting, Profile Diff, Log Tail, Traces, AI Usage, Copilot,
+Claude Code, Scheduled Tasks, Security, Metrics, Vulnerabilities, DevTools, and Dev Services are implemented,
+documented, covered by sample-app Playwright tests, and part of the supported `0.1.0` surface. Any new visible route or
+browser-facing behavior should update the router, README feature table, `docs/FEATURES.md`, and Playwright coverage
+together.
 
 The large-app hardening pass is complete for the most obvious list and payload hotspots: Beans, Conditions,
 Mappings, Configuration, and Loggers request bounded server-side pages with filter parameters and render only the rows
@@ -197,9 +200,9 @@ Completed reconciliation points:
 - `bootui.enabled` uses `AUTO|ON|OFF`.
 - Runtime config overrides persist to the BootUI overrides file by default.
 - The frontend is plain JavaScript Vue 3.
-- Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Profile Diff, Log Tail, Traces, AI Usage, Copilot,
-  Claude Code, Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented `0.1.0`
-  surfaces, not deferred ideas.
+- Startup Timeline, Memory, Spring Data, Spring Cache, HTTP Probe, Pentesting, Profile Diff, Log Tail, Traces, AI Usage,
+  Copilot, Claude Code, Scheduled Tasks, Security, Metrics, DevTools, Dev Services, and Vulnerabilities are implemented
+  `0.1.0` surfaces, not deferred ideas.
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots,
   bean-backed Testcontainers services can expose bounded logs, and restart is disabled unless
   `bootui.dev-services.restart-enabled=true`.

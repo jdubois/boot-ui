@@ -9,6 +9,7 @@ import Data from './views/Data.vue'
 import Startup from './views/Startup.vue'
 import Scheduled from './views/Scheduled.vue'
 import HttpProbe from './views/HttpProbe.vue'
+import Pentesting from './views/Pentesting.vue'
 import LogTail from './views/LogTail.vue'
 import ProfileDiff from './views/ProfileDiff.vue'
 import Cache from './views/Cache.vue'
@@ -136,6 +137,12 @@ export const routes = [
     name: 'http-probe',
     component: HttpProbe,
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe'}
+  },
+  {
+    path: '/pentest',
+    name: 'pentest',
+    component: Pentesting,
+    meta: {group: groups.diagnostics, icon: 'bi-shield-exclamation', title: 'Pentesting'}
   },
   {
     path: '/vulnerabilities',

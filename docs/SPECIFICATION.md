@@ -496,6 +496,36 @@ Acceptance criteria:
 - Unsafe-body behavior is explicit and predictable.
 - Response headers are filtered to a small allow-list.
 
+### 5.13.1 Pentesting Panel
+
+Purpose: run local OWASP-oriented hygiene checks without turning BootUI into an invasive scanner.
+
+Data sources:
+
+- Passive Spring application context metadata.
+- Spring MVC request mapping metadata when available.
+- Explicit synthetic localhost requests to a host-application missing-resource path under the app root context, never
+  under BootUI's `/bootui` or `/bootui/api` paths.
+
+Features:
+
+- Show a not-scanned report until the user runs the scan.
+- Run bounded local checks for common security headers, CORS behavior, cookie flags, verbose error exposure, Spring
+  Security wiring, and actuator exposure against the host application rather than BootUI itself.
+- Cross-reference findings with OWASP Top 10 categories such as A01, A02, A05, A06, and A07.
+- Hand off dependency vulnerability coverage to the Vulnerabilities panel.
+- Clearly mark injection payloads and endpoint access-control probing as skipped.
+
+Acceptance criteria:
+
+- The scan action is explicit and local-only.
+- BootUI UI/API paths are excluded from passive mapping inventory and active synthetic requests.
+- BootUI does not sweep discovered application endpoints or send exploit payloads.
+- Individual checks have stable identifiers so additional checks can be registered without expanding the active HTTP
+  probe surface.
+- Reports serialize through stable BootUI DTOs and do not include raw response bodies.
+- Findings are presented as heuristic review prompts, not definitive exploit claims.
+
 ### 5.14 Log Tail Panel
 
 Purpose: stream recent local application log lines in the browser.
@@ -845,6 +875,8 @@ Initial endpoints:
 | `/bootui/api/security`                  | GET    | Spring Security filter chain report                                       |
 | `/bootui/api/security/explain`          | GET    | Best-effort chain match for a method/path                                 |
 | `/bootui/api/security/endpoints`        | GET    | Best-effort per-endpoint authorization report                             |
+| `/bootui/api/pentest`                   | GET    | Latest local OWASP hygiene report                                         |
+| `/bootui/api/pentest/scan`              | POST   | Run explicit bounded localhost OWASP hygiene checks                       |
 | `/bootui/api/copilot/**`                | GET    | Sanitized GitHub Copilot CLI session dashboard, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/**`            | GET    | Sanitized Claude Code project-log dashboard, explorer, raw reveal, SSE    |
 
@@ -967,6 +999,7 @@ Top-level navigation:
   - Traces.
   - Log Tail.
   - HTTP Probe.
+  - Pentesting.
   - Vulnerabilities.
 - Developer tools:
   - DevTools.
@@ -1058,8 +1091,8 @@ BootUI v0.1 is complete when:
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Services, Diagnostics, Developer tools, and Disabled / unavailable
   navigation groups covering Health, Metrics, Memory, Startup Timeline, Scheduled Tasks, Configuration, Profile Diff,
-  Loggers, Beans, Conditions, Mappings, Data, Cache, Security, AI Usage, Traces, Log Tail, HTTP Probe, Vulnerabilities,
-  DevTools, Dev Services, Copilot, and Claude Code.
+  Loggers, Beans, Conditions, Mappings, Data, Cache, Security, AI Usage, Traces, Log Tail, HTTP Probe, Pentesting,
+  Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.
