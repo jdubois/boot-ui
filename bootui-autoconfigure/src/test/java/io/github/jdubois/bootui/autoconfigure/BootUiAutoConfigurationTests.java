@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
+import io.github.jdubois.bootui.autoconfigure.pentest.*;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
@@ -39,6 +40,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(OverviewController.class)
                         .hasSingleBean(DevServicesController.class)
                         .hasSingleBean(DependenciesController.class)
+                        .hasSingleBean(PentestController.class)
                         .hasSingleBean(BootUiSpanExporter.class)
                         .hasSingleBean(BootUiActivation.class));
     }
