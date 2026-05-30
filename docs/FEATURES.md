@@ -220,6 +220,23 @@ ordered by severity first, with dependencies and advisories alphabetized within 
 
 ![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
 
+### Architecture
+
+The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
+application's own classes at runtime. It detects the application's base package from the `@SpringBootApplication`
+configuration, imports the compiled classes from that package, and evaluates a fixed set of universally-sensible
+architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
+exceptions, `java.util.logging`, or JodaTime), and Spring stereotype heuristics (no field injection, controllers should
+not depend on repositories and vice versa, controller naming conventions). The panel is available only when a base
+package is resolvable and ArchUnit is on the classpath; the scan runs on demand and caches the last report.
+
+Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
+starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
+rule is registered with a stable identifier, category, severity, and recommendation. See
+[ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
+
+![BootUI Architecture panel](images/bootui-architecture.png)
+
 ## Developer tools
 
 ### DevTools
