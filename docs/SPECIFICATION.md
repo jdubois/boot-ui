@@ -912,6 +912,9 @@ Rules:
 
 - Bind to local development only.
 - Reject non-loopback requests by default.
+- If Spring Security is present while BootUI is active, contribute a highest-precedence `/bootui/**` permit-all security
+  chain and log a warning so the developer console stays directly reachable. This must not weaken the localhost-only
+  servlet filter unless `bootui.allow-non-localhost=true` is explicitly set.
 - Disable in production profile by default.
 - Mask secret-like values by default.
 - Never display `.env` contents.

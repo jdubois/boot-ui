@@ -1,0 +1,88 @@
+package io.github.jdubois.bootui.autoconfigure;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.config.Customizer.withDefaults;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@SpringBootTest(
+        classes = BootUiSpringSecurityAutoConfigurationTests.TestApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "bootui.enabled=ON")
+@ExtendWith(OutputCaptureExtension.class)
+class BootUiSpringSecurityAutoConfigurationTests {
+
+    @LocalServerPort
+    private int port;
+
+    private RestClient client;
+
+    @Test
+    void permitsBootUiRouteWhenApplicationSecurityRequiresAuthentication() {
+        ResponseEntity<String> bootUi =
+                client().get().uri("/bootui/api/overview").retrieve().toEntity(String.class);
+        assertThat(bootUi.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<String> protectedRoute =
+                client().get().uri("/protected").retrieve().toEntity(String.class);
+        assertThat(protectedRoute.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void logsWarningWhenOpeningBootUiRoute(CapturedOutput output) {
+        assertThat(output)
+                .contains("BootUI detected Spring Security and is permitting unauthenticated access to /bootui/**");
+    }
+
+    private RestClient client() {
+        if (client == null) {
+            client = RestClient.builder()
+                    .baseUrl("http://localhost:" + port)
+                    .defaultStatusHandler(HttpStatusCode::isError, (req, res) -> {})
+                    .build();
+        }
+        return client;
+    }
+
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
+    @EnableWebSecurity
+    @Import(TestApplication.ProtectedController.class)
+    static class TestApplication {
+
+        @Bean
+        SecurityFilterChain applicationSecurity(HttpSecurity http) throws Exception {
+            return http.authorizeHttpRequests(
+                            authorize -> authorize.anyRequest().authenticated())
+                    .httpBasic(withDefaults())
+                    .build();
+        }
+
+        @RestController
+        static class ProtectedController {
+
+            @GetMapping("/protected")
+            String protectedEndpoint() {
+                return "protected";
+            }
+        }
+    }
+}

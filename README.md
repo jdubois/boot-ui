@@ -94,6 +94,8 @@ BootUI is intended for local development only. By default it:
 
 - activates in `AUTO` mode only for `dev` / `local` profiles or DevTools
 - rejects non-loopback requests
+- permits `/bootui/**` through Spring Security when Spring Security is present, with a startup warning, so the local
+  console remains directly reachable while the loopback-only filter still applies
 - masks secret-like configuration values
 - exposes the local Actuator endpoints used by BootUI panels when BootUI is active
 - disables itself for `prod` / `production` profiles
@@ -142,6 +144,7 @@ app restarts; BootUI returns that warning with every override mutation.
 | `/bootui` returns 404        | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`.                                                     |
 | BootUI is disabled in `prod` | This is intentional; only `bootui.enabled=ON` can force activation with a disabled profile.                                     |
 | Browser is rejected          | BootUI accepts loopback callers by default. Use `bootui.allow-non-localhost=true` only for a trusted local network.             |
+| Spring Security blocks UI    | BootUI auto-registers a `/bootui/**` permit-all chain when Spring Security is active; check for a custom higher-priority chain. |
 | A panel is empty             | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable. |
 | Startup Timeline is empty    | Configure `BufferingApplicationStartup` in the host app.                                                                        |
 | Secrets are hidden           | Default exposure is `MASKED`; use `METADATA_ONLY` to hide all values or `FULL` only in trusted local sessions.                  |
