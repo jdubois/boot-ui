@@ -9,11 +9,16 @@ import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.webmvc.autoconfigure.DispatcherServletAutoConfiguration;
+import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 class BootUiAutoConfigurationTests {
 
@@ -145,6 +150,73 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void requestDrivenBootUiBeansAreLazyWhileInfrastructureStaysEager() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
+
+            List.of(
+                            AiController.class,
+                            BeansController.class,
+                            BootUiIndexController.class,
+                            CacheController.class,
+                            ClaudeCodeController.class,
+                            ConditionsController.class,
+                            ConfigController.class,
+                            CopilotController.class,
+                            DataController.class,
+                            DependenciesController.class,
+                            DevToolsController.class,
+                            HealthController.class,
+                            HttpProbeController.class,
+                            LoggersController.class,
+                            MappingsController.class,
+                            MemoryController.class,
+                            MetricsController.class,
+                            OtlpReceiverController.class,
+                            OverviewController.class,
+                            PanelsController.class,
+                            PentestController.class,
+                            ProfileController.class,
+                            ScheduledController.class,
+                            SecurityController.class,
+                            StartupController.class,
+                            TracesController.class)
+                    .forEach(beanType -> assertLazyBean(beanFactory, beanType));
+
+            assertLazyBeanDefinition(beanFactory, "bootUiConfigOverrideService");
+            assertLazyBeanDefinition(beanFactory, "bootUiDevToolsBridge");
+            assertLazyBeanDefinition(beanFactory, "bootUiOtlpSpanDecoder");
+
+            assertEagerBean(beanFactory, BootUiActivation.class);
+            assertEagerBean(beanFactory, DevServicesController.class);
+            assertEagerBean(beanFactory, LocalhostOnlyFilter.class);
+            assertEagerBean(beanFactory, LogTailController.class);
+            assertEagerBean(beanFactory, PanelAccessFilter.class);
+        });
+    }
+
+    @Test
+    void lazyControllersKeepTheirRequestMappingsRegistered() {
+        new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        DispatcherServletAutoConfiguration.class,
+                        WebMvcAutoConfiguration.class,
+                        BootUiAutoConfiguration.class))
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
+                    String overviewBeanName = singleBeanName(beanFactory, OverviewController.class);
+
+                    RequestMappingHandlerMapping handlerMapping = context.getBean(RequestMappingHandlerMapping.class);
+
+                    assertThat(handlerMapping.getHandlerMethods().keySet())
+                            .anySatisfy(mappingInfo ->
+                                    assertThat(mappingInfo.getPatternValues()).contains("/bootui/api/overview"));
+                    assertThat(beanFactory.containsSingleton(overviewBeanName)).isFalse();
+                });
+    }
+
+    @Test
     void copilotAndClaudeCodeSessionStoresAreLazy(@TempDir Path tempDir) {
         runner.withPropertyValues(
                         "bootui.enabled=ON",
@@ -235,5 +307,28 @@ class BootUiAutoConfigurationTests {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("org.springframework.security.web.FilterChainProxy"))
                 .run(context -> assertThat(context).doesNotHaveBean(SecurityController.class));
+    }
+
+    private static void assertLazyBean(ConfigurableListableBeanFactory beanFactory, Class<?> beanType) {
+        String beanName = singleBeanName(beanFactory, beanType);
+        assertLazyBeanDefinition(beanFactory, beanName);
+        assertThat(beanFactory.containsSingleton(beanName)).isFalse();
+    }
+
+    private static void assertEagerBean(ConfigurableListableBeanFactory beanFactory, Class<?> beanType) {
+        String beanName = singleBeanName(beanFactory, beanType);
+        assertThat(beanFactory.getBeanDefinition(beanName).isLazyInit()).isFalse();
+        assertThat(beanFactory.containsSingleton(beanName)).isTrue();
+    }
+
+    private static void assertLazyBeanDefinition(ConfigurableListableBeanFactory beanFactory, String beanName) {
+        assertThat(beanFactory.getBeanDefinition(beanName).isLazyInit()).isTrue();
+        assertThat(beanFactory.containsSingleton(beanName)).isFalse();
+    }
+
+    private static String singleBeanName(ConfigurableListableBeanFactory beanFactory, Class<?> beanType) {
+        String[] beanNames = beanFactory.getBeanNamesForType(beanType, false, false);
+        assertThat(beanNames).hasSize(1);
+        return beanNames[0];
     }
 }
