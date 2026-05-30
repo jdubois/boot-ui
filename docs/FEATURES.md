@@ -192,7 +192,8 @@ duration, and body. It is designed for quick route checks from inside the same l
 ### Vulnerabilities
 
 The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
-vulnerable dependencies from the running project's dependency set during the local development loop.
+vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
+ordered by severity first, with dependencies and advisories alphabetized within the same severity.
 
 ![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
 
