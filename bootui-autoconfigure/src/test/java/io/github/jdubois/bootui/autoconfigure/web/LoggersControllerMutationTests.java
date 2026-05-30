@@ -156,6 +156,29 @@ class LoggersControllerMutationTests {
                 .andExpect(jsonPath("$.page.returned").value(1));
     }
 
+    @Test
+    void getAllHidesBootUiInternalLoggersButKeepsSampleAppLoggers() throws Exception {
+        Map<String, LoggerLevelsDescriptor> loggersMap = new LinkedHashMap<>();
+        loggersMap.put(
+                "io.github.jdubois.bootui.autoconfigure.web.BeansController",
+                new SingleLoggerLevelsDescriptor(new LoggerConfiguration(
+                        "io.github.jdubois.bootui.autoconfigure.web.BeansController", LogLevel.DEBUG, LogLevel.DEBUG)));
+        loggersMap.put(
+                "io.github.jdubois.bootui.sample.SampleApplication",
+                new SingleLoggerLevelsDescriptor(new LoggerConfiguration(
+                        "io.github.jdubois.bootui.sample.SampleApplication", LogLevel.INFO, LogLevel.INFO)));
+        LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
+        when(endpoint.loggers()).thenReturn(new LoggersDescriptor(new TreeSet<>(), loggersMap, Map.of()));
+
+        MockMvc mvc =
+                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+
+        mvc.perform(get("/bootui/api/loggers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.loggers.length()").value(1))
+                .andExpect(jsonPath("$.loggers[0].name").value("io.github.jdubois.bootui.sample.SampleApplication"));
+    }
+
     // ── missing endpoint + POST ───────────────────────────────────────────────
 
     @Test

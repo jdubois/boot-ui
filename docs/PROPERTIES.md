@@ -28,6 +28,7 @@ Panel settings are consistent across the UI and API:
 | `bootui.show-banner` | `true` | Print the BootUI URL on application startup. |
 | `bootui.read-only` | `false` | Disable every browser-triggered action while keeping read-only panel data visible. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | File used by the Configuration panel to persist local runtime overrides. |
+| `bootui.monitoring.exclude-self` | `true` | Hide BootUI's own beans, mappings, loggers, metrics, traces, and related runtime data from monitoring panels. |
 
 ## Panel access settings
 
@@ -95,7 +96,7 @@ Panel settings are consistent across the UI and API:
 | `bootui.telemetry.max-traces` | `500` | Maximum distinct traces retained in memory. |
 | `bootui.telemetry.max-spans-per-trace` | `500` | Maximum spans retained per trace. |
 | `bootui.telemetry.max-attribute-value-bytes` | `4096` | Maximum attribute string length before truncation. |
-| `bootui.telemetry.exclude-self-spans` | `true` | Drop spans whose route/path starts with the BootUI API path. |
+| `bootui.telemetry.exclude-self-spans` | `true` | Drop ingested spans whose route/path targets BootUI before they enter the local trace store. |
 | `bootui.telemetry.max-request-bytes` | `8388608` | Maximum accepted OTLP request body size. |
 
 ### HTTP Probe

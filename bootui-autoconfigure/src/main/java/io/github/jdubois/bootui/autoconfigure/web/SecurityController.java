@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.*;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
@@ -12,6 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -52,6 +54,7 @@ public class SecurityController {
     private final ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider;
     private final Environment environment;
     private final BootUiProperties properties;
+    private final BootUiSelfDataFilter selfDataFilter;
 
     public SecurityController(
             ObjectProvider<FilterChainProxy> filterChainProxyProvider,
@@ -60,12 +63,32 @@ public class SecurityController {
             ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider,
             Environment environment,
             BootUiProperties properties) {
+        this(
+                filterChainProxyProvider,
+                authenticationProviderProvider,
+                userDetailsServiceProvider,
+                handlerMappingProvider,
+                environment,
+                properties,
+                BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public SecurityController(
+            ObjectProvider<FilterChainProxy> filterChainProxyProvider,
+            ObjectProvider<AuthenticationProvider> authenticationProviderProvider,
+            ObjectProvider<UserDetailsService> userDetailsServiceProvider,
+            ObjectProvider<RequestMappingInfoHandlerMapping> handlerMappingProvider,
+            Environment environment,
+            BootUiProperties properties,
+            BootUiSelfDataFilter selfDataFilter) {
         this.filterChainProxyProvider = filterChainProxyProvider;
         this.authenticationProviderProvider = authenticationProviderProvider;
         this.userDetailsServiceProvider = userDetailsServiceProvider;
         this.handlerMappingProvider = handlerMappingProvider;
         this.environment = environment;
         this.properties = properties;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -77,7 +100,11 @@ public class SecurityController {
         List<SecurityFilterChain> chains = proxy.getFilterChains();
         List<SecurityFilterChainDto> chainDtos = new ArrayList<>(chains.size());
         for (int i = 0; i < chains.size(); i++) {
-            chainDtos.add(toChainDto(i, chains.get(i)));
+            SecurityFilterChain chain = chains.get(i);
+            if (!selfDataFilter.shouldIncludeSecurityChain(matcherDescription(chain))) {
+                continue;
+            }
+            chainDtos.add(toChainDto(i, chain));
         }
         return new SecurityReport(true, chainDtos, buildAuth());
     }
@@ -96,6 +123,10 @@ public class SecurityController {
         FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
         if (proxy == null) {
             return new SecurityExplainDto(false, false, null, null, List.of());
+        }
+        if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(path), null)) {
+            return new SecurityExplainDto(
+                    false, false, null, "BootUI endpoints are hidden from this report", List.of());
         }
         ExplainRequest request = new ExplainRequest(method, path);
         List<SecurityFilterChain> chains = proxy.getFilterChains();
@@ -176,6 +207,9 @@ public class SecurityController {
         List<SecurityEndpointDto> result = new ArrayList<>();
         for (String pattern : patterns) {
             for (String method : methods) {
+                if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(pattern), handler)) {
+                    continue;
+                }
                 result.add(resolveEndpoint(method, pattern, handler, chains));
             }
         }

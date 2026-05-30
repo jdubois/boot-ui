@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.MappingDto;
 import io.github.jdubois.bootui.core.BootUiDtos.MappingsReport;
 import java.util.ArrayList;
@@ -8,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint.ApplicationMappingsDescriptor;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint.ContextMappingsDescriptor;
@@ -27,8 +29,16 @@ public class MappingsController {
 
     private final ObjectProvider<MappingsEndpoint> endpoint;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public MappingsController(ObjectProvider<MappingsEndpoint> endpoint) {
+        this(endpoint, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public MappingsController(ObjectProvider<MappingsEndpoint> endpoint, BootUiSelfDataFilter selfDataFilter) {
         this.endpoint = endpoint;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -37,6 +47,8 @@ public class MappingsController {
         if (me == null) {
             return ResponseEntity.noContent().build();
         }
+        // Keep this compatibility endpoint as Actuator's raw descriptor; the UI uses
+        // /flat, which applies BootUI self-data filtering before returning DTOs.
         return ResponseEntity.ok(me.mappings());
     }
 
@@ -93,10 +105,15 @@ public class MappingsController {
                 : methods.stream().map(Object::toString).sorted().toList();
         String produces = conditions == null ? null : mediaTypes(conditions.getProduces());
         String consumes = conditions == null ? null : mediaTypes(conditions.getConsumes());
+        String predicate = predicate(description);
+        String handler = description.getHandler();
         List<MappingDto> mappings = new ArrayList<>();
         for (String pattern : safePatterns) {
             for (String method : safeMethods) {
-                mappings.add(new MappingDto(method, pattern, description.getHandler(), produces, consumes));
+                if (!selfDataFilter.shouldIncludeMapping(List.of(pattern), predicate, handler)) {
+                    continue;
+                }
+                mappings.add(new MappingDto(method, pattern, handler, produces, consumes));
             }
         }
         return mappings;

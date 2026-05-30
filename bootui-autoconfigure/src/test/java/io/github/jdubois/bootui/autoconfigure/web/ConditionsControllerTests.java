@@ -97,6 +97,51 @@ class ConditionsControllerTests {
     }
 
     @Test
+    void conditionsFiltersBootUiClassesByDefault() throws Exception {
+        MessageAndConditionDescriptor applicationMatch = mock(MessageAndConditionDescriptor.class);
+        when(applicationMatch.getCondition()).thenReturn("OnClassCondition");
+        when(applicationMatch.getMessage()).thenReturn("application matched");
+
+        MessageAndConditionDescriptor bootUiMatch = mock(MessageAndConditionDescriptor.class);
+        when(bootUiMatch.getCondition()).thenReturn("OnClassCondition");
+        when(bootUiMatch.getMessage()).thenReturn("bootui matched");
+
+        ContextConditionsDescriptor ccd = inlineMock(ContextConditionsDescriptor.class);
+        when(ccd.getPositiveMatches())
+                .thenReturn(Map.of(
+                        "org.example.WebConfig", List.of(applicationMatch),
+                        "io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration", List.of(bootUiMatch)));
+        when(ccd.getNegativeMatches()).thenReturn(Map.of());
+        when(ccd.getUnconditionalClasses())
+                .thenReturn(Set.of(
+                        "org.example.UnconditionalConfig",
+                        "io.github.jdubois.bootui.autoconfigure.web.BootUiIndexController"));
+        when(ccd.getExclusions())
+                .thenReturn(List.of(
+                        "org.example.ExcludedAutoConfig",
+                        "io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration"));
+
+        ConditionsDescriptor descriptor = inlineMock(ConditionsDescriptor.class);
+        when(descriptor.getContexts()).thenReturn(Map.of("application", ccd));
+
+        ConditionsReportEndpoint endpoint = mock(ConditionsReportEndpoint.class);
+        when(endpoint.conditions()).thenReturn(descriptor);
+
+        MockMvc mvc =
+                standaloneSetup(new ConditionsController(providerOf(endpoint))).build();
+
+        mvc.perform(get("/bootui/api/conditions").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positiveMatches.length()").value(1))
+                .andExpect(
+                        jsonPath("$.positiveMatches[0].autoConfigurationClass").value("org.example.WebConfig"))
+                .andExpect(jsonPath("$.unconditionalClasses.length()").value(1))
+                .andExpect(jsonPath("$.unconditionalClasses[0]").value("org.example.UnconditionalConfig"))
+                .andExpect(jsonPath("$.exclusions.length()").value(1))
+                .andExpect(jsonPath("$.exclusions[0]").value("org.example.ExcludedAutoConfig"));
+    }
+
+    @Test
     void conditionsReturnsNegativeNoMatchAndPartialMatch() throws Exception {
         MessageAndConditionDescriptor noMatchDesc = mock(MessageAndConditionDescriptor.class);
         when(noMatchDesc.getCondition()).thenReturn("OnBeanCondition");

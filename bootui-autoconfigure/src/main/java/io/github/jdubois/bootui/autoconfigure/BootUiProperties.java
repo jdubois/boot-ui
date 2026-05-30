@@ -65,6 +65,10 @@ public class BootUiProperties {
      */
     private Map<String, Panel> panels = new LinkedHashMap<>();
     /**
+     * Monitoring screen filtering settings.
+     */
+    private Monitoring monitoring = new Monitoring();
+    /**
      * Dev Services panel settings.
      */
     private DevServices devServices = new DevServices();
@@ -187,6 +191,14 @@ public class BootUiProperties {
 
     public void setPanels(Map<String, Panel> panels) {
         this.panels = panels == null ? new LinkedHashMap<>() : new LinkedHashMap<>(panels);
+    }
+
+    public Monitoring getMonitoring() {
+        return monitoring;
+    }
+
+    public void setMonitoring(Monitoring monitoring) {
+        this.monitoring = monitoring == null ? new Monitoring() : monitoring;
     }
 
     public Panel panel(String id) {
@@ -423,6 +435,22 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    public static class Monitoring {
+
+        /**
+         * Hide BootUI's own runtime data from monitoring panels.
+         */
+        private boolean excludeSelf = true;
+
+        public boolean isExcludeSelf() {
+            return excludeSelf;
+        }
+
+        public void setExcludeSelf(boolean excludeSelf) {
+            this.excludeSelf = excludeSelf;
         }
     }
 

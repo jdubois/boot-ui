@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.LoggerDto;
 import io.github.jdubois.bootui.core.BootUiDtos.LoggersReport;
 import java.util.ArrayList;
@@ -7,6 +8,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint.LoggerLevelsDescriptor;
 import org.springframework.boot.actuate.logging.LoggersEndpoint.LoggersDescriptor;
@@ -22,8 +24,16 @@ public class LoggersController {
 
     private final ObjectProvider<LoggersEndpoint> endpoint;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public LoggersController(ObjectProvider<LoggersEndpoint> endpoint) {
+        this(endpoint, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public LoggersController(ObjectProvider<LoggersEndpoint> endpoint, BootUiSelfDataFilter selfDataFilter) {
         this.endpoint = endpoint;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -46,6 +56,9 @@ public class LoggersController {
         Map<String, LoggerLevelsDescriptor> map = descriptor.getLoggers();
         if (map != null) {
             for (Map.Entry<String, LoggerLevelsDescriptor> e : map.entrySet()) {
+                if (!selfDataFilter.shouldIncludeLogger(e.getKey())) {
+                    continue;
+                }
                 String configured = e.getValue().getConfiguredLevel();
                 String effective = configured;
                 if (e.getValue() instanceof SingleLoggerLevelsDescriptor single) {

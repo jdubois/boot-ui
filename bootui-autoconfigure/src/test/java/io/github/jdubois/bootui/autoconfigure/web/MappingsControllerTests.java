@@ -106,4 +106,38 @@ class MappingsControllerTests {
                 .andExpect(jsonPath("$.page.matched").value(1))
                 .andExpect(jsonPath("$.page.returned").value(1));
     }
+
+    @Test
+    void flatMappingsHideBootUiEndpointsButKeepSampleAppEndpoints() throws Exception {
+        DispatcherServletMappingDescription bootUi = mock(DispatcherServletMappingDescription.class);
+        when(bootUi.getPredicate()).thenReturn("/bootui/api/beans");
+        when(bootUi.getHandler()).thenReturn("io.github.jdubois.bootui.autoconfigure.web.BeansController#beans");
+
+        DispatcherServletMappingDescription sample = mock(DispatcherServletMappingDescription.class);
+        when(sample.getPredicate()).thenReturn("/sample");
+        when(sample.getHandler()).thenReturn("io.github.jdubois.bootui.sample.SampleController#sample");
+
+        ContextMappingsDescriptor context =
+                mock(ContextMappingsDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(context.getMappings())
+                .thenReturn(Map.of("dispatcherServlets", Map.of("dispatcherServlet", List.of(bootUi, sample))));
+
+        ApplicationMappingsDescriptor descriptor =
+                mock(ApplicationMappingsDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(descriptor.getContexts()).thenReturn(Map.of("application", context));
+
+        MappingsEndpoint endpoint = mock(MappingsEndpoint.class);
+        when(endpoint.mappings()).thenReturn(descriptor);
+
+        MockMvc mvc =
+                standaloneSetup(new MappingsController(providerOf(endpoint))).build();
+
+        mvc.perform(get("/bootui/api/mappings/flat").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.mappings.length()").value(1))
+                .andExpect(jsonPath("$.mappings[0].pattern").value("/sample"))
+                .andExpect(jsonPath("$.mappings[0].handler")
+                        .value("io.github.jdubois.bootui.sample.SampleController#sample"));
+    }
 }

@@ -166,9 +166,11 @@ Data sources:
 Features:
 
 - Search by bean name, class name, package, scope, and resource.
-- Filter by current BootUI classification:
+- Hide BootUI's own beans by default so the report focuses on the host application; `bootui.monitoring.exclude-self=false`
+  includes them when debugging BootUI itself.
+- Filter by current classification:
   - application beans.
-  - BootUI beans.
+  - BootUI beans, when self-data filtering is disabled.
   - Spring framework beans.
   - Java/Jakarta platform beans.
   - other beans.
@@ -588,6 +590,7 @@ Acceptance criteria:
 - The panel is classpath-gated and unavailable when Spring Security Web is absent.
 - Credentials, password hashes, signing keys, session IDs, and tokens are never displayed.
 - Matching caveats are clearly marked as best-effort.
+- BootUI's own security chains and endpoint rules are hidden by default.
 
 ### 5.17 Spring Data Explorer
 
@@ -655,6 +658,7 @@ Acceptance criteria:
   clear disabled response when `bootui.cache.clear-enabled=false`.
 - Clearing unknown cache names must not create dynamic caches as a side effect.
 - Annotation discovery must not eagerly initialize lazy application beans.
+- BootUI's own cache managers, cache operations, and cache metrics are hidden by default.
 
 ### 5.19 Dev Services Panel
 
@@ -903,6 +907,7 @@ Initial properties:
 | `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                    |
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
+| `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
 | `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
@@ -914,7 +919,7 @@ Initial properties:
 | `bootui.telemetry.max-traces`                | `500`                                   | Maximum distinct traces retained in memory; internally capped for UI safety.                      |
 | `bootui.telemetry.max-spans-per-trace`       | `500`                                   | Maximum spans retained for one trace; internally capped for UI safety.                            |
 | `bootui.telemetry.max-attribute-value-bytes` | `4096`                                  | Maximum attribute string length before truncation; internally capped for UI safety.               |
-| `bootui.telemetry.exclude-self-spans`        | `true`                                  | Drops spans for BootUI's own API routes from the retained trace data.                             |
+| `bootui.telemetry.exclude-self-spans`        | `true`                                  | Drops ingested spans for BootUI's own API routes before they enter the local trace store.         |
 | `bootui.telemetry.max-request-bytes`         | `8388608`                               | Maximum OTLP payload size accepted by the local receiver.                                         |
 | `bootui.ai.token-series-minutes`             | `60`                                    | Default token-usage chart window for the AI Usage panel, capped by the API.                       |
 | `bootui.ai.max-recent-chats`                 | `100`                                   | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API.                       |

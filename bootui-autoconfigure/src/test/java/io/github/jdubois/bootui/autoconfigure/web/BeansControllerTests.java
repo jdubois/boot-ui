@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
@@ -219,5 +220,38 @@ class BeansControllerTests {
                 .andExpect(jsonPath("$.page.offset").value(1))
                 .andExpect(jsonPath("$.page.returned").value(1))
                 .andExpect(jsonPath("$.page.hasMore").value(false));
+    }
+
+    @Test
+    void beansHideBootUiInternalBeansButKeepSampleAppBeans() throws Exception {
+        BeanDescriptor bootUiBean = inlineMock(BeanDescriptor.class);
+        doReturn(BootUiAutoConfiguration.class).when(bootUiBean).getType();
+        when(bootUiBean.getResource())
+                .thenReturn("io/github/jdubois/bootui/autoconfigure/BootUiAutoConfiguration.class");
+        when(bootUiBean.getDependencies()).thenReturn(new String[0]);
+        when(bootUiBean.getAliases()).thenReturn(new String[0]);
+
+        BeanDescriptor sampleBean = inlineMock(BeanDescriptor.class);
+        doReturn(null).when(sampleBean).getType();
+        when(sampleBean.getResource()).thenReturn("io/github/jdubois/bootui/sample/SampleApplication.class");
+        when(sampleBean.getDependencies()).thenReturn(new String[0]);
+        when(sampleBean.getAliases()).thenReturn(new String[0]);
+
+        ContextBeansDescriptor ctx = inlineMock(ContextBeansDescriptor.class);
+        when(ctx.getBeans()).thenReturn(Map.of("bootUiAutoConfiguration", bootUiBean, "sampleApplication", sampleBean));
+
+        BeansDescriptor descriptor = inlineMock(BeansDescriptor.class);
+        when(descriptor.getContexts()).thenReturn(Map.of("root", ctx));
+
+        BeansEndpoint endpoint = mock(BeansEndpoint.class);
+        when(endpoint.beans()).thenReturn(descriptor);
+
+        MockMvc mvc = standaloneSetup(new BeansController(providerOf(endpoint))).build();
+
+        mvc.perform(get("/bootui/api/beans").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.beans.length()").value(1))
+                .andExpect(jsonPath("$.beans[0].name").value("sampleApplication"));
     }
 }

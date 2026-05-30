@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.ScheduledReport;
 import io.github.jdubois.bootui.core.BootUiDtos.ScheduledTaskDto;
 import java.time.Duration;
@@ -7,6 +8,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.scheduling.config.*;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,8 +22,17 @@ public class ScheduledController {
 
     private final ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public ScheduledController(ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider) {
+        this(scheduledTaskHolderProvider, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public ScheduledController(
+            ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider, BootUiSelfDataFilter selfDataFilter) {
         this.scheduledTaskHolderProvider = scheduledTaskHolderProvider;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -35,6 +46,7 @@ public class ScheduledController {
                 ? List.of()
                 : scheduledTasks.stream()
                         .map(this::toDto)
+                        .filter(task -> selfDataFilter.shouldIncludeScheduledTask(task.runnable()))
                         .sorted(Comparator.comparing(
                                 ScheduledTaskDto::runnable, Comparator.nullsLast(String::compareTo)))
                         .toList();

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.ConditionCounts;
 import io.github.jdubois.bootui.core.BootUiDtos.ConditionEntry;
 import io.github.jdubois.bootui.core.BootUiDtos.ConditionsReport;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint.ConditionsDescriptor;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint.ContextConditionsDescriptor;
@@ -26,8 +28,17 @@ public class ConditionsController {
 
     private final ObjectProvider<ConditionsReportEndpoint> endpoint;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public ConditionsController(ObjectProvider<ConditionsReportEndpoint> endpoint) {
+        this(endpoint, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public ConditionsController(
+            ObjectProvider<ConditionsReportEndpoint> endpoint, BootUiSelfDataFilter selfDataFilter) {
         this.endpoint = endpoint;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -51,12 +62,18 @@ public class ConditionsController {
             ContextConditionsDescriptor ccd = ctx.getValue();
             for (Map.Entry<String, List<MessageAndConditionDescriptor>> e :
                     ccd.getPositiveMatches().entrySet()) {
+                if (!selfDataFilter.shouldIncludeConditionClass(e.getKey())) {
+                    continue;
+                }
                 for (MessageAndConditionDescriptor m : e.getValue()) {
                     positive.add(new ConditionEntry(e.getKey(), m.getCondition(), m.getMessage(), "MATCH"));
                 }
             }
             for (Map.Entry<String, MessageAndConditionsDescriptor> e :
                     ccd.getNegativeMatches().entrySet()) {
+                if (!selfDataFilter.shouldIncludeConditionClass(e.getKey())) {
+                    continue;
+                }
                 MessageAndConditionsDescriptor v = e.getValue();
                 if (v.getNotMatched() != null) {
                     for (MessageAndConditionDescriptor m : v.getNotMatched()) {
@@ -71,11 +88,15 @@ public class ConditionsController {
             }
             Set<String> uc = ccd.getUnconditionalClasses();
             if (uc != null) {
-                unconditional.addAll(uc);
+                unconditional.addAll(uc.stream()
+                        .filter(selfDataFilter::shouldIncludeConditionClass)
+                        .toList());
             }
             List<String> ex = ccd.getExclusions();
             if (ex != null) {
-                exclusions.addAll(ex);
+                exclusions.addAll(ex.stream()
+                        .filter(selfDataFilter::shouldIncludeConditionClass)
+                        .toList());
             }
         }
         positive.sort(conditionComparator());
