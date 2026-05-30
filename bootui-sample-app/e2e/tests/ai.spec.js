@@ -110,7 +110,7 @@ test.describe('AI Usage view', () => {
     })
 
     await page.goto('/bootui/#/ai')
-    await expect(page.getByText('Enable the BootUI telemetry receiver')).toBeVisible()
+    await expect(page.getByText('Enable BootUI telemetry capture')).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })
 
@@ -131,7 +131,7 @@ test.describe('AI Usage view', () => {
     await page.goto('/bootui/#/ai')
     await expect(page.getByText('No AI chat completions recorded yet')).toBeVisible()
     await expect(page.getByText('Telemetry ready')).toBeVisible()
-    await expect(page.getByText('Enable the BootUI telemetry receiver')).toHaveCount(0)
+    await expect(page.getByText('Enable BootUI telemetry capture')).toHaveCount(0)
     await expect(page.getByText('OTLP exporter configured')).toHaveCount(0)
   })
 
