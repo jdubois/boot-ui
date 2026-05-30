@@ -192,7 +192,7 @@ onBeforeUnmount(() => {
   <div>
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
       <div>
-        <h3 class="h4 mb-1"><i class="bi bi-activity me-2"></i>Micrometer metrics</h3>
+        <h2 class="h4 mb-1"><i class="bi bi-activity me-2"></i>Metrics</h2>
         <p class="text-muted mb-0">Browse meters, filter tag sets, and watch live values update every 2 seconds.</p>
       </div>
       <span v-if="lastUpdated" class="text-muted small">

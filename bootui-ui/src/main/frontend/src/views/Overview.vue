@@ -99,7 +99,8 @@ onMounted(load)
           <i class="bi bi-stars me-1"></i>
           Runtime command center
         </span>
-        <h2>Understand your Spring Boot app in minutes</h2>
+        <h2>Overview</h2>
+        <p class="hero-lead">Understand your Spring Boot app in minutes.</p>
         <p>
           BootUI turns the local runtime into a guided map of profiles, ports, safety status, Actuator-backed
           diagnostics, and the panels that explain how the app is wired.
@@ -342,6 +343,12 @@ onMounted(load)
   color: rgba(255, 255, 255, 0.82);
   font-size: 1.05rem;
   margin-bottom: 0;
+}
+
+.overview-hero .hero-lead {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
 }
 
 .hero-actions {
