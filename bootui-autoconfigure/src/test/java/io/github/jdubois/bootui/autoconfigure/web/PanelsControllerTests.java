@@ -1,11 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
+import io.github.jdubois.bootui.core.BootUiDtos.PanelDto;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.test.web.servlet.MockMvc;
@@ -131,6 +135,7 @@ class PanelsControllerTests {
             BootUiProperties properties = new BootUiProperties();
             properties.panel("config").setEnabled(false);
             properties.panel("loggers").setReadOnly(true);
+            properties.panel("pentest").setReadOnly(true);
             MockMvc mvc = standaloneSetup(new PanelsController(context, context.getEnvironment(), properties))
                     .build();
 
@@ -144,27 +149,36 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[8].enabled").value(true))
                     .andExpect(jsonPath("$.panels[8].readOnly").value(true))
                     .andExpect(jsonPath("$.panels[8].readOnlyReason")
-                            .value("Panel is read-only via bootui.panels.loggers.read-only=true"));
+                            .value("Panel is read-only via bootui.panels.loggers.read-only=true"))
+                    .andExpect(jsonPath("$.panels[19].id").value("pentest"))
+                    .andExpect(jsonPath("$.panels[19].enabled").value(true))
+                    .andExpect(jsonPath("$.panels[19].readOnly").value(true))
+                    .andExpect(jsonPath("$.panels[19].readOnlyReason")
+                            .value("Panel is read-only via bootui.panels.pentest.read-only=true"));
         }
     }
 
     @Test
-    void panelsApplyGlobalReadOnlyOnlyToActionCapablePanels() throws Exception {
+    void panelsApplyGlobalReadOnlyToEveryActionCapablePanel() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.refresh();
             BootUiProperties properties = new BootUiProperties();
             properties.setReadOnly(true);
-            MockMvc mvc = standaloneSetup(new PanelsController(context, context.getEnvironment(), properties))
-                    .build();
+            PanelsController controller = new PanelsController(context, context.getEnvironment(), properties);
 
-            mvc.perform(get("/bootui/api/panels"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.panels[0].id").value("overview"))
-                    .andExpect(jsonPath("$.panels[0].readOnly").value(false))
-                    .andExpect(jsonPath("$.panels[6].id").value("config"))
-                    .andExpect(jsonPath("$.panels[6].readOnly").value(true))
-                    .andExpect(jsonPath("$.panels[6].readOnlyReason")
-                            .value("BootUI is read-only via bootui.read-only=true"));
+            List<String> expectedReadOnlyPanelIds = BootUiPanels.all().stream()
+                    .filter(BootUiPanels.Panel::readOnlyCapable)
+                    .map(BootUiPanels.Panel::id)
+                    .toList();
+            List<PanelDto> panels = controller.panels().panels();
+            List<String> actualReadOnlyPanelIds =
+                    panels.stream().filter(PanelDto::readOnly).map(PanelDto::id).toList();
+
+            assertThat(actualReadOnlyPanelIds).containsExactlyElementsOf(expectedReadOnlyPanelIds);
+            assertThat(panels)
+                    .filteredOn(PanelDto::readOnly)
+                    .extracting(PanelDto::readOnlyReason)
+                    .containsOnly("BootUI is read-only via bootui.read-only=true");
         }
     }
 }

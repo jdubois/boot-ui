@@ -7,6 +7,38 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-30
+
+Second BootUI release, focused on local security diagnostics, safer defaults around host-application security, and
+release/documentation hardening for the full visible panel surface.
+
+### Added
+
+- Pentesting panel with explicit, local-only OWASP-aligned hygiene checks for security headers, CORS behavior, cookie
+  flags, verbose errors, Spring Security wiring, actuator exposure, DevTools, H2 console, and risky configuration values.
+- BootUI Spring Security integration that keeps `/bootui/**` and `/bootui/api/**` reachable in local applications using
+  Spring Security while preserving the localhost-only safety filter.
+- Automatic local application trace capture so Traces and AI Usage can populate from the host app without requiring a
+  separate local OTLP exporter setup.
+- CI test report publishing for Maven/JUnit and Playwright runs.
+
+### Changed
+
+- Monitoring panels now hide BootUI's own beans, mappings, loggers, metrics, traces, and related runtime data by default
+  through `bootui.monitoring.exclude-self=true`.
+- Request-driven BootUI controllers and agent session stores are lazy-loaded, and agent session parsing is bounded to
+  avoid unnecessary startup work.
+- Vulnerability findings are sorted by severity/importance first, with stable ordering inside each severity group.
+- Startup Timeline configuration, panel read-only controls, application property reference docs, pentest catalogue docs,
+  feature docs, screenshots, and E2E documentation were reconciled with the implemented `0.2.0` behavior.
+
+### Fixed
+
+- Fixed sample-app and BootUI security audit findings, including enabling CSRF protection in the sample app.
+- Fixed hidden-BootUI-internals assumptions in Beans E2E coverage after self-data filtering became the default.
+- Removed duplicated panel headings and restored Overview/Metrics heading behavior.
+- Added registry-level coverage so global read-only mode is checked for every action-capable panel.
+
 ## [0.1.0] - 2026-05-29
 
 First final BootUI release. This promotes the alpha line to the final `0.1.x` coordinate while keeping the local-only,
@@ -132,7 +164,9 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.2.0...HEAD
+
+[0.2.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0...v0.2.0
 
 [0.1.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0-alpha.5...v0.1.0
 

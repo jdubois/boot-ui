@@ -26,6 +26,8 @@ Panel settings are consistent across the UI and API:
 | `bootui.mask-secrets` | `true` | Enables secret-like value masking helpers. |
 | `bootui.expose-values` | `MASKED` | Configuration value exposure mode: `MASKED`, `METADATA_ONLY`, or `FULL`. `FULL` can disclose secrets. |
 | `bootui.show-banner` | `true` | Print the BootUI URL on application startup. |
+| `bootui.startup.enabled` | `true` | Install a `BufferingApplicationStartup` automatically while BootUI is active so the Startup Timeline panel has data. |
+| `bootui.startup.capacity` | `4096` | Maximum startup steps retained by BootUI's auto-installed startup buffer. Values less than or equal to zero disable the buffer. |
 | `bootui.read-only` | `false` | Disable every browser-triggered action while keeping read-only panel data visible. |
 | `bootui.overrides-file` | `.bootui/application-bootui.properties` | File used by the Configuration panel to persist local runtime overrides. |
 | `bootui.monitoring.exclude-self` | `true` | Hide BootUI's own beans, mappings, loggers, metrics, traces, and related runtime data from monitoring panels. |
@@ -61,6 +63,14 @@ Panel settings are consistent across the UI and API:
 | Developer tools | Claude Code | `claude-code` | `bootui.panels.claude-code.enabled` | Not applicable; view-only. |
 
 ## Per-panel action details
+
+### Startup Timeline
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.startup.enabled` | `true` | Show the Startup Timeline panel. |
+| `bootui.startup.enabled` | `true` | Install a `BufferingApplicationStartup` automatically while BootUI is active. |
+| `bootui.startup.capacity` | `4096` | Maximum startup steps retained by the auto-installed startup buffer. |
 
 ### Configuration
 
@@ -176,11 +186,15 @@ bootui.dev-services.restart-enabled=true
 | `bootui.ai.show-content-capture-banner` | `true` | Show the AI content-capture explanation banner. |
 | `bootui.copilot.enabled` | `AUTO` | Enable the Copilot panel. `AUTO` activates when the session-state directory exists. |
 | `bootui.copilot.session-state-dir` | `~/.copilot/session-state` | Directory scanned for Copilot CLI sessions. |
+| `bootui.copilot.max-events-per-session` | `2000` | Maximum Copilot events retained per parsed session. |
 | `bootui.copilot.max-sessions` | `100` | Maximum recent Copilot sessions returned by the explorer. |
 | `bootui.copilot.max-parsed-sessions` | `100` | Maximum recent Copilot session files parsed and retained in memory. |
+| `bootui.copilot.stream-debounce` | `400ms` | Debounce window before refreshing parsed Copilot sessions and notifying stream subscribers. |
 | `bootui.copilot.allow-raw-reveal` | `true` | Allow explicit raw event reveal when value exposure is not `METADATA_ONLY`. |
 | `bootui.claude-code.enabled` | `AUTO` | Enable the Claude Code panel. `AUTO` activates when the project log directory exists. |
 | `bootui.claude-code.session-state-dir` | `~/.claude/projects` | Directory scanned for Claude Code project JSONL logs. |
+| `bootui.claude-code.max-events-per-session` | `2000` | Maximum Claude Code events retained per parsed session. |
 | `bootui.claude-code.max-sessions` | `100` | Maximum recent Claude Code sessions returned by the explorer. |
 | `bootui.claude-code.max-parsed-sessions` | `100` | Maximum recent Claude Code JSONL files parsed and retained in memory. |
+| `bootui.claude-code.stream-debounce` | `400ms` | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers. |
 | `bootui.claude-code.allow-raw-reveal` | `false` | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs. |
