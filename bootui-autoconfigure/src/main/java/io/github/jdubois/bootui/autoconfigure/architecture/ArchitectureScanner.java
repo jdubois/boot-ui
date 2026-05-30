@@ -65,6 +65,9 @@ final class ArchitectureScanner {
         JavaClasses classes;
         try {
             classes = importer.importPackages(basePackages);
+            // Catch LinkageError (e.g. NoClassDefFoundError/ClassFormatError) as well as RuntimeException so a
+            // malformed or unresolvable class on the host classpath degrades to a stable report instead of failing.
+            // VirtualMachineError (OutOfMemoryError, StackOverflowError) is deliberately not caught here.
         } catch (RuntimeException | LinkageError ex) {
             return report(
                     "SCANNED",

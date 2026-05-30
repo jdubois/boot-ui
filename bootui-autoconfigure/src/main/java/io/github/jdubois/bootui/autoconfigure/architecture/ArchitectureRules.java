@@ -46,6 +46,8 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
                 return ArchitectureRuleSupport.skipped(definition, "Rule is not applicable to the imported classes.");
             }
             return ArchitectureRuleSupport.evaluate(definition, rule, context);
+            // Catch LinkageError as well as RuntimeException so one rule that trips over an unresolvable class
+            // reports an ERROR result instead of aborting the whole scan; VirtualMachineError still propagates.
         } catch (RuntimeException | LinkageError ex) {
             return ArchitectureRuleSupport.error(definition, "Rule could not be evaluated: " + ex.getMessage());
         }
@@ -124,6 +126,8 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
             }
             return ArchitectureRuleSupport.result(
                     definition(), ArchitectureRuleSupport.VIOLATION, totalViolations, samples);
+            // See AbstractArchitectureRule#evaluate: LinkageError is caught to degrade to an ERROR result rather
+            // than aborting the scan; VirtualMachineError (e.g. OutOfMemoryError) is intentionally not caught.
         } catch (RuntimeException | LinkageError ex) {
             return ArchitectureRuleSupport.error(definition(), "Rule could not be evaluated: " + ex.getMessage());
         }

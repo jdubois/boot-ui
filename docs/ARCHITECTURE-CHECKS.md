@@ -16,8 +16,9 @@ entry.
 The scanner detects the host application's base package(s) from the `@SpringBootApplication` configuration via
 `AutoConfigurationPackages`, imports the compiled `.class` files from those packages with ArchUnit's
 `ClassFileImporter`, and evaluates every registered rule against the imported classes. Importing is bounded to the
-application's own base package — never the entire classpath — and runs only on demand when the scan action is invoked,
-caching the last report in the controller.
+application's own base package(s) — never the entire classpath — and runs only on demand when the scan action is
+invoked, caching the last report in the controller. When several base packages are detected, all of them are imported
+and analysed together.
 
 The panel is available only when:
 
