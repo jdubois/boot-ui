@@ -38,6 +38,7 @@ const panelOrder = [
   ['traces', 'Traces'],
   ['log-tail', 'Log Tail'],
   ['http-probe', 'HTTP Probe'],
+  ['pentest', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
@@ -867,6 +868,100 @@ const securityEndpoints = {
   ]
 }
 
+const pentest = {
+  checksRun: 41,
+  findingsFound: 4,
+  disclaimer: 'These local-only checks target the host application and exclude BootUI /bootui paths.',
+  scan: {
+    status: 'COMPLETED',
+    scanner: 'BootUI local OWASP hygiene',
+    message: 'Completed 41 local checks with 4 heuristic finding(s).',
+    scannedAt: new Date(nowMillis - 45_000).toISOString()
+  },
+  severityCounts: [
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 1},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 1}
+  ],
+  coverage: [
+    {
+      category: 'A01',
+      title: 'Broken Access Control',
+      description: 'Spring Security and handler mappings were inspected for authorization review prompts.',
+      status: 'REVIEW'
+    },
+    {
+      category: 'A02',
+      title: 'Cryptographic Failures',
+      description: 'Cookie flags were checked on synthetic localhost responses.',
+      status: 'PASS'
+    },
+    {
+      category: 'A03',
+      title: 'Injection',
+      description: 'No payload-based SQL, XSS, or command injection probing is performed by BootUI.',
+      status: 'HANDOFF'
+    },
+    {
+      category: 'A05',
+      title: 'Security Misconfiguration',
+      description:
+        'Security headers, CORS behavior, verbose errors, and actuator mappings were reviewed outside BootUI paths.',
+      status: 'REVIEW'
+    },
+    {
+      category: 'A06',
+      title: 'Vulnerable and Outdated Components',
+      description: 'Use the Vulnerabilities panel for explicit OSV dependency scanning.',
+      status: 'INFO'
+    }
+  ],
+  findings: [
+    {
+      id: 'PT-SECURITY-MISSING',
+      severity: 'HIGH',
+      confidence: 'HIGH',
+      title: 'Spring Security is not present',
+      target: 'Application context',
+      owaspCategory: 'A01 Broken Access Control',
+      evidence: 'No SecurityFilterChain beans were detected in the application context.',
+      recommendation: 'Add Spring Security and define explicit authorization rules for application endpoints.'
+    },
+    {
+      id: 'PT-HEADERS-MISSING',
+      severity: 'MEDIUM',
+      confidence: 'MEDIUM',
+      title: 'Missing hardening response headers',
+      target: '/__bootui_pentest__/missing-resource',
+      owaspCategory: 'A05 Security Misconfiguration',
+      evidence: 'Missing X-Content-Type-Options and Content-Security-Policy headers on the synthetic 404 response.',
+      recommendation: 'Configure security headers globally and verify they apply to error responses.'
+    },
+    {
+      id: 'PT-ACTUATOR-MAPPINGS',
+      severity: 'LOW',
+      confidence: 'MEDIUM',
+      title: 'Actuator mappings are available',
+      target: 'Spring MVC handler mappings',
+      owaspCategory: 'A05 Security Misconfiguration',
+      evidence: 'Actuator request mappings were detected and should be reviewed for exposure.',
+      recommendation: 'Keep actuator endpoints local-only, authenticated, or disabled outside development.'
+    },
+    {
+      id: 'PT-HSTS-MISSING',
+      severity: 'INFO',
+      confidence: 'LOW',
+      title: 'Strict-Transport-Security not observed',
+      target: '/__bootui_pentest__/missing-resource',
+      owaspCategory: 'A05 Security Misconfiguration',
+      evidence:
+        'No Strict-Transport-Security header was seen on the synthetic localhost response (expected over plain HTTP).',
+      recommendation: 'Enable HSTS once the application is served over HTTPS in non-local environments.'
+    }
+  ]
+}
+
 const dependencies = {
   total: 6,
   vulnerable: 2,
@@ -1159,6 +1254,7 @@ const screenshots = [
       await page.getByText('200 OK').waitFor()
     }
   ],
+  ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
@@ -1183,6 +1279,22 @@ const screenshots = [
     }
   ]
 ]
+
+const screenshotFilter = (process.env.BOOTUI_SCREENSHOT_ONLY || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+const selectedScreenshots =
+  screenshotFilter.length === 0
+    ? screenshots
+    : screenshots.filter(
+        ([route, title, fileName]) =>
+          screenshotFilter.includes(route) || screenshotFilter.includes(title) || screenshotFilter.includes(fileName)
+      )
+
+if (screenshotFilter.length > 0 && selectedScreenshots.length === 0) {
+  throw new Error(`No screenshots matched BOOTUI_SCREENSHOT_ONLY=${process.env.BOOTUI_SCREENSHOT_ONLY}`)
+}
 
 const claudeCodeSessionId = '4f7c5b8a-9d3e-42a1-b07c-1e9d4af86c11'
 const claudeCodeSession2Id = '2b3a16f0-77c8-4d9a-9e21-58aa3eb1d6c4'
@@ -1481,7 +1593,7 @@ try {
 
   await page.route('**/bootui/api/**', handleApiRoute)
 
-  for (const [route, title, fileName, prepare] of screenshots) {
+  for (const [route, title, fileName, prepare] of selectedScreenshots) {
     await page.goto(`${baseUrl}/bootui/#/${route}`)
     await page.locator('.page-heading h2').filter({hasText: title}).first().waitFor()
     await prepare(page)
@@ -1649,6 +1761,8 @@ async function handleApiRoute(route) {
     })
   if (endpoint === 'dependencies') return fulfillJson(route, dependencies)
   if (endpoint === 'dependencies/scan') return fulfillJson(route, dependencies)
+  if (endpoint === 'pentest') return fulfillJson(route, pentest)
+  if (endpoint === 'pentest/scan') return fulfillJson(route, pentest)
 
   return fulfillJson(route, {error: `No screenshot fixture for ${endpoint}`}, 404)
 }

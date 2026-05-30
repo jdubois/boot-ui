@@ -439,6 +439,49 @@ public final class BootUiDtos {
             List<SecurityEndpointDto> endpoints) {}
 
     /**
+     * Metadata about one local OWASP hygiene scan.
+     */
+    public record PentestScanStatusDto(
+            String scanner, String status, String message, Long scannedAt, int checksRun, int findingsFound) {}
+
+    /**
+     * Count of pentest findings by normalized severity.
+     */
+    public record PentestSeverityCountDto(String severity, int count) {}
+
+    /**
+     * One OWASP category covered by the local scan.
+     */
+    public record PentestCoverageDto(String category, String title, String status, String description) {}
+
+    /**
+     * One heuristic finding from the local OWASP hygiene scan.
+     */
+    public record PentestFindingDto(
+            String id,
+            String title,
+            String owaspCategory,
+            String severity,
+            String confidence,
+            String target,
+            String evidence,
+            String recommendation,
+            boolean heuristic) {}
+
+    /**
+     * Top-level report for the local pentesting / OWASP hygiene panel.
+     */
+    public record PentestReport(
+            boolean localOnly,
+            String disclaimer,
+            int checksRun,
+            int findingsFound,
+            List<PentestSeverityCountDto> severityCounts,
+            PentestScanStatusDto scan,
+            List<PentestCoverageDto> coverage,
+            List<PentestFindingDto> findings) {}
+
+    /**
      * One Micrometer meter exposed by the application's meter registry.
      */
     public record MetricMeterDto(

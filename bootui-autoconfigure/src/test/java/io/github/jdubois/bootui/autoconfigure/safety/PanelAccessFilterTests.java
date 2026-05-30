@@ -96,6 +96,18 @@ class PanelAccessFilterTests {
     }
 
     @Test
+    void globalReadOnlyBlocksPentestScanAction() throws Exception {
+        properties.setReadOnly(true);
+        MockHttpServletRequest request = request("POST", "/bootui/api/pentest/scan");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("\"panel\":\"pentest\"");
+    }
+
+    @Test
     void globalReadOnlyDoesNotBlockReadOnlyPanelWithoutActions() throws Exception {
         properties.setReadOnly(true);
         MockHttpServletRequest request = request("GET", "/bootui/api/overview");

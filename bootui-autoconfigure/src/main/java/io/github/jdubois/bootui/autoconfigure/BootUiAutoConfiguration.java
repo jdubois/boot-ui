@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
+import io.github.jdubois.bootui.autoconfigure.pentest.*;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
@@ -55,6 +56,7 @@ import org.springframework.core.env.Environment;
     DependenciesController.class,
     ScheduledController.class,
     HttpProbeController.class,
+    PentestController.class,
     LogTailController.class,
     ProfileController.class,
     SecurityController.class,
