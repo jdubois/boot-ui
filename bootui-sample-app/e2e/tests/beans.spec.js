@@ -13,12 +13,16 @@ test.describe('Beans view', () => {
     await expect(page.locator('table tbody')).toContainText('productRepository')
     await expect.poll(async () => rows.count()).toBeLessThan(10)
 
-    // Classification filter restricts to BootUI internals.
+    // Classification filter restricts to a single category (BootUI internals are hidden by default).
     await page.getByPlaceholder(/Filter by name or type/).fill('')
-    await page.locator('select.form-select').selectOption('BOOTUI')
-    await expect(rows.first()).toBeVisible()
-    const classifications = await page.locator('table tbody tr td:nth-child(4) .badge').allInnerTexts()
-    expect(classifications.every((c) => c === 'BOOTUI')).toBeTruthy()
+    await page.locator('select.form-select').selectOption('FRAMEWORK')
+    const badges = page.locator('table tbody tr td:nth-child(4) .badge')
+    await expect
+      .poll(async () => {
+        const values = await badges.allInnerTexts()
+        return values.length > 0 && values.every((c) => c === 'FRAMEWORK')
+      })
+      .toBeTruthy()
   })
 
   test('keeps large bean lists responsive while filters search the full set', async ({openView, page}) => {
