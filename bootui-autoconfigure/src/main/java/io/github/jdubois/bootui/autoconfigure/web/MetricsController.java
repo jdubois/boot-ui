@@ -1,10 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.micrometer.core.instrument.*;
 import java.util.*;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -17,8 +19,16 @@ public class MetricsController {
 
     private final ObjectProvider<MeterRegistry> registries;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public MetricsController(ObjectProvider<MeterRegistry> registries) {
+        this(registries, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public MetricsController(ObjectProvider<MeterRegistry> registries, BootUiSelfDataFilter selfDataFilter) {
         this.registries = registries;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -28,7 +38,7 @@ public class MetricsController {
             return new MetricsReport(false, 0, List.of());
         }
 
-        Map<String, List<Meter>> metersByName = metersByName(registry.getMeters());
+        Map<String, List<Meter>> metersByName = metersByName(visibleMeters(registry.getMeters()));
         List<MetricMeterDto> meters = metersByName.entrySet().stream()
                 .map(entry -> toMeterDto(entry.getKey(), entry.getValue()))
                 .toList();
@@ -45,6 +55,7 @@ public class MetricsController {
 
         List<Meter> meters = registry.getMeters().stream()
                 .filter(meter -> meter.getId().getName().equals(name))
+                .filter(selfDataFilter::shouldIncludeMeter)
                 .toList();
         if (meters.isEmpty()) {
             return emptyDetail(true, name);
@@ -84,6 +95,10 @@ public class MetricsController {
                     .add(meter);
         }
         return grouped;
+    }
+
+    private List<Meter> visibleMeters(List<Meter> meters) {
+        return meters.stream().filter(selfDataFilter::shouldIncludeMeter).toList();
     }
 
     private MetricMeterDto toMeterDto(String name, List<Meter> meters) {

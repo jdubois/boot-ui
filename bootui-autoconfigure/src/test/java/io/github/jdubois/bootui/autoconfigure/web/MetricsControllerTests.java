@@ -125,6 +125,28 @@ class MetricsControllerTests {
     }
 
     @Test
+    void metricsHideBootUiPathTagSamples() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Counter.builder("http.server.requests")
+                .tag("uri", "/bootui/api/beans")
+                .register(registry)
+                .increment(5);
+        Counter.builder("http.server.requests")
+                .tag("uri", "/api/orders")
+                .register(registry)
+                .increment(2);
+
+        MockMvc mvc =
+                standaloneSetup(new MetricsController(providerOf(registry))).build();
+
+        mvc.perform(get("/bootui/api/metrics/detail").param("name", "http.server.requests"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.samples.length()").value(1))
+                .andExpect(jsonPath("$.samples[0].tags[0].value").value("/api/orders"))
+                .andExpect(jsonPath("$.availableTags[0].values", contains("/api/orders")));
+    }
+
+    @Test
     void detailRejectsMalformedTagFilters() throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         registry.counter("bootui.sample.requests").increment();

@@ -96,6 +96,24 @@ class ScheduledControllerTests {
     }
 
     @Test
+    void scheduledFiltersBootUiTasksByDefault() throws Exception {
+        ScheduledTask bootUiTask = scheduledCronTask(
+                new NamedRunnable("io.github.jdubois.bootui.autoconfigure.web.BootUiMaintenanceTask"));
+        ScheduledTask applicationTask = scheduledCronTask(new NamedRunnable("com.example.MyJob#executeJob"));
+
+        ScheduledTaskHolder holder = mock(ScheduledTaskHolder.class);
+        when(holder.getScheduledTasks()).thenReturn(Set.of(bootUiTask, applicationTask));
+
+        MockMvc mvc =
+                standaloneSetup(new ScheduledController(providerOf(holder))).build();
+
+        mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.tasks[0].runnable").value("com.example.MyJob#executeJob"));
+    }
+
+    @Test
     void scheduledReturnsFixedRateTask() throws Exception {
         Runnable runnable = new NamedRunnable("com.example.MyPollerTask");
         FixedRateTask fixedRateTask = new FixedRateTask(runnable, Duration.ofSeconds(30), Duration.ofSeconds(5));
@@ -136,6 +154,13 @@ class ScheduledControllerTests {
                 .andExpect(jsonPath("$.tasks[0].triggerType").value("FIXED_DELAY"))
                 .andExpect(jsonPath("$.tasks[0].expression").value("500"))
                 .andExpect(jsonPath("$.tasks[0].timeUnit").value("ms"));
+    }
+
+    private static ScheduledTask scheduledCronTask(Runnable runnable) {
+        CronTask cronTask = new CronTask(runnable, "0 0/5 * * * ?");
+        ScheduledTask scheduledTask = inlineMock(ScheduledTask.class);
+        when(scheduledTask.getTask()).thenReturn(cronTask);
+        return scheduledTask;
     }
 
     /**

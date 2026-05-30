@@ -121,6 +121,25 @@ class StartupControllerTests {
     }
 
     @Test
+    void startupFiltersBootUiStepsByDefault() throws Exception {
+        TimelineEvent bootUiEvent = event(
+                1L, "spring.beans.instantiate", tag("bean.name", "bootUiConfigOverrideService"), Duration.ofMillis(7));
+        TimelineEvent applicationEvent =
+                event(2L, "spring.beans.instantiate", tag("bean.name", "orderService"), Duration.ofMillis(11));
+
+        StartupEndpoint endpoint = endpointWithEvents(bootUiEvent, applicationEvent);
+
+        MockMvc mvc =
+                standaloneSetup(new StartupController(providerOf(endpoint))).build();
+
+        mvc.perform(get("/bootui/api/startup").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps.length()").value(1))
+                .andExpect(jsonPath("$.steps[0].id").value(2))
+                .andExpect(jsonPath("$.steps[0].tags[0].value").value("orderService"));
+    }
+
+    @Test
     void startupHandlesZeroDurationWhenDurationIsNull() throws Exception {
         StartupStep step = mock(StartupStep.class);
         when(step.getId()).thenReturn(2L);
@@ -149,5 +168,45 @@ class StartupControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.steps[0].durationMs").value(0))
                 .andExpect(jsonPath("$.steps[0].parentId").value(1));
+    }
+
+    private static StartupEndpoint endpointWithEvents(TimelineEvent... events) {
+        StartupTimeline timeline = mock(StartupTimeline.class);
+        when(timeline.getEvents()).thenReturn(List.of(events));
+
+        StartupDescriptor descriptor =
+                mock(StartupDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(descriptor.getTimeline()).thenReturn(timeline);
+
+        StartupEndpoint endpoint = mock(StartupEndpoint.class);
+        when(endpoint.startupSnapshot()).thenReturn(descriptor);
+        return endpoint;
+    }
+
+    private static TimelineEvent event(long id, String name, StartupStep.Tag tag, Duration duration) {
+        StartupStep step = mock(StartupStep.class);
+        when(step.getId()).thenReturn(id);
+        when(step.getParentId()).thenReturn(null);
+        when(step.getName()).thenReturn(name);
+        when(step.getTags()).thenReturn(() -> List.of(tag).iterator());
+
+        TimelineEvent event = mock(TimelineEvent.class);
+        when(event.getStartupStep()).thenReturn(step);
+        when(event.getDuration()).thenReturn(duration);
+        return event;
+    }
+
+    private static StartupStep.Tag tag(String key, String value) {
+        return new StartupStep.Tag() {
+            @Override
+            public String getKey() {
+                return key;
+            }
+
+            @Override
+            public String getValue() {
+                return value;
+            }
+        };
     }
 }

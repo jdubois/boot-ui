@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.sample.SampleCachedService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.stream.Stream;
@@ -83,7 +84,7 @@ class CacheControllerTests {
 
         StaticListableBeanFactory factory = new StaticListableBeanFactory();
         factory.addBean("cacheManager", manager);
-        factory.addBean("cachedService", new CachedService());
+        factory.addBean("cachedService", new SampleCachedService());
 
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         registry.counter("cache.gets", "cache", "sample-products", "name", "cacheManager", "result", "hit")
@@ -116,6 +117,20 @@ class CacheControllerTests {
                         jsonPath("$.operations[?(@.operation=='@Cacheable')]").exists())
                 .andExpect(
                         jsonPath("$.operations[?(@.operation=='@CacheEvict')]").exists());
+    }
+
+    @Test
+    void cacheReportHidesBootUiAnnotatedOperationsByDefault() throws Exception {
+        StaticListableBeanFactory factory = new StaticListableBeanFactory();
+        factory.addBean("cachedService", new CachedService());
+        MockMvc mvc = standaloneSetup(
+                        controller(factory, new AnnotationCacheOperationSource(), null, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/cache"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.operationCount").value(0))
+                .andExpect(jsonPath("$.operations").isEmpty());
     }
 
     @Test

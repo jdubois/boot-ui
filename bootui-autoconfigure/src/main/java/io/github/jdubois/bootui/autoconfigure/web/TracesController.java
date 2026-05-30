@@ -1,12 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedEvent;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.core.BootUiDtos.*;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,9 +26,17 @@ public class TracesController {
 
     private final BootUiProperties properties;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public TracesController(TelemetryStore store, BootUiProperties properties) {
+        this(store, properties, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public TracesController(TelemetryStore store, BootUiProperties properties, BootUiSelfDataFilter selfDataFilter) {
         this.store = store;
         this.properties = properties;
+        this.selfDataFilter = selfDataFilter;
     }
 
     static TraceSummaryDto toSummary(TelemetryStore.TraceBucket bucket) {
@@ -144,17 +154,26 @@ public class TracesController {
     public TracesReport list(@RequestParam(name = "limit", required = false, defaultValue = "100") int limit) {
         int safeLimit = Math.max(1, Math.min(500, limit));
         List<TraceSummaryDto> summaries = new ArrayList<>();
-        for (TelemetryStore.TraceBucket bucket : store.recentTraces(safeLimit)) {
-            summaries.add(toSummary(bucket));
+        int retained = 0;
+        for (TelemetryStore.TraceBucket bucket : store.recentTraces(store.capacity())) {
+            if (!selfDataFilter.shouldIncludeTrace(bucket.spans())) {
+                continue;
+            }
+            retained++;
+            if (summaries.size() < safeLimit) {
+                summaries.add(toSummary(bucket));
+            }
         }
-        return new TracesReport(
-                properties.getTelemetry().isEnabled(), store.retainedTraceCount(), store.capacity(), summaries);
+        return new TracesReport(properties.getTelemetry().isEnabled(), retained, store.capacity(), summaries);
     }
 
     @GetMapping("/{traceId}")
     public TraceDetailDto detail(@PathVariable String traceId) {
         TelemetryStore.TraceBucket bucket = store.findTrace(traceId);
         if (bucket == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "trace " + traceId + " not found");
+        }
+        if (!selfDataFilter.shouldIncludeTrace(bucket.spans())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "trace " + traceId + " not found");
         }
         List<SpanDto> spans = new ArrayList<>(bucket.spans().size());

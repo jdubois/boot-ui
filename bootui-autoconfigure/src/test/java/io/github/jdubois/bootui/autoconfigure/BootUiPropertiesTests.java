@@ -115,6 +115,12 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultMonitoringExcludeSelfIsTrue() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getMonitoring().isExcludeSelf()).isTrue();
+    }
+
+    @Test
     void defaultDependenciesOsvEnabledIsTrue() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getDependencies().isOsvEnabled()).isTrue();
@@ -300,6 +306,16 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getCache().isClearEnabled()).isFalse();
+    }
+
+    @Test
+    void bindsMonitoringExcludeSelfFalse() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.monitoring.exclude-self", "false");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getMonitoring().isExcludeSelf()).isFalse();
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
@@ -15,6 +16,7 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.interceptor.*;
@@ -42,15 +44,28 @@ public class CacheController {
 
     private final BootUiProperties properties;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public CacheController(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<CacheOperationSource> cacheOperationSources,
             ObjectProvider<MeterRegistry> meterRegistries,
             BootUiProperties properties) {
+        this(beanFactoryProvider, cacheOperationSources, meterRegistries, properties, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public CacheController(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+            ObjectProvider<CacheOperationSource> cacheOperationSources,
+            ObjectProvider<MeterRegistry> meterRegistries,
+            BootUiProperties properties,
+            BootUiSelfDataFilter selfDataFilter) {
         this.beanFactoryProvider = beanFactoryProvider;
         this.cacheOperationSources = cacheOperationSources;
         this.meterRegistries = meterRegistries;
         this.properties = properties;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -219,6 +234,9 @@ public class CacheController {
         List<CacheManagerEntry> managers = new ArrayList<>(beanNames.length);
         for (String beanName : beanNames) {
             CacheManager manager = factory.getBean(beanName, CacheManager.class);
+            if (!selfDataFilter.shouldIncludeCacheOperation(beanName, manager.getClass())) {
+                continue;
+            }
             managers.add(new CacheManagerEntry(beanName, manager));
         }
         return managers;
@@ -306,6 +324,9 @@ public class CacheController {
         }
         Map<MetricKey, CacheMetricsAccumulator> metrics = new LinkedHashMap<>();
         for (Meter meter : registry.getMeters()) {
+            if (!selfDataFilter.shouldIncludeMeter(meter)) {
+                continue;
+            }
             String meterName = meter.getId().getName();
             String cacheName = meter.getId().getTag("cache");
             if (isBlank(cacheName)) {
@@ -387,6 +408,9 @@ public class CacheController {
                 continue;
             }
             Class<?> userType = ClassUtils.getUserClass(type);
+            if (!selfDataFilter.shouldIncludeCacheOperation(beanName, userType)) {
+                continue;
+            }
             Set<String> seenMethods = new HashSet<>();
             for (Method method : userType.getMethods()) {
                 if (skipMethod(method)) {

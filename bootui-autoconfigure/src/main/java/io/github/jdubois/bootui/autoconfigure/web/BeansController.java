@@ -1,9 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.BootUiDtos.BeanList;
 import io.github.jdubois.bootui.core.BootUiDtos.BeanSummary;
 import java.util.*;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint.BeanDescriptor;
 import org.springframework.boot.actuate.beans.BeansEndpoint.BeansDescriptor;
@@ -19,8 +21,16 @@ public class BeansController {
 
     private final ObjectProvider<BeansEndpoint> endpoint;
 
+    private final BootUiSelfDataFilter selfDataFilter;
+
     public BeansController(ObjectProvider<BeansEndpoint> endpoint) {
+        this(endpoint, BootUiSelfDataFilter.defaults());
+    }
+
+    @Autowired
+    public BeansController(ObjectProvider<BeansEndpoint> endpoint, BootUiSelfDataFilter selfDataFilter) {
         this.endpoint = endpoint;
+        this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
@@ -39,6 +49,11 @@ public class BeansController {
                 descriptor.getContexts().entrySet()) {
             for (Map.Entry<String, BeanDescriptor> beanEntry :
                     ctxEntry.getValue().getBeans().entrySet()) {
+                BeanDescriptor beanDescriptor = beanEntry.getValue();
+                if (!selfDataFilter.shouldIncludeBean(
+                        beanEntry.getKey(), beanDescriptor.getType(), beanDescriptor.getResource())) {
+                    continue;
+                }
                 summaries.add(toSummary(beanEntry.getKey(), beanEntry.getValue()));
             }
         }
@@ -69,7 +84,7 @@ public class BeansController {
         if (type == null) {
             return "OTHER";
         }
-        if (type.startsWith("io.github.jdubois.bootui.")) {
+        if (selfDataFilter.isBootUiClassOrResource(type)) {
             return "BOOTUI";
         }
         if (type.startsWith("org.springframework.")) {

@@ -20,6 +20,7 @@ import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
@@ -101,6 +102,24 @@ class SecurityControllerTests {
         mvc.perform(get("/bootui/api/security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.chains[0].filters[0]").value("NamedFilter"));
+    }
+
+    @Test
+    void bootUiSecurityChainsAreHiddenByDefault() throws Exception {
+        SecurityFilterChain bootUiChain = new DefaultSecurityFilterChain(new DescribedMatcher("/bootui/**"), List.of());
+        SecurityFilterChain applicationChain =
+                new DefaultSecurityFilterChain(new DescribedMatcher("/api/**"), List.of());
+
+        FilterChainProxy proxy = mock(FilterChainProxy.class);
+        when(proxy.getFilterChains()).thenReturn(List.of(bootUiChain, applicationChain));
+
+        MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
+
+        mvc.perform(get("/bootui/api/security"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chains.length()").value(1))
+                .andExpect(jsonPath("$.chains[0].order").value(1))
+                .andExpect(jsonPath("$.chains[0].requestMatcher").value("/api/**"));
     }
 
     @Test
@@ -225,6 +244,18 @@ class SecurityControllerTests {
                 jakarta.servlet.FilterChain chain)
                 throws java.io.IOException, jakarta.servlet.ServletException {
             chain.doFilter(req, res);
+        }
+    }
+
+    private record DescribedMatcher(String description) implements RequestMatcher {
+        @Override
+        public boolean matches(jakarta.servlet.http.HttpServletRequest request) {
+            return false;
+        }
+
+        @Override
+        public String toString() {
+            return description;
         }
     }
 }

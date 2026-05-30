@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
@@ -108,6 +109,11 @@ public class BootUiAutoConfiguration {
     @Bean
     public TelemetryStore bootUiTelemetryStore(BootUiProperties properties) {
         return new TelemetryStore(properties.getTelemetry());
+    }
+
+    @Bean
+    public BootUiSelfDataFilter bootUiSelfDataFilter(BootUiProperties properties) {
+        return new BootUiSelfDataFilter(properties);
     }
 
     @Bean
