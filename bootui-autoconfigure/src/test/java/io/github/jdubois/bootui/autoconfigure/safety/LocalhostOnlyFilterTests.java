@@ -98,6 +98,26 @@ class LocalhostOnlyFilterTests {
         assertThat(response.getStatus()).isEqualTo(403);
     }
 
+    @Test
+    void rejectsWildcardIpv4Address() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/", "0.0.0.0");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void rejectsWildcardIpv6Address() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/", "::");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
     private MockHttpServletRequest bootUiRequest(String uri, String remoteAddr) {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", uri);
         request.setRequestURI(uri);

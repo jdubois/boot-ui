@@ -47,6 +47,22 @@ class CopilotControllerTests {
     }
 
     @Test
+    void streamRejectsBeyondConcurrentLimit(@TempDir Path tempDir) {
+        BootUiProperties props = propertiesFor(tempDir);
+        CopilotSessionStore store = storeFor(props);
+        CopilotController controller = new CopilotController(store, props);
+
+        for (int i = 0; i < CopilotController.MAX_CONCURRENT_STREAMS; i++) {
+            controller.stream();
+        }
+        assertThat(controller.emittersForTesting()).hasSize(CopilotController.MAX_CONCURRENT_STREAMS);
+
+        // The next stream is over the cap: it is completed with an error and never tracked.
+        controller.stream();
+        assertThat(controller.emittersForTesting()).hasSize(CopilotController.MAX_CONCURRENT_STREAMS);
+    }
+
+    @Test
     void sessionsReturnsUnavailableWhenDirectoryMissing(@TempDir Path tempDir) throws Exception {
         Path missing = tempDir.resolve("does-not-exist");
         BootUiProperties props = propertiesFor(missing);

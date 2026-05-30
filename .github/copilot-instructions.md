@@ -161,7 +161,7 @@ paths.
 
 ## Current panel surface
 
-The selected `0.1.0-alpha.1` stance is to harden **all visible panels**, not hide newer ones. Keep API, UI, docs, and
+The `0.1.0` stance is to harden **all visible panels**, not hide newer ones. Keep API, UI, docs, and
 Playwright coverage aligned for:
 
 - Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile Diff,

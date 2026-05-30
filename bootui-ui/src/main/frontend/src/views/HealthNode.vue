@@ -1,7 +1,3 @@
-<script>
-export default {name: 'HealthNode'}
-</script>
-
 <script setup>
 import HealthDetails from './HealthDetails.vue'
 

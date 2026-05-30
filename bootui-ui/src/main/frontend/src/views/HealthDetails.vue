@@ -1,7 +1,3 @@
-<script>
-export default {name: 'HealthDetails'}
-</script>
-
 <script setup>
 defineProps({
   value: {required: false, default: null}

@@ -66,7 +66,7 @@ public class LocalhostOnlyFilter extends OncePerRequestFilter {
         }
         try {
             InetAddress address = InetAddress.getByName(remoteAddr);
-            return address.isLoopbackAddress() || address.isAnyLocalAddress();
+            return address.isLoopbackAddress();
         } catch (UnknownHostException e) {
             return false;
         }

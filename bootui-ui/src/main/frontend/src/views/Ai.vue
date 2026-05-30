@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
+import {useCopyToClipboard} from '../utils/useCopyToClipboard'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
 
 const overview = ref(null)
@@ -203,21 +204,7 @@ const filteredChats = computed(() => {
 
 const pagedChats = computed(() => filteredChats.value.slice(0, pageSize.value))
 
-const copiedKey = ref(null)
-let copiedTimer = null
-
-async function copyToClipboard(text, key) {
-  try {
-    await navigator.clipboard.writeText(text)
-    copiedKey.value = key || text
-    if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => {
-      copiedKey.value = null
-    }, 1500)
-  } catch (_) {
-    // ignore
-  }
-}
+const {copiedKey, copyToClipboard} = useCopyToClipboard()
 
 function durationClass(nanos) {
   if (nanos == null) return ''

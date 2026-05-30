@@ -21,7 +21,25 @@ const unavailableNavigationGroup = {
   icon: 'bi-slash-circle'
 }
 const routes = router.options.routes.filter((r) => r.name)
-const expandedGroups = reactive({runtime: true})
+const EXPANDED_GROUPS_STORAGE_KEY = 'bootui.expandedGroups'
+
+function loadExpandedGroups() {
+  const defaults = {runtime: true}
+  try {
+    const stored = window.localStorage?.getItem(EXPANDED_GROUPS_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (parsed && typeof parsed === 'object') {
+        return {...defaults, ...parsed}
+      }
+    }
+  } catch {
+    // Ignore unavailable or malformed storage; fall back to defaults.
+  }
+  return defaults
+}
+
+const expandedGroups = reactive(loadExpandedGroups())
 const panelLookup = computed(() => new Map((panels.value?.panels ?? []).map((panel) => [panel.id, panel])))
 const activeRoute = computed(() => routes.find((r) => r.name === route.name))
 const activePanel = computed(() => (route.name ? panelLookup.value.get(route.name) : null))
@@ -172,6 +190,18 @@ watch(
     }
   },
   {immediate: true}
+)
+
+watch(
+  expandedGroups,
+  (groups) => {
+    try {
+      window.localStorage?.setItem(EXPANDED_GROUPS_STORAGE_KEY, JSON.stringify(groups))
+    } catch {
+      // Ignore storage write failures (e.g. private mode / quota).
+    }
+  },
+  {deep: true}
 )
 
 onMounted(loadShellData)

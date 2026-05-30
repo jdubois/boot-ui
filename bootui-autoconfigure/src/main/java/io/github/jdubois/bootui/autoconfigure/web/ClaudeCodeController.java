@@ -34,6 +34,9 @@ public class ClaudeCodeController {
     private final BootUiProperties properties;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
+    /** Upper bound on simultaneous activity streams; this is a local dev tool, not a fan-out hub. */
+    static final int MAX_CONCURRENT_STREAMS = 20;
+
     @Autowired
     public ClaudeCodeController(
             @Qualifier("bootUiClaudeCodeSessionStore") ObjectProvider<ClaudeCodeSessionStore> storeProvider,
@@ -106,6 +109,10 @@ public class ClaudeCodeController {
     public SseEmitter stream() {
         ClaudeCodeSessionStore store = store();
         SseEmitter emitter = new SseEmitter(0L);
+        if (emitters.size() >= MAX_CONCURRENT_STREAMS) {
+            emitter.completeWithError(new IllegalStateException("Too many concurrent BootUI Claude Code streams"));
+            return emitter;
+        }
         emitters.add(emitter);
 
         AtomicReference<Runnable> unsubscribeRef = new AtomicReference<>(() -> {});

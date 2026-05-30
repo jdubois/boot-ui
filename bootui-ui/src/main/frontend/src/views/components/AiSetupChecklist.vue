@@ -1,5 +1,5 @@
 <script setup>
-import {ref} from 'vue'
+import {useCopyToClipboard} from '../../utils/useCopyToClipboard'
 
 defineProps({
   springAiDetected: Boolean,
@@ -7,21 +7,7 @@ defineProps({
   hasData: Boolean
 })
 
-const copiedKey = ref(null)
-let copiedTimer = null
-
-async function copyToClipboard(text, key) {
-  try {
-    await navigator.clipboard.writeText(text)
-    copiedKey.value = key
-    if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => {
-      copiedKey.value = null
-    }, 1500)
-  } catch (_) {
-    // ignore
-  }
-}
+const {copiedKey, copyToClipboard} = useCopyToClipboard()
 
 const otlpProps = `management.opentelemetry.tracing.export.otlp.endpoint=http://localhost:8080/bootui/api/otlp/v1/traces`
 const mavSnippet = `<dependency>
