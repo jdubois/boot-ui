@@ -41,8 +41,10 @@ public class HeapDumpController {
     }
 
     @GetMapping
-    public HeapDumpReport report() {
-        return service.report();
+    public HeapDumpReport report(
+            @RequestParam(name = "filter", defaultValue = "") String filter,
+            @RequestParam(name = "smartFilter", defaultValue = "") String smartFilter) {
+        return service.report(filter, smartFilter);
     }
 
     @PostMapping("/capture")

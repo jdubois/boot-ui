@@ -484,6 +484,13 @@ public class BootUiProperties {
         private int maxDumps = 5;
 
         /**
+         * Maximum number of classes retained in memory after a histogram analysis, ordered by
+         * retained bytes. Capping this value prevents very large heaps from exhausting memory.
+         * Must be &ge; {@code top-classes}.
+         */
+        private int maxClasses = 1000;
+
+        /**
          * Maximum number of classes returned in the class histogram, ordered by retained bytes.
          */
         private int topClasses = 25;
@@ -518,6 +525,14 @@ public class BootUiProperties {
 
         public void setMaxDumps(int maxDumps) {
             this.maxDumps = maxDumps;
+        }
+
+        public int getMaxClasses() {
+            return maxClasses;
+        }
+
+        public void setMaxClasses(int maxClasses) {
+            this.maxClasses = maxClasses;
         }
 
         public int getTopClasses() {
