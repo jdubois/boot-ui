@@ -40,6 +40,7 @@ Panel settings are consistent across the UI and API:
 | Runtime | Health | `health` | `bootui.panels.health.enabled` | Not applicable; view-only. |
 | Runtime | Metrics | `metrics` | `bootui.panels.metrics.enabled` | Not applicable; view-only. |
 | Runtime | Memory | `memory` | `bootui.panels.memory.enabled` | Not applicable; view-only. |
+| Runtime | Heap Dump | `heap-dump` | `bootui.panels.heap-dump.enabled` | `bootui.panels.heap-dump.read-only` |
 | Runtime | Startup Timeline | `startup` | `bootui.panels.startup.enabled` | Not applicable; view-only. |
 | Configuration | Configuration | `config` | `bootui.panels.config.enabled` | `bootui.panels.config.read-only` |
 | Configuration | Profile Diff | `profiles` | `bootui.panels.profiles.enabled` | Not applicable; view-only. |
@@ -134,6 +135,18 @@ Panel settings are consistent across the UI and API:
 | `bootui.dependencies.request-timeout` | `10s` | Timeout for each OSV request. |
 | `bootui.dependencies.max-packages` | `250` | Maximum packages included in one OSV batch query. |
 | `bootui.dependencies.max-advisories` | `200` | Maximum advisory details fetched after a package query. |
+
+### Heap Dump
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.heap-dump.enabled` | `true` | Show the Heap Dump panel when running on a HotSpot JVM. |
+| `bootui.panels.heap-dump.read-only` | `false` | Disable on-demand capture, analyze, and delete actions. |
+| `bootui.heap-dump.capture-enabled` | `true` | Additional action gate for capturing new heap dumps. |
+| `bootui.heap-dump.allow-raw-download` | `false` | Allow downloading the raw `.hprof` file. Disabled by default because dumps contain plaintext secrets. |
+| `bootui.heap-dump.output-dir` | `.bootui/heap-dumps` | Directory where captured heap dumps are written. |
+| `bootui.heap-dump.max-dumps` | `5` | Maximum number of heap dump files retained on disk. Oldest dumps are deleted first. |
+| `bootui.heap-dump.top-classes` | `25` | Number of top classes shown in the value-free class histogram. |
 
 ### Architecture
 

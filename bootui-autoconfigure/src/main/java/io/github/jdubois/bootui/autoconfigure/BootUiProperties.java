@@ -81,6 +81,10 @@ public class BootUiProperties {
      */
     private Dependencies dependencies = new Dependencies();
     /**
+     * Heap Dump panel settings.
+     */
+    private HeapDump heapDump = new HeapDump();
+    /**
      * OTLP-based telemetry receiver and trace store settings.
      */
     private Telemetry telemetry = new Telemetry();
@@ -248,6 +252,14 @@ public class BootUiProperties {
 
     public void setDependencies(Dependencies dependencies) {
         this.dependencies = dependencies;
+    }
+
+    public HeapDump getHeapDump() {
+        return heapDump;
+    }
+
+    public void setHeapDump(HeapDump heapDump) {
+        this.heapDump = heapDump == null ? new HeapDump() : heapDump;
     }
 
     public Telemetry getTelemetry() {
@@ -435,6 +447,85 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    /**
+     * Heap Dump panel settings.
+     *
+     * <p>A heap dump is a sensitive artifact: it contains plaintext secrets (passwords,
+     * tokens, PII) pulled from live memory and bypasses BootUI's value masking. BootUI
+     * writes dumps to a local directory and never exposes them over HTTP unless raw
+     * download is explicitly enabled. Capture and delete are mutating actions, so they are
+     * blocked when the panel or BootUI is read-only.</p>
+     */
+    public static class HeapDump {
+
+        /**
+         * Allow on-demand heap dump capture. When {@code false}, the panel still exposes the
+         * live class histogram analysis but the capture endpoint is rejected.
+         */
+        private boolean captureEnabled = true;
+
+        /**
+         * Allow downloading the raw {@code .hprof} file over HTTP. Disabled by default because
+         * the raw dump contains unmasked secrets.
+         */
+        private boolean allowRawDownload = false;
+
+        /**
+         * Directory where captured heap dumps are written.
+         */
+        private String outputDir = ".bootui/heap-dumps";
+
+        /**
+         * Maximum number of heap dump files retained on disk. Oldest dumps are deleted first.
+         */
+        private int maxDumps = 5;
+
+        /**
+         * Maximum number of classes returned in the class histogram, ordered by retained bytes.
+         */
+        private int topClasses = 25;
+
+        public boolean isCaptureEnabled() {
+            return captureEnabled;
+        }
+
+        public void setCaptureEnabled(boolean captureEnabled) {
+            this.captureEnabled = captureEnabled;
+        }
+
+        public boolean isAllowRawDownload() {
+            return allowRawDownload;
+        }
+
+        public void setAllowRawDownload(boolean allowRawDownload) {
+            this.allowRawDownload = allowRawDownload;
+        }
+
+        public String getOutputDir() {
+            return outputDir;
+        }
+
+        public void setOutputDir(String outputDir) {
+            this.outputDir = outputDir;
+        }
+
+        public int getMaxDumps() {
+            return maxDumps;
+        }
+
+        public void setMaxDumps(int maxDumps) {
+            this.maxDumps = maxDumps;
+        }
+
+        public int getTopClasses() {
+            return topClasses;
+        }
+
+        public void setTopClasses(int topClasses) {
+            this.topClasses = topClasses;
         }
     }
 

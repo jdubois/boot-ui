@@ -72,6 +72,8 @@ public class PanelsController {
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTEST,
                     BootUiPanels.VULNERABILITIES -> available();
+            case BootUiPanels.HEAP_DUMP ->
+                availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
             case BootUiPanels.HEALTH ->
                 availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");

@@ -16,6 +16,7 @@ import ProfileDiff from './views/ProfileDiff.vue'
 import Cache from './views/Cache.vue'
 import Security from './views/Security.vue'
 import Memory from './views/Memory.vue'
+import HeapDump from './views/HeapDump.vue'
 import Metrics from './views/Metrics.vue'
 import Vulnerabilities from './views/Dependencies.vue'
 import DevServices from './views/DevServices.vue'
@@ -58,6 +59,12 @@ export const routes = [
     name: 'memory',
     component: Memory,
     meta: {group: groups.runtime, icon: 'bi-memory', title: 'Memory'}
+  },
+  {
+    path: '/heap-dump',
+    name: 'heap-dump',
+    component: HeapDump,
+    meta: {group: groups.runtime, icon: 'bi-file-earmark-binary', title: 'Heap Dump'}
   },
   {
     path: '/startup',
