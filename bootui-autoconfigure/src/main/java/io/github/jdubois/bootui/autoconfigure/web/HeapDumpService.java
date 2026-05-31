@@ -167,11 +167,20 @@ public class HeapDumpService {
         if (name == null || !SAFE_NAME.matcher(name).matches()) {
             return null;
         }
-        Path resolved = baseDir.resolve(name).normalize();
-        if (!baseDir.equals(resolved.getParent()) || !Files.isRegularFile(resolved)) {
+        if (!Files.isDirectory(baseDir)) {
             return null;
         }
-        return resolved;
+        // Derive the returned path from the trusted directory listing rather than resolving the
+        // user-supplied string, so the value handed to file operations never carries request taint.
+        try (var stream = Files.list(baseDir)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(path -> baseDir.equals(path.getParent()))
+                    .filter(path -> path.getFileName().toString().equals(name))
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException ex) {
+            return null;
+        }
     }
 
     private HeapDumpReport buildReport() {
