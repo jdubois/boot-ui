@@ -532,7 +532,7 @@ public final class BootUiDtos {
     public record ArchitectureSeverityCountDto(String severity, int count) {}
 
     /**
-     * Outcome of one architecture rule evaluated against the host application classes.
+     * Outcome of one architecture rule violation evaluated against the host application classes.
      */
     public record ArchitectureRuleResultDto(
             String id,
@@ -546,7 +546,8 @@ public final class BootUiDtos {
             String recommendation) {}
 
     /**
-     * Top-level report for the local architecture (ArchUnit) hygiene panel.
+     * Top-level report for the local architecture (ArchUnit) hygiene panel. The results list contains
+     * violating rules only, ordered by severity and impact.
      */
     public record ArchitectureReport(
             boolean localOnly,

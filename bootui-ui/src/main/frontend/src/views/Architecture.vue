@@ -24,11 +24,23 @@ const statusClasses = {
   ERROR: 'text-bg-warning'
 }
 
+const severityOrder = ['HIGH', 'MEDIUM', 'LOW', 'INFO']
+
 const hasScanData = computed(() => report.value?.scan?.status && report.value.scan.status !== 'NOT_SCANNED')
 
 const maxSeverityCount = computed(() => {
   if (!report.value?.severityCounts?.length) return 1
   return Math.max(1, ...report.value.severityCounts.map((count) => count.count))
+})
+
+const visibleResults = computed(() =>
+  [...(report.value?.results || [])].filter((result) => result.status === 'VIOLATION').sort(compareImportance)
+)
+
+const emptyRuleResultsTitle = computed(() => {
+  if (!hasScanData.value) return 'Run architecture checks to see rule violations'
+  if (!report.value?.rulesEvaluated) return 'No rules were evaluated'
+  return 'No architecture rule violations found'
 })
 
 function severityClass(severity) {
@@ -42,6 +54,27 @@ function statusClass(status) {
 function severityWidth(count) {
   if (count === 0) return '0%'
   return `${Math.max(3, (count / maxSeverityCount.value) * 100)}%`
+}
+
+function compareImportance(left, right) {
+  const severityDiff = severityRank(left.severity) - severityRank(right.severity)
+  if (severityDiff !== 0) return severityDiff
+  const countDiff = right.violationCount - left.violationCount
+  if (countDiff !== 0) return countDiff
+  return left.id.localeCompare(right.id)
+}
+
+function severityRank(severity) {
+  const index = severityOrder.indexOf(severity)
+  return index === -1 ? severityOrder.length : index
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return count === 1 ? singular : plural
+}
+
+function violationCountLabel(count) {
+  return `${count} ${pluralize(count, 'violation')} found`
 }
 
 function scanTime() {
@@ -209,19 +242,23 @@ onMounted(loadReport)
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
           <div>
             <div class="fw-semibold">Rule results</div>
-            <div class="text-muted small">{{ report.violationsFound }} rule violation(s)</div>
+            <div class="text-muted small">
+              <template v-if="hasScanData && report.violationsFound > 0">
+                {{ report.violationsFound }} {{ pluralize(report.violationsFound, 'violating rule') }}, sorted by
+                importance
+              </template>
+              <template v-else>{{ report.violationsFound }} rule violation(s)</template>
+            </div>
           </div>
           <span v-if="hasScanData && report.violationsFound === 0" class="badge text-bg-success">No violations</span>
         </div>
-        <div v-if="!report.results || report.results.length === 0" class="card-body text-center text-muted py-5">
+        <div v-if="visibleResults.length === 0" class="card-body text-center text-muted py-5">
           <i class="bi bi-diagram-2 fs-2 d-block mb-2"></i>
-          <div class="fw-semibold text-body">
-            {{ hasScanData ? 'No rules were evaluated' : 'Run architecture checks to see rule results' }}
-          </div>
+          <div class="fw-semibold text-body">{{ emptyRuleResultsTitle }}</div>
           <div>A project-specific ArchUnit suite remains the best way to enforce your own architecture.</div>
         </div>
         <div v-else class="list-group list-group-flush">
-          <div v-for="result in report.results" :key="result.id" class="list-group-item">
+          <div v-for="result in visibleResults" :key="result.id" class="list-group-item">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
               <span :class="statusClass(result.status)" class="badge">{{ result.status }}</span>
               <span :class="severityClass(result.severity)" class="badge">{{ result.severity }}</span>
@@ -230,9 +267,13 @@ onMounted(loadReport)
             </div>
             <h3 class="h6 mb-1">{{ result.name }}</h3>
             <div class="small text-muted mb-2">{{ result.description }}</div>
+            <div class="small mb-2">
+              <strong>What happened:</strong>
+              {{ violationCountLabel(result.violationCount) }} for this rule.
+            </div>
             <div v-if="result.sampleViolations && result.sampleViolations.length" class="mb-2">
               <div class="small fw-semibold">
-                {{ result.status === 'VIOLATION' ? `Sample violations (${result.violationCount} total)` : 'Details' }}
+                Sample details (showing {{ result.sampleViolations.length }} of {{ result.violationCount }})
               </div>
               <ul class="small mb-0">
                 <li v-for="(sample, index) in result.sampleViolations" :key="index" class="font-monospace">

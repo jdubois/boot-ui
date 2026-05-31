@@ -47,8 +47,9 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
 - **LOW** — defense-in-depth / hygiene gap (e.g. standard-stream use, generic exceptions, `java.util.logging`).
 - **INFO** — informational convention prompt (e.g. legacy library use, deprecated APIs).
 
-Each rule result is reported with a status (`PASS`, `VIOLATION`, `SKIPPED`, or `ERROR`), the number of violating
-instances, and up to a handful of sample detail lines from ArchUnit.
+The scan evaluates every registered rule, but the Rule results panel only lists rules that found violations. Violations
+are ordered by importance (`HIGH`, `MEDIUM`, `LOW`, `INFO`), then by the number of violating instances, and include up to
+a handful of sample detail lines from ArchUnit.
 
 ---
 
