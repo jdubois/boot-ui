@@ -46,6 +46,19 @@ needs tuning.
 
 ![BootUI Memory panel](images/bootui-memory.png)
 
+### Heap Dump
+
+The Heap Dump panel captures local JVM heap dumps on demand and analyzes them through a value-free class histogram, so
+you can investigate suspected memory leaks or unexpected retention during the local development loop. Capture and analyze
+actions run an explicit, confirmed request that triggers a full GC and writes an `.hprof` file under the configured
+output directory; the panel then shows live heap usage, the top retaining classes by instance count and shallow size,
+and the list of captured dumps with retention-based eviction.
+
+Heap dumps can contain plaintext secrets, credentials, and personal data, so the panel is designed to be safe by
+default: it only summarizes class names and sizes (never object values), all capture/analyze/delete operations are
+mutating `POST` requests that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled
+unless explicitly enabled via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
+
 ### Startup Timeline
 
 The Startup Timeline panel visualizes Spring Boot startup steps from Actuator startup data. It helps identify expensive
@@ -219,19 +232,6 @@ vulnerable dependencies from the running project's dependency set during the loc
 ordered by severity first, with dependencies and advisories alphabetized within the same severity.
 
 ![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
-
-### Heap Dump
-
-The Heap Dump panel captures local JVM heap dumps on demand and analyzes them through a value-free class histogram, so
-you can investigate suspected memory leaks or unexpected retention during the local development loop. Capture and analyze
-actions run an explicit, confirmed request that triggers a full GC and writes an `.hprof` file under the configured
-output directory; the panel then shows live heap usage, the top retaining classes by instance count and shallow size,
-and the list of captured dumps with retention-based eviction.
-
-Heap dumps can contain plaintext secrets, credentials, and personal data, so the panel is designed to be safe by
-default: it only summarizes class names and sizes (never object values), all capture/analyze/delete operations are
-mutating `POST` requests that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled
-unless explicitly enabled via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
 
 ## Developer tools
 

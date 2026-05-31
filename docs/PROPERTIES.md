@@ -40,6 +40,7 @@ Panel settings are consistent across the UI and API:
 | Runtime | Health | `health` | `bootui.panels.health.enabled` | Not applicable; view-only. |
 | Runtime | Metrics | `metrics` | `bootui.panels.metrics.enabled` | Not applicable; view-only. |
 | Runtime | Memory | `memory` | `bootui.panels.memory.enabled` | Not applicable; view-only. |
+| Runtime | Heap Dump | `heap-dump` | `bootui.panels.heap-dump.enabled` | `bootui.panels.heap-dump.read-only` |
 | Runtime | Startup Timeline | `startup` | `bootui.panels.startup.enabled` | Not applicable; view-only. |
 | Configuration | Configuration | `config` | `bootui.panels.config.enabled` | `bootui.panels.config.read-only` |
 | Configuration | Profile Diff | `profiles` | `bootui.panels.profiles.enabled` | Not applicable; view-only. |
@@ -57,7 +58,6 @@ Panel settings are consistent across the UI and API:
 | Diagnostics | HTTP Probe | `http-probe` | `bootui.panels.http-probe.enabled` | `bootui.panels.http-probe.read-only` |
 | Diagnostics | Pentesting | `pentest` | `bootui.panels.pentest.enabled` | `bootui.panels.pentest.read-only` |
 | Diagnostics | Vulnerabilities | `vulnerabilities` | `bootui.panels.vulnerabilities.enabled` | `bootui.panels.vulnerabilities.read-only` |
-| Diagnostics | Heap Dump | `heap-dump` | `bootui.panels.heap-dump.enabled` | `bootui.panels.heap-dump.read-only` |
 | Developer tools | DevTools | `devtools` | `bootui.panels.devtools.enabled` | `bootui.panels.devtools.read-only` |
 | Developer tools | Dev Services | `dev-services` | `bootui.panels.dev-services.enabled` | `bootui.panels.dev-services.read-only` |
 | Developer tools | Copilot | `copilot` | `bootui.panels.copilot.enabled` | Not applicable; view-only. |
