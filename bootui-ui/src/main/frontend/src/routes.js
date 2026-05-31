@@ -11,6 +11,7 @@ import Startup from './views/Startup.vue'
 import Scheduled from './views/Scheduled.vue'
 import HttpProbe from './views/HttpProbe.vue'
 import Pentesting from './views/Pentesting.vue'
+import Architecture from './views/Architecture.vue'
 import LogTail from './views/LogTail.vue'
 import ProfileDiff from './views/ProfileDiff.vue'
 import Cache from './views/Cache.vue'
@@ -156,6 +157,12 @@ export const routes = [
     name: 'vulnerabilities',
     component: Vulnerabilities,
     meta: {group: groups.diagnostics, icon: 'bi-bug', title: 'Vulnerabilities'}
+  },
+  {
+    path: '/architecture',
+    name: 'architecture',
+    component: Architecture,
+    meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
   },
   {
     path: '/devtools',

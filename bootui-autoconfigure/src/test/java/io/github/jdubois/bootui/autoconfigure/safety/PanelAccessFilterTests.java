@@ -198,6 +198,7 @@ class PanelAccessFilterTests {
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/probe"));
         requests.put("pentest", new ActionRequest("POST", "/bootui/api/pentest/scan"));
         requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/dependencies/scan"));
+        requests.put("architecture", new ActionRequest("POST", "/bootui/api/architecture/scan"));
         requests.put("devtools", new ActionRequest("POST", "/bootui/api/devtools/restart"));
         requests.put("dev-services", new ActionRequest("POST", "/bootui/api/dev-services/services/demo/restart"));
         return requests;

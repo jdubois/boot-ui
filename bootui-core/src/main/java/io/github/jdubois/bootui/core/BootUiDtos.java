@@ -515,6 +515,51 @@ public final class BootUiDtos {
             List<PentestFindingDto> findings) {}
 
     /**
+     * Metadata about one local ArchUnit architecture analysis run.
+     */
+    public record ArchitectureScanStatusDto(
+            String analyzer,
+            String status,
+            String message,
+            Long scannedAt,
+            int rulesEvaluated,
+            int classesAnalyzed,
+            int violationsFound) {}
+
+    /**
+     * Count of architecture rule violations by normalized severity.
+     */
+    public record ArchitectureSeverityCountDto(String severity, int count) {}
+
+    /**
+     * Outcome of one architecture rule evaluated against the host application classes.
+     */
+    public record ArchitectureRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation) {}
+
+    /**
+     * Top-level report for the local architecture (ArchUnit) hygiene panel.
+     */
+    public record ArchitectureReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> basePackages,
+            int classesAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<ArchitectureSeverityCountDto> severityCounts,
+            ArchitectureScanStatusDto scan,
+            List<ArchitectureRuleResultDto> results) {}
+
+    /**
      * One Micrometer meter exposed by the application's meter registry.
      */
     public record MetricMeterDto(
