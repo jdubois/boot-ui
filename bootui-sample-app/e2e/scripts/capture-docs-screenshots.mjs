@@ -38,6 +38,7 @@ const panelOrder = [
   ['traces', 'Traces'],
   ['log-tail', 'Log Tail'],
   ['http-probe', 'HTTP Probe'],
+  ['architecture', 'Architecture'],
   ['pentest', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['devtools', 'DevTools'],
@@ -962,6 +963,208 @@ const pentest = {
   ]
 }
 
+const architecture = {
+  localOnly: true,
+  disclaimer:
+    "Heuristic, project-agnostic architecture rules run against the host application's own classes only. " +
+    'These checks complement, but do not replace, a project-specific ArchUnit test suite or an architecture review.',
+  basePackages: ['io.github.jdubois.bootui.sample'],
+  classesAnalyzed: 42,
+  rulesEvaluated: 15,
+  violationsFound: 4,
+  severityCounts: [
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 2},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI ArchUnit hygiene',
+    status: 'SCANNED',
+    message: 'Architecture rules completed against 42 application class(es) under the detected base package(s).',
+    scannedAt: nowMillis - 35_000,
+    rulesEvaluated: 15,
+    classesAnalyzed: 42,
+    violationsFound: 4
+  },
+  results: [
+    architectureResult(
+      'ARCH-PKG-001',
+      'Packages should be free of cycles',
+      'Package structure',
+      'MEDIUM',
+      'Detects cyclic dependencies between the top-level package slices under the application base package.',
+      'VIOLATION',
+      2,
+      [
+        'Cycle between slices: io.github.jdubois.bootui.sample.catalog -> io.github.jdubois.bootui.sample.order',
+        'Cycle between slices: io.github.jdubois.bootui.sample.order -> io.github.jdubois.bootui.sample.catalog'
+      ],
+      'Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph.'
+    ),
+    architectureResult(
+      'ARCH-CODE-001',
+      'Classes should not access standard streams',
+      'Coding practices',
+      'LOW',
+      'Detects direct use of System.out or System.err instead of a logging framework.',
+      'PASS',
+      0,
+      [],
+      'Replace System.out / System.err with a logging framework such as SLF4J.'
+    ),
+    architectureResult(
+      'ARCH-CODE-002',
+      'Classes should not throw generic exceptions',
+      'Coding practices',
+      'LOW',
+      'Detects throwing of generic exception types such as Exception, RuntimeException, or Throwable.',
+      'PASS',
+      0,
+      [],
+      'Throw specific, meaningful exception types instead of generic ones.'
+    ),
+    architectureResult(
+      'ARCH-CODE-003',
+      'Classes should not use java.util.logging',
+      'Coding practices',
+      'LOW',
+      'Detects direct use of java.util.logging instead of the project logging facade.',
+      'PASS',
+      0,
+      [],
+      'Use the project logging facade (for example SLF4J) instead of java.util.logging.'
+    ),
+    architectureResult(
+      'ARCH-CODE-004',
+      'Classes should not use Joda-Time',
+      'Coding practices',
+      'INFO',
+      'Detects use of the legacy Joda-Time library instead of the java.time API.',
+      'PASS',
+      0,
+      [],
+      'Migrate to the java.time API instead of Joda-Time.'
+    ),
+    architectureResult(
+      'ARCH-CODE-005',
+      'Classes should not call Throwable.printStackTrace()',
+      'Coding practices',
+      'LOW',
+      'Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.',
+      'VIOLATION',
+      1,
+      [
+        'io.github.jdubois.bootui.sample.order.OrderService.process(OrderService.java:58) calls Throwable.printStackTrace()'
+      ],
+      'Log the exception through the project logging facade instead of calling printStackTrace().'
+    ),
+    architectureResult(
+      'ARCH-CODE-006',
+      'Classes should not call System.exit',
+      'Coding practices',
+      'MEDIUM',
+      'Detects calls to System.exit(int), which abruptly terminate the JVM and bypass orderly shutdown.',
+      'PASS',
+      0,
+      [],
+      'Signal failure through exceptions or a Spring exit code generator instead of System.exit.'
+    ),
+    architectureResult(
+      'ARCH-CODE-007',
+      'Classes should not access JDK-internal APIs',
+      'Coding practices',
+      'LOW',
+      'Detects dependencies on unsupported JDK-internal packages such as sun.., com.sun.., or jdk.internal...',
+      'PASS',
+      0,
+      [],
+      'Replace JDK-internal API usage with supported public APIs.'
+    ),
+    architectureResult(
+      'ARCH-CODE-008',
+      'Classes should not use legacy date and time classes',
+      'Coding practices',
+      'INFO',
+      'Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or java.sql date types.',
+      'PASS',
+      0,
+      [],
+      'Use the java.time API instead of legacy date/time classes.'
+    ),
+    architectureResult(
+      'ARCH-CODE-009',
+      'Classes should not use deprecated APIs',
+      'Coding practices',
+      'INFO',
+      'Detects access to members or types annotated with @Deprecated.',
+      'PASS',
+      0,
+      [],
+      'Migrate off the deprecated API to its documented replacement.'
+    ),
+    architectureResult(
+      'ARCH-SPRING-001',
+      'Classes should not use field injection',
+      'Spring stereotypes',
+      'MEDIUM',
+      'Detects @Autowired, @Inject, @Value, or @Resource on fields instead of constructor injection.',
+      'VIOLATION',
+      3,
+      [
+        'Field io.github.jdubois.bootui.sample.catalog.CatalogService.repository is annotated with @Autowired',
+        'Field io.github.jdubois.bootui.sample.order.OrderController.orderService is annotated with @Autowired',
+        'Field io.github.jdubois.bootui.sample.web.GreetingController.greeter is annotated with @Value'
+      ],
+      'Inject collaborators through the constructor instead of annotating fields.'
+    ),
+    architectureResult(
+      'ARCH-SPRING-002',
+      'Controllers should not depend on repositories',
+      'Spring stereotypes',
+      'LOW',
+      'Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a service layer.',
+      'PASS',
+      0,
+      [],
+      'Route controller calls through a service layer rather than depending on repositories directly.'
+    ),
+    architectureResult(
+      'ARCH-SPRING-003',
+      'Repositories should not depend on controllers',
+      'Spring stereotypes',
+      'MEDIUM',
+      'Detects @Repository beans that depend on @Controller / @RestController classes, inverting the expected layering.',
+      'PASS',
+      0,
+      [],
+      'Remove controller dependencies from repositories to keep layering directional.'
+    ),
+    architectureResult(
+      'ARCH-SPRING-004',
+      'Beans should not self-invoke their own proxied methods',
+      'Spring stereotypes',
+      'HIGH',
+      'Detects direct self-invocation of @Transactional, @Async, or @Cacheable methods, which bypasses the Spring proxy and silently disables the behaviour.',
+      'VIOLATION',
+      1,
+      ['io.github.jdubois.bootui.sample.order.OrderService.placeOrder() self-invokes @Transactional method confirm()'],
+      'Move the proxied method to a collaborating bean or inject a self-reference so the Spring proxy is applied.'
+    ),
+    architectureResult(
+      'ARCH-SPRING-005',
+      'Spring stereotypes should not reside in the default package',
+      'Spring stereotypes',
+      'MEDIUM',
+      'Detects @Component / @Service / @Repository / @Controller / @Configuration classes in the default (unnamed) package.',
+      'PASS',
+      0,
+      [],
+      'Place Spring stereotypes in a named package so component scanning is predictable.'
+    )
+  ]
+}
+
 const dependencies = {
   total: 6,
   vulnerable: 2,
@@ -1216,7 +1419,7 @@ const screenshots = [
     'Metrics',
     'bootui-metrics.png',
     async (page) => {
-      await page.getByText('Micrometer metrics').waitFor()
+      await page.getByText('jvm.memory.used').first().waitFor()
       await page.waitForTimeout(2300)
     }
   ],
@@ -1254,6 +1457,7 @@ const screenshots = [
       await page.getByText('200 OK').waitFor()
     }
   ],
+  ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
   ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
@@ -1595,7 +1799,7 @@ try {
 
   for (const [route, title, fileName, prepare] of selectedScreenshots) {
     await page.goto(`${baseUrl}/bootui/#/${route}`)
-    await page.locator('.page-heading h2').filter({hasText: title}).first().waitFor()
+    await page.locator('main .page-panel h2').first().waitFor()
     await prepare(page)
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.waitForTimeout(250)
@@ -1763,6 +1967,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'dependencies/scan') return fulfillJson(route, dependencies)
   if (endpoint === 'pentest') return fulfillJson(route, pentest)
   if (endpoint === 'pentest/scan') return fulfillJson(route, pentest)
+  if (endpoint === 'architecture') return fulfillJson(route, architecture)
+  if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
 
   return fulfillJson(route, {error: `No screenshot fixture for ${endpoint}`}, 404)
 }
@@ -1880,6 +2086,30 @@ function vulnerability(id, severity, summary, aliases, fixedVersions) {
     aliases,
     fixedVersions,
     references: ['https://osv.dev/vulnerability/' + id]
+  }
+}
+
+function architectureResult(
+  id,
+  name,
+  category,
+  severity,
+  description,
+  status,
+  violationCount,
+  sampleViolations,
+  recommendation
+) {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description,
+    status,
+    violationCount,
+    sampleViolations,
+    recommendation
   }
 }
 

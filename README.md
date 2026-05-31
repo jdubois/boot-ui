@@ -41,9 +41,9 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Diagnostics     | [Traces](docs/FEATURES.md#traces)                     | Inspect local spans captured automatically by the starter, plus OTLP spans from cooperating services.         |
 | Diagnostics     | [Log Tail](docs/FEATURES.md#log-tail)                 | Read recent application logs and stream new local log events from the running process.                        |
 | Diagnostics     | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                      |
+| Diagnostics     | [Architecture](docs/FEATURES.md#architecture)         | Run a curated, zero-config ArchUnit ruleset against the host app's own classes for architecture hygiene.       |
 | Diagnostics     | [Pentesting](docs/FEATURES.md#pentesting)             | Run explicit host-app OWASP hygiene checks without testing BootUI paths or sending exploit payloads.         |
 | Diagnostics     | [Vulnerabilities](docs/FEATURES.md#vulnerabilities)   | Review dependency inventory and severity-ordered local OSV vulnerability scan results.                        |
-| Diagnostics     | [Architecture](docs/FEATURES.md#architecture)         | Run a curated, zero-config ArchUnit ruleset against the host app's own classes for architecture hygiene.       |
 | Developer tools | [DevTools](docs/FEATURES.md#devtools)                 | Check Spring Boot DevTools status, LiveReload availability, and restart controls.                             |
 | Developer tools | [Dev Services](docs/FEATURES.md#dev-services)         | Inspect Docker Compose snapshots, safe Testcontainers beans, service connection metadata, and bounded logs.   |
 | Developer tools | [Copilot](docs/FEATURES.md#copilot)                   | Dashboard sanitized local GitHub Copilot CLI sessions: activity trends, tool mix, MCP, hooks, skills, errors. |
