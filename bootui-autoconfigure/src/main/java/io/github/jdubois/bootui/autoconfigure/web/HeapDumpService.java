@@ -273,9 +273,10 @@ public class HeapDumpService {
 
     private static boolean isCollectionClass(String className) {
         for (String prefix : COLLECTION_CLASS_PREFIXES) {
-            if (className.equals(prefix) || className.startsWith(prefix + "$")) {
-                return true;
-            }
+            if (className.equals(prefix)) return true;
+            if (className.length() > prefix.length()
+                    && className.charAt(prefix.length()) == '$'
+                    && className.startsWith(prefix)) return true;
         }
         return false;
     }
