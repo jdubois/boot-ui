@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const report = ref(null)
 const loading = ref(true)
@@ -70,7 +71,7 @@ onMounted(load)
       @refresh="load"
     />
 
-    <div v-if="loading" class="text-muted">Loading…</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="report && !report.schedulingPresent" class="alert alert-info">
       No Spring Scheduling detected on the classpath.
     </div>

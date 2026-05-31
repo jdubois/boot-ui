@@ -3,6 +3,7 @@ import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -176,7 +177,7 @@ onMounted(load)
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
-    <div v-if="loading" class="text-muted">Loading traces…</div>
+    <PanelSkeleton v-if="loading" />
 
     <template v-else-if="report">
       <div v-if="!report.enabled" class="alert alert-info small">

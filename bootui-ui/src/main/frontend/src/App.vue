@@ -386,6 +386,10 @@ onMounted(loadShellData)
   --bootui-nav-active-color: #ffffff;
   --bootui-nav-group-bg: rgba(255, 255, 255, 0.58);
   --bootui-nav-group-color: #64748b;
+
+  /* Skeleton loaders */
+  --bootui-skeleton-base: #e2e8f0;
+  --bootui-skeleton-shine: #f1f5f9;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -423,6 +427,10 @@ onMounted(loadShellData)
     --bootui-nav-active-color: #ffffff;
     --bootui-nav-group-bg: rgba(30, 41, 59, 0.7);
     --bootui-nav-group-color: #94a3b8;
+
+    /* Skeleton loaders */
+    --bootui-skeleton-base: #334155;
+    --bootui-skeleton-shine: #475569;
   }
 }
 

@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const report = ref({steps: []})
 const filter = ref('')
@@ -241,7 +242,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="loading" class="text-muted"><i class="bi bi-hourglass-split me-2"></i>Loading startup data…</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="error" class="alert alert-danger" role="alert">
       <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
     </div>

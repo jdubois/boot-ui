@@ -4,6 +4,7 @@ import {apiFetch} from '../api.js'
 import {formatNumber} from '../utils/format.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -196,7 +197,7 @@ onMounted(load)
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
-    <div v-if="loading" class="text-muted">Loading Spring Cache report…</div>
+    <PanelSkeleton v-if="loading" />
 
     <template v-else-if="report">
       <div v-for="warning in report.warnings" :key="warning" class="alert alert-warning small">

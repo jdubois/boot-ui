@@ -3,6 +3,7 @@ import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -213,7 +214,7 @@ onMounted(load)
       </ul>
     </div>
 
-    <div v-if="loading" class="text-muted">Loading…</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">
       No Docker Compose, Testcontainers, or Spring Boot service connection beans were detected.
     </div>

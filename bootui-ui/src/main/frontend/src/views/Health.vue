@@ -2,6 +2,7 @@
 import {computed, onMounted, ref} from 'vue'
 import HealthNode from './HealthNode.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const root = ref(null)
 const loading = ref(true)
@@ -62,7 +63,7 @@ onMounted(load)
       @refresh="load"
     />
 
-    <div v-if="loading" class="text-muted">Loading…</div>
+    <PanelSkeleton v-if="loading" />
 
     <template v-else-if="root">
       <div class="row g-3 mb-3">

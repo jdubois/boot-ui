@@ -4,6 +4,7 @@ import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const overview = ref(null)
 const series = ref(null)
@@ -463,7 +464,7 @@ onBeforeUnmount(() => {
       </template>
     </PanelHeader>
 
-    <div v-if="loading" class="text-muted">Loading AI usage…</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="error" class="alert alert-warning">
       <div class="fw-semibold">Could not load AI usage data</div>
       <details class="mt-1">

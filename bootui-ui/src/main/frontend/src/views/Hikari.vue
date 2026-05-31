@@ -2,6 +2,7 @@
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatNumber} from '../utils/format.js'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const report = ref(null)
 const loading = ref(true)
@@ -153,7 +154,7 @@ onBeforeUnmount(() => {
       @refresh="load"
     />
 
-    <div v-if="loading" class="text-muted">Loading connection pools…</div>
+    <PanelSkeleton v-if="loading" />
 
     <template v-else-if="report">
       <div v-if="!pools.length" class="alert alert-secondary">

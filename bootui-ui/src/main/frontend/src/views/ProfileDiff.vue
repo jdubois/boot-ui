@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const data = ref(null)
 const loading = ref(true)
@@ -52,7 +53,7 @@ onMounted(load)
       @refresh="load"
     />
 
-    <div v-if="loading" class="text-muted">Loading…</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="data">
       <div class="mb-3">
         <span class="me-2 text-muted small">Active profiles:</span>

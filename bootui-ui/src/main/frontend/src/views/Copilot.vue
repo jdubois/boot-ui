@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatNumber} from '../utils/format.js'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const route = useRoute()
 const panelConfigs = {
@@ -422,7 +423,7 @@ onBeforeUnmount(disconnect)
       </template>
     </PanelHeader>
 
-    <div v-if="loading" class="text-muted">Loading…</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-else-if="!available" class="card border-info">
       <div class="card-body">
