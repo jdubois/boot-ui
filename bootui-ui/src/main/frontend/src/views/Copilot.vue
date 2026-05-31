@@ -424,8 +424,7 @@ onBeforeUnmount(disconnect)
     </PanelHeader>
 
     <PanelSkeleton v-if="loading" />
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
-    <div v-else-if="!available" class="card border-info">
+    <div v-else-if="!error && !available" class="card border-info">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-info-circle me-2"></i>{{ panelConfig.emptyTitle }}</h5>
         <p class="card-text mb-1">

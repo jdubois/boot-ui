@@ -12,6 +12,8 @@ const actionMessage = ref(null)
 const loading = ref(false)
 const search = ref('')
 const vulnerableOnly = ref(false)
+
+const severityClasses = {
   CRITICAL: 'text-bg-danger',
   HIGH: 'text-bg-warning',
   MEDIUM: 'text-bg-info',

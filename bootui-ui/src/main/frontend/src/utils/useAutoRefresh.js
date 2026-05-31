@@ -37,7 +37,6 @@ export function useAutoRefresh(callback, intervals = [0, 5, 10, 30, 60], default
   return {
     interval,
     intervalOptions: intervals,
-    isRunning: {value: () => timer !== null},
     stop
   }
 }

@@ -243,10 +243,7 @@ onMounted(load)
     </div>
 
     <PanelSkeleton v-if="loading" />
-    <div v-else-if="error" class="alert alert-danger" role="alert">
-      <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
-    </div>
-    <div v-else-if="report.steps.length === 0" class="alert alert-light border" role="status">
+    <div v-else-if="report.steps.length === 0 && !error" class="alert alert-light border" role="status">
       <i class="bi bi-info-circle me-2"></i>No startup data available
     </div>
     <div v-else-if="visibleSteps.length === 0" class="alert alert-light border" role="status">

@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, provide, reactive, ref, watch} from 'vue'
+import {computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import CommandPalette from './views/components/CommandPalette.vue'
 
@@ -221,16 +221,22 @@ watch(
 
 onMounted(() => {
   loadShellData()
-  window.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-      e.preventDefault()
-      commandPaletteOpen.value = !commandPaletteOpen.value
-      if (commandPaletteOpen.value) {
-        commandPaletteRef.value?.focusInput()
-      }
-    }
-  })
+  window.addEventListener('keydown', onGlobalKeydown)
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
+})
+
+function onGlobalKeydown(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault()
+    commandPaletteOpen.value = !commandPaletteOpen.value
+    if (commandPaletteOpen.value) {
+      commandPaletteRef.value?.focusInput()
+    }
+  }
+}
 </script>
 
 <template>
@@ -635,7 +641,8 @@ onMounted(() => {
   flex-shrink: 0;
   gap: 1.4rem;
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 1.25rem;
   position: sticky;
   top: 0;
