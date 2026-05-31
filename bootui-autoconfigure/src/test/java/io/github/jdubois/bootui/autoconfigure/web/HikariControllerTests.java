@@ -145,8 +145,7 @@ class HikariControllerTests {
         MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/hikari/pools/does-not-exist/snapshot"))
-                .andExpect(status().isNotFound());
+        mvc.perform(get("/bootui/api/hikari/pools/does-not-exist/snapshot")).andExpect(status().isNotFound());
     }
 
     @Test

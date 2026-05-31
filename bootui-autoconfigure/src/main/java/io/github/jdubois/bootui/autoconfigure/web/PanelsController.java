@@ -179,7 +179,8 @@ public class PanelsController {
 
     private boolean hikariDataSourceBeanPresent() {
         try {
-            Class<?> type = ClassUtils.forName("com.zaxxer.hikari.HikariDataSource", getClass().getClassLoader());
+            Class<?> type = ClassUtils.forName(
+                    "com.zaxxer.hikari.HikariDataSource", getClass().getClassLoader());
             return beanPresent(type);
         } catch (ClassNotFoundException ex) {
             return false;
