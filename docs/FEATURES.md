@@ -144,7 +144,7 @@ uninitialized pools. A local live chart polls bounded snapshots of active, idle,
 seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
 pools, and generic JDBC/R2DBC pools are out of scope for now.
 
-![BootUI Connection Pools panel](images/bootui-hikari.png)
+![BootUI Connection Pools panel](images/bootui-database-connection-pools.png)
 
 ### Data
 

@@ -55,7 +55,7 @@ public final class BootUiPanels {
             new Panel(BEANS, "Beans", false, "/beans"),
             new Panel(CONDITIONS, "Conditions", false, "/conditions"),
             new Panel(MAPPINGS, "Mappings", false, "/mappings"),
-            new Panel(HIKARI, "Connection Pools", false, "/hikari"),
+            new Panel(HIKARI, "Connection Pools", false, "/database-connection-pools"),
             new Panel(DATA, "Data", false, "/data"),
             new Panel(CACHE, "Cache", true, "/cache"),
             new Panel(SECURITY, "Security", false, "/security"),

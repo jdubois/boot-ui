@@ -116,7 +116,7 @@ export const routes = [
     meta: {group: groups.services, icon: 'bi-clock-history', title: 'Scheduled Tasks'}
   },
   {
-    path: '/hikari',
+    path: '/database-connection-pools',
     name: 'hikari',
     component: Hikari,
     meta: {group: groups.services, icon: 'bi-hdd-network', title: 'Connection Pools'}

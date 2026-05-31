@@ -7,10 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-05-31
+## [0.2.0] - 2026-05-31
 
-Third BootUI release, adding three new local-only diagnostics panels — Architecture (ArchUnit), Heap Dump (value-free
-class histogram), and Connection Pools (HikariCP) — alongside security and documentation hardening.
+Second BootUI release, focused on local security diagnostics, three new local-only diagnostics panels — Architecture
+(ArchUnit), Heap Dump (value-free class histogram), and Database Connection Pools (HikariCP) — and safer defaults around
+host-application security, plus release/documentation hardening for the full visible panel surface.
 
 ### Added
 
@@ -19,23 +20,8 @@ class histogram), and Connection Pools (HikariCP) — alongside security and doc
 - Heap Dump panel that captures local JVM heap dumps on demand and analyzes a value-free class histogram, including a
   `max-classes` memory cap plus big-objects and collection-bloat smart filters. Raw `.hprof` download stays disabled by
   default because dumps contain plaintext secrets.
-- Connection Pools panel that surfaces read-only HikariCP pool sizing, masked JDBC metadata, and a live
+- Database Connection Pools panel that surfaces read-only HikariCP pool sizing, masked JDBC metadata, and a live
   active/idle/total/pending saturation chart, failing closed when HikariCP is unavailable.
-- Playwright end-to-end coverage for the Pentesting panel.
-
-### Changed
-
-- Refreshed and reorganized `SECURITY.md`.
-- Regenerated feature screenshots and extended the docs screenshot script to cover the Architecture, Heap Dump, and
-  Connection Pools panels.
-
-## [0.2.0] - 2026-05-30
-
-Second BootUI release, focused on local security diagnostics, safer defaults around host-application security, and
-release/documentation hardening for the full visible panel surface.
-
-### Added
-
 - Pentesting panel with explicit, local-only OWASP-aligned hygiene checks for security headers, CORS behavior, cookie
   flags, verbose errors, Spring Security wiring, actuator exposure, DevTools, H2 console, and risky configuration values.
 - BootUI Spring Security integration that keeps `/bootui/**` and `/bootui/api/**` reachable in local applications using
@@ -43,6 +29,7 @@ release/documentation hardening for the full visible panel surface.
 - Automatic local application trace capture so Traces and AI Usage can populate from the host app without requiring a
   separate local OTLP exporter setup.
 - CI test report publishing for Maven/JUnit and Playwright runs.
+- Playwright end-to-end coverage for the Pentesting panel.
 
 ### Changed
 
@@ -53,6 +40,9 @@ release/documentation hardening for the full visible panel surface.
 - Vulnerability findings are sorted by severity/importance first, with stable ordering inside each severity group.
 - Startup Timeline configuration, panel read-only controls, application property reference docs, pentest catalogue docs,
   feature docs, screenshots, and E2E documentation were reconciled with the implemented `0.2.0` behavior.
+- Refreshed and reorganized `SECURITY.md`.
+- Regenerated feature screenshots and extended the docs screenshot script to cover the Architecture, Heap Dump, and
+  Database Connection Pools panels.
 
 ### Fixed
 
@@ -186,9 +176,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.3.0...HEAD
-
-[0.3.0]: https://github.com/jdubois/boot-ui/compare/v0.2.0...v0.3.0
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.2.0...HEAD
 
 [0.2.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0...v0.2.0
 
