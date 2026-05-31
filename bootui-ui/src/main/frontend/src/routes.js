@@ -1,30 +1,30 @@
-import Overview from './views/Overview.vue'
-import Beans from './views/Beans.vue'
-import Conditions from './views/Conditions.vue'
-import Config from './views/Config.vue'
-import Mappings from './views/Mappings.vue'
-import Health from './views/Health.vue'
-import Loggers from './views/Loggers.vue'
-import Hikari from './views/Hikari.vue'
-import Data from './views/Data.vue'
-import Startup from './views/Startup.vue'
-import Scheduled from './views/Scheduled.vue'
-import HttpProbe from './views/HttpProbe.vue'
-import Pentesting from './views/Pentesting.vue'
-import Architecture from './views/Architecture.vue'
-import LogTail from './views/LogTail.vue'
-import ProfileDiff from './views/ProfileDiff.vue'
-import Cache from './views/Cache.vue'
-import Security from './views/Security.vue'
-import Memory from './views/Memory.vue'
-import HeapDump from './views/HeapDump.vue'
-import Metrics from './views/Metrics.vue'
-import Vulnerabilities from './views/Dependencies.vue'
-import DevServices from './views/DevServices.vue'
-import DevTools from './views/DevTools.vue'
-import Traces from './views/Traces.vue'
-import Ai from './views/Ai.vue'
-import Copilot from './views/Copilot.vue'
+const Overview = () => import('./views/Overview.vue')
+const Beans = () => import('./views/Beans.vue')
+const Conditions = () => import('./views/Conditions.vue')
+const Config = () => import('./views/Config.vue')
+const Mappings = () => import('./views/Mappings.vue')
+const Health = () => import('./views/Health.vue')
+const Loggers = () => import('./views/Loggers.vue')
+const Hikari = () => import('./views/Hikari.vue')
+const Data = () => import('./views/Data.vue')
+const Startup = () => import('./views/Startup.vue')
+const Scheduled = () => import('./views/Scheduled.vue')
+const HttpProbe = () => import('./views/HttpProbe.vue')
+const Pentesting = () => import('./views/Pentesting.vue')
+const Architecture = () => import('./views/Architecture.vue')
+const LogTail = () => import('./views/LogTail.vue')
+const ProfileDiff = () => import('./views/ProfileDiff.vue')
+const Cache = () => import('./views/Cache.vue')
+const Security = () => import('./views/Security.vue')
+const Memory = () => import('./views/Memory.vue')
+const HeapDump = () => import('./views/HeapDump.vue')
+const Metrics = () => import('./views/Metrics.vue')
+const Vulnerabilities = () => import('./views/Dependencies.vue')
+const DevServices = () => import('./views/DevServices.vue')
+const DevTools = () => import('./views/DevTools.vue')
+const Traces = () => import('./views/Traces.vue')
+const Ai = () => import('./views/Ai.vue')
+const Copilot = () => import('./views/Copilot.vue')
 
 export const groups = {
   overview: 'overview',
