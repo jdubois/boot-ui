@@ -127,6 +127,15 @@ methods, and degrades to a clear empty state when Spring Data is not present or 
 
 ![BootUI Data panel](images/bootui-data.png)
 
+### Connection Pools
+
+The Connection Pools panel inspects HikariCP `HikariDataSource` beans. It is read-only and fails closed when HikariCP is
+not on the classpath or no pool beans are present. For each pool it shows the pool identity, masked JDBC URL and
+username, driver, min/max sizing, and timeout/lifetime settings, and surfaces a clear unavailable reason for closed or
+uninitialized pools. A local live chart polls bounded snapshots of active, idle, total, and pending connections every two
+seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
+pools, and generic JDBC/R2DBC pools are out of scope for now.
+
 ### Cache
 
 The Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native
