@@ -193,7 +193,7 @@ export const routes = [
     path: '/claude-code',
     name: 'claude-code',
     component: Copilot,
-    meta: {group: groups.developerTools, icon: 'bi-stars', title: 'Claude Code'}
+    meta: {group: groups.developerTools, icon: 'bi-claude', title: 'Claude Code'}
   },
   {path: '/dependencies', redirect: '/vulnerabilities'}
 ]
