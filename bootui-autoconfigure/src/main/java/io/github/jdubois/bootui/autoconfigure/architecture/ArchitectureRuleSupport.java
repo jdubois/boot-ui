@@ -55,7 +55,8 @@ final class ArchitectureRuleSupport {
      * Evaluates an ArchUnit rule against the imported classes and maps the result to a result DTO.
      * Rules that match no classes are reported as passing (ArchUnit empty-should is allowed).
      */
-    static ArchitectureRuleResultDto evaluate(ArchitectureRuleDefinition definition, ArchRule rule, ArchitectureContext context) {
+    static ArchitectureRuleResultDto evaluate(
+            ArchitectureRuleDefinition definition, ArchRule rule, ArchitectureContext context) {
         EvaluationResult evaluation = rule.allowEmptyShould(true).evaluate(context.classes());
         if (!evaluation.hasViolation()) {
             return pass(definition);

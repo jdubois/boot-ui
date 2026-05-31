@@ -123,8 +123,8 @@ final class ArchitectureScanner {
             int classesAnalyzed,
             int rulesEvaluated,
             List<ArchitectureRuleResultDto> results) {
-        int violationsFound = (int)
-                results.stream().filter(ArchitectureScanner::isViolation).count();
+        int violationsFound =
+                (int) results.stream().filter(ArchitectureScanner::isViolation).count();
         ArchitectureScanStatusDto scan = new ArchitectureScanStatusDto(
                 ANALYZER, status, message, scannedAt, rulesEvaluated, classesAnalyzed, violationsFound);
         return new ArchitectureReport(

@@ -106,13 +106,14 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
     private static final int MAX_SAMPLES = 10;
 
     FreeOfPackageCyclesRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-PKG-001",
-                "Packages should be free of cycles",
-                ArchitectureCategory.PACKAGE_STRUCTURE,
-                "MEDIUM",
-                "Detects cyclic dependencies between the top-level package slices under the application base package.",
-                "Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-PKG-001",
+                        "Packages should be free of cycles",
+                        ArchitectureCategory.PACKAGE_STRUCTURE,
+                        "MEDIUM",
+                        "Detects cyclic dependencies between the top-level package slices under the application base package.",
+                        "Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph."));
     }
 
     @Override
@@ -163,13 +164,14 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
 final class NoStandardStreamsRule extends AbstractArchitectureRule {
 
     NoStandardStreamsRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-001",
-                "Classes should not access standard streams",
-                ArchitectureCategory.CODING_PRACTICES,
-                "LOW",
-                "Detects direct use of System.out or System.err instead of a logging framework.",
-                "Replace System.out / System.err calls with a logger (e.g. SLF4J) so output is structured and configurable."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-001",
+                        "Classes should not access standard streams",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "LOW",
+                        "Detects direct use of System.out or System.err instead of a logging framework.",
+                        "Replace System.out / System.err calls with a logger (e.g. SLF4J) so output is structured and configurable."));
     }
 
     @Override
@@ -205,13 +207,14 @@ final class NoGenericExceptionsRule extends AbstractArchitectureRule {
 final class NoJavaUtilLoggingRule extends AbstractArchitectureRule {
 
     NoJavaUtilLoggingRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-003",
-                "Classes should not use java.util.logging",
-                ArchitectureCategory.CODING_PRACTICES,
-                "LOW",
-                "Detects direct use of java.util.logging instead of the project logging facade.",
-                "Use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent logging."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-003",
+                        "Classes should not use java.util.logging",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "LOW",
+                        "Detects direct use of java.util.logging instead of the project logging facade.",
+                        "Use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent logging."));
     }
 
     @Override
@@ -248,21 +251,21 @@ final class NoJodaTimeRule extends AbstractArchitectureRule {
 final class NoPrintStackTraceRule extends AbstractArchitectureRule {
 
     NoPrintStackTraceRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-005",
-                "Classes should not call Throwable.printStackTrace()",
-                ArchitectureCategory.CODING_PRACTICES,
-                "LOW",
-                "Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.",
-                "Log the exception through the project logging facade (e.g. SLF4J) instead of calling printStackTrace()."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-005",
+                        "Classes should not call Throwable.printStackTrace()",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "LOW",
+                        "Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.",
+                        "Log the exception through the project logging facade (e.g. SLF4J) instead of calling printStackTrace()."));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return noClasses()
                 .should()
-                .callMethodWhere(new DescribedPredicate<JavaMethodCall>(
-                        "Throwable.printStackTrace() is called") {
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("Throwable.printStackTrace() is called") {
                     @Override
                     public boolean test(JavaMethodCall call) {
                         MethodCallTarget target = call.getTarget();
@@ -313,10 +316,7 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return noClasses()
-                .should()
-                .dependOnClassesThat()
-                .resideInAnyPackage("sun..", "com.sun..", "jdk.internal..");
+        return noClasses().should().dependOnClassesThat().resideInAnyPackage("sun..", "com.sun..", "jdk.internal..");
     }
 }
 
@@ -327,13 +327,14 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
 final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
 
     NoLegacyDateTimeRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-008",
-                "Classes should not use legacy date and time classes",
-                ArchitectureCategory.CODING_PRACTICES,
-                "INFO",
-                "Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or java.sql date types.",
-                "Prefer the java.time API (LocalDate, Instant, ZonedDateTime, ...) for clearer, immutable date/time handling."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-008",
+                        "Classes should not use legacy date and time classes",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "INFO",
+                        "Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or java.sql date types.",
+                        "Prefer the java.time API (LocalDate, Instant, ZonedDateTime, ...) for clearer, immutable date/time handling."));
     }
 
     @Override
@@ -392,13 +393,14 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
 final class ControllersShouldNotDependOnRepositoriesRule extends AbstractArchitectureRule {
 
     ControllersShouldNotDependOnRepositoriesRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-SPRING-002",
-                "Controllers should not depend on repositories",
-                ArchitectureCategory.SPRING_STEREOTYPES,
-                "LOW",
-                "Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a service layer.",
-                "Introduce a service layer between controllers and repositories to keep web and persistence concerns separated."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-002",
+                        "Controllers should not depend on repositories",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "LOW",
+                        "Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a service layer.",
+                        "Introduce a service layer between controllers and repositories to keep web and persistence concerns separated."));
     }
 
     @Override
@@ -416,13 +418,14 @@ final class ControllersShouldNotDependOnRepositoriesRule extends AbstractArchite
 final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchitectureRule {
 
     RepositoriesShouldNotDependOnControllersRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-SPRING-003",
-                "Repositories should not depend on controllers",
-                ArchitectureCategory.SPRING_STEREOTYPES,
-                "MEDIUM",
-                "Detects @Repository beans that depend on @Controller / @RestController classes, inverting the expected layering.",
-                "Keep persistence code free of web concerns; dependencies should flow from controllers toward repositories, not back."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-003",
+                        "Repositories should not depend on controllers",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Repository beans that depend on @Controller / @RestController classes, inverting the expected layering.",
+                        "Keep persistence code free of web concerns; dependencies should flow from controllers toward repositories, not back."));
     }
 
     @Override
@@ -442,13 +445,14 @@ final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchite
 final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRule {
 
     NoSelfInvocationOfProxiedMethodsRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-SPRING-004",
-                "Beans should not self-invoke their own proxied methods",
-                ArchitectureCategory.SPRING_STEREOTYPES,
-                "HIGH",
-                "Detects direct self-invocation of @Transactional, @Async, or @Cacheable methods, which bypasses the Spring proxy and silently disables the behaviour.",
-                "Move the proxied method to a separate bean (or inject a self-reference) so the call goes through the Spring proxy."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-004",
+                        "Beans should not self-invoke their own proxied methods",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "HIGH",
+                        "Detects direct self-invocation of @Transactional, @Async, or @Cacheable methods, which bypasses the Spring proxy and silently disables the behaviour.",
+                        "Move the proxied method to a separate bean (or inject a self-reference) so the call goes through the Spring proxy."));
     }
 
     @Override
@@ -465,13 +469,14 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
 final class StereotypesShouldNotResideInDefaultPackageRule extends AbstractArchitectureRule {
 
     StereotypesShouldNotResideInDefaultPackageRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-SPRING-005",
-                "Spring stereotypes should not reside in the default package",
-                ArchitectureCategory.SPRING_STEREOTYPES,
-                "MEDIUM",
-                "Detects @Component / @Service / @Repository / @Controller / @Configuration classes in the default (unnamed) package.",
-                "Move Spring stereotype beans into a named package so component scanning and proxying work as expected."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-005",
+                        "Spring stereotypes should not reside in the default package",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Component / @Service / @Repository / @Controller / @Configuration classes in the default (unnamed) package.",
+                        "Move Spring stereotype beans into a named package so component scanning and proxying work as expected."));
     }
 
     @Override
