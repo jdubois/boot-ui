@@ -33,6 +33,17 @@ class HeapDumpServiceTests {
             Total          1601         113000
             """;
 
+    private static final String HISTOGRAM_WITH_ARRAY_DESCRIPTORS = """
+            num     #instances         #bytes  class name (module)
+            -------------------------------------------------------
+              1:            10            100  [B (java.base@25)
+              2:             5             80  [I (java.base@25)
+              3:             4             72  [J (java.base@25)
+              4:             3             64  [Ljava.lang.String; (java.base@25)
+              5:             2             56  [[D (java.base@25)
+            Total            24            372
+            """;
+
     private BootUiProperties.HeapDump config() {
         return new BootUiProperties.HeapDump();
     }
@@ -119,7 +130,7 @@ class HeapDumpServiceTests {
 
         // Only the top-2 classes by bytes are kept; topClasses defaults to 25 so all stored are shown
         assertThat(report.topClasses()).hasSize(2);
-        assertThat(report.topClasses().get(0).className()).isEqualTo("[B");
+        assertThat(report.topClasses().get(0).className()).isEqualTo("byte[]");
         assertThat(report.topClasses().get(1).className()).isEqualTo("java.lang.String");
     }
 
@@ -131,10 +142,20 @@ class HeapDumpServiceTests {
         assertThat(report.histogramTotalInstances()).isEqualTo(1600);
         assertThat(report.histogramTotalBytes()).isEqualTo(108000);
         assertThat(report.topClasses()).hasSize(3);
-        assertThat(report.topClasses().get(0).className()).isEqualTo("[B");
+        assertThat(report.topClasses().get(0).className()).isEqualTo("byte[]");
         assertThat(report.topClasses().get(0).rank()).isEqualTo(1);
         assertThat(report.topClasses().get(0).bytes()).isEqualTo(80000);
         assertThat(report.dumpCount()).isZero();
+    }
+
+    @Test
+    void analyzeConvertsJvmArrayDescriptorsToReadableClassNames(@TempDir Path dir) {
+        HeapDumpReport report =
+                serviceWithHistogram(dir, HISTOGRAM_WITH_ARRAY_DESCRIPTORS).analyze();
+
+        assertThat(report.topClasses())
+                .extracting("className")
+                .containsExactly("byte[]", "int[]", "long[]", "java.lang.String[]", "double[][]");
     }
 
     @Test
@@ -226,13 +247,13 @@ class HeapDumpServiceTests {
 
         assertThat(report.topClasses()).isNotEmpty();
         assertThat(report.topClasses().get(0).className()).isEqualTo("com.example.LargeCache");
-        assertThat(report.topClasses().get(1).className()).isEqualTo("[B");
+        assertThat(report.topClasses().get(1).className()).isEqualTo("byte[]");
         assertThat(report.topClasses().get(2).className()).isEqualTo("java.lang.String");
     }
 
     @Test
     void collectionBloatSmartFilterReturnsOnlyCollectionClasses(@TempDir Path dir) {
-        // HISTOGRAM has java.util.HashMap$Node (collection inner class) plus [B and java.lang.String
+        // HISTOGRAM has java.util.HashMap$Node (collection inner class) plus byte[] and java.lang.String
         HeapDumpService service = service(config(), dir, true);
         service.analyze();
 

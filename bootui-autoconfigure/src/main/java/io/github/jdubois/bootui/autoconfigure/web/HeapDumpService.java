@@ -368,7 +368,7 @@ public class HeapDumpService {
             }
             long instances = Long.parseLong(matcher.group(1));
             long bytes = Long.parseLong(matcher.group(2));
-            String className = matcher.group(3);
+            String className = normalizeClassName(matcher.group(3));
             entries.add(new HeapClassHistogramEntryDto(0, className, instances, bytes));
         }
         entries.sort(Comparator.comparingLong(HeapClassHistogramEntryDto::bytes).reversed());
@@ -378,6 +378,49 @@ public class HeapDumpService {
             ranked.add(new HeapClassHistogramEntryDto(rank++, entry.className(), entry.instances(), entry.bytes()));
         }
         return ranked;
+    }
+
+    private static String normalizeClassName(String rawClassName) {
+        if (rawClassName == null || !rawClassName.startsWith("[")) {
+            return rawClassName;
+        }
+
+        int dimensions = 0;
+        while (dimensions < rawClassName.length() && rawClassName.charAt(dimensions) == '[') {
+            dimensions++;
+        }
+        if (dimensions == rawClassName.length()) {
+            return rawClassName;
+        }
+
+        char descriptor = rawClassName.charAt(dimensions);
+        String componentName;
+        switch (descriptor) {
+            case 'B' -> componentName = "byte";
+            case 'C' -> componentName = "char";
+            case 'D' -> componentName = "double";
+            case 'F' -> componentName = "float";
+            case 'I' -> componentName = "int";
+            case 'J' -> componentName = "long";
+            case 'S' -> componentName = "short";
+            case 'Z' -> componentName = "boolean";
+            case 'L' -> {
+                if (!rawClassName.endsWith(";") || rawClassName.length() <= dimensions + 2) {
+                    return rawClassName;
+                }
+                componentName = rawClassName
+                        .substring(dimensions + 1, rawClassName.length() - 1)
+                        .replace('/', '.');
+            }
+            default -> {
+                return rawClassName;
+            }
+        }
+
+        if (descriptor != 'L' && rawClassName.length() != dimensions + 1) {
+            return rawClassName;
+        }
+        return componentName + "[]".repeat(dimensions);
     }
 
     private static void dumpWithHotSpot(Path file, boolean live) throws Exception {
