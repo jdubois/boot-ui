@@ -86,6 +86,11 @@
                 <version>${archunit.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-core</artifactId>
                 <version>${project.version}</version>

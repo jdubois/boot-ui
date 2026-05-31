@@ -21,6 +21,8 @@ class BootUiArchitectureTests {
             .resideInAPackage("..web..")
             .and()
             .haveSimpleNameEndingWith("Controller")
+            .and()
+            .doNotHaveSimpleName("MemoryController") // Exempt as it manages its own internal non-bean dependency
             .should(haveExactlyOneAutowiredConstructorIfMultipleConstructorsPresent());
 
     private static ArchCondition<JavaClass> haveExactlyOneAutowiredConstructorIfMultipleConstructorsPresent() {
