@@ -106,7 +106,8 @@ class HeapDumpServiceTests {
         service.analyze();
 
         assertThat(service.report("").topClasses()).isEqualTo(service.report().topClasses());
-        assertThat(service.report("   ").topClasses()).isEqualTo(service.report().topClasses());
+        assertThat(service.report("   ").topClasses())
+                .isEqualTo(service.report().topClasses());
     }
 
     @Test
@@ -123,6 +124,7 @@ class HeapDumpServiceTests {
     }
 
     @Test
+    void analyzeBuildsHistogramSortedByRetainedSize(@TempDir Path dir) {
         HeapDumpReport report = service(config(), dir, true).analyze();
 
         assertThat(report.capture().status()).isEqualTo("ANALYZED");
