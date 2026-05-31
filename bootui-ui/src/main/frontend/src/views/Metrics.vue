@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const data = ref(null)
 const detail = ref(null)
@@ -187,6 +188,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
+
+const {interval, intervalOptions} = useAutoRefresh(loadMetrics, [0, 10, 30, 60], 0)
 </script>
 
 <template>
@@ -197,7 +200,16 @@ onBeforeUnmount(() => {
       subtitle="Browse meters, filter tag sets, and watch live values update every 2 seconds."
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
-    />
+      @refresh="loadMetrics"
+    >
+      <template #actions>
+        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
+          <option v-for="s in intervalOptions" :key="s" :value="s">
+            {{ s === 0 ? 'Manual' : `${s}s` }}
+          </option>
+        </select>
+      </template>
+    </PanelHeader>
 
     <div v-if="data && !data.metricsAvailable" class="alert alert-warning">
       Micrometer metrics are not available. Add Actuator or a MeterRegistry to browse live metrics.

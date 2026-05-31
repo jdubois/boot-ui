@@ -1,12 +1,12 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const data = ref(null)
 const error = ref(null)
 const lastUpdated = ref(null)
 const copied = ref(false)
-let timer = null
 let debounceHandle = null
 
 const totalMemoryMb = ref(null)
@@ -128,13 +128,11 @@ watch([totalMemoryMb, threadCount, headRoomPercent], () => {
   if (inputsInitialized.value) scheduleReload()
 })
 
-onMounted(() => {
-  load()
-  timer = setInterval(load, 5000)
-})
+const {interval, intervalOptions} = useAutoRefresh(load, [0, 5, 10, 30], 1)
+
+onMounted(load)
 
 onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
   if (debounceHandle) clearTimeout(debounceHandle)
 })
 </script>
@@ -144,10 +142,19 @@ onBeforeUnmount(() => {
     <PanelHeader
       icon="bi-memory"
       title="Memory"
-      :subtitle="lastUpdated ? 'auto-refreshes every 5s' : null"
+      :subtitle="interval > 0 ? `auto-refreshes every ${interval}s` : null"
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
-    />
+      @refresh="load"
+    >
+      <template #actions>
+        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
+          <option v-for="s in intervalOptions" :key="s" :value="s">
+            {{ s === 0 ? 'Manual' : `${s}s` }}
+          </option>
+        </select>
+      </template>
+    </PanelHeader>
 
     <template v-if="data">
       <!-- Memory Calculator Panel -->

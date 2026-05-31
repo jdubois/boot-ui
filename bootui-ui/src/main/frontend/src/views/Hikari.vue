@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatNumber} from '../utils/format.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const report = ref(null)
 const loading = ref(true)
@@ -140,6 +141,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
+
+const {interval, intervalOptions} = useAutoRefresh(load, [0, 10, 30, 60], 0)
 </script>
 
 <template>
@@ -152,7 +155,15 @@ onBeforeUnmount(() => {
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
       @refresh="load"
-    />
+    >
+      <template #actions>
+        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
+          <option v-for="s in intervalOptions" :key="s" :value="s">
+            {{ s === 0 ? 'Manual' : `${s}s` }}
+          </option>
+        </select>
+      </template>
+    </PanelHeader>
 
     <PanelSkeleton v-if="loading" />
 

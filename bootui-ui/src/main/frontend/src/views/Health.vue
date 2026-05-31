@@ -3,6 +3,7 @@ import {computed, onMounted, ref} from 'vue'
 import HealthNode from './HealthNode.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const root = ref(null)
 const loading = ref(true)
@@ -23,6 +24,8 @@ async function load() {
     loading.value = false
   }
 }
+
+const {interval, intervalOptions} = useAutoRefresh(load, [0, 5, 15, 30, 60], 0)
 
 function flatten(node) {
   if (!node) return []
@@ -61,7 +64,15 @@ onMounted(load)
       :error="error"
       :last-fetched="lastFetched"
       @refresh="load"
-    />
+    >
+      <template #actions>
+        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
+          <option v-for="s in intervalOptions" :key="s" :value="s">
+            {{ s === 0 ? 'Manual' : `${s}s` }}
+          </option>
+        </select>
+      </template>
+    </PanelHeader>
 
     <PanelSkeleton v-if="loading" />
 

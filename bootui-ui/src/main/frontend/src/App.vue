@@ -992,4 +992,8 @@ onMounted(loadShellData)
     transition-duration: 0.01ms !important;
   }
 }
+
+.auto-refresh-select {
+  max-width: 7rem;
+}
 </style>
