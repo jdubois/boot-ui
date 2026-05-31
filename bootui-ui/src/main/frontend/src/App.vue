@@ -352,6 +352,42 @@ onMounted(loadShellData)
 </template>
 
 <style scoped>
+:global(:root) {
+  /* Brand palette */
+  --bootui-green: #198754;
+  --bootui-green-dark: #146c43;
+  --bootui-blue: #0d6efd;
+  --bootui-text: #152033;
+  --bootui-text-muted: #64748b;
+  --bootui-text-subtle: #94a3b8;
+
+  /* Surfaces */
+  --bootui-bg-body: linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
+  --bootui-bg-body-orb: rgba(25, 135, 84, 0.18);
+  --bootui-surface: rgba(255, 255, 255, 0.82);
+  --bootui-surface-solid: #ffffff;
+  --bootui-surface-alt: rgba(248, 250, 252, 0.86);
+  --bootui-sidebar-bg: rgba(255, 255, 255, 0.76);
+
+  /* Borders */
+  --bootui-border: rgba(15, 23, 42, 0.08);
+  --bootui-border-subtle: rgba(15, 23, 42, 0.06);
+  --bootui-border-alt: rgba(100, 116, 139, 0.2);
+
+  /* Shadows */
+  --bootui-shadow-sm: 0 1rem 2.5rem rgba(15, 23, 42, 0.07);
+  --bootui-shadow-md: 0 1.2rem 3rem rgba(15, 23, 42, 0.11);
+  --bootui-shadow-sidebar: 0.75rem 0 2rem rgba(15, 23, 42, 0.06);
+
+  /* Nav link state */
+  --bootui-nav-hover-bg: rgba(25, 135, 84, 0.08);
+  --bootui-nav-hover-color: #146c43;
+  --bootui-nav-active-bg: linear-gradient(135deg, #198754, #0d6efd);
+  --bootui-nav-active-color: #ffffff;
+  --bootui-nav-group-bg: rgba(255, 255, 255, 0.58);
+  --bootui-nav-group-color: #64748b;
+}
+
 :global(body) {
   background:
     radial-gradient(circle at top left, rgba(25, 135, 84, 0.18), transparent 34rem),
@@ -359,9 +395,9 @@ onMounted(loadShellData)
 }
 
 :global(.card) {
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--bootui-border);
   border-radius: 1.1rem;
-  box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.07);
+  box-shadow: var(--bootui-shadow-sm);
   transition:
     transform 180ms ease,
     box-shadow 180ms ease,
@@ -370,7 +406,7 @@ onMounted(loadShellData)
 
 :global(.card:hover) {
   border-color: rgba(25, 135, 84, 0.25);
-  box-shadow: 0 1.2rem 3rem rgba(15, 23, 42, 0.11);
+  box-shadow: var(--bootui-shadow-md);
   transform: translateY(-2px);
 }
 
@@ -392,7 +428,7 @@ onMounted(loadShellData)
 }
 
 .bootui-shell {
-  color: #152033;
+  color: var(--bootui-text);
   display: flex;
   isolation: isolate;
   overflow-x: hidden;
@@ -428,9 +464,9 @@ onMounted(loadShellData)
 
 .bootui-sidebar {
   backdrop-filter: blur(22px);
-  background: rgba(255, 255, 255, 0.76);
-  border-right: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0.75rem 0 2rem rgba(15, 23, 42, 0.06);
+  background: var(--bootui-sidebar-bg);
+  border-right: 1px solid var(--bootui-border);
+  box-shadow: var(--bootui-shadow-sidebar);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -490,7 +526,7 @@ onMounted(loadShellData)
 
 .brand-subtitle,
 .topbar-subtitle {
-  color: #64748b;
+  color: var(--bootui-text-muted);
   font-size: 0.85rem;
 }
 
@@ -500,7 +536,7 @@ onMounted(loadShellData)
 }
 
 .eyebrow {
-  color: #64748b;
+  color: var(--bootui-text-muted);
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -528,7 +564,7 @@ onMounted(loadShellData)
 }
 
 .bootui-nav-section:not(.bootui-nav-section--overview) .bootui-nav-group__items {
-  border-left: 1px solid rgba(100, 116, 139, 0.2);
+  border-left: 1px solid var(--bootui-border-alt);
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -544,10 +580,10 @@ onMounted(loadShellData)
 
 .bootui-nav-group__toggle {
   align-items: center;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: var(--bootui-nav-group-bg);
+  border: 1px solid var(--bootui-border-subtle);
   border-radius: 0.9rem;
-  color: #64748b;
+  color: var(--bootui-nav-group-color);
   display: flex;
   font-size: 0.72rem;
   font-weight: 800;
@@ -566,9 +602,9 @@ onMounted(loadShellData)
 
 .bootui-nav-group__toggle:hover,
 .bootui-nav-group__toggle.active {
-  background: rgba(25, 135, 84, 0.08);
+  background: var(--bootui-nav-hover-bg);
   border-color: rgba(25, 135, 84, 0.18);
-  color: #146c43;
+  color: var(--bootui-nav-hover-color);
   transform: translateX(2px);
 }
 
@@ -583,7 +619,7 @@ onMounted(loadShellData)
 .bootui-nav-group__count {
   background: rgba(100, 116, 139, 0.1);
   border-radius: 999px;
-  color: #64748b;
+  color: var(--bootui-text-muted);
   font-size: 0.68rem;
   line-height: 1;
   padding: 0.22rem 0.42rem;
@@ -596,25 +632,25 @@ onMounted(loadShellData)
 .bootui-nav-section--unavailable .bootui-nav-group__toggle {
   background: rgba(148, 163, 184, 0.08);
   border-color: rgba(100, 116, 139, 0.12);
-  color: #94a3b8;
+  color: var(--bootui-text-subtle);
   opacity: 0.72;
 }
 
 .bootui-nav-section--unavailable .bootui-nav-group__count {
   background: rgba(148, 163, 184, 0.12);
-  color: #94a3b8;
+  color: var(--bootui-text-subtle);
 }
 
 .bootui-nav-link:hover {
-  background: rgba(25, 135, 84, 0.08);
-  color: #146c43;
+  background: var(--bootui-nav-hover-bg);
+  color: var(--bootui-nav-hover-color);
   transform: translateX(3px);
 }
 
 .bootui-nav-link.active {
-  background: linear-gradient(135deg, #198754, #0d6efd);
+  background: var(--bootui-nav-active-bg);
   box-shadow: 0 0.8rem 1.4rem rgba(25, 135, 84, 0.2);
-  color: #fff;
+  color: var(--bootui-nav-active-color);
 }
 
 .bootui-nav-link i {
@@ -626,7 +662,7 @@ onMounted(loadShellData)
 }
 
 .bootui-nav-link__status {
-  color: #94a3b8;
+  color: var(--bootui-text-subtle);
   font-size: 0.95rem;
   opacity: 0.65;
 }
@@ -646,8 +682,8 @@ onMounted(loadShellData)
 
 .contribute-card {
   align-items: center;
-  background: rgba(255, 255, 255, 0.84);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--bootui-surface);
+  border: 1px solid var(--bootui-border);
   border-radius: 1.1rem;
   color: inherit;
   display: flex;
@@ -708,8 +744,8 @@ onMounted(loadShellData)
 .status-pill,
 .profile-chip {
   align-items: center;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--bootui-surface);
+  border: 1px solid var(--bootui-border);
   border-radius: 999px;
   box-shadow: 0 0.5rem 1.2rem rgba(15, 23, 42, 0.06);
   display: inline-flex;
@@ -727,12 +763,12 @@ onMounted(loadShellData)
 
 .profile-chip {
   background: rgba(25, 135, 84, 0.1);
-  color: #146c43;
+  color: var(--bootui-green-dark);
 }
 
 .profile-chip.muted {
   background: rgba(100, 116, 139, 0.1);
-  color: #64748b;
+  color: var(--bootui-text-muted);
 }
 
 .content-stage {
@@ -765,7 +801,7 @@ onMounted(loadShellData)
 }
 
 .bootui-footer {
-  color: #64748b;
+  color: var(--bootui-text-muted);
   font-size: 0.82rem;
   padding: 0 2rem 1.25rem;
   text-align: center;
