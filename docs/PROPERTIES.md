@@ -49,6 +49,7 @@ Panel settings are consistent across the UI and API:
 | Configuration | Conditions | `conditions` | `bootui.panels.conditions.enabled` | Not applicable; view-only. |
 | Configuration | Mappings | `mappings` | `bootui.panels.mappings.enabled` | Not applicable; view-only. |
 | Services | Scheduled Tasks | `scheduled` | `bootui.panels.scheduled.enabled` | Not applicable; view-only. |
+| Services | Connection Pools | `hikari` | `bootui.panels.hikari.enabled` | Not applicable; view-only. |
 | Services | Data | `data` | `bootui.panels.data.enabled` | Not applicable; view-only. |
 | Services | Cache | `cache` | `bootui.panels.cache.enabled` | `bootui.panels.cache.read-only` |
 | Services | Security | `security` | `bootui.panels.security.enabled` | Not applicable; view-only. |
@@ -146,6 +147,7 @@ Panel settings are consistent across the UI and API:
 | `bootui.heap-dump.allow-raw-download` | `false` | Allow downloading the raw `.hprof` file. Disabled by default because dumps contain plaintext secrets. |
 | `bootui.heap-dump.output-dir` | `.bootui/heap-dumps` | Directory where captured heap dumps are written. |
 | `bootui.heap-dump.max-dumps` | `5` | Maximum number of heap dump files retained on disk. Oldest dumps are deleted first. |
+| `bootui.heap-dump.max-classes` | `1000` | Maximum number of classes retained in memory after a histogram analysis, ordered by retained bytes. Capping this prevents very large heaps from exhausting memory. Must be ≥ `top-classes`. |
 | `bootui.heap-dump.top-classes` | `25` | Number of top classes shown in the value-free class histogram. |
 
 ### Architecture

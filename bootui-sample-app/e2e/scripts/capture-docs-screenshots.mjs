@@ -1537,7 +1537,7 @@ const screenshots = [
   [
     'hikari',
     'Connection Pools',
-    'bootui-hikari.png',
+    'bootui-database-connection-pools.png',
     async (page) => {
       await page.getByText('HikariPool-1').first().waitFor()
       await page.getByText('jdbc:postgresql://localhost:5432/bootui_sample').waitFor()
