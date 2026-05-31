@@ -388,10 +388,115 @@ onMounted(loadShellData)
   --bootui-nav-group-color: #64748b;
 }
 
+@media (prefers-color-scheme: dark) {
+  :global(:root) {
+    /* Brand palette — dark mode */
+    --bootui-green: #34d068;
+    --bootui-green-dark: #4ade80;
+    --bootui-blue: #60a5fa;
+    --bootui-text: #e2e8f0;
+    --bootui-text-muted: #94a3b8;
+    --bootui-text-subtle: #64748b;
+
+    /* Surfaces */
+    --bootui-bg-body: linear-gradient(135deg, #0d1a12 0%, #0f1929 46%, #100f1a 100%);
+    --bootui-bg-body-orb: rgba(52, 208, 104, 0.12);
+    --bootui-surface: rgba(30, 41, 59, 0.9);
+    --bootui-surface-solid: #1e293b;
+    --bootui-surface-alt: rgba(15, 23, 42, 0.86);
+    --bootui-sidebar-bg: rgba(15, 23, 42, 0.88);
+
+    /* Borders */
+    --bootui-border: rgba(226, 232, 240, 0.1);
+    --bootui-border-subtle: rgba(226, 232, 240, 0.07);
+    --bootui-border-alt: rgba(100, 116, 139, 0.25);
+
+    /* Shadows */
+    --bootui-shadow-sm: 0 1rem 2.5rem rgba(0, 0, 0, 0.3);
+    --bootui-shadow-md: 0 1.2rem 3rem rgba(0, 0, 0, 0.4);
+    --bootui-shadow-sidebar: 0.75rem 0 2rem rgba(0, 0, 0, 0.25);
+
+    /* Nav link state */
+    --bootui-nav-hover-bg: rgba(52, 208, 104, 0.1);
+    --bootui-nav-hover-color: #4ade80;
+    --bootui-nav-active-bg: linear-gradient(135deg, #198754, #2563eb);
+    --bootui-nav-active-color: #ffffff;
+    --bootui-nav-group-bg: rgba(30, 41, 59, 0.7);
+    --bootui-nav-group-color: #94a3b8;
+  }
+}
+
 :global(body) {
   background:
     radial-gradient(circle at top left, rgba(25, 135, 84, 0.18), transparent 34rem),
     linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body) {
+    background:
+      radial-gradient(circle at top left, rgba(52, 208, 104, 0.12), transparent 34rem),
+      linear-gradient(135deg, #0d1a12 0%, #0f1929 46%, #100f1a 100%);
+  }
+
+  :global(.card) {
+    background: var(--bootui-surface);
+    color: var(--bootui-text);
+  }
+
+  :global(.table) {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--bootui-text);
+    --bs-table-border-color: var(--bootui-border-alt);
+    --bs-table-hover-bg: rgba(226, 232, 240, 0.04);
+    --bs-table-striped-bg: rgba(226, 232, 240, 0.03);
+  }
+
+  :global(.form-control),
+  :global(.form-select) {
+    background-color: var(--bootui-surface-alt);
+    border-color: var(--bootui-border-alt);
+    color: var(--bootui-text);
+  }
+
+  :global(.form-control::placeholder) {
+    color: var(--bootui-text-subtle);
+  }
+
+  :global(.text-muted) {
+    color: var(--bootui-text-muted) !important;
+  }
+
+  :global(.alert-danger) {
+    --bs-alert-bg: rgba(220, 38, 38, 0.15);
+    --bs-alert-border-color: rgba(220, 38, 38, 0.3);
+    --bs-alert-color: #fca5a5;
+  }
+
+  :global(.alert-warning) {
+    --bs-alert-bg: rgba(245, 158, 11, 0.12);
+    --bs-alert-border-color: rgba(245, 158, 11, 0.25);
+    --bs-alert-color: #fcd34d;
+  }
+
+  :global(.alert-info) {
+    --bs-alert-bg: rgba(96, 165, 250, 0.1);
+    --bs-alert-border-color: rgba(96, 165, 250, 0.2);
+    --bs-alert-color: #93c5fd;
+  }
+
+  :global(.btn-outline-secondary) {
+    --bs-btn-color: var(--bootui-text-muted);
+    --bs-btn-border-color: var(--bootui-border-alt);
+    --bs-btn-hover-bg: rgba(226, 232, 240, 0.08);
+    --bs-btn-hover-color: var(--bootui-text);
+    --bs-btn-active-bg: rgba(226, 232, 240, 0.15);
+  }
+
+  :global(.badge.bg-light) {
+    background-color: rgba(226, 232, 240, 0.12) !important;
+    color: var(--bootui-text-muted) !important;
+  }
 }
 
 :global(.card) {
