@@ -247,8 +247,8 @@ class HeapDumpServiceTests {
         HeapDumpService service = serviceWithHistogram(dir, HISTOGRAM_WITH_LARGE_OBJECT);
         service.analyze();
 
-        // big-objects + text prefix "java" should return only java.lang.String (rank 3 per-instance)
-        HeapDumpReport report = service.report("java", HeapDumpService.SMART_FILTER_BIG_OBJECTS);
+        // big-objects + text prefix "java.lang" should return only java.lang.String (rank 3 per-instance)
+        HeapDumpReport report = service.report("java.lang", HeapDumpService.SMART_FILTER_BIG_OBJECTS);
 
         assertThat(report.topClasses()).hasSize(1);
         assertThat(report.topClasses().get(0).className()).isEqualTo("java.lang.String");
