@@ -59,6 +59,8 @@ default: it only summarizes class names and sizes (never object values), all cap
 mutating `POST` requests that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled
 unless explicitly enabled via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
 
+![BootUI Heap Dump panel](images/bootui-heap-dump.png)
+
 ### Startup Timeline
 
 The Startup Timeline panel visualizes Spring Boot startup steps from Actuator startup data. It helps identify expensive
@@ -141,6 +143,8 @@ username, driver, min/max sizing, and timeout/lifetime settings, and surfaces a 
 uninitialized pools. A local live chart polls bounded snapshots of active, idle, total, and pending connections every two
 seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
 pools, and generic JDBC/R2DBC pools are out of scope for now.
+
+![BootUI Connection Pools panel](images/bootui-hikari.png)
 
 ### Data
 
