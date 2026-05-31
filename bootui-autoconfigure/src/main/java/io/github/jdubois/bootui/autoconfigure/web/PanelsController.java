@@ -53,7 +53,7 @@ public class PanelsController {
 
     private PanelDto panel(Panel definition) {
         Availability availability = availability(definition.id());
-        boolean readOnly = definition.readOnlyCapable() && properties.isPanelReadOnly(definition.id());
+        boolean readOnly = definition.actionCapable() && properties.isPanelReadOnly(definition.id());
         return new PanelDto(
                 definition.id(),
                 definition.title(),

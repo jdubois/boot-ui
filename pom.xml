@@ -53,6 +53,7 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.0.6</spring-boot.version>
         <testcontainers.version>1.21.4</testcontainers.version>
+        <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
         <frontend-maven-plugin.version>2.0.0</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.9.0</central-publishing-maven-plugin.version>
@@ -82,6 +83,11 @@
             <dependency>
                 <groupId>com.tngtech.archunit</groupId>
                 <artifactId>archunit</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
                 <version>${archunit.version}</version>
             </dependency>
             <dependency>

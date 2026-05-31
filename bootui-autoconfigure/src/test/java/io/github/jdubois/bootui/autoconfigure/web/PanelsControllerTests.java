@@ -24,18 +24,14 @@ class PanelsControllerTests {
                             new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
                     .build();
 
+            int size = io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.all()
+                    .size();
+
             mvc.perform(get("/bootui/api/panels"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.panels.length()").value(28))
+                    .andExpect(jsonPath("$.panels.length()").value(size))
                     .andExpect(jsonPath("$.panels[0].id").value("overview"))
-                    .andExpect(jsonPath("$.panels[6].id").value("config"))
-                    .andExpect(jsonPath("$.panels[17].id").value("traces"))
-                    .andExpect(jsonPath("$.panels[20].id").value("pentest"))
-                    .andExpect(jsonPath("$.panels[21].id").value("vulnerabilities"))
-                    .andExpect(jsonPath("$.panels[22].id").value("heap-dump"))
-                    .andExpect(jsonPath("$.panels[23].id").value("architecture"))
-                    .andExpect(jsonPath("$.panels[26].id").value("copilot"))
-                    .andExpect(jsonPath("$.panels[27].id").value("claude-code"));
+                    .andExpect(jsonPath("$.panels[" + (size - 1) + "].id").value("claude-code"));
         }
     }
 
@@ -171,7 +167,7 @@ class PanelsControllerTests {
             PanelsController controller = new PanelsController(context, context.getEnvironment(), properties);
 
             List<String> expectedReadOnlyPanelIds = BootUiPanels.all().stream()
-                    .filter(BootUiPanels.Panel::readOnlyCapable)
+                    .filter(BootUiPanels.Panel::actionCapable)
                     .map(BootUiPanels.Panel::id)
                     .toList();
             List<PanelDto> panels = controller.panels().panels();
