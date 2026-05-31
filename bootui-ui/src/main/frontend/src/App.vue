@@ -7,6 +7,13 @@ const route = useRoute()
 const overview = ref(null)
 const panels = ref(null)
 const error = ref(null)
+const sidebarCollapsed = ref(localStorage.getItem('bootui.sidebar.collapsed') === 'true')
+
+watch(sidebarCollapsed, (v) => localStorage.setItem('bootui.sidebar.collapsed', v))
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
 
 const semanticNavigationGroups = [
   {key: 'runtime', title: 'Runtime', icon: 'bi-activity'},
@@ -210,14 +217,19 @@ onMounted(loadShellData)
     <div class="ambient-orb ambient-orb-one"></div>
     <div class="ambient-orb ambient-orb-two"></div>
 
-    <aside class="bootui-sidebar">
-      <router-link class="brand-card text-decoration-none" to="/overview">
-        <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
-        <span>
-          <span class="brand-name">BootUI</span>
-          <span class="brand-subtitle">Local developer console</span>
-        </span>
-      </router-link>
+    <aside :class="{'bootui-sidebar--collapsed': sidebarCollapsed}" class="bootui-sidebar">
+      <div class="brand-area">
+        <router-link class="brand-card text-decoration-none" to="/overview">
+          <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
+          <span class="brand-text">
+            <span class="brand-name">BootUI</span>
+            <span class="brand-subtitle">Local developer console</span>
+          </span>
+        </router-link>
+        <button class="sidebar-toggle" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="toggleSidebar">
+          <i :class="sidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left'" class="bi"></i>
+        </button>
+      </div>
 
       <nav aria-label="BootUI panels" class="nav nav-pills flex-column sidebar-nav">
         <div
@@ -592,10 +604,65 @@ onMounted(loadShellData)
   flex-shrink: 0;
   gap: 1.4rem;
   min-height: 100vh;
+  overflow: hidden;
   padding: 1.25rem;
   position: sticky;
   top: 0;
+  transition: width 220ms ease;
   width: 18rem;
+}
+
+.bootui-sidebar--collapsed {
+  width: 4.5rem;
+}
+
+.brand-area {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.sidebar-toggle {
+  background: none;
+  border: 1px solid var(--bootui-border);
+  border-radius: 0.5rem;
+  color: var(--bootui-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.35rem 0.45rem;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bootui-nav-hover-bg);
+  color: var(--bootui-green);
+}
+
+.bootui-sidebar--collapsed .brand-text,
+.bootui-sidebar--collapsed .bootui-nav-link__label,
+.bootui-sidebar--collapsed .bootui-nav-group__label,
+.bootui-sidebar--collapsed .bootui-nav-group__count,
+.bootui-sidebar--collapsed .bootui-nav-group__chevron,
+.bootui-sidebar--collapsed .contribute-card > span:last-child,
+.bootui-sidebar--collapsed .sidebar-bottom .alert {
+  display: none;
+}
+
+.bootui-sidebar--collapsed .brand-card {
+  justify-content: center;
+  padding: 0.85rem 0.5rem;
+}
+
+.bootui-sidebar--collapsed .bootui-nav-link {
+  justify-content: center;
+  padding: 0.6rem 0.5rem;
+}
+
+.bootui-sidebar--collapsed .contribute-card {
+  justify-content: center;
 }
 
 .brand-card {
