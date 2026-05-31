@@ -154,6 +154,12 @@ export const routes = [
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe'}
   },
   {
+    path: '/architecture',
+    name: 'architecture',
+    component: Architecture,
+    meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
+  },
+  {
     path: '/pentest',
     name: 'pentest',
     component: Pentesting,
@@ -164,12 +170,6 @@ export const routes = [
     name: 'vulnerabilities',
     component: Vulnerabilities,
     meta: {group: groups.diagnostics, icon: 'bi-bug', title: 'Vulnerabilities'}
-  },
-  {
-    path: '/architecture',
-    name: 'architecture',
-    component: Architecture,
-    meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
   },
   {
     path: '/devtools',

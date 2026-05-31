@@ -218,6 +218,25 @@ duration, and body. It is designed for quick route checks from inside the same l
 
 ![BootUI HTTP Probe panel](images/bootui-http-probe.png)
 
+### Architecture
+
+The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
+application's own classes at runtime. It detects the application's base package from the `@SpringBootApplication`
+configuration, imports the compiled classes from that package, and evaluates a fixed set of universally-sensible
+architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
+exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
+deprecated APIs), and Spring stereotype heuristics (no field injection, controllers should not depend on repositories
+and vice versa, no self-invocation of proxied methods, and stereotypes outside the default package). The panel is
+available only when a base package is resolvable and ArchUnit is on the classpath; the scan runs on demand and caches
+the last report.
+
+Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
+starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
+rule is registered with a stable identifier, category, severity, and recommendation. See
+[ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
+
+![BootUI Architecture panel](images/bootui-architecture.png)
+
 ### Pentesting
 
 The Pentesting panel runs explicit, local-only OWASP hygiene checks against the host application, not BootUI's
@@ -241,25 +260,6 @@ vulnerable dependencies from the running project's dependency set during the loc
 ordered by severity first, with dependencies and advisories alphabetized within the same severity.
 
 ![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
-
-### Architecture
-
-The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
-application's own classes at runtime. It detects the application's base package from the `@SpringBootApplication`
-configuration, imports the compiled classes from that package, and evaluates a fixed set of universally-sensible
-architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
-exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
-deprecated APIs), and Spring stereotype heuristics (no field injection, controllers should not depend on repositories
-and vice versa, no self-invocation of proxied methods, and stereotypes outside the default package). The panel is
-available only when a base package is resolvable and ArchUnit is on the classpath; the scan runs on demand and caches
-the last report.
-
-Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
-starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
-rule is registered with a stable identifier, category, severity, and recommendation. See
-[ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
-
-![BootUI Architecture panel](images/bootui-architecture.png)
 
 ## Developer tools
 
