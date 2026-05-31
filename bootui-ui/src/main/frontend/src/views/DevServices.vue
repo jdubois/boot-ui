@@ -194,7 +194,11 @@ onMounted(load)
     <PanelHeader
       icon="bi-box-seam"
       title="Dev Services"
-      :subtitle="report ? `Snapshot ${formatSnapshot(report.snapshotTimestamp)} · Docker Compose ${report.dockerComposePresent ? 'available' : 'not detected'} · Testcontainers ${report.testcontainersPresent ? 'available' : 'not detected'}` : null"
+      :subtitle="
+        report
+          ? `Snapshot ${formatSnapshot(report.snapshotTimestamp)} · Docker Compose ${report.dockerComposePresent ? 'available' : 'not detected'} · Testcontainers ${report.testcontainersPresent ? 'available' : 'not detected'}`
+          : null
+      "
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"

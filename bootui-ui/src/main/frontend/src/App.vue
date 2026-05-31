@@ -241,11 +241,7 @@ function onGlobalKeydown(e) {
 
 <template>
   <div class="bootui-shell min-vh-100">
-    <CommandPalette
-      v-if="commandPaletteOpen"
-      ref="commandPaletteRef"
-      @close="commandPaletteOpen = false"
-    />
+    <CommandPalette v-if="commandPaletteOpen" ref="commandPaletteRef" @close="commandPaletteOpen = false" />
     <div class="ambient-orb ambient-orb-one"></div>
     <div class="ambient-orb ambient-orb-two"></div>
 
@@ -258,7 +254,11 @@ function onGlobalKeydown(e) {
             <span class="brand-subtitle">Local developer console</span>
           </span>
         </router-link>
-        <button class="sidebar-toggle" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="toggleSidebar">
+        <button
+          class="sidebar-toggle"
+          :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          @click="toggleSidebar"
+        >
           <i :class="sidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left'" class="bi"></i>
         </button>
       </div>
@@ -671,7 +671,9 @@ function onGlobalKeydown(e) {
   font-size: 0.75rem;
   line-height: 1;
   padding: 0.35rem 0.45rem;
-  transition: background 150ms ease, color 150ms ease;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
 }
 
 .sidebar-toggle:hover {
@@ -1147,7 +1149,9 @@ function onGlobalKeydown(e) {
   font-weight: 600;
   gap: 0.35rem;
   padding: 0.45rem 0.75rem;
-  transition: background 150ms ease, color 150ms ease;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
 }
 
 .cp-trigger:hover {

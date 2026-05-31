@@ -8,7 +8,7 @@ defineProps({
 <template>
   <div :class="card ? 'card p-3' : ''" class="skeleton-wrapper" aria-busy="true" aria-label="Loading…">
     <div class="skeleton-line skeleton-line--title mb-3"></div>
-    <div v-for="i in rows" :key="i" :style="{width: `${65 + (i * 17) % 35}%`}" class="skeleton-line mb-2"></div>
+    <div v-for="i in rows" :key="i" :style="{width: `${65 + ((i * 17) % 35)}%`}" class="skeleton-line mb-2"></div>
   </div>
 </template>
 

@@ -173,7 +173,11 @@ onMounted(load)
     <PanelHeader
       icon="bi-hdd-stack"
       title="Spring Cache"
-      :subtitle="report ? `${report.managerCount} manager${report.managerCount === 1 ? '' : 's'} · ${report.cacheCount} cache${report.cacheCount === 1 ? '' : 's'} · ${report.operationCount} annotation operation${report.operationCount === 1 ? '' : 's'}` : null"
+      :subtitle="
+        report
+          ? `${report.managerCount} manager${report.managerCount === 1 ? '' : 's'} · ${report.cacheCount} cache${report.cacheCount === 1 ? '' : 's'} · ${report.operationCount} annotation operation${report.operationCount === 1 ? '' : 's'}`
+          : null
+      "
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"

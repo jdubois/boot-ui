@@ -154,7 +154,9 @@ onMounted(load)
     <PanelHeader
       icon="bi-bezier2"
       title="Traces"
-      :subtitle="report ? `${report.retained} / ${report.capacity} retained trace${report.retained === 1 ? '' : 's'}` : null"
+      :subtitle="
+        report ? `${report.retained} / ${report.capacity} retained trace${report.retained === 1 ? '' : 's'}` : null
+      "
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"

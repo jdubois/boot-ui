@@ -25,9 +25,7 @@ const lastFetchedText = computed(() => {
 <template>
   <div class="panel-header mb-3">
     <div class="panel-header__info">
-      <h2 class="mb-0">
-        <i v-if="icon" :class="['bi', icon, 'me-2']"></i>{{ title }}
-      </h2>
+      <h2 class="mb-0"><i v-if="icon" :class="['bi', icon, 'me-2']"></i>{{ title }}</h2>
       <p v-if="subtitle" class="text-muted small mb-0 mt-1">{{ subtitle }}</p>
     </div>
     <div class="panel-header__actions">

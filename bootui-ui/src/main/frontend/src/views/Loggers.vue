@@ -73,11 +73,7 @@ watch(filter, scheduleReload)
 
 <template>
   <div>
-    <PanelHeader
-      icon="bi-journal-text"
-      title="Loggers"
-      :error="error ? `Could not load loggers: ${error}` : null"
-    />
+    <PanelHeader icon="bi-journal-text" title="Loggers" :error="error ? `Could not load loggers: ${error}` : null" />
     <div v-if="readOnly" class="alert alert-warning small">
       <i class="bi bi-lock me-1"></i>
       Logger levels are read-only. {{ readOnlyReason }}
