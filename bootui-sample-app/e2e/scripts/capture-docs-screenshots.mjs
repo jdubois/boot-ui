@@ -23,6 +23,7 @@ const panelOrder = [
   ['health', 'Health'],
   ['metrics', 'Metrics'],
   ['memory', 'Memory'],
+  ['heap-dump', 'Heap Dump'],
   ['startup', 'Startup Timeline'],
   ['config', 'Configuration'],
   ['profiles', 'Profile Diff'],
@@ -31,6 +32,7 @@ const panelOrder = [
   ['conditions', 'Conditions'],
   ['mappings', 'Mappings'],
   ['scheduled', 'Scheduled Tasks'],
+  ['hikari', 'Connection Pools'],
   ['data', 'Data'],
   ['cache', 'Cache'],
   ['security', 'Security'],
@@ -663,6 +665,97 @@ const dataReport = {
       storeModule: 'JPA',
       queryMethodCount: 2,
       fragmentCount: 1
+    }
+  ]
+}
+
+const hikariReport = {
+  available: true,
+  unavailableReason: null,
+  pools: [
+    {
+      beanName: 'dataSource',
+      poolName: 'HikariPool-1',
+      available: true,
+      unavailableReason: null,
+      jdbcUrl: 'jdbc:postgresql://localhost:5432/bootui_sample',
+      username: 'bootui',
+      driverClassName: 'org.postgresql.Driver',
+      minimumIdle: 5,
+      maximumPoolSize: 20,
+      connectionTimeoutMs: 30000,
+      validationTimeoutMs: 5000,
+      idleTimeoutMs: 600000,
+      maxLifetimeMs: 1800000,
+      keepaliveTimeMs: 120000,
+      readOnly: false,
+      autoCommit: true
+    },
+    {
+      beanName: 'readReplicaDataSource',
+      poolName: 'HikariPool-read',
+      available: true,
+      unavailableReason: null,
+      jdbcUrl: 'jdbc:postgresql://replica:5432/bootui_sample',
+      username: 'bootui_ro',
+      driverClassName: 'org.postgresql.Driver',
+      minimumIdle: 2,
+      maximumPoolSize: 8,
+      connectionTimeoutMs: 30000,
+      validationTimeoutMs: 5000,
+      idleTimeoutMs: 600000,
+      maxLifetimeMs: 1800000,
+      keepaliveTimeMs: 0,
+      readOnly: true,
+      autoCommit: true
+    }
+  ]
+}
+
+const hikariSnapshots = {
+  'HikariPool-1': {active: 6, idle: 9, total: 15, pending: 1},
+  'HikariPool-read': {active: 2, idle: 4, total: 6, pending: 0}
+}
+
+function hikariSnapshot(poolName) {
+  const base = hikariSnapshots[poolName] || {active: 0, idle: 0, total: 0, pending: 0}
+  return {poolName, ...base}
+}
+
+const heapDump = {
+  hotspotAvailable: true,
+  captureEnabled: true,
+  rawDownloadEnabled: false,
+  outputDirectory: '/tmp/bootui-heap-dumps',
+  liveHeapUsedBytes: 184 * MB,
+  freeDiskBytes: 128 * 1024 * MB,
+  dumpCount: 1,
+  maxDumps: 3,
+  histogramTotalInstances: 1_842_517,
+  histogramTotalBytes: 172 * MB,
+  capture: {
+    status: 'ANALYZED',
+    message: null,
+    capturedAtEpochMs: nowMillis - 45 * 1000
+  },
+  topClasses: [
+    {rank: 1, className: 'byte[]', instances: 412_904, bytes: 58 * MB},
+    {rank: 2, className: 'java.lang.String', instances: 388_211, bytes: 24 * MB},
+    {rank: 3, className: 'java.util.HashMap$Node', instances: 196_540, bytes: 18 * MB},
+    {rank: 4, className: 'java.lang.Object[]', instances: 84_320, bytes: 14 * MB},
+    {rank: 5, className: 'io.github.jdubois.bootui.sample.Product', instances: 62_104, bytes: 11 * MB},
+    {rank: 6, className: 'java.util.concurrent.ConcurrentHashMap$Node', instances: 51_882, bytes: 9 * MB},
+    {rank: 7, className: 'char[]', instances: 47_219, bytes: 7 * MB},
+    {rank: 8, className: 'java.lang.Long', instances: 40_511, bytes: 5 * MB},
+    {rank: 9, className: 'java.util.ArrayList', instances: 28_640, bytes: 4 * MB},
+    {rank: 10, className: 'java.lang.Integer', instances: 21_004, bytes: 3 * MB}
+  ],
+  dumps: [
+    {
+      name: 'heapdump-20260531-100245.hprof',
+      sizeBytes: 196 * MB,
+      live: true,
+      createdAtEpochMs: nowMillis - 45 * 1000
     }
   ]
 }
@@ -1424,6 +1517,15 @@ const screenshots = [
     }
   ],
   ['memory', 'Memory', 'bootui-memory.png', waitForText('JVM memory calculator')],
+  [
+    'heap-dump',
+    'Heap Dump',
+    'bootui-heap-dump.png',
+    async (page) => {
+      await page.getByText('Top classes by retained size').waitFor()
+      await page.getByText('java.lang.String').first().waitFor()
+    }
+  ],
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
   ['config', 'Configuration', 'bootui-configuration.png', waitForText('sample.greeting')],
   ['profiles', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
@@ -1432,6 +1534,16 @@ const screenshots = [
   ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
   ['mappings', 'Mappings', 'bootui-mappings.png', waitForText('/api/sample/products')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
+  [
+    'hikari',
+    'Connection Pools',
+    'bootui-hikari.png',
+    async (page) => {
+      await page.getByText('HikariPool-1').first().waitFor()
+      await page.getByText('jdbc:postgresql://localhost:5432/bootui_sample').waitFor()
+      await page.waitForTimeout(4500)
+    }
+  ],
   [
     'data',
     'Data',
@@ -1952,6 +2064,12 @@ async function handleApiRoute(route) {
   if (endpoint === 'scheduled') return fulfillJson(route, scheduled)
   if (endpoint === 'data/repositories') return fulfillJson(route, dataReport)
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
+  if (endpoint === 'hikari/pools') return fulfillJson(route, hikariReport)
+  if (endpoint.startsWith('hikari/pools/') && endpoint.endsWith('/snapshot')) {
+    const poolName = endpoint.slice('hikari/pools/'.length, -'/snapshot'.length)
+    return fulfillJson(route, hikariSnapshot(poolName))
+  }
+  if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
   if (endpoint === 'cache') return fulfillJson(route, cache)
   if (endpoint === 'security') return fulfillJson(route, security)
   if (endpoint === 'security/endpoints') return fulfillJson(route, securityEndpoints)
