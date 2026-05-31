@@ -41,6 +41,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Diagnostics     | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                      |
 | Diagnostics     | [Pentesting](docs/FEATURES.md#pentesting)             | Run explicit host-app OWASP hygiene checks without testing BootUI paths or sending exploit payloads.         |
 | Diagnostics     | [Vulnerabilities](docs/FEATURES.md#vulnerabilities)   | Review dependency inventory and severity-ordered local OSV vulnerability scan results.                        |
+| Diagnostics     | [Heap Dump](docs/FEATURES.md#heap-dump)               | Capture local JVM heap dumps on demand and analyze a value-free class histogram of memory usage.             |
 | Developer tools | [DevTools](docs/FEATURES.md#devtools)                 | Check Spring Boot DevTools status, LiveReload availability, and restart controls.                             |
 | Developer tools | [Dev Services](docs/FEATURES.md#dev-services)         | Inspect Docker Compose snapshots, safe Testcontainers beans, service connection metadata, and bounded logs.   |
 | Developer tools | [Copilot](docs/FEATURES.md#copilot)                   | Dashboard sanitized local GitHub Copilot CLI sessions: activity trends, tool mix, MCP, hooks, skills, errors. |

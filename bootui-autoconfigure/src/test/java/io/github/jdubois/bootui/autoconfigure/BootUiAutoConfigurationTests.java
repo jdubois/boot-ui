@@ -168,6 +168,7 @@ class BootUiAutoConfigurationTests {
                             DevToolsController.class,
                             HealthController.class,
                             HttpProbeController.class,
+                            HeapDumpController.class,
                             LoggersController.class,
                             MappingsController.class,
                             MemoryController.class,

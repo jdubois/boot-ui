@@ -57,6 +57,7 @@ Panel settings are consistent across the UI and API:
 | Diagnostics | HTTP Probe | `http-probe` | `bootui.panels.http-probe.enabled` | `bootui.panels.http-probe.read-only` |
 | Diagnostics | Pentesting | `pentest` | `bootui.panels.pentest.enabled` | `bootui.panels.pentest.read-only` |
 | Diagnostics | Vulnerabilities | `vulnerabilities` | `bootui.panels.vulnerabilities.enabled` | `bootui.panels.vulnerabilities.read-only` |
+| Diagnostics | Heap Dump | `heap-dump` | `bootui.panels.heap-dump.enabled` | `bootui.panels.heap-dump.read-only` |
 | Developer tools | DevTools | `devtools` | `bootui.panels.devtools.enabled` | `bootui.panels.devtools.read-only` |
 | Developer tools | Dev Services | `dev-services` | `bootui.panels.dev-services.enabled` | `bootui.panels.dev-services.read-only` |
 | Developer tools | Copilot | `copilot` | `bootui.panels.copilot.enabled` | Not applicable; view-only. |
@@ -133,6 +134,18 @@ Panel settings are consistent across the UI and API:
 | `bootui.dependencies.request-timeout` | `10s` | Timeout for each OSV request. |
 | `bootui.dependencies.max-packages` | `250` | Maximum packages included in one OSV batch query. |
 | `bootui.dependencies.max-advisories` | `200` | Maximum advisory details fetched after a package query. |
+
+### Heap Dump
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.heap-dump.enabled` | `true` | Show the Heap Dump panel when running on a HotSpot JVM. |
+| `bootui.panels.heap-dump.read-only` | `false` | Disable on-demand capture, analyze, and delete actions. |
+| `bootui.heap-dump.capture-enabled` | `true` | Additional action gate for capturing new heap dumps. |
+| `bootui.heap-dump.allow-raw-download` | `false` | Allow downloading the raw `.hprof` file. Disabled by default because dumps contain plaintext secrets. |
+| `bootui.heap-dump.output-dir` | `.bootui/heap-dumps` | Directory where captured heap dumps are written. |
+| `bootui.heap-dump.max-dumps` | `5` | Maximum number of heap dump files retained on disk. Oldest dumps are deleted first. |
+| `bootui.heap-dump.top-classes` | `25` | Number of top classes shown in the value-free class histogram. |
 
 ### DevTools
 
