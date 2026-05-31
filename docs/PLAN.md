@@ -153,7 +153,7 @@ The visible-route parity check is current. The sample-app Playwright suite cover
 1. Overview.
 2. Runtime: Health, Metrics, Memory, Startup Timeline.
 3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
-4. Services: Scheduled Tasks, Data, Cache, Security, AI Usage.
+4. Services: Scheduled Tasks, Connection Pools, Data, Cache, Security, AI Usage.
 5. Diagnostics: Traces, Log Tail, HTTP Probe, Pentesting, Vulnerabilities.
 6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
 7. Disabled / unavailable grouping for unavailable non-overview panels.

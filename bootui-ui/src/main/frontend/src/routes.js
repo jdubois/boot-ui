@@ -5,8 +5,8 @@ import Config from './views/Config.vue'
 import Mappings from './views/Mappings.vue'
 import Health from './views/Health.vue'
 import Loggers from './views/Loggers.vue'
-import Data from './views/Data.vue'
 import Hikari from './views/Hikari.vue'
+import Data from './views/Data.vue'
 import Startup from './views/Startup.vue'
 import Scheduled from './views/Scheduled.vue'
 import HttpProbe from './views/HttpProbe.vue'
@@ -107,13 +107,13 @@ export const routes = [
     component: Scheduled,
     meta: {group: groups.services, icon: 'bi-clock-history', title: 'Scheduled Tasks'}
   },
-  {path: '/data', name: 'data', component: Data, meta: {group: groups.services, icon: 'bi-database', title: 'Data'}},
   {
     path: '/hikari',
     name: 'hikari',
     component: Hikari,
     meta: {group: groups.services, icon: 'bi-hdd-network', title: 'Connection Pools'}
   },
+  {path: '/data', name: 'data', component: Data, meta: {group: groups.services, icon: 'bi-database', title: 'Data'}},
   {
     path: '/cache',
     name: 'cache',
