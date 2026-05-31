@@ -26,7 +26,7 @@ public final class BootUiInfo {
                 return props.getProperty("version", "unknown");
             }
         } catch (Exception e) {
-            // ignore
+            // Intentionally swallow exception and fallback to "unknown" if version resource is unavailable or corrupt
         }
         return "unknown";
     }

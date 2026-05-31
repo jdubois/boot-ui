@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.importer.ImportOption.DoNotIncludeTests;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -11,9 +12,7 @@ import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.springframework.beans.factory.annotation.Autowired;
 
-@AnalyzeClasses(
-        packages = "io.github.jdubois.bootui.autoconfigure",
-        importOptions = com.tngtech.archunit.core.importer.ImportOption.DoNotIncludeTests.class)
+@AnalyzeClasses(packages = "io.github.jdubois.bootui.autoconfigure", importOptions = DoNotIncludeTests.class)
 class BootUiArchitectureTests {
 
     @ArchTest
