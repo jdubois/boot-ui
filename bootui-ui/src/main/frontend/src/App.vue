@@ -311,6 +311,13 @@ onMounted(loadShellData)
           <p class="topbar-subtitle mb-0">{{ runtimeSummary }}</p>
         </div>
         <div class="topbar-actions">
+          <nav v-if="route.meta?.group && route.meta?.title" class="topbar-breadcrumb" aria-label="Current panel">
+            <span class="topbar-breadcrumb__group">{{ route.meta.group }}</span>
+            <i class="bi bi-chevron-right topbar-breadcrumb__sep"></i>
+            <span class="topbar-breadcrumb__panel">
+              <i v-if="route.meta.icon" :class="['bi', route.meta.icon, 'me-1']"></i>{{ route.meta.title }}
+            </span>
+          </nav>
           <span class="status-pill">
             <i class="bi bi-broadcast-pin"></i>
             {{ activationLabel }}
@@ -852,6 +859,32 @@ onMounted(loadShellData)
   flex-wrap: wrap;
   gap: 0.55rem;
   justify-content: flex-end;
+}
+
+.topbar-breadcrumb {
+  align-items: center;
+  color: var(--bootui-text-muted);
+  display: inline-flex;
+  font-size: 0.8rem;
+  gap: 0.3rem;
+}
+
+.topbar-breadcrumb__group {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.topbar-breadcrumb__sep {
+  font-size: 0.65rem;
+  opacity: 0.5;
+}
+
+.topbar-breadcrumb__panel {
+  font-weight: 700;
+  color: var(--bootui-text);
 }
 
 .status-pill,
