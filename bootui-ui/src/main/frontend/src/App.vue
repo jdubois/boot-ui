@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, provide, reactive, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
+import CommandPalette from './views/components/CommandPalette.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -8,8 +9,15 @@ const overview = ref(null)
 const panels = ref(null)
 const error = ref(null)
 const sidebarCollapsed = ref(localStorage.getItem('bootui.sidebar.collapsed') === 'true')
+const commandPaletteOpen = ref(false)
+const commandPaletteRef = ref(null)
 
 provide('overview', overview)
+
+function openCommandPalette() {
+  commandPaletteOpen.value = true
+  commandPaletteRef.value?.focusInput()
+}
 
 watch(sidebarCollapsed, (v) => localStorage.setItem('bootui.sidebar.collapsed', v))
 
@@ -211,11 +219,27 @@ watch(
   {deep: true}
 )
 
-onMounted(loadShellData)
+onMounted(() => {
+  loadShellData()
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault()
+      commandPaletteOpen.value = !commandPaletteOpen.value
+      if (commandPaletteOpen.value) {
+        commandPaletteRef.value?.focusInput()
+      }
+    }
+  })
+})
 </script>
 
 <template>
   <div class="bootui-shell min-vh-100">
+    <CommandPalette
+      v-if="commandPaletteOpen"
+      ref="commandPaletteRef"
+      @close="commandPaletteOpen = false"
+    />
     <div class="ambient-orb ambient-orb-one"></div>
     <div class="ambient-orb ambient-orb-two"></div>
 
@@ -325,6 +349,11 @@ onMounted(loadShellData)
           <p class="topbar-subtitle mb-0">{{ runtimeSummary }}</p>
         </div>
         <div class="topbar-actions">
+          <button class="cp-trigger" title="Open command palette (⌘K)" @click="openCommandPalette">
+            <i class="bi bi-search me-1"></i>
+            <span class="cp-trigger-label">Go to panel</span>
+            <kbd class="cp-trigger-hint">⌘K</kbd>
+          </button>
           <nav v-if="route.meta?.group && route.meta?.title" class="topbar-breadcrumb" aria-label="Current panel">
             <span class="topbar-breadcrumb__group">{{ route.meta.group }}</span>
             <i class="bi bi-chevron-right topbar-breadcrumb__sep"></i>
@@ -1097,5 +1126,40 @@ onMounted(loadShellData)
 
 .auto-refresh-select {
   max-width: 7rem;
+}
+
+.cp-trigger {
+  align-items: center;
+  background: var(--bootui-surface);
+  border: 1px solid var(--bootui-border);
+  border-radius: 999px;
+  color: var(--bootui-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 600;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.cp-trigger:hover {
+  background: var(--bootui-nav-hover-bg);
+  color: var(--bootui-text);
+}
+
+.cp-trigger-hint {
+  background: var(--bootui-surface);
+  border: 1px solid var(--bootui-border-alt);
+  border-radius: 0.3rem;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+}
+
+@media (max-width: 576px) {
+  .cp-trigger-label,
+  .cp-trigger-hint {
+    display: none;
+  }
 }
 </style>
