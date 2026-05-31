@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
@@ -62,6 +63,7 @@ import org.springframework.core.env.Environment;
     HttpProbeController.class,
     PentestController.class,
     HeapDumpController.class,
+    ArchitectureController.class,
     LogTailController.class,
     ProfileController.class,
     SecurityController.class,
@@ -82,6 +84,7 @@ public class BootUiAutoConfiguration {
 
     private static final Set<String> LAZY_CONTROLLER_CLASS_NAMES = Set.of(
             AiController.class.getName(),
+            ArchitectureController.class.getName(),
             BeansController.class.getName(),
             BootUiIndexController.class.getName(),
             CacheController.class.getName(),

@@ -58,6 +58,7 @@ Panel settings are consistent across the UI and API:
 | Diagnostics | HTTP Probe | `http-probe` | `bootui.panels.http-probe.enabled` | `bootui.panels.http-probe.read-only` |
 | Diagnostics | Pentesting | `pentest` | `bootui.panels.pentest.enabled` | `bootui.panels.pentest.read-only` |
 | Diagnostics | Vulnerabilities | `vulnerabilities` | `bootui.panels.vulnerabilities.enabled` | `bootui.panels.vulnerabilities.read-only` |
+| Diagnostics | Architecture | `architecture` | `bootui.panels.architecture.enabled` | `bootui.panels.architecture.read-only` |
 | Developer tools | DevTools | `devtools` | `bootui.panels.devtools.enabled` | `bootui.panels.devtools.read-only` |
 | Developer tools | Dev Services | `dev-services` | `bootui.panels.dev-services.enabled` | `bootui.panels.dev-services.read-only` |
 | Developer tools | Copilot | `copilot` | `bootui.panels.copilot.enabled` | Not applicable; view-only. |
@@ -146,6 +147,13 @@ Panel settings are consistent across the UI and API:
 | `bootui.heap-dump.output-dir` | `.bootui/heap-dumps` | Directory where captured heap dumps are written. |
 | `bootui.heap-dump.max-dumps` | `5` | Maximum number of heap dump files retained on disk. Oldest dumps are deleted first. |
 | `bootui.heap-dump.top-classes` | `25` | Number of top classes shown in the value-free class histogram. |
+
+### Architecture
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.architecture.enabled` | `true` | Show the ArchUnit architecture hygiene panel and its latest report. |
+| `bootui.panels.architecture.read-only` | `false` | Disable the on-demand architecture scan action. |
 
 ### DevTools
 

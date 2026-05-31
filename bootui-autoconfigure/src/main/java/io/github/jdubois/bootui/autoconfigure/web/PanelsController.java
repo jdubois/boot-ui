@@ -11,6 +11,7 @@ import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
+import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.micrometer.metrics.actuate.endpoint.MetricsEndpoint;
 import org.springframework.cache.CacheManager;
@@ -73,6 +74,7 @@ public class PanelsController {
                     BootUiPanels.VULNERABILITIES -> available();
             case BootUiPanels.HEAP_DUMP ->
                 availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
+            case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
             case BootUiPanels.HEALTH ->
                 availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");
             case BootUiPanels.METRICS ->
@@ -172,6 +174,18 @@ public class PanelsController {
 
     private boolean aiAvailable() {
         return properties.getTelemetry().isEnabled() && classPresent("org.springframework.ai.chat.client.ChatClient");
+    }
+
+    private boolean architectureAvailable() {
+        return classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
+                && AutoConfigurationPackages.has(applicationContext);
+    }
+
+    private String architectureUnavailableReason() {
+        if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
+            return "ArchUnit is not on the classpath";
+        }
+        return "No application base package was detected";
     }
 
     private String aiUnavailableReason() {
