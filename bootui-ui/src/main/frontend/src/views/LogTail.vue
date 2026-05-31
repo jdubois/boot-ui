@@ -1,6 +1,8 @@
 <script setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 
+const MAX_LINES = 2000
+
 const lines = ref([])
 const textFilter = ref('')
 const levelFilter = ref('ALL')
@@ -58,8 +60,8 @@ function connect() {
   eventSource.addEventListener('log', (event) => {
     const line = JSON.parse(event.data)
     lines.value.push(line)
-    if (lines.value.length > 500) {
-      lines.value.splice(0, lines.value.length - 500)
+    if (lines.value.length > MAX_LINES) {
+      lines.value.splice(0, lines.value.length - MAX_LINES)
     }
   })
   eventSource.onerror = () => {
