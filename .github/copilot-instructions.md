@@ -164,9 +164,12 @@ paths.
 The `0.1.0` stance is to harden **all visible panels**, not hide newer ones. Keep API, UI, docs, and
 Playwright coverage aligned for:
 
-- Overview, Startup Timeline, Memory, Health, Metrics, Conditions, Beans, Mappings, Configuration, Profile Diff,
-  Loggers, Log Tail, Traces, HTTP Probe, Copilot, DevTools, Dev Services, Scheduled Tasks, Data, Cache, AI Usage,
-  Security, and Vulnerabilities.
+- **Overview**: Overview
+- **Runtime**: Health, Metrics, Memory, Heap Dump, Startup Timeline
+- **Configuration**: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings
+- **Services**: Scheduled Tasks, Connection Pools, Data, Cache, Security, AI Usage
+- **Diagnostics**: Traces, Log Tail, HTTP Probe, Architecture, Pentesting, Vulnerabilities
+- **Developer Tools**: DevTools, Dev Services, Copilot, Claude Code
 - The router order in `bootui-ui/src/main/frontend/src/main.js`, `docs/FEATURES.md`, README feature table, and
   sample-app Playwright navigation tests should stay consistent when panels are added, renamed, hidden, or reordered.
 - New browser-facing behavior usually needs a stable DTO, controller tests where practical, Vue route/view updates,
@@ -181,8 +184,10 @@ Playwright coverage aligned for:
 
 ## Java conventions
 
-- Package root: `io.github.jdubois.bootui.<module>`. Controllers live in `...autoconfigure.web`, safety in
-  `...autoconfigure.safety`, override plumbing in `...autoconfigure.config`.
+- Package root: `io.github.jdubois.bootui.<module>`. Simple controllers live in `...autoconfigure.web`; more complex
+  features with their own backing services live in a dedicated sub-package (e.g., `...autoconfigure.architecture`,
+  `...autoconfigure.pentest`, `...autoconfigure.otlp`). Safety code is in `...autoconfigure.safety`, override plumbing
+  in `...autoconfigure.config`.
 - DTOs are immutable Java `record`s (Jackson-friendly with Spring Boot defaults — no annotations needed).
 - Compiler is configured with `-parameters` (root `pom.xml` `<parameters>true</parameters>`); rely on that for
   `@RequestBody`/`@PathVariable` binding without explicit `value=` attributes.
@@ -197,8 +202,8 @@ Playwright coverage aligned for:
   bootstrap-icons. No TypeScript yet (despite the spec; current code is plain `.js` / `.vue`).
 - API calls use **relative** paths (`fetch('api/overview')`) so they resolve against the `/bootui/` SPA base — do not
   hardcode `/bootui/api/...`.
-- New panel = add a `views/Xxx.vue`, register it in `src/main/frontend/src/main.js` with an `icon` + `title` in `meta`;
-  the sidebar in `App.vue` renders from `router.options.routes`.
+- New panel = add a `views/Xxx.vue`, register the route in `src/main/frontend/src/routes.js` with an `icon`, `title`,
+  and `group` in `meta`; the sidebar in `App.vue` renders from `router.options.routes`.
 - Frontend unit tests use Vitest with Vue Test Utils and jsdom. Add focused `*.test.js` coverage for reusable
   composables/components and UI logic where Playwright would be too broad or slow.
 - The Vite dev server proxies `/bootui/api/*` to the running sample app, but packaged assets must work from `/bootui/`
