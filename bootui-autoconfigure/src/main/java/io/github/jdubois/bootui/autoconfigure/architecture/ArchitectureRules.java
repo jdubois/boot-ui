@@ -251,7 +251,7 @@ final class ControllersShouldNotDependOnRepositoriesRule extends AbstractArchite
                 "ARCH-SPRING-002",
                 "Controllers should not depend on repositories",
                 ArchitectureCategory.SPRING_STEREOTYPES,
-                "MEDIUM",
+                "LOW",
                 "Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a service layer.",
                 "Introduce a service layer between controllers and repositories to keep web and persistence concerns separated."));
     }

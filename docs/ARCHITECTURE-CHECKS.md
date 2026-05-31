@@ -111,7 +111,7 @@ instances, and up to a handful of sample detail lines from ArchUnit.
 
 ### ARCH-SPRING-002 — Controllers should not depend on repositories
 
-- **Severity**: MEDIUM
+- **Severity**: LOW
 - **Inspects**: `@Controller` / `@RestController` classes that depend directly on `@Repository` beans.
 - **Fires when**: a controller references a repository, bypassing a service layer.
 - **Recommendation**: introduce a service layer between controllers and repositories to keep web and persistence
