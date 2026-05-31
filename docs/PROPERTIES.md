@@ -57,6 +57,7 @@ Panel settings are consistent across the UI and API:
 | Diagnostics | HTTP Probe | `http-probe` | `bootui.panels.http-probe.enabled` | `bootui.panels.http-probe.read-only` |
 | Diagnostics | Pentesting | `pentest` | `bootui.panels.pentest.enabled` | `bootui.panels.pentest.read-only` |
 | Diagnostics | Vulnerabilities | `vulnerabilities` | `bootui.panels.vulnerabilities.enabled` | `bootui.panels.vulnerabilities.read-only` |
+| Diagnostics | Architecture | `architecture` | `bootui.panels.architecture.enabled` | `bootui.panels.architecture.read-only` |
 | Developer tools | DevTools | `devtools` | `bootui.panels.devtools.enabled` | `bootui.panels.devtools.read-only` |
 | Developer tools | Dev Services | `dev-services` | `bootui.panels.dev-services.enabled` | `bootui.panels.dev-services.read-only` |
 | Developer tools | Copilot | `copilot` | `bootui.panels.copilot.enabled` | Not applicable; view-only. |
@@ -133,6 +134,13 @@ Panel settings are consistent across the UI and API:
 | `bootui.dependencies.request-timeout` | `10s` | Timeout for each OSV request. |
 | `bootui.dependencies.max-packages` | `250` | Maximum packages included in one OSV batch query. |
 | `bootui.dependencies.max-advisories` | `200` | Maximum advisory details fetched after a package query. |
+
+### Architecture
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.architecture.enabled` | `true` | Show the ArchUnit architecture hygiene panel and its latest report. |
+| `bootui.panels.architecture.read-only` | `false` | Disable the on-demand architecture scan action. |
 
 ### DevTools
 

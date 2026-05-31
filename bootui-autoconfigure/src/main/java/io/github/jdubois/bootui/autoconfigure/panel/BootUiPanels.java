@@ -34,6 +34,7 @@ public final class BootUiPanels {
     public static final String HTTP_PROBE = "http-probe";
     public static final String PENTEST = "pentest";
     public static final String VULNERABILITIES = "vulnerabilities";
+    public static final String ARCHITECTURE = "architecture";
     public static final String DEVTOOLS = "devtools";
     public static final String DEV_SERVICES = "dev-services";
     public static final String COPILOT = "copilot";
@@ -61,6 +62,7 @@ public final class BootUiPanels {
             new Panel(HTTP_PROBE, "HTTP Probe", true, "/probe"),
             new Panel(PENTEST, "Pentesting", true, "/pentest"),
             new Panel(VULNERABILITIES, "Vulnerabilities", true, "/dependencies"),
+            new Panel(ARCHITECTURE, "Architecture", true, "/architecture"),
             new Panel(DEVTOOLS, "DevTools", true, "/devtools"),
             new Panel(DEV_SERVICES, "Dev Services", true, "/dev-services"),
             new Panel(COPILOT, "Copilot", false, "/copilot"),
