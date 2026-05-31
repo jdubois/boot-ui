@@ -23,6 +23,16 @@ class HeapDumpServiceTests {
             Total          1600         108000
             """;
 
+    private static final String HISTOGRAM_WITH_LARGE_OBJECT = """
+             num     #instances         #bytes  class name (module)
+            -------------------------------------------------------
+               1:          1000          80000  [B (java.base@25)
+               2:           500          24000  java.lang.String (java.base@25)
+               3:           100           4000  java.util.HashMap$Node (java.base@25)
+               4:             1           5000  com.example.LargeCache (none)
+            Total          1601         113000
+            """;
+
     private BootUiProperties.HeapDump config() {
         return new BootUiProperties.HeapDump();
     }
@@ -35,6 +45,16 @@ class HeapDumpServiceTests {
                 () -> HISTOGRAM,
                 Clock.fixed(Instant.parse("2026-05-31T05:00:00Z"), ZoneOffset.UTC),
                 hotspot);
+    }
+
+    private HeapDumpService serviceWithHistogram(Path dir, String histogram) {
+        return new HeapDumpService(
+                config(),
+                dir,
+                (file, live) -> Files.writeString(file, "fake-hprof"),
+                () -> histogram,
+                Clock.fixed(Instant.parse("2026-05-31T05:00:00Z"), ZoneOffset.UTC),
+                true);
     }
 
     @Test
@@ -191,5 +211,44 @@ class HeapDumpServiceTests {
         assertThat(service.resolveExisting("missing.hprof")).isNull();
         assertThat(service.resolveExisting("evil.txt")).isNull();
         assertThat(service.resolveExisting(null)).isNull();
+    }
+
+    @Test
+    void bigObjectsSmartFilterSortsByBytesPerInstance(@TempDir Path dir) {
+        // HISTOGRAM_WITH_LARGE_OBJECT has com.example.LargeCache: 1 instance, 5000 bytes
+        // → 5000 bytes/instance, biggest per-object even though total bytes is small
+        HeapDumpService service = serviceWithHistogram(dir, HISTOGRAM_WITH_LARGE_OBJECT);
+        service.analyze();
+
+        HeapDumpReport report = service.report("", HeapDumpService.SMART_FILTER_BIG_OBJECTS);
+
+        assertThat(report.topClasses()).isNotEmpty();
+        assertThat(report.topClasses().get(0).className()).isEqualTo("com.example.LargeCache");
+        assertThat(report.topClasses().get(1).className()).isEqualTo("[B");
+        assertThat(report.topClasses().get(2).className()).isEqualTo("java.lang.String");
+    }
+
+    @Test
+    void collectionBloatSmartFilterReturnsOnlyCollectionClasses(@TempDir Path dir) {
+        // HISTOGRAM has java.util.HashMap$Node (collection inner class) plus [B and java.lang.String
+        HeapDumpService service = service(config(), dir, true);
+        service.analyze();
+
+        HeapDumpReport report = service.report("", HeapDumpService.SMART_FILTER_COLLECTION_BLOAT);
+
+        assertThat(report.topClasses()).hasSize(1);
+        assertThat(report.topClasses().get(0).className()).isEqualTo("java.util.HashMap$Node");
+    }
+
+    @Test
+    void smartFilterAndPrefixFilterCombine(@TempDir Path dir) {
+        HeapDumpService service = serviceWithHistogram(dir, HISTOGRAM_WITH_LARGE_OBJECT);
+        service.analyze();
+
+        // big-objects + text prefix "java" should return only java.lang.String (rank 3 per-instance)
+        HeapDumpReport report = service.report("java", HeapDumpService.SMART_FILTER_BIG_OBJECTS);
+
+        assertThat(report.topClasses()).hasSize(1);
+        assertThat(report.topClasses().get(0).className()).isEqualTo("java.lang.String");
     }
 }

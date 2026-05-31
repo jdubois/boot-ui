@@ -12,6 +12,7 @@ const actionMessage = ref(null)
 const loading = ref(false)
 const live = ref(true)
 const filter = ref('')
+const smartFilter = ref('')
 let filterTimer = null
 
 const statusClasses = {
@@ -22,18 +23,40 @@ const statusClasses = {
 }
 
 const hasHistogram = computed(() => (report.value?.topClasses?.length ?? 0) > 0)
-const maxClassBytes = computed(() => {
+
+function barValue(entry) {
+  if (smartFilter.value === 'big-objects' && entry.instances > 0) {
+    return entry.bytes / entry.instances
+  }
+  return entry.bytes
+}
+
+const maxBarValue = computed(() => {
   if (!hasHistogram.value) return 1
-  return Math.max(1, ...report.value.topClasses.map((entry) => entry.bytes))
+  return Math.max(1, ...report.value.topClasses.map(barValue))
+})
+
+const histogramTitle = computed(() => {
+  if (smartFilter.value === 'big-objects') return 'Top classes by bytes per object'
+  if (smartFilter.value === 'collection-bloat') return 'Collection classes by retained size'
+  return 'Top classes by retained size'
 })
 
 function statusClass(status) {
   return statusClasses[status] || 'text-bg-light border text-dark'
 }
 
-function classWidth(bytes) {
-  if (!bytes) return '0%'
-  return `${Math.max(3, (bytes / maxClassBytes.value) * 100)}%`
+function classWidth(entry) {
+  const v = barValue(entry)
+  if (!v) return '0%'
+  return `${Math.max(3, (v / maxBarValue.value) * 100)}%`
+}
+
+function barLabel(entry) {
+  if (smartFilter.value === 'big-objects' && entry.instances > 0) {
+    return formatBytes(Math.round(entry.bytes / entry.instances)) + '/obj'
+  }
+  return formatBytes(entry.bytes)
 }
 
 function formatBytes(bytes) {
@@ -65,9 +88,11 @@ function formatTime(epochMs) {
 
 async function loadReport() {
   try {
-    const url = filter.value.trim()
-      ? 'api/heap-dump?filter=' + encodeURIComponent(filter.value.trim())
-      : 'api/heap-dump'
+    const params = new URLSearchParams()
+    if (filter.value.trim()) params.set('filter', filter.value.trim())
+    if (smartFilter.value) params.set('smartFilter', smartFilter.value)
+    const qs = params.toString()
+    const url = qs ? 'api/heap-dump?' + qs : 'api/heap-dump'
     const res = await fetch(url)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
@@ -126,6 +151,11 @@ function showReadOnlyMessage() {
 function scheduleFilterReload() {
   clearTimeout(filterTimer)
   filterTimer = setTimeout(loadReport, 250)
+}
+
+function toggleSmartFilter(name) {
+  smartFilter.value = smartFilter.value === name ? '' : name
+  loadReport()
 }
 
 onMounted(loadReport)
@@ -221,12 +251,32 @@ onMounted(loadReport)
         <div class="col-lg-8">
           <div class="card h-100">
             <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-              <span class="fw-semibold">Top classes by retained size</span>
+              <span class="fw-semibold">{{ histogramTitle }}</span>
               <div class="d-flex flex-wrap align-items-center gap-2">
                 <span v-if="hasHistogram" class="small text-muted">
                   {{ formatNumber(report.histogramTotalInstances) }} objects ·
                   {{ formatBytes(report.histogramTotalBytes) }}
                 </span>
+                <button
+                  :disabled="!hasHistogram"
+                  class="btn btn-sm"
+                  :class="smartFilter === 'big-objects' ? 'btn-warning' : 'btn-outline-warning'"
+                  type="button"
+                  title="Sort by bytes per object — surfaces classes with unusually large individual instances"
+                  @click="toggleSmartFilter('big-objects')"
+                >
+                  Big objects
+                </button>
+                <button
+                  :disabled="!hasHistogram"
+                  class="btn btn-sm"
+                  :class="smartFilter === 'collection-bloat' ? 'btn-info' : 'btn-outline-info'"
+                  type="button"
+                  title="Show only Java collection classes — detects unbounded caches or excessive data loads"
+                  @click="toggleSmartFilter('collection-bloat')"
+                >
+                  Collection bloat
+                </button>
                 <input
                   v-model="filter"
                   :disabled="!hasHistogram"
@@ -250,7 +300,7 @@ onMounted(loadReport)
                     <th scope="col" class="text-end">#</th>
                     <th scope="col">Class</th>
                     <th scope="col" class="text-end">Instances</th>
-                    <th scope="col" class="w-25">Retained</th>
+                    <th scope="col" class="w-25">{{ smartFilter === 'big-objects' ? 'Per object' : 'Retained' }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -263,11 +313,11 @@ onMounted(loadReport)
                         <div
                           class="progress flex-grow-1"
                           role="img"
-                          :aria-label="`${entry.className}: ${formatBytes(entry.bytes)}`"
+                          :aria-label="`${entry.className}: ${barLabel(entry)}`"
                         >
-                          <div class="progress-bar text-bg-primary" :style="{width: classWidth(entry.bytes)}"></div>
+                          <div class="progress-bar text-bg-primary" :style="{width: classWidth(entry)}"></div>
                         </div>
-                        <span class="small text-muted text-nowrap">{{ formatBytes(entry.bytes) }}</span>
+                        <span class="small text-muted text-nowrap">{{ barLabel(entry) }}</span>
                       </div>
                     </td>
                   </tr>

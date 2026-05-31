@@ -46,6 +46,31 @@ public class HeapDumpService {
     private static final String STATUS_ANALYZED = "ANALYZED";
     private static final String STATUS_ERROR = "ERROR";
 
+    /** Smart filter: re-sort classes by bytes-per-instance descending. */
+    static final String SMART_FILTER_BIG_OBJECTS = "big-objects";
+
+    /** Smart filter: keep only JDK collection and map classes. */
+    static final String SMART_FILTER_COLLECTION_BLOAT = "collection-bloat";
+
+    private static final List<String> COLLECTION_CLASS_PREFIXES = List.of(
+            "java.util.ArrayList",
+            "java.util.LinkedList",
+            "java.util.HashMap",
+            "java.util.LinkedHashMap",
+            "java.util.TreeMap",
+            "java.util.IdentityHashMap",
+            "java.util.WeakHashMap",
+            "java.util.HashSet",
+            "java.util.LinkedHashSet",
+            "java.util.TreeSet",
+            "java.util.ArrayDeque",
+            "java.util.PriorityQueue",
+            "java.util.concurrent.ConcurrentHashMap",
+            "java.util.concurrent.CopyOnWriteArrayList",
+            "java.util.concurrent.CopyOnWriteArraySet",
+            "java.util.concurrent.LinkedBlockingQueue",
+            "java.util.concurrent.ArrayBlockingQueue");
+
     @FunctionalInterface
     interface HeapDumper {
         void dump(Path file, boolean live) throws Exception;
@@ -106,11 +131,15 @@ public class HeapDumpService {
     }
 
     public HeapDumpReport report() {
-        return buildReport(null);
+        return buildReport(null, null);
     }
 
     public HeapDumpReport report(String filter) {
-        return buildReport(filter);
+        return buildReport(filter, null);
+    }
+
+    public HeapDumpReport report(String filter, String smartFilter) {
+        return buildReport(filter, smartFilter);
     }
 
     public synchronized HeapDumpReport capture(boolean live) {
@@ -133,7 +162,7 @@ public class HeapDumpService {
             refreshHistogram();
             this.status = new HeapDumpCaptureStatusDto(
                     STATUS_CAPTURED, file.getFileName().toString(), now());
-            return buildReport(null);
+            return buildReport(null, null);
         } catch (Exception ex) {
             return errorReport("Heap dump capture failed: " + rootMessage(ex));
         }
@@ -147,7 +176,7 @@ public class HeapDumpService {
             refreshHistogram();
             this.status =
                     new HeapDumpCaptureStatusDto(STATUS_ANALYZED, "Live heap analyzed without writing a dump", now());
-            return buildReport(null);
+            return buildReport(null, null);
         } catch (Exception ex) {
             return errorReport("Heap analysis failed: " + rootMessage(ex));
         }
@@ -160,7 +189,7 @@ public class HeapDumpService {
         }
         try {
             Files.deleteIfExists(file);
-            return buildReport(null);
+            return buildReport(null, null);
         } catch (IOException ex) {
             return errorReport("Failed to delete heap dump: " + rootMessage(ex));
         }
@@ -187,9 +216,9 @@ public class HeapDumpService {
         }
     }
 
-    private HeapDumpReport buildReport(String filter) {
+    private HeapDumpReport buildReport(String filter, String smartFilter) {
         List<HeapDumpFileDto> dumps = listDumps();
-        List<HeapClassHistogramEntryDto> displayed = filteredTopClasses(allClasses, filter);
+        List<HeapClassHistogramEntryDto> displayed = filteredTopClasses(allClasses, filter, smartFilter);
         return new HeapDumpReport(
                 hotspotAvailable,
                 config.isCaptureEnabled(),
@@ -206,14 +235,16 @@ public class HeapDumpService {
                 displayed);
     }
 
-    private List<HeapClassHistogramEntryDto> filteredTopClasses(List<HeapClassHistogramEntryDto> all, String filter) {
+    private List<HeapClassHistogramEntryDto> filteredTopClasses(
+            List<HeapClassHistogramEntryDto> all, String filter, String smartFilter) {
         int limit = Math.max(1, config.getTopClasses());
+        List<HeapClassHistogramEntryDto> base = applySmartFilter(all, smartFilter);
         if (filter == null || filter.isBlank()) {
-            return all.subList(0, Math.min(limit, all.size()));
+            return base.subList(0, Math.min(limit, base.size()));
         }
         String prefix = filter.trim();
         List<HeapClassHistogramEntryDto> matched = new ArrayList<>();
-        for (HeapClassHistogramEntryDto entry : all) {
+        for (HeapClassHistogramEntryDto entry : base) {
             if (entry.className().startsWith(prefix)) {
                 matched.add(entry);
                 if (matched.size() == limit) {
@@ -224,9 +255,34 @@ public class HeapDumpService {
         return List.copyOf(matched);
     }
 
+    private List<HeapClassHistogramEntryDto> applySmartFilter(
+            List<HeapClassHistogramEntryDto> all, String smartFilter) {
+        if (SMART_FILTER_BIG_OBJECTS.equals(smartFilter)) {
+            return all.stream()
+                    .filter(e -> e.instances() > 0)
+                    .sorted(Comparator.comparingDouble(
+                                    (HeapClassHistogramEntryDto e) -> (double) e.bytes() / e.instances())
+                            .reversed())
+                    .toList();
+        }
+        if (SMART_FILTER_COLLECTION_BLOAT.equals(smartFilter)) {
+            return all.stream().filter(e -> isCollectionClass(e.className())).toList();
+        }
+        return all;
+    }
+
+    private static boolean isCollectionClass(String className) {
+        for (String prefix : COLLECTION_CLASS_PREFIXES) {
+            if (className.equals(prefix) || className.startsWith(prefix + "$")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private HeapDumpReport errorReport(String message) {
         this.status = new HeapDumpCaptureStatusDto(STATUS_ERROR, message, now());
-        return buildReport(null);
+        return buildReport(null, null);
     }
 
     private List<HeapDumpFileDto> listDumps() {
