@@ -218,6 +218,15 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void lazyControllersCanBeInstantiated() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            // Importing a controller with multiple constructors but no @Autowired marker leaves the
+            // container unable to pick one, which only surfaces when the lazy bean is first used.
+            assertThat(context.getBean(HeapDumpController.class)).isNotNull();
+        });
+    }
+
+    @Test
     void copilotAndClaudeCodeSessionStoresAreLazy(@TempDir Path tempDir) {
         runner.withPropertyValues(
                         "bootui.enabled=ON",

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.HeapDumpReport;
 import java.nio.file.Path;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +30,7 @@ public class HeapDumpController {
     private final HeapDumpService service;
     private final BootUiProperties.HeapDump config;
 
+    @Autowired
     public HeapDumpController(BootUiProperties properties) {
         this(new HeapDumpService(properties.getHeapDump()), properties.getHeapDump());
     }
