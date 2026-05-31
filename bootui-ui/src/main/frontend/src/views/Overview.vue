@@ -73,6 +73,7 @@ const quickLinks = [
 
 async function load() {
   if (injectedOverview?.value) {
+    error.value = null
     data.value = injectedOverview.value
     loading.value = false
     return
