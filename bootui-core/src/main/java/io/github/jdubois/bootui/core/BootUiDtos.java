@@ -706,6 +706,45 @@ public final class BootUiDtos {
             String error) {}
 
     /**
+     * One captured heap dump file on local disk.
+     */
+    public record HeapDumpFileDto(String name, long sizeBytes, long createdAtEpochMs, boolean live) {}
+
+    /**
+     * One class entry from a JVM class histogram, sorted by retained bytes.
+     *
+     * <p>Only class names and aggregate sizes are exposed; object field values are never
+     * read, so secrets held in live objects are not disclosed by this view.</p>
+     */
+    public record HeapClassHistogramEntryDto(int rank, String className, long instances, long bytes) {}
+
+    /**
+     * Metadata about the most recent heap dump capture or live-heap analysis action.
+     */
+    public record HeapDumpCaptureStatusDto(String status, String message, Long capturedAtEpochMs) {}
+
+    /**
+     * Top-level report for the Heap Dump diagnostics panel.
+     *
+     * <p>The class histogram is computed only by explicit capture/analyze actions (each of
+     * which triggers a full GC); passive reads return the last computed histogram.</p>
+     */
+    public record HeapDumpReport(
+            boolean hotspotAvailable,
+            boolean captureEnabled,
+            boolean rawDownloadEnabled,
+            String outputDirectory,
+            int maxDumps,
+            int dumpCount,
+            long liveHeapUsedBytes,
+            long freeDiskBytes,
+            HeapDumpCaptureStatusDto capture,
+            List<HeapDumpFileDto> dumps,
+            long histogramTotalInstances,
+            long histogramTotalBytes,
+            List<HeapClassHistogramEntryDto> topClasses) {}
+
+    /**
      * A host/container port mapping exposed by a local development service.
      */
     public record DevServicePortDto(Integer containerPort, Integer hostPort, String protocol) {}

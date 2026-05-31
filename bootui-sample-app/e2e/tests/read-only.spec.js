@@ -24,10 +24,16 @@ test.describe('Read-only properties', () => {
       const panels = await fetchPanels(request, app.baseUrl)
       const overviewPanel = panels.find((panel) => panel.id === 'overview')
       const probePanel = panels.find((panel) => panel.id === 'http-probe')
+      const heapDumpPanel = panels.find((panel) => panel.id === 'heap-dump')
 
       expect(overviewPanel?.readOnly).toBe(false)
       expect(probePanel).toMatchObject({
         id: 'http-probe',
+        readOnly: true,
+        readOnlyReason: 'BootUI is read-only via bootui.read-only=true'
+      })
+      expect(heapDumpPanel).toMatchObject({
+        id: 'heap-dump',
         readOnly: true,
         readOnlyReason: 'BootUI is read-only via bootui.read-only=true'
       })
@@ -38,7 +44,12 @@ test.describe('Read-only properties', () => {
       expect(probeResponse.status()).toBe(403)
       await assertBlockedPanelAccess(probeResponse, 'http-probe', 'BootUI is read-only via bootui.read-only=true')
 
+      const heapDumpResponse = await request.post(`${app.baseUrl}/bootui/api/heap-dump/capture`)
+      expect(heapDumpResponse.status()).toBe(403)
+      await assertBlockedPanelAccess(heapDumpResponse, 'heap-dump', 'BootUI is read-only via bootui.read-only=true')
+
       await assertHttpProbeReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
+      await assertHeapDumpReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
     } finally {
       await app.stop()
     }
@@ -104,6 +115,26 @@ async function assertHttpProbeReadOnly(page, baseUrl, reason) {
   await expect(page.locator('.panel-read-only-alert')).toContainText(reason)
   await expect(page.locator('.alert-warning', {hasText: 'HTTP probes are read-only'})).toContainText(reason)
   await expect(page.locator('button.btn-primary', {hasText: 'Send'})).toBeDisabled()
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ * @param {string} baseUrl
+ * @param {string} reason
+ */
+async function assertHeapDumpReadOnly(page, baseUrl, reason) {
+  await page.goto(`${baseUrl}/bootui/#/heap-dump`)
+  await expect(
+    page
+      .locator('main h2')
+      .filter({hasText: /^Heap Dump/})
+      .first()
+  ).toBeVisible()
+
+  await expect(page.locator('.panel-read-only-alert')).toContainText('Panel read-only')
+  await expect(page.locator('.panel-read-only-alert')).toContainText(reason)
+  await expect(page.getByRole('button', {name: /Capture heap dump/})).toBeDisabled()
+  await expect(page.getByRole('button', {name: 'Analyze live heap'})).toBeDisabled()
 }
 
 /**

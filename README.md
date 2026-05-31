@@ -24,6 +24,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Runtime         | [Health](docs/FEATURES.md#health)                     | Explore the Actuator health tree and contributor details.                                                     |
 | Runtime         | [Metrics](docs/FEATURES.md#metrics)                   | Browse Micrometer meters, tags, measurements, and a local live chart for selected metrics.                    |
 | Runtime         | [Memory](docs/FEATURES.md#memory)                     | Review JVM heap, non-heap, memory pools, garbage collectors, and suggested JVM options.                       |
+| Runtime         | [Heap Dump](docs/FEATURES.md#heap-dump)               | Capture local JVM heap dumps on demand and analyze a value-free class histogram of memory usage.             |
 | Runtime         | [Startup Timeline](docs/FEATURES.md#startup-timeline) | Inspect Spring Boot startup steps and durations when startup data is available.                               |
 | Configuration   | [Configuration](docs/FEATURES.md#configuration)       | Inspect effective configuration values, metadata, masking, and local runtime overrides.                       |
 | Configuration   | [Profile Diff](docs/FEATURES.md#profile-diff)         | Compare profile-specific property sources and values while preserving secret masking.                         |

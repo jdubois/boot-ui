@@ -171,6 +171,7 @@ class BootUiAutoConfigurationTests {
                             HealthController.class,
                             HikariController.class,
                             HttpProbeController.class,
+                            HeapDumpController.class,
                             LoggersController.class,
                             MappingsController.class,
                             MemoryController.class,
@@ -217,6 +218,15 @@ class BootUiAutoConfigurationTests {
                                     assertThat(mappingInfo.getPatternValues()).contains("/bootui/api/overview"));
                     assertThat(beanFactory.containsSingleton(overviewBeanName)).isFalse();
                 });
+    }
+
+    @Test
+    void lazyControllersCanBeInstantiated() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            // Importing a controller with multiple constructors but no @Autowired marker leaves the
+            // container unable to pick one, which only surfaces when the lazy bean is first used.
+            assertThat(context.getBean(HeapDumpController.class)).isNotNull();
+        });
     }
 
     @Test

@@ -10,6 +10,7 @@ describe('routes', () => {
       'Health',
       'Metrics',
       'Memory',
+      'Heap Dump',
       'Startup Timeline',
       'Configuration',
       'Profile Diff',
@@ -64,6 +65,7 @@ describe('routes', () => {
 
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
       groups.overview,
+      groups.runtime,
       groups.runtime,
       groups.runtime,
       groups.runtime,
