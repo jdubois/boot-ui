@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, reactive, ref, watch} from 'vue'
+import {computed, onMounted, provide, reactive, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 
 const router = useRouter()
@@ -8,6 +8,8 @@ const overview = ref(null)
 const panels = ref(null)
 const error = ref(null)
 const sidebarCollapsed = ref(localStorage.getItem('bootui.sidebar.collapsed') === 'true')
+
+provide('overview', overview)
 
 watch(sidebarCollapsed, (v) => localStorage.setItem('bootui.sidebar.collapsed', v))
 

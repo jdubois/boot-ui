@@ -1,6 +1,7 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, inject, onMounted, ref} from 'vue'
 
+const injectedOverview = inject('overview', null)
 const data = ref(null)
 const loading = ref(true)
 const error = ref(null)
@@ -71,6 +72,11 @@ const quickLinks = [
 ]
 
 async function load() {
+  if (injectedOverview?.value) {
+    data.value = injectedOverview.value
+    loading.value = false
+    return
+  }
   loading.value = true
   error.value = null
   try {
