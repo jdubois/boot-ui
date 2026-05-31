@@ -1595,7 +1595,7 @@ try {
 
   for (const [route, title, fileName, prepare] of selectedScreenshots) {
     await page.goto(`${baseUrl}/bootui/#/${route}`)
-    await page.locator('.page-heading h2').filter({hasText: title}).first().waitFor()
+    await page.locator('main .page-panel h2').first().waitFor()
     await prepare(page)
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.waitForTimeout(250)
