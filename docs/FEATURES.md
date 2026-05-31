@@ -236,7 +236,8 @@ the last report.
 
 Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
 starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
-rule is registered with a stable identifier, category, severity, and recommendation. See
+rule is registered with a stable identifier, category, severity, and recommendation; the rule results list shows only
+violating rules, sorted by severity and violation count. See
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
 
 ![BootUI Architecture panel](images/bootui-architecture.png)

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Comparator;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +34,7 @@ class ArchitectureScannerTests {
     }
 
     @Test
-    void scanEvaluatesAllRulesAndDetectsStandardStreamViolation() {
+    void scanEvaluatesAllRulesAndReturnsOnlyViolationsOrderedByImportance() {
         ArchitectureReport report = scanner(List.of(FIXTURES)).scan();
 
         assertThat(report.scan().status()).isEqualTo("SCANNED");
@@ -41,7 +42,16 @@ class ArchitectureScannerTests {
         assertThat(report.rulesEvaluated())
                 .isEqualTo(ArchitectureRuleRegistry.activeRules().size());
         assertThat(report.classesAnalyzed()).isPositive();
-        assertThat(report.results()).extracting(ArchitectureRuleResultDto::id).contains("ARCH-CODE-001");
+        assertThat(report.results())
+                .allSatisfy(result -> assertThat(result.status()).isEqualTo("VIOLATION"));
+        assertThat(report.results())
+                .extracting(ArchitectureRuleResultDto::id)
+                .contains("ARCH-SPRING-004", "ARCH-SPRING-001", "ARCH-CODE-001")
+                .doesNotContain("ARCH-CODE-004");
+        assertThat(report.results().stream()
+                        .map(ArchitectureRuleResultDto::severity)
+                        .toList())
+                .isSortedAccordingTo(Comparator.comparingInt(ArchitectureScannerTests::severityRank));
 
         ArchitectureRuleResultDto standardStreams = report.results().stream()
                 .filter(result -> result.id().equals("ARCH-CODE-001"))
@@ -64,5 +74,9 @@ class ArchitectureScannerTests {
         assertThat(report.rulesEvaluated()).isZero();
         assertThat(report.results()).isEmpty();
         assertThat(report.violationsFound()).isZero();
+    }
+
+    private static int severityRank(String severity) {
+        return List.of("HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
     }
 }

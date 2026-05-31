@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureScanStatusDto;
 import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureSeverityCountDto;
 import java.time.Clock;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,11 @@ final class ArchitectureScanner {
                     + "These checks complement, but do not replace, a project-specific ArchUnit test suite or an "
                     + "architecture review.";
     private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
+    private static final Comparator<ArchitectureRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
+                    (ArchitectureRuleResultDto result) -> severityRank(result.severity()))
+            .thenComparing(Comparator.comparingInt(ArchitectureRuleResultDto::violationCount)
+                    .reversed())
+            .thenComparing(ArchitectureRuleResultDto::id);
 
     private final Supplier<List<String>> basePackagesSupplier;
     private final ArchitectureClassImporter importer;
@@ -123,8 +129,8 @@ final class ArchitectureScanner {
             int classesAnalyzed,
             int rulesEvaluated,
             List<ArchitectureRuleResultDto> results) {
-        int violationsFound =
-                (int) results.stream().filter(ArchitectureScanner::isViolation).count();
+        List<ArchitectureRuleResultDto> violations = violationResults(results);
+        int violationsFound = violations.size();
         ArchitectureScanStatusDto scan = new ArchitectureScanStatusDto(
                 ANALYZER, status, message, scannedAt, rulesEvaluated, classesAnalyzed, violationsFound);
         return new ArchitectureReport(
@@ -134,9 +140,9 @@ final class ArchitectureScanner {
                 classesAnalyzed,
                 rulesEvaluated,
                 violationsFound,
-                severityCounts(results),
+                severityCounts(violations),
                 scan,
-                results);
+                violations);
     }
 
     private List<ArchitectureSeverityCountDto> severityCounts(List<ArchitectureRuleResultDto> results) {
@@ -152,6 +158,18 @@ final class ArchitectureScanner {
         return counts.entrySet().stream()
                 .map(entry -> new ArchitectureSeverityCountDto(entry.getKey(), entry.getValue()))
                 .toList();
+    }
+
+    private List<ArchitectureRuleResultDto> violationResults(List<ArchitectureRuleResultDto> results) {
+        return results.stream()
+                .filter(ArchitectureScanner::isViolation)
+                .sorted(IMPORTANCE_ORDER)
+                .toList();
+    }
+
+    private static int severityRank(String severity) {
+        int index = SEVERITIES.indexOf(severity);
+        return index >= 0 ? index : SEVERITIES.size();
     }
 
     private static boolean isViolation(ArchitectureRuleResultDto result) {

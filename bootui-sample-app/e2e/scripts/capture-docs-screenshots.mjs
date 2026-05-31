@@ -1082,119 +1082,15 @@ const architecture = {
   },
   results: [
     architectureResult(
-      'ARCH-PKG-001',
-      'Packages should be free of cycles',
-      'Package structure',
-      'MEDIUM',
-      'Detects cyclic dependencies between the top-level package slices under the application base package.',
-      'VIOLATION',
-      2,
-      [
-        'Cycle between slices: io.github.jdubois.bootui.sample.catalog -> io.github.jdubois.bootui.sample.order',
-        'Cycle between slices: io.github.jdubois.bootui.sample.order -> io.github.jdubois.bootui.sample.catalog'
-      ],
-      'Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph.'
-    ),
-    architectureResult(
-      'ARCH-CODE-001',
-      'Classes should not access standard streams',
-      'Coding practices',
-      'LOW',
-      'Detects direct use of System.out or System.err instead of a logging framework.',
-      'PASS',
-      0,
-      [],
-      'Replace System.out / System.err with a logging framework such as SLF4J.'
-    ),
-    architectureResult(
-      'ARCH-CODE-002',
-      'Classes should not throw generic exceptions',
-      'Coding practices',
-      'LOW',
-      'Detects throwing of generic exception types such as Exception, RuntimeException, or Throwable.',
-      'PASS',
-      0,
-      [],
-      'Throw specific, meaningful exception types instead of generic ones.'
-    ),
-    architectureResult(
-      'ARCH-CODE-003',
-      'Classes should not use java.util.logging',
-      'Coding practices',
-      'LOW',
-      'Detects direct use of java.util.logging instead of the project logging facade.',
-      'PASS',
-      0,
-      [],
-      'Use the project logging facade (for example SLF4J) instead of java.util.logging.'
-    ),
-    architectureResult(
-      'ARCH-CODE-004',
-      'Classes should not use Joda-Time',
-      'Coding practices',
-      'INFO',
-      'Detects use of the legacy Joda-Time library instead of the java.time API.',
-      'PASS',
-      0,
-      [],
-      'Migrate to the java.time API instead of Joda-Time.'
-    ),
-    architectureResult(
-      'ARCH-CODE-005',
-      'Classes should not call Throwable.printStackTrace()',
-      'Coding practices',
-      'LOW',
-      'Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.',
+      'ARCH-SPRING-004',
+      'Beans should not self-invoke their own proxied methods',
+      'Spring stereotypes',
+      'HIGH',
+      'Detects direct self-invocation of @Transactional, @Async, or @Cacheable methods, which bypasses the Spring proxy and silently disables the behaviour.',
       'VIOLATION',
       1,
-      [
-        'io.github.jdubois.bootui.sample.order.OrderService.process(OrderService.java:58) calls Throwable.printStackTrace()'
-      ],
-      'Log the exception through the project logging facade instead of calling printStackTrace().'
-    ),
-    architectureResult(
-      'ARCH-CODE-006',
-      'Classes should not call System.exit',
-      'Coding practices',
-      'MEDIUM',
-      'Detects calls to System.exit(int), which abruptly terminate the JVM and bypass orderly shutdown.',
-      'PASS',
-      0,
-      [],
-      'Signal failure through exceptions or a Spring exit code generator instead of System.exit.'
-    ),
-    architectureResult(
-      'ARCH-CODE-007',
-      'Classes should not access JDK-internal APIs',
-      'Coding practices',
-      'LOW',
-      'Detects dependencies on unsupported JDK-internal packages such as sun.., com.sun.., or jdk.internal...',
-      'PASS',
-      0,
-      [],
-      'Replace JDK-internal API usage with supported public APIs.'
-    ),
-    architectureResult(
-      'ARCH-CODE-008',
-      'Classes should not use legacy date and time classes',
-      'Coding practices',
-      'INFO',
-      'Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or java.sql date types.',
-      'PASS',
-      0,
-      [],
-      'Use the java.time API instead of legacy date/time classes.'
-    ),
-    architectureResult(
-      'ARCH-CODE-009',
-      'Classes should not use deprecated APIs',
-      'Coding practices',
-      'INFO',
-      'Detects access to members or types annotated with @Deprecated.',
-      'PASS',
-      0,
-      [],
-      'Migrate off the deprecated API to its documented replacement.'
+      ['io.github.jdubois.bootui.sample.order.OrderService.placeOrder() self-invokes @Transactional method confirm()'],
+      'Move the proxied method to a collaborating bean or inject a self-reference so the Spring proxy is applied.'
     ),
     architectureResult(
       'ARCH-SPRING-001',
@@ -1212,48 +1108,31 @@ const architecture = {
       'Inject collaborators through the constructor instead of annotating fields.'
     ),
     architectureResult(
-      'ARCH-SPRING-002',
-      'Controllers should not depend on repositories',
-      'Spring stereotypes',
-      'LOW',
-      'Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a service layer.',
-      'PASS',
-      0,
-      [],
-      'Route controller calls through a service layer rather than depending on repositories directly.'
-    ),
-    architectureResult(
-      'ARCH-SPRING-003',
-      'Repositories should not depend on controllers',
-      'Spring stereotypes',
+      'ARCH-PKG-001',
+      'Packages should be free of cycles',
+      'Package structure',
       'MEDIUM',
-      'Detects @Repository beans that depend on @Controller / @RestController classes, inverting the expected layering.',
-      'PASS',
-      0,
-      [],
-      'Remove controller dependencies from repositories to keep layering directional.'
+      'Detects cyclic dependencies between the top-level package slices under the application base package.',
+      'VIOLATION',
+      2,
+      [
+        'Cycle between slices: io.github.jdubois.bootui.sample.catalog -> io.github.jdubois.bootui.sample.order',
+        'Cycle between slices: io.github.jdubois.bootui.sample.order -> io.github.jdubois.bootui.sample.catalog'
+      ],
+      'Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph.'
     ),
     architectureResult(
-      'ARCH-SPRING-004',
-      'Beans should not self-invoke their own proxied methods',
-      'Spring stereotypes',
-      'HIGH',
-      'Detects direct self-invocation of @Transactional, @Async, or @Cacheable methods, which bypasses the Spring proxy and silently disables the behaviour.',
+      'ARCH-CODE-005',
+      'Classes should not call Throwable.printStackTrace()',
+      'Coding practices',
+      'LOW',
+      'Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.',
       'VIOLATION',
       1,
-      ['io.github.jdubois.bootui.sample.order.OrderService.placeOrder() self-invokes @Transactional method confirm()'],
-      'Move the proxied method to a collaborating bean or inject a self-reference so the Spring proxy is applied.'
-    ),
-    architectureResult(
-      'ARCH-SPRING-005',
-      'Spring stereotypes should not reside in the default package',
-      'Spring stereotypes',
-      'MEDIUM',
-      'Detects @Component / @Service / @Repository / @Controller / @Configuration classes in the default (unnamed) package.',
-      'PASS',
-      0,
-      [],
-      'Place Spring stereotypes in a named package so component scanning is predictable.'
+      [
+        'io.github.jdubois.bootui.sample.order.OrderService.process(OrderService.java:58) calls Throwable.printStackTrace()'
+      ],
+      'Log the exception through the project logging facade instead of calling printStackTrace().'
     )
   ]
 }
