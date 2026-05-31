@@ -15,6 +15,7 @@ const allPanelLinks = [
   {id: 'conditions', title: 'Conditions', heading: /Auto-configuration conditions/},
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
+  {id: 'hikari', title: 'Connection Pools', heading: /Connection Pools/},
   {id: 'data', title: 'Data', heading: /Spring Data repositories/},
   {id: 'cache', title: 'Cache', heading: /Spring Cache/},
   {id: 'security', title: 'Security', heading: /Spring Security/},
@@ -87,7 +88,7 @@ test.describe('BootUI app shell', () => {
     const groups = [
       {title: 'Runtime', count: 5},
       {title: 'Configuration', count: 6},
-      {title: 'Services', count: 5},
+      {title: 'Services', count: 6},
       {title: 'Diagnostics', count: 6},
       {title: 'Developer tools', count: 4}
     ]
@@ -98,9 +99,10 @@ test.describe('BootUI app shell', () => {
       await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Runtime' ? 'true' : 'false')
     }
 
-    await page.getByRole('button', {name: /Services\s+5/}).click()
+    await page.getByRole('button', {name: /Services\s+6/}).click()
     await expect(page.getByRole('group', {name: 'Services panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Scheduled Tasks',
+      'Connection Pools',
       'Data',
       'Cache',
       'Security',

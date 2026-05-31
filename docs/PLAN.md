@@ -153,7 +153,7 @@ The visible-route parity check is current. The sample-app Playwright suite cover
 1. Overview.
 2. Runtime: Health, Metrics, Memory, Startup Timeline.
 3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
-4. Services: Scheduled Tasks, Data, Cache, Security, AI Usage.
+4. Services: Scheduled Tasks, Connection Pools, Data, Cache, Security, AI Usage.
 5. Diagnostics: Traces, Log Tail, HTTP Probe, Pentesting, Vulnerabilities.
 6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
 7. Disabled / unavailable grouping for unavailable non-overview panels.
@@ -368,6 +368,9 @@ Scope:
 - Add HikariCP connection-pool visibility as the first database-pool slice after the AI Usage extraction, plus
   Elasticsearch, Flyway/Liquibase, and MongoDB. The HikariCP work is intentionally implementation-specific for this
   release; generic JDBC/R2DBC pool support can be revisited after the Hikari UX and DTO shape are proven.
+  - HikariCP connection-pool visibility shipped (read-only **Connection Pools** panel with a live saturation chart,
+    masked JDBC metadata, and fail-closed behavior). It currently lives in `bootui-autoconfigure` and will move behind
+    the `services/` SPI with the other Services entries. Elasticsearch, Flyway/Liquibase, and MongoDB remain pending.
 - Put all first-party service extensions under a top-level `services/` Maven directory, with one Maven submodule per
   service, for example:
   - `services/bootui-service-scheduled`

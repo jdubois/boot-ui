@@ -99,6 +99,7 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
+            case BootUiPanels.HIKARI -> availability(hikariAvailable(), hikariUnavailableReason());
             case BootUiPanels.CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
             case BootUiPanels.SECURITY ->
@@ -174,6 +175,27 @@ public class PanelsController {
 
     private boolean aiAvailable() {
         return properties.getTelemetry().isEnabled() && classPresent("org.springframework.ai.chat.client.ChatClient");
+    }
+
+    private boolean hikariAvailable() {
+        return classPresent("com.zaxxer.hikari.HikariDataSource") && hikariDataSourceBeanPresent();
+    }
+
+    private boolean hikariDataSourceBeanPresent() {
+        try {
+            Class<?> type = ClassUtils.forName(
+                    "com.zaxxer.hikari.HikariDataSource", getClass().getClassLoader());
+            return beanPresent(type);
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
+    private String hikariUnavailableReason() {
+        if (!classPresent("com.zaxxer.hikari.HikariDataSource")) {
+            return "HikariCP not on the classpath";
+        }
+        return "No HikariDataSource beans are available";
     }
 
     private boolean architectureAvailable() {

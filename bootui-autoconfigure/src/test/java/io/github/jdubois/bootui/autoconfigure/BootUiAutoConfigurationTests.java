@@ -169,6 +169,7 @@ class BootUiAutoConfigurationTests {
                             DependenciesController.class,
                             DevToolsController.class,
                             HealthController.class,
+                            HikariController.class,
                             HttpProbeController.class,
                             HeapDumpController.class,
                             LoggersController.class,
@@ -269,6 +270,7 @@ class BootUiAutoConfigurationTests {
                 .run(context -> assertThat(context)
                         .hasSingleBean(CacheController.class)
                         .hasSingleBean(DataController.class)
+                        .hasSingleBean(HikariController.class)
                         .hasSingleBean(LogTailController.class)
                         .hasSingleBean(ScheduledController.class)
                         .hasSingleBean(SecurityController.class));
@@ -279,6 +281,13 @@ class BootUiAutoConfigurationTests {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("org.springframework.data.repository.core.support"))
                 .run(context -> assertThat(context).doesNotHaveBean(DataController.class));
+    }
+
+    @Test
+    void skipsHikariPanelWhenHikariCpIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("com.zaxxer.hikari.HikariDataSource"))
+                .run(context -> assertThat(context).doesNotHaveBean(HikariController.class));
     }
 
     @Test

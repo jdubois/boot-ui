@@ -133,6 +133,15 @@ trigger metadata so background activity is visible during local development.
 
 ![BootUI Scheduled Tasks panel](images/bootui-scheduled-tasks.png)
 
+### Connection Pools
+
+The Connection Pools panel inspects HikariCP `HikariDataSource` beans. It is read-only and fails closed when HikariCP is
+not on the classpath or no pool beans are present. For each pool it shows the pool identity, masked JDBC URL and
+username, driver, min/max sizing, and timeout/lifetime settings, and surfaces a clear unavailable reason for closed or
+uninitialized pools. A local live chart polls bounded snapshots of active, idle, total, and pending connections every two
+seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
+pools, and generic JDBC/R2DBC pools are out of scope for now.
+
 ### Data
 
 The Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
