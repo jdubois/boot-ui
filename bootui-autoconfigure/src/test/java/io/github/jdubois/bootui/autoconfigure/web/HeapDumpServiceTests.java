@@ -57,7 +57,8 @@ class HeapDumpServiceTests {
         HeapDumpReport filtered = service.report("java.lang");
         assertThat(filtered.topClasses()).hasSize(1);
         assertThat(filtered.topClasses().get(0).className()).isEqualTo("java.lang.String");
-        assertThat(filtered.topClasses().get(0).rank()).isEqualTo(1);
+        // rank is preserved from the full heap-wide ordering (java.lang.String is rank 2)
+        assertThat(filtered.topClasses().get(0).rank()).isEqualTo(2);
     }
 
     @Test
@@ -84,8 +85,8 @@ class HeapDumpServiceTests {
         HeapDumpService service = service(config(), dir, true);
         service.analyze();
 
-        assertThat(service.report("").topClasses()).hasSize(service.report().topClasses().size());
-        assertThat(service.report("   ").topClasses()).hasSize(service.report().topClasses().size());
+        assertThat(service.report("").topClasses()).isEqualTo(service.report().topClasses());
+        assertThat(service.report("   ").topClasses()).isEqualTo(service.report().topClasses());
     }
 
     @Test

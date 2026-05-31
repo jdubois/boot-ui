@@ -213,10 +213,9 @@ public class HeapDumpService {
         }
         String prefix = filter.trim();
         List<HeapClassHistogramEntryDto> matched = new ArrayList<>();
-        int rank = 1;
         for (HeapClassHistogramEntryDto entry : all) {
             if (entry.className().startsWith(prefix)) {
-                matched.add(new HeapClassHistogramEntryDto(rank++, entry.className(), entry.instances(), entry.bytes()));
+                matched.add(entry);
                 if (matched.size() == limit) {
                     break;
                 }
