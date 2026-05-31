@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 
@@ -14,6 +14,7 @@ const live = ref(true)
 const filter = ref('')
 const smartFilter = ref('')
 let filterTimer = null
+let reportRequestId = 0
 
 const statusClasses = {
   CAPTURED: 'text-bg-success',
@@ -22,7 +23,13 @@ const statusClasses = {
   ERROR: 'text-bg-danger'
 }
 
-const hasHistogram = computed(() => (report.value?.topClasses?.length ?? 0) > 0)
+const hasVisibleClasses = computed(() => (report.value?.topClasses?.length ?? 0) > 0)
+const hasHistogram = computed(() => {
+  const current = report.value
+  return (
+    hasVisibleClasses.value || (current?.histogramTotalInstances ?? 0) > 0 || (current?.histogramTotalBytes ?? 0) > 0
+  )
+})
 
 function barValue(entry) {
   if (smartFilter.value === 'big-objects' && entry.instances > 0) {
@@ -32,7 +39,7 @@ function barValue(entry) {
 }
 
 const maxBarValue = computed(() => {
-  if (!hasHistogram.value) return 1
+  if (!hasVisibleClasses.value) return 1
   return Math.max(1, ...report.value.topClasses.map(barValue))
 })
 
@@ -86,7 +93,8 @@ function formatTime(epochMs) {
   })
 }
 
-async function loadReport() {
+async function loadReport(options = {}) {
+  const requestId = options.requestId || ++reportRequestId
   try {
     const params = new URLSearchParams()
     if (filter.value.trim()) params.set('filter', filter.value.trim())
@@ -95,10 +103,12 @@ async function loadReport() {
     const url = qs ? 'api/heap-dump?' + qs : 'api/heap-dump'
     const res = await fetch(url)
     if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    const next = await res.json()
+    if (requestId !== reportRequestId) return
+    report.value = next
     error.value = null
   } catch (e) {
-    error.value = e.message
+    if (requestId === reportRequestId) error.value = e.message
   }
 }
 
@@ -149,8 +159,10 @@ function showReadOnlyMessage() {
 }
 
 function scheduleFilterReload() {
+  reportRequestId += 1
+  const requestId = reportRequestId
   clearTimeout(filterTimer)
-  filterTimer = setTimeout(loadReport, 250)
+  filterTimer = setTimeout(() => loadReport({requestId}), 250)
 }
 
 function toggleSmartFilter(name) {
@@ -159,6 +171,11 @@ function toggleSmartFilter(name) {
 }
 
 onMounted(loadReport)
+
+onBeforeUnmount(() => {
+  clearTimeout(filterTimer)
+  reportRequestId += 1
+})
 </script>
 
 <template>
@@ -293,6 +310,11 @@ onMounted(loadReport)
                 <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>
                 <div class="fw-semibold text-body">No heap analysis yet</div>
                 <div>Use "Analyze live heap" or "Capture heap dump" to compute a class histogram.</div>
+              </div>
+              <div v-else-if="!hasVisibleClasses" class="text-center text-muted py-4">
+                <i class="bi bi-search fs-2 d-block mb-2"></i>
+                <div class="fw-semibold text-body">No classes match the current filter</div>
+                <div>Clear the class prefix filter or turn off the smart filter to show matching classes.</div>
               </div>
               <table v-else class="table table-sm align-middle mb-0">
                 <thead>
