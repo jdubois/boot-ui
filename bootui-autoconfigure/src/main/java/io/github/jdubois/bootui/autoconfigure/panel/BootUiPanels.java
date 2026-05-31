@@ -26,6 +26,7 @@ public final class BootUiPanels {
     public static final String CONDITIONS = "conditions";
     public static final String MAPPINGS = "mappings";
     public static final String DATA = "data";
+    public static final String HIKARI = "hikari";
     public static final String CACHE = "cache";
     public static final String SECURITY = "security";
     public static final String AI = "ai";
@@ -53,6 +54,7 @@ public final class BootUiPanels {
             new Panel(CONDITIONS, "Conditions", false, "/conditions"),
             new Panel(MAPPINGS, "Mappings", false, "/mappings"),
             new Panel(DATA, "Data", false, "/data"),
+            new Panel(HIKARI, "Connection Pools", false, "/hikari"),
             new Panel(CACHE, "Cache", true, "/cache"),
             new Panel(SECURITY, "Security", false, "/security"),
             new Panel(AI, "AI Usage", false, "/ai"),

@@ -344,6 +344,39 @@ public final class BootUiDtos {
             List<String> warnings) {}
 
     /**
+     * Live connection counts for one HikariCP pool at a point in time.
+     */
+    public record HikariPoolSnapshotDto(long timestamp, int active, int idle, int total, int pending) {}
+
+    /**
+     * One HikariCP {@code HikariDataSource} bean, its (masked) connection metadata,
+     * sizing and timeout settings, and the latest pool snapshot when reachable.
+     */
+    public record HikariPoolDto(
+            String beanName,
+            String poolName,
+            String jdbcUrl,
+            String username,
+            String driverClassName,
+            int minimumIdle,
+            int maximumPoolSize,
+            long connectionTimeoutMs,
+            long idleTimeoutMs,
+            long maxLifetimeMs,
+            long validationTimeoutMs,
+            long keepaliveTimeMs,
+            boolean readOnly,
+            boolean autoCommit,
+            boolean available,
+            String unavailableReason,
+            HikariPoolSnapshotDto snapshot) {}
+
+    /**
+     * Top-level HikariCP connection-pool report.
+     */
+    public record HikariPoolsReport(boolean hikariPresent, int total, List<HikariPoolDto> pools) {}
+
+    /**
      * Request to clear one cache or every known cache.
      */
     public record CacheClearRequest(String managerName, String cacheName, Boolean all, Boolean confirm) {}
