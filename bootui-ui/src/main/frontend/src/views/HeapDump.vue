@@ -11,6 +11,8 @@ const error = ref(null)
 const actionMessage = ref(null)
 const loading = ref(false)
 const live = ref(true)
+const filter = ref('')
+let filterTimer = null
 
 const statusClasses = {
   CAPTURED: 'text-bg-success',
@@ -63,7 +65,10 @@ function formatTime(epochMs) {
 
 async function loadReport() {
   try {
-    const res = await fetch('api/heap-dump')
+    const url = filter.value.trim()
+      ? 'api/heap-dump?filter=' + encodeURIComponent(filter.value.trim())
+      : 'api/heap-dump'
+    const res = await fetch(url)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     error.value = null
@@ -86,7 +91,7 @@ async function runAction(path, body) {
     }
     const res = await apiFetch(path, init)
     if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    await loadReport()
     error.value = null
   } catch (e) {
     error.value = e.message
@@ -116,6 +121,11 @@ function showReadOnlyMessage() {
   setTimeout(() => {
     actionMessage.value = null
   }, 6000)
+}
+
+function scheduleFilterReload() {
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(loadReport, 250)
 }
 
 onMounted(loadReport)
@@ -212,10 +222,21 @@ onMounted(loadReport)
           <div class="card h-100">
             <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
               <span class="fw-semibold">Top classes by retained size</span>
-              <span v-if="hasHistogram" class="small text-muted">
-                {{ formatNumber(report.histogramTotalInstances) }} objects ·
-                {{ formatBytes(report.histogramTotalBytes) }}
-              </span>
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span v-if="hasHistogram" class="small text-muted">
+                  {{ formatNumber(report.histogramTotalInstances) }} objects ·
+                  {{ formatBytes(report.histogramTotalBytes) }}
+                </span>
+                <input
+                  v-model="filter"
+                  :disabled="!hasHistogram"
+                  class="form-control form-control-sm"
+                  style="width: 220px"
+                  type="text"
+                  placeholder="Filter by class prefix…"
+                  @input="scheduleFilterReload"
+                />
+              </div>
             </div>
             <div class="card-body">
               <div v-if="!hasHistogram" class="text-center text-muted py-4">

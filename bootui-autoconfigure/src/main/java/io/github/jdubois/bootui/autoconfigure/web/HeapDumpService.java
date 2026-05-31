@@ -64,7 +64,7 @@ public class HeapDumpService {
     private final boolean hotspotAvailable;
 
     private volatile HeapDumpCaptureStatusDto status = new HeapDumpCaptureStatusDto(STATUS_NOT_CAPTURED, null, null);
-    private volatile List<HeapClassHistogramEntryDto> topClasses = List.of();
+    private volatile List<HeapClassHistogramEntryDto> allClasses = List.of();
     private volatile long histogramTotalInstances;
     private volatile long histogramTotalBytes;
 
@@ -106,7 +106,11 @@ public class HeapDumpService {
     }
 
     public HeapDumpReport report() {
-        return buildReport();
+        return buildReport(null);
+    }
+
+    public HeapDumpReport report(String filter) {
+        return buildReport(filter);
     }
 
     public synchronized HeapDumpReport capture(boolean live) {
@@ -129,7 +133,7 @@ public class HeapDumpService {
             refreshHistogram();
             this.status = new HeapDumpCaptureStatusDto(
                     STATUS_CAPTURED, file.getFileName().toString(), now());
-            return buildReport();
+            return buildReport(null);
         } catch (Exception ex) {
             return errorReport("Heap dump capture failed: " + rootMessage(ex));
         }
@@ -143,7 +147,7 @@ public class HeapDumpService {
             refreshHistogram();
             this.status =
                     new HeapDumpCaptureStatusDto(STATUS_ANALYZED, "Live heap analyzed without writing a dump", now());
-            return buildReport();
+            return buildReport(null);
         } catch (Exception ex) {
             return errorReport("Heap analysis failed: " + rootMessage(ex));
         }
@@ -156,7 +160,7 @@ public class HeapDumpService {
         }
         try {
             Files.deleteIfExists(file);
-            return buildReport();
+            return buildReport(null);
         } catch (IOException ex) {
             return errorReport("Failed to delete heap dump: " + rootMessage(ex));
         }
@@ -183,8 +187,9 @@ public class HeapDumpService {
         }
     }
 
-    private HeapDumpReport buildReport() {
+    private HeapDumpReport buildReport(String filter) {
         List<HeapDumpFileDto> dumps = listDumps();
+        List<HeapClassHistogramEntryDto> displayed = filteredTopClasses(allClasses, filter);
         return new HeapDumpReport(
                 hotspotAvailable,
                 config.isCaptureEnabled(),
@@ -198,12 +203,31 @@ public class HeapDumpService {
                 dumps,
                 histogramTotalInstances,
                 histogramTotalBytes,
-                topClasses);
+                displayed);
+    }
+
+    private List<HeapClassHistogramEntryDto> filteredTopClasses(List<HeapClassHistogramEntryDto> all, String filter) {
+        int limit = Math.max(1, config.getTopClasses());
+        if (filter == null || filter.isBlank()) {
+            return all.subList(0, Math.min(limit, all.size()));
+        }
+        String prefix = filter.trim();
+        List<HeapClassHistogramEntryDto> matched = new ArrayList<>();
+        int rank = 1;
+        for (HeapClassHistogramEntryDto entry : all) {
+            if (entry.className().startsWith(prefix)) {
+                matched.add(new HeapClassHistogramEntryDto(rank++, entry.className(), entry.instances(), entry.bytes()));
+                if (matched.size() == limit) {
+                    break;
+                }
+            }
+        }
+        return List.copyOf(matched);
     }
 
     private HeapDumpReport errorReport(String message) {
         this.status = new HeapDumpCaptureStatusDto(STATUS_ERROR, message, now());
-        return buildReport();
+        return buildReport(null);
     }
 
     private List<HeapDumpFileDto> listDumps() {
@@ -267,8 +291,7 @@ public class HeapDumpService {
             totalInstances += entry.instances();
             totalBytes += entry.bytes();
         }
-        int limit = Math.max(1, config.getTopClasses());
-        this.topClasses = List.copyOf(all.subList(0, Math.min(limit, all.size())));
+        this.allClasses = List.copyOf(all);
         this.histogramTotalInstances = totalInstances;
         this.histogramTotalBytes = totalBytes;
     }

@@ -33,6 +33,19 @@ class HeapDumpControllerTests {
     }
 
     @Test
+    void reportWithFilterReturnsFilteredClasses(@TempDir Path dir) throws Exception {
+        BootUiProperties.HeapDump config = new BootUiProperties.HeapDump();
+        HeapDumpService service = service(config, dir);
+        service.analyze();
+
+        mvc(service, config)
+                .perform(get("/bootui/api/heap-dump").param("filter", "java.lang"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.topClasses.length()").value(1))
+                .andExpect(jsonPath("$.topClasses[0].className").value("java.lang.String"));
+    }
+
+    @Test
     void reportReturnsState(@TempDir Path dir) throws Exception {
         BootUiProperties.HeapDump config = new BootUiProperties.HeapDump();
         mvc(service(config, dir), config)

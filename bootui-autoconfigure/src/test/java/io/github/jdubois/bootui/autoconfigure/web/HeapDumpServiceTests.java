@@ -50,6 +50,45 @@ class HeapDumpServiceTests {
     }
 
     @Test
+    void filterByPrefixReturnsOnlyMatchingClasses(@TempDir Path dir) {
+        HeapDumpService service = service(config(), dir, true);
+        service.analyze();
+
+        HeapDumpReport filtered = service.report("java.lang");
+        assertThat(filtered.topClasses()).hasSize(1);
+        assertThat(filtered.topClasses().get(0).className()).isEqualTo("java.lang.String");
+        assertThat(filtered.topClasses().get(0).rank()).isEqualTo(1);
+    }
+
+    @Test
+    void filterWithNoMatchReturnsEmptyList(@TempDir Path dir) {
+        HeapDumpService service = service(config(), dir, true);
+        service.analyze();
+
+        HeapDumpReport filtered = service.report("com.myapp");
+        assertThat(filtered.topClasses()).isEmpty();
+    }
+
+    @Test
+    void filterDoesNotAffectHistogramTotals(@TempDir Path dir) {
+        HeapDumpService service = service(config(), dir, true);
+        HeapDumpReport full = service.analyze();
+
+        HeapDumpReport filtered = service.report("java.lang");
+        assertThat(filtered.histogramTotalInstances()).isEqualTo(full.histogramTotalInstances());
+        assertThat(filtered.histogramTotalBytes()).isEqualTo(full.histogramTotalBytes());
+    }
+
+    @Test
+    void blankFilterReturnsSameAsNoFilter(@TempDir Path dir) {
+        HeapDumpService service = service(config(), dir, true);
+        service.analyze();
+
+        assertThat(service.report("").topClasses()).hasSize(service.report().topClasses().size());
+        assertThat(service.report("   ").topClasses()).hasSize(service.report().topClasses().size());
+    }
+
+    @Test
     void analyzeBuildsHistogramSortedByRetainedSize(@TempDir Path dir) {
         HeapDumpReport report = service(config(), dir, true).analyze();
 
