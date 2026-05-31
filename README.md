@@ -71,6 +71,35 @@ a collapsed Disabled / unavailable group, and opening a dimmed panel shows the u
 </dependency>
 ```
 
+For stable releases, keep using Maven Central coordinates above.
+
+For pre-release snapshots, use JitPack:
+
+```xml
+<repositories>
+  <repository>
+    <id>jitpack.io</id>
+    <url>https://jitpack.io</url>
+  </repository>
+</repositories>
+```
+
+JitPack coordinates for this multi-module repository:
+
+- Maven Central uses `com.julien-dubois.bootui`; JitPack uses `com.github.jdubois.boot-ui`.
+- `com.github.jdubois.boot-ui:bootui-core:<version>`
+- `com.github.jdubois.boot-ui:bootui-autoconfigure:<version>`
+- `com.github.jdubois.boot-ui:bootui-ui:<version>`
+- `com.github.jdubois.boot-ui:bootui-spring-boot-starter:<version>`
+
+Snapshot version strategy:
+
+- quick branch snapshots: `main-SNAPSHOT` (or `<branch>-SNAPSHOT`)
+- immutable snapshots (recommended): `snapshot-YYYYMMDD-HHMMSS-<runId>-<sha7>`
+
+This repository automatically creates immutable `snapshot-*` tags on each push to `main` through
+`.github/workflows/jitpack-snapshots.yml`, and warms the JitPack build so artifacts are available quickly.
+
 ### 3) Run your app in development mode
 
 ```bash

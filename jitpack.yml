@@ -1,0 +1,5 @@
+jdk:
+  - openjdk25
+
+install:
+  - ./mvnw -B -ntp clean install

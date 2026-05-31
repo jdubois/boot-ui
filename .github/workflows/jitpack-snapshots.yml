@@ -1,0 +1,41 @@
+name: JitPack Snapshots
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot-tag:
+    name: Create immutable snapshot tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Create and push snapshot tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="snapshot-$(date -u +'%Y%m%d-%H%M%S')-${GITHUB_RUN_ID}-${GITHUB_SHA::7}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "JitPack snapshot for ${GITHUB_SHA}"
+          git push origin "$TAG"
+          echo "SNAPSHOT_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Warm JitPack build
+        run: |
+          url="https://jitpack.io/com/github/jdubois/boot-ui/${SNAPSHOT_TAG}/build.log"
+          http_code="$(curl -sS -L -o /tmp/jitpack-build.log -w '%{http_code}' "$url" || true)"
+          if [[ "$http_code" =~ ^2 ]]; then
+            echo "JitPack warm-up request succeeded (${http_code})."
+          else
+            echo "JitPack warm-up request returned HTTP ${http_code:-n/a}."
+            tail -n 20 /tmp/jitpack-build.log || true
+          fi
