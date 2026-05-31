@@ -7,8 +7,7 @@ package io.github.jdubois.bootui.autoconfigure.architecture;
 enum ArchitectureCategory {
     PACKAGE_STRUCTURE("Package structure"),
     CODING_PRACTICES("Coding practices"),
-    SPRING_STEREOTYPES("Spring stereotypes"),
-    NAMING("Naming and placement");
+    SPRING_STEREOTYPES("Spring stereotypes");
 
     private final String label;
 

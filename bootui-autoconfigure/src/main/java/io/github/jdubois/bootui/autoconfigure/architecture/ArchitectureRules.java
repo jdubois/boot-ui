@@ -5,10 +5,13 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.properties.CanBeAnnotated;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
 import com.tngtech.archunit.library.GeneralCodingRules;
+import com.tngtech.archunit.library.ProxyRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
 import java.util.ArrayList;
@@ -63,6 +66,13 @@ final class SpringStereotypes {
     static final String CONTROLLER = "org.springframework.stereotype.Controller";
     static final String REST_CONTROLLER = "org.springframework.web.bind.annotation.RestController";
     static final String REPOSITORY = "org.springframework.stereotype.Repository";
+    static final String COMPONENT = "org.springframework.stereotype.Component";
+    static final String SERVICE = "org.springframework.stereotype.Service";
+    static final String CONFIGURATION = "org.springframework.context.annotation.Configuration";
+
+    static final String TRANSACTIONAL = "org.springframework.transaction.annotation.Transactional";
+    static final String ASYNC = "org.springframework.scheduling.annotation.Async";
+    static final String CACHEABLE = "org.springframework.cache.annotation.Cacheable";
 
     static final DescribedPredicate<CanBeAnnotated> CONTROLLER_ANNOTATED = annotatedWith(CONTROLLER)
             .or(annotatedWith(REST_CONTROLLER))
@@ -70,6 +80,19 @@ final class SpringStereotypes {
 
     static final DescribedPredicate<CanBeAnnotated> REPOSITORY_ANNOTATED =
             annotatedWith(REPOSITORY).as("annotated with @Repository");
+
+    static final DescribedPredicate<CanBeAnnotated> STEREOTYPE_ANNOTATED = annotatedWith(COMPONENT)
+            .or(annotatedWith(SERVICE))
+            .or(annotatedWith(REPOSITORY))
+            .or(annotatedWith(CONTROLLER))
+            .or(annotatedWith(REST_CONTROLLER))
+            .or(annotatedWith(CONFIGURATION))
+            .as("annotated with a Spring stereotype");
+
+    static final DescribedPredicate<CanBeAnnotated> PROXIED_METHOD_ANNOTATED = annotatedWith(TRANSACTIONAL)
+            .or(annotatedWith(ASYNC))
+            .or(annotatedWith(CACHEABLE))
+            .as("annotated with @Transactional, @Async, or @Cacheable");
 
     private SpringStereotypes() {}
 }
@@ -219,6 +242,128 @@ final class NoJodaTimeRule extends AbstractArchitectureRule {
 }
 
 /**
+ * Flags calls to {@code Throwable.printStackTrace()}, which writes to the standard error stream and
+ * bypasses structured logging.
+ */
+final class NoPrintStackTraceRule extends AbstractArchitectureRule {
+
+    NoPrintStackTraceRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-005",
+                "Classes should not call Throwable.printStackTrace()",
+                ArchitectureCategory.CODING_PRACTICES,
+                "LOW",
+                "Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.",
+                "Log the exception through the project logging facade (e.g. SLF4J) instead of calling printStackTrace()."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>(
+                        "Throwable.printStackTrace() is called") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        return target.getName().equals("printStackTrace")
+                                && target.getOwner().isAssignableTo(Throwable.class);
+                    }
+                })
+                .as("Classes should not call Throwable.printStackTrace()");
+    }
+}
+
+/**
+ * Flags calls to {@code System.exit(int)}, which abruptly terminates the JVM.
+ */
+final class NoSystemExitRule extends AbstractArchitectureRule {
+
+    NoSystemExitRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-006",
+                "Classes should not call System.exit",
+                ArchitectureCategory.CODING_PRACTICES,
+                "MEDIUM",
+                "Detects calls to System.exit(int), which abruptly terminate the JVM and bypass orderly shutdown.",
+                "Let the container or application framework manage the lifecycle instead of calling System.exit()."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses().should().callMethod(System.class, "exit", int.class);
+    }
+}
+
+/**
+ * Flags dependencies on unsupported JDK-internal packages ({@code sun..}, {@code com.sun..},
+ * {@code jdk.internal..}), which are not part of the public API and may change or disappear.
+ */
+final class NoJdkInternalApiRule extends AbstractArchitectureRule {
+
+    NoJdkInternalApiRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-007",
+                "Classes should not access JDK-internal APIs",
+                ArchitectureCategory.CODING_PRACTICES,
+                "LOW",
+                "Detects dependencies on unsupported JDK-internal packages such as sun.., com.sun.., or jdk.internal...",
+                "Depend only on public, supported APIs so the code stays portable across JDK versions."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .should()
+                .dependOnClassesThat()
+                .resideInAnyPackage("sun..", "com.sun..", "jdk.internal..");
+    }
+}
+
+/**
+ * Flags use of the legacy {@code java.util.Date} / {@code Calendar} family instead of
+ * {@code java.time}.
+ */
+final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
+
+    NoLegacyDateTimeRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-008",
+                "Classes should not use legacy date and time classes",
+                ArchitectureCategory.CODING_PRACTICES,
+                "INFO",
+                "Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or java.sql date types.",
+                "Prefer the java.time API (LocalDate, Instant, ZonedDateTime, ...) for clearer, immutable date/time handling."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED;
+    }
+}
+
+/**
+ * Flags use of APIs marked {@code @Deprecated}.
+ */
+final class NoDeprecatedApiRule extends AbstractArchitectureRule {
+
+    NoDeprecatedApiRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-009",
+                "Classes should not use deprecated APIs",
+                ArchitectureCategory.CODING_PRACTICES,
+                "INFO",
+                "Detects access to members or types annotated with @Deprecated.",
+                "Migrate to the recommended replacement API; deprecated members may be removed in future releases."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return GeneralCodingRules.DEPRECATED_API_SHOULD_NOT_BE_USED;
+    }
+}
+
+/**
  * Flags field injection ({@code @Autowired} / {@code @Inject} / {@code @Value} / {@code @Resource}
  * on fields), which hampers testability and hides required dependencies.
  */
@@ -290,27 +435,51 @@ final class RepositoriesShouldNotDependOnControllersRule extends AbstractArchite
 }
 
 /**
- * Flags {@code *Controller} classes that live outside a {@code web} / {@code controller} /
- * {@code rest} package, a naming/placement convention smell.
+ * Flags Spring beans that invoke their own {@code @Transactional} / {@code @Async} /
+ * {@code @Cacheable} methods directly ({@code this.method()}), which bypasses the Spring proxy so
+ * the transaction, async, or caching behaviour is silently lost.
  */
-final class ControllerNamingRule extends AbstractArchitectureRule {
+final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRule {
 
-    ControllerNamingRule() {
+    NoSelfInvocationOfProxiedMethodsRule() {
         super(new ArchitectureRuleDefinition(
-                "ARCH-NAME-001",
-                "Controllers should reside in a web or controller package",
-                ArchitectureCategory.NAMING,
-                "INFO",
-                "Detects classes named *Controller that do not reside in a ..web.., ..controller.., or ..rest.. package.",
-                "Place controller classes in a dedicated web/controller package so the package layout reflects the architecture."));
+                "ARCH-SPRING-004",
+                "Beans should not self-invoke their own proxied methods",
+                ArchitectureCategory.SPRING_STEREOTYPES,
+                "HIGH",
+                "Detects direct self-invocation of @Transactional, @Async, or @Cacheable methods, which bypasses the Spring proxy and silently disables the behaviour.",
+                "Move the proxied method to a separate bean (or inject a self-reference) so the call goes through the Spring proxy."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return ProxyRules.no_classes_should_directly_call_other_methods_declared_in_the_same_class_that(
+                SpringStereotypes.PROXIED_METHOD_ANNOTATED);
+    }
+}
+
+/**
+ * Flags Spring stereotype beans that reside in the default (unnamed) package, where component
+ * scanning does not work reliably.
+ */
+final class StereotypesShouldNotResideInDefaultPackageRule extends AbstractArchitectureRule {
+
+    StereotypesShouldNotResideInDefaultPackageRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-SPRING-005",
+                "Spring stereotypes should not reside in the default package",
+                ArchitectureCategory.SPRING_STEREOTYPES,
+                "MEDIUM",
+                "Detects @Component / @Service / @Repository / @Controller / @Configuration classes in the default (unnamed) package.",
+                "Move Spring stereotype beans into a named package so component scanning and proxying work as expected."));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return classes()
-                .that()
-                .haveSimpleNameEndingWith("Controller")
+                .that(SpringStereotypes.STEREOTYPE_ANNOTATED)
                 .should()
-                .resideInAnyPackage("..web..", "..controller..", "..rest..");
+                .haveNameMatching(".*\\..*")
+                .as("Spring stereotypes should not reside in the default package");
     }
 }

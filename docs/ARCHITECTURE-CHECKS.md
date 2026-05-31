@@ -45,7 +45,7 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
 - **MEDIUM** — weakens maintainability or layering and usually warrants a fix (e.g. package cycles, field injection,
   layering inversions).
 - **LOW** — defense-in-depth / hygiene gap (e.g. standard-stream use, generic exceptions, `java.util.logging`).
-- **INFO** — informational convention prompt (e.g. naming/placement, legacy library use).
+- **INFO** — informational convention prompt (e.g. legacy library use, deprecated APIs).
 
 Each rule result is reported with a status (`PASS`, `VIOLATION`, `SKIPPED`, or `ERROR`), the number of violating
 instances, and up to a handful of sample detail lines from ArchUnit.
@@ -98,6 +98,45 @@ instances, and up to a handful of sample detail lines from ArchUnit.
 - **Fires when**: a class references Joda-Time types instead of `java.time`.
 - **Recommendation**: migrate Joda-Time usage to the standard `java.time` API.
 
+### ARCH-CODE-005 — Classes should not call Throwable.printStackTrace()
+
+- **Severity**: LOW
+- **Inspects**: calls to `Throwable.printStackTrace()` on any exception type.
+- **Fires when**: a class calls `printStackTrace()` instead of logging the exception.
+- **Recommendation**: log the exception through the project logging facade (e.g. SLF4J) so the stack trace is structured
+  and configurable.
+
+### ARCH-CODE-006 — Classes should not call System.exit
+
+- **Severity**: MEDIUM
+- **Inspects**: calls to `System.exit(int)`.
+- **Fires when**: a class abruptly terminates the JVM instead of letting the framework manage shutdown.
+- **Recommendation**: let the container or application framework manage the lifecycle instead of calling
+  `System.exit()`.
+
+### ARCH-CODE-007 — Classes should not access JDK-internal APIs
+
+- **Severity**: LOW
+- **Inspects**: dependencies on unsupported JDK-internal packages such as `sun..`, `com.sun..`, or `jdk.internal..`.
+- **Fires when**: a class depends on a non-public JDK-internal type.
+- **Recommendation**: depend only on public, supported APIs so the code stays portable across JDK versions.
+
+### ARCH-CODE-008 — Classes should not use legacy date and time classes
+
+- **Severity**: INFO
+- **Inspects**: use of legacy date/time classes such as `java.util.Date`, `Calendar`, `GregorianCalendar`, or
+  `java.sql` date types (via ArchUnit's `GeneralCodingRules`).
+- **Fires when**: a class references one of the legacy date/time types instead of `java.time`.
+- **Recommendation**: prefer the `java.time` API (`LocalDate`, `Instant`, `ZonedDateTime`, ...) for clearer, immutable
+  date/time handling.
+
+### ARCH-CODE-009 — Classes should not use deprecated APIs
+
+- **Severity**: INFO
+- **Inspects**: access to members or types annotated with `@Deprecated` (via ArchUnit's `GeneralCodingRules`).
+- **Fires when**: a class references a deprecated API.
+- **Recommendation**: migrate to the recommended replacement API; deprecated members may be removed in future releases.
+
 ## Spring stereotypes
 
 ### ARCH-SPRING-001 — Classes should not use field injection
@@ -125,12 +164,22 @@ instances, and up to a handful of sample detail lines from ArchUnit.
 - **Recommendation**: keep persistence code free of web concerns; dependencies should flow from controllers toward
   repositories, not back.
 
-## Naming
+### ARCH-SPRING-004 — Beans should not self-invoke their own proxied methods
 
-### ARCH-NAME-001 — Controllers should reside in a web or controller package
+- **Severity**: HIGH
+- **Inspects**: direct self-invocation (`this.method()`) of methods annotated with `@Transactional`, `@Async`, or
+  `@Cacheable`.
+- **Fires when**: a bean calls one of its own proxied methods directly, bypassing the Spring proxy.
+- **Why it matters**: the transaction, async execution, or caching behaviour is silently lost because the call never
+  passes through the proxy — a real correctness bug, not just a style issue.
+- **Recommendation**: move the proxied method to a separate bean (or inject a self-reference) so the call goes through
+  the Spring proxy.
 
-- **Severity**: INFO
-- **Inspects**: classes whose simple name ends with `Controller`.
-- **Fires when**: such a class does not reside in a `..web..`, `..controller..`, or `..rest..` package.
-- **Recommendation**: place controller classes in a dedicated web/controller package so the package layout reflects the
-  architecture.
+### ARCH-SPRING-005 — Spring stereotypes should not reside in the default package
+
+- **Severity**: MEDIUM
+- **Inspects**: `@Component` / `@Service` / `@Repository` / `@Controller` / `@Configuration` classes in the default
+  (unnamed) package.
+- **Fires when**: a stereotype-annotated class has no package declaration.
+- **Recommendation**: move Spring stereotype beans into a named package so component scanning and proxying work as
+  expected.

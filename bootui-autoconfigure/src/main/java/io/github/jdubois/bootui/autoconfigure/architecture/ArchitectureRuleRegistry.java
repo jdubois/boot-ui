@@ -14,10 +14,16 @@ final class ArchitectureRuleRegistry {
             new NoGenericExceptionsRule(),
             new NoJavaUtilLoggingRule(),
             new NoJodaTimeRule(),
+            new NoPrintStackTraceRule(),
+            new NoSystemExitRule(),
+            new NoJdkInternalApiRule(),
+            new NoLegacyDateTimeRule(),
+            new NoDeprecatedApiRule(),
             new NoFieldInjectionRule(),
             new ControllersShouldNotDependOnRepositoriesRule(),
             new RepositoriesShouldNotDependOnControllersRule(),
-            new ControllerNamingRule());
+            new NoSelfInvocationOfProxiedMethodsRule(),
+            new StereotypesShouldNotResideInDefaultPackageRule());
 
     private ArchitectureRuleRegistry() {}
 
