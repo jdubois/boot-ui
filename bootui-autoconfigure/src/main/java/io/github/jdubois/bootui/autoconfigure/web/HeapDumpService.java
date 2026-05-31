@@ -284,6 +284,10 @@ public class HeapDumpService {
     private void refreshHistogram() throws Exception {
         String raw = histogramSource.classHistogram();
         List<HeapClassHistogramEntryDto> all = parseHistogram(raw);
+        int limit = Math.max(1, config.getMaxClasses());
+        if (all.size() > limit) {
+            all = all.subList(0, limit);
+        }
         long totalInstances = 0;
         long totalBytes = 0;
         for (HeapClassHistogramEntryDto entry : all) {

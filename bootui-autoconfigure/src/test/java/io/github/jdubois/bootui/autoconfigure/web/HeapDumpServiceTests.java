@@ -90,7 +90,19 @@ class HeapDumpServiceTests {
     }
 
     @Test
-    void analyzeBuildsHistogramSortedByRetainedSize(@TempDir Path dir) {
+    void maxClassesLimitsEntriesStoredInMemory(@TempDir Path dir) {
+        BootUiProperties.HeapDump config = config();
+        config.setMaxClasses(2);
+        HeapDumpService service = service(config, dir, true);
+        HeapDumpReport report = service.analyze();
+
+        // Only the top-2 classes by bytes are kept; topClasses defaults to 25 so all stored are shown
+        assertThat(report.topClasses()).hasSize(2);
+        assertThat(report.topClasses().get(0).className()).isEqualTo("[B");
+        assertThat(report.topClasses().get(1).className()).isEqualTo("java.lang.String");
+    }
+
+    @Test
         HeapDumpReport report = service(config(), dir, true).analyze();
 
         assertThat(report.capture().status()).isEqualTo("ANALYZED");
