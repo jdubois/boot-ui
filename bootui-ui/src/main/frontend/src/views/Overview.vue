@@ -71,8 +71,8 @@ const quickLinks = [
   }
 ]
 
-async function load() {
-  if (injectedOverview?.value) {
+async function load(force = false) {
+  if (!force && injectedOverview?.value) {
     error.value = null
     data.value = injectedOverview.value
     loading.value = false
@@ -122,7 +122,7 @@ onMounted(load)
           <i class="bi bi-github me-1"></i>
           BootUI GitHub project
         </a>
-        <button :disabled="loading" class="btn btn-light hero-refresh" @click="load">
+        <button :disabled="loading" class="btn btn-light hero-refresh" @click="load(true)">
           <i :class="{spin: loading}" class="bi bi-arrow-clockwise me-1"></i>
           Refresh snapshot
         </button>

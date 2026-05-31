@@ -449,6 +449,13 @@ onBeforeUnmount(disconnect)
             <div>
               <div class="text-uppercase small text-muted fw-semibold">Dashboard</div>
               <h3 class="mb-1">{{ panelConfig.title }} activity overview</h3>
+              <div v-if="panelConfig.inspiration" class="small text-muted mt-1">
+                Inspired by
+                <a :href="panelConfig.inspiration.href" rel="noopener noreferrer" target="_blank">{{
+                  panelConfig.inspiration.label
+                }}</a
+                >.
+              </div>
               <div class="small text-muted">
                 <span v-if="dashboard?.lastActivityEpochMillis">
                   Last activity {{ formatRelative(dashboard.lastActivityEpochMillis) }}

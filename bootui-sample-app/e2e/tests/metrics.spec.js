@@ -26,7 +26,7 @@ test.describe('Metrics view', () => {
   test('filters meters by type', async ({openView, page}) => {
     await openView('metrics', 'Metrics')
 
-    const typeSelect = page.locator('select').first()
+    const typeSelect = page.locator('.card-body.border-bottom select')
     await expect.poll(async () => await typeSelect.locator('option').count()).toBeGreaterThan(1)
     const firstType = await typeSelect.locator('option').nth(1).getAttribute('value')
     expect(firstType).toBeTruthy()
