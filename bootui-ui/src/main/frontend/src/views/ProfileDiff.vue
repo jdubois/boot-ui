@@ -1,10 +1,12 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const data = ref(null)
 const loading = ref(true)
 const error = ref(null)
 const filter = ref('')
+const lastFetched = ref(null)
 
 async function load() {
   loading.value = true
@@ -13,6 +15,7 @@ async function load() {
     const res = await fetch('api/profiles')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
+    lastFetched.value = Date.now()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -39,15 +42,17 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2><i class="bi bi-layers me-2"></i>Profile Diff</h2>
-      <button class="btn btn-sm btn-outline-secondary" @click="load">
-        <i class="bi bi-arrow-clockwise"></i> Refresh
-      </button>
-    </div>
+    <PanelHeader
+      icon="bi-layers"
+      title="Profile Diff"
+      subtitle="View configuration properties that differ across active profiles."
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastFetched"
+      @refresh="load"
+    />
 
     <div v-if="loading" class="text-muted">Loading…</div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-else-if="data">
       <div class="mb-3">
         <span class="me-2 text-muted small">Active profiles:</span>

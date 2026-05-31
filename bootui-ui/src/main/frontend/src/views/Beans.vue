@@ -1,5 +1,6 @@
 <script setup>
 import {onMounted, ref, watch} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
 
@@ -32,9 +33,12 @@ watch([filter, classification], scheduleReload)
 
 <template>
   <div>
-    <h2><i class="bi bi-diagram-3 me-2"></i>Beans</h2>
-    <p class="text-muted">{{ totalCount }} beans · {{ matchedCount }} matched</p>
-    <div v-if="error" class="alert alert-danger">Could not load beans: {{ error }}</div>
+    <PanelHeader
+      icon="bi-diagram-3"
+      title="Beans"
+      :subtitle="`${totalCount} beans · ${matchedCount} matched`"
+      :error="error ? `Could not load beans: ${error}` : null"
+    />
 
     <div class="row g-2 mb-3">
       <div class="col-md-8">

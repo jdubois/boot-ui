@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref(null)
 const error = ref(null)
@@ -142,14 +143,17 @@ onMounted(() => {
 
 <template>
   <div>
-    <h2><i class="bi bi-person-lock me-2"></i>Spring Security</h2>
+    <PanelHeader icon="bi-person-lock" title="Spring Security" />
 
     <div v-if="!springSecurityPresent" class="alert alert-info">
       Spring Security is not on the classpath of this application. Add
       <code>spring-boot-starter-security</code> to see security configuration here.
     </div>
 
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <div v-else-if="error" class="alert alert-danger d-flex align-items-center gap-2">
+      <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+      <span>{{ error }}</span>
+    </div>
 
     <template v-else-if="report">
       <!-- Filter chains -->

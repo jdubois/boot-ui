@@ -2,6 +2,7 @@
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatNumber} from '../utils/format.js'
+import PanelHeader from './components/PanelHeader.vue'
 
 const route = useRoute()
 const panelConfigs = {
@@ -409,20 +410,17 @@ onBeforeUnmount(disconnect)
 
 <template>
   <div>
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-      <div>
-        <h2 class="mb-1"><i :class="['bi', panelConfig.icon, 'me-2']"></i>{{ panelConfig.title }}</h2>
-        <div class="text-muted">{{ panelConfig.description }}</div>
-        <div v-if="panelConfig.inspiration" class="small text-muted mt-1">
-          Inspired by
-          <a :href="panelConfig.inspiration.href" target="_blank" rel="noopener noreferrer">{{
-            panelConfig.inspiration.label
-          }}</a
-          >.
-        </div>
-      </div>
-      <span :class="statusClass" class="badge">{{ status }}</span>
-    </div>
+    <PanelHeader
+      :icon="panelConfig.icon"
+      :title="panelConfig.title"
+      :subtitle="panelConfig.description"
+      :loading="loading"
+      :error="error"
+    >
+      <template #actions>
+        <span :class="statusClass" class="badge">{{ status }}</span>
+      </template>
+    </PanelHeader>
 
     <div v-if="loading" class="text-muted">Loading…</div>
     <div v-else-if="error" class="alert alert-danger">{{ error }}</div>

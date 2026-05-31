@@ -2,6 +2,7 @@
 import {computed, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -98,14 +99,12 @@ function clearForm() {
 
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-start mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-send me-2"></i>HTTP Probe</h2>
-        <p class="text-muted mb-0 small">
-          Send local HTTP requests against your running Spring Boot app without leaving BootUI.
-        </p>
-      </div>
-      <div class="d-flex gap-2">
+    <PanelHeader
+      icon="bi-send"
+      title="HTTP Probe"
+      subtitle="Send local HTTP requests against your running Spring Boot app without leaving BootUI."
+    >
+      <template #actions>
         <button :disabled="loading" class="btn btn-outline-secondary" @click="clearForm">
           <i class="bi bi-x-circle me-1"></i>Clear
         </button>
@@ -114,8 +113,8 @@ function clearForm() {
           <i v-else class="bi bi-send me-1"></i>
           {{ loading ? 'Sending…' : 'Send' }}
         </button>
-      </div>
-    </div>
+      </template>
+    </PanelHeader>
 
     <div v-if="readOnly" class="alert alert-warning small">
       <i class="bi bi-lock me-1"></i>

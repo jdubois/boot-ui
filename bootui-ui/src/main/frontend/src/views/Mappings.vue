@@ -1,5 +1,6 @@
 <script setup>
 import {onMounted, ref, watch} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
 
@@ -37,8 +38,11 @@ watch(filter, scheduleReload)
 
 <template>
   <div>
-    <h2><i class="bi bi-signpost-2 me-2"></i>HTTP mappings</h2>
-    <div v-if="error" class="alert alert-danger">Could not load mappings: {{ error }}</div>
+    <PanelHeader
+      icon="bi-signpost-2"
+      title="HTTP mappings"
+      :error="error ? `Could not load mappings: ${error}` : null"
+    />
     <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
     <p class="small text-muted">{{ matchedCount }} of {{ totalCount }} mappings matched</p>
     <div class="table-responsive">

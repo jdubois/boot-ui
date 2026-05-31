@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref({steps: []})
 const filter = ref('')
@@ -7,6 +8,7 @@ const selectedDurationBand = ref('all')
 const expandedStepIds = ref(new Set())
 const loading = ref(true)
 const error = ref('')
+const lastFetched = ref(null)
 
 const durationBands = [
   {id: 'fastest', label: 'Fastest', className: 'startup-duration-label--fastest'},
@@ -85,6 +87,7 @@ async function load() {
       steps
     }
     expandedStepIds.value = new Set(buildTree(steps).map((step) => step.id))
+    lastFetched.value = Date.now()
   } catch (err) {
     report.value = {steps: []}
     expandedStepIds.value = new Set()
@@ -175,17 +178,17 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-clock-history me-2"></i>Startup timeline</h2>
-        <p class="text-muted mb-0">
-          {{ report.steps.length }} steps · {{ branchStepCount }} nested<span
-            v-if="filter || selectedDurationBand !== 'all'"
-          >
-            · {{ visibleSteps.length }} shown</span
-          >
-        </p>
-      </div>
+    <PanelHeader
+      icon="bi-clock-history"
+      title="Startup timeline"
+      :subtitle="report.steps.length ? `${report.steps.length} steps · ${branchStepCount} nested` : null"
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastFetched"
+      @refresh="load"
+    />
+
+    <div v-if="!loading && !error" class="d-flex flex-wrap justify-content-end gap-2 mb-3">
       <div class="col-12 col-md-7 col-lg-6 px-0">
         <div class="input-group mb-2">
           <span class="input-group-text"><i class="bi bi-search"></i></span>

@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const data = ref(null)
 const error = ref(null)
@@ -140,14 +141,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2 class="mb-0"><i class="bi bi-memory me-2"></i>Memory</h2>
-      <span v-if="lastUpdated" class="text-muted small">
-        <i class="bi bi-arrow-repeat me-1"></i>Updated {{ lastUpdatedText() }} · auto-refreshes every 5s
-      </span>
-    </div>
-
-    <div v-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelHeader
+      icon="bi-memory"
+      title="Memory"
+      :subtitle="lastUpdated ? 'auto-refreshes every 5s' : null"
+      :error="error"
+      :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
+    />
 
     <template v-if="data">
       <!-- Memory Calculator Panel -->

@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const overview = ref(null)
 const series = ref(null)
@@ -435,17 +436,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-cpu me-2"></i>AI Usage</h2>
-        <div v-if="overview" class="text-muted small">
-          <span v-if="overview.springAiDetected" class="badge text-bg-success me-1">Spring AI detected</span>
-          <span v-else class="badge text-bg-secondary me-1">Spring AI not on classpath</span>
-          <span v-if="!overview.enabled" class="badge text-bg-warning me-1">Telemetry disabled</span>
-        </div>
-      </div>
-      <div class="d-flex align-items-center gap-2 flex-wrap">
-        <span v-if="lastUpdatedText" class="text-muted small">Updated {{ lastUpdatedText }}</span>
+    <PanelHeader
+      icon="bi-cpu"
+      title="AI Usage"
+      :subtitle="overview ? (overview.springAiDetected ? 'Spring AI detected' : 'Spring AI not on classpath') : null"
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastUpdated"
+      @refresh="load"
+    >
+      <template #actions>
         <span v-if="isStale" class="badge text-bg-warning">Data may be stale</span>
         <div class="form-check form-switch mb-0">
           <input
@@ -460,11 +460,8 @@ onBeforeUnmount(() => {
         <button v-if="overview && hasAnyData" class="btn btn-sm btn-outline-secondary" @click="exportCsv">
           <i class="bi bi-download"></i> Export CSV
         </button>
-        <button :disabled="loading" class="btn btn-sm btn-outline-secondary" @click="load">
-          <i class="bi bi-arrow-clockwise"></i> Refresh
-        </button>
-      </div>
-    </div>
+      </template>
+    </PanelHeader>
 
     <div v-if="loading" class="text-muted">Loading AI usage…</div>
     <div v-else-if="error" class="alert alert-warning">

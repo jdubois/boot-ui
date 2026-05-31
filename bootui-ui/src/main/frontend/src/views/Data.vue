@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref(null)
 const detail = ref(null)
@@ -89,14 +90,17 @@ onMounted(load)
 
 <template>
   <div>
-    <h2><i class="bi bi-database me-2"></i>Spring Data repositories</h2>
+    <PanelHeader icon="bi-database" title="Spring Data repositories" />
 
     <div v-if="!springDataPresent" class="alert alert-info">
       Spring Data is not on the classpath of this application. Add a Spring Data starter (e.g.
       <code>spring-boot-starter-data-jpa</code>) to see repositories here.
     </div>
 
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <div v-else-if="error" class="alert alert-danger d-flex align-items-center gap-2">
+      <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+      <span>{{ error }}</span>
+    </div>
 
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">
       Spring Data is on the classpath, but no repository beans were detected in the application context.

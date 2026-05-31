@@ -2,6 +2,7 @@
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -180,14 +181,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-      <div>
-        <h2 class="h4 mb-1"><i class="bi bi-file-earmark-binary me-2"></i>Heap Dump</h2>
-        <p class="text-muted mb-0">
-          Capture and analyze a local JVM heap snapshot to find which classes fill the heap.
-        </p>
-      </div>
-      <div class="d-flex flex-wrap align-items-center gap-2">
+    <PanelHeader
+      icon="bi-file-earmark-binary"
+      title="Heap Dump"
+      subtitle="Capture and analyze a local JVM heap snapshot to find which classes fill the heap."
+      :loading="loading"
+      :error="error"
+    >
+      <template #actions>
         <button :disabled="loading || readOnly" class="btn btn-outline-primary" type="button" @click="analyzeHeap">
           <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
           Analyze live heap
@@ -201,10 +202,8 @@ onBeforeUnmount(() => {
           <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
           {{ loading ? 'Working...' : 'Capture heap dump' }}
         </button>
-      </div>
-    </div>
-
-    <div v-if="error" class="alert alert-danger">{{ error }}</div>
+      </template>
+    </PanelHeader>
     <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>
 
     <div class="alert alert-warning">

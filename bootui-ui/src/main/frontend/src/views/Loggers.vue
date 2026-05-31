@@ -4,6 +4,7 @@ import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -72,13 +73,16 @@ watch(filter, scheduleReload)
 
 <template>
   <div>
-    <h2><i class="bi bi-journal-text me-2"></i>Loggers</h2>
+    <PanelHeader
+      icon="bi-journal-text"
+      title="Loggers"
+      :error="error ? `Could not load loggers: ${error}` : null"
+    />
     <div v-if="readOnly" class="alert alert-warning small">
       <i class="bi bi-lock me-1"></i>
       Logger levels are read-only. {{ readOnlyReason }}
     </div>
     <div v-if="message" :class="'alert-' + messageType" class="alert">{{ message }}</div>
-    <div v-if="error" class="alert alert-danger">Could not load loggers: {{ error }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter loggers by name…" />
     <p v-if="data" class="small text-muted">{{ matchedCount }} of {{ totalCount }} loggers matched</p>
     <div class="table-responsive">

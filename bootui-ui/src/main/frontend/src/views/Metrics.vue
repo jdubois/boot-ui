@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const data = ref(null)
 const detail = ref(null)
@@ -190,17 +191,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-      <div>
-        <h2 class="h4 mb-1"><i class="bi bi-activity me-2"></i>Metrics</h2>
-        <p class="text-muted mb-0">Browse meters, filter tag sets, and watch live values update every 2 seconds.</p>
-      </div>
-      <span v-if="lastUpdated" class="text-muted small">
-        <i class="bi bi-arrow-repeat me-1"></i>Updated {{ lastUpdatedText() }}
-      </span>
-    </div>
-
-    <div v-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelHeader
+      icon="bi-activity"
+      title="Metrics"
+      subtitle="Browse meters, filter tag sets, and watch live values update every 2 seconds."
+      :error="error"
+      :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
+    />
 
     <div v-if="data && !data.metricsAvailable" class="alert alert-warning">
       Micrometer metrics are not available. Add Actuator or a MeterRegistry to browse live metrics.
