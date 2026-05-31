@@ -7,6 +7,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-31
+
+Third BootUI release, adding three new local-only diagnostics panels — Architecture (ArchUnit), Heap Dump (value-free
+class histogram), and Connection Pools (HikariCP) — alongside security and documentation hardening.
+
+### Added
+
+- Architecture panel that runs a curated, zero-config ArchUnit ruleset against the host application's own classes for
+  package-cycle, coding-practice, and Spring-stereotype hygiene, with an on-demand scan and the latest report.
+- Heap Dump panel that captures local JVM heap dumps on demand and analyzes a value-free class histogram, including a
+  `max-classes` memory cap plus big-objects and collection-bloat smart filters. Raw `.hprof` download stays disabled by
+  default because dumps contain plaintext secrets.
+- Connection Pools panel that surfaces read-only HikariCP pool sizing, masked JDBC metadata, and a live
+  active/idle/total/pending saturation chart, failing closed when HikariCP is unavailable.
+- Playwright end-to-end coverage for the Pentesting panel.
+
+### Changed
+
+- Refreshed and reorganized `SECURITY.md`.
+- Regenerated feature screenshots and extended the docs screenshot script to cover the Architecture, Heap Dump, and
+  Connection Pools panels.
+
 ## [0.2.0] - 2026-05-30
 
 Second BootUI release, focused on local security diagnostics, safer defaults around host-application security, and
@@ -164,7 +186,9 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.3.0...HEAD
+
+[0.3.0]: https://github.com/jdubois/boot-ui/compare/v0.2.0...v0.3.0
 
 [0.2.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0...v0.2.0
 
