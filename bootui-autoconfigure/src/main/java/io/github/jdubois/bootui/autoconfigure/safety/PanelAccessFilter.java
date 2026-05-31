@@ -44,7 +44,7 @@ public class PanelAccessFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (panel.readOnlyCapable()
+        if (panel.actionCapable()
                 && !SAFE_METHODS.contains(request.getMethod())
                 && properties.isPanelReadOnly(panel.id())) {
             writeBlockedResponse(response, panel, properties.panelReadOnlyReason(panel.id()));

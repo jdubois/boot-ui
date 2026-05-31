@@ -93,7 +93,7 @@ class PanelAccessFilterTests {
 
         assertThat(actionRequestsByPanel.keySet())
                 .containsExactlyElementsOf(BootUiPanels.all().stream()
-                        .filter(BootUiPanels.Panel::readOnlyCapable)
+                        .filter(BootUiPanels.Panel::actionCapable)
                         .map(BootUiPanels.Panel::id)
                         .toList());
         for (Map.Entry<String, ActionRequest> entry : actionRequestsByPanel.entrySet()) {

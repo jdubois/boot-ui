@@ -24,7 +24,8 @@ class PanelsControllerTests {
                             new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
                     .build();
 
-            int size = io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.all().size();
+            int size = io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.all()
+                    .size();
 
             mvc.perform(get("/bootui/api/panels"))
                     .andExpect(status().isOk())
@@ -166,7 +167,7 @@ class PanelsControllerTests {
             PanelsController controller = new PanelsController(context, context.getEnvironment(), properties);
 
             List<String> expectedReadOnlyPanelIds = BootUiPanels.all().stream()
-                    .filter(BootUiPanels.Panel::readOnlyCapable)
+                    .filter(BootUiPanels.Panel::actionCapable)
                     .map(BootUiPanels.Panel::id)
                     .toList();
             List<PanelDto> panels = controller.panels().panels();

@@ -96,10 +96,10 @@ public final class BootUiPanels {
                 .findFirst();
     }
 
-    public record Panel(String id, String title, boolean readOnlyCapable, List<String> apiPrefixes) {
+    public record Panel(String id, String title, boolean actionCapable, List<String> apiPrefixes) {
 
-        public Panel(String id, String title, boolean readOnlyCapable, String apiPrefix) {
-            this(id, title, readOnlyCapable, List.of(apiPrefix));
+        public Panel(String id, String title, boolean actionCapable, String apiPrefix) {
+            this(id, title, actionCapable, List.of(apiPrefix));
         }
 
         public Panel {
