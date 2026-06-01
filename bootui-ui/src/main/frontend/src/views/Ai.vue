@@ -427,11 +427,17 @@ const frameworkDetected = computed(
   () => !!overview.value && (overview.value.springAiDetected || overview.value.langChain4jDetected)
 )
 
-const detectedFrameworkLabel = computed(() => {
-  if (!overview.value) return null
+const detectedFrameworks = computed(() => {
+  if (!overview.value) return []
   const frameworks = []
   if (overview.value.springAiDetected) frameworks.push('Spring AI')
   if (overview.value.langChain4jDetected) frameworks.push('LangChain4j')
+  return frameworks
+})
+
+const detectedFrameworkLabel = computed(() => {
+  if (!overview.value) return null
+  const frameworks = detectedFrameworks.value
   if (frameworks.length === 0) return 'Spring AI or LangChain4j not on classpath'
   return `${frameworks.join(' & ')} detected`
 })
@@ -460,6 +466,14 @@ onBeforeUnmount(() => {
       @refresh="load"
     >
       <template #actions>
+        <span
+          v-for="fw in detectedFrameworks"
+          :key="fw"
+          class="badge text-bg-primary d-inline-flex align-items-center"
+          title="AI framework detected on the application classpath"
+        >
+          <i class="bi bi-robot me-1"></i>{{ fw }}
+        </span>
         <span v-if="isStale" class="badge text-bg-warning">Data may be stale</span>
         <div class="form-check form-switch mb-0">
           <input
