@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {formatDuration, formatTime} from '../utils/format.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 
 const props = defineProps(panelProps)
@@ -114,20 +115,6 @@ const waterfall = computed(() => {
     .sort((a, b) => a.startEpochNanos - b.startEpochNanos)
   return {spans: sorted, totalNanos}
 })
-
-function formatDuration(nanos) {
-  if (nanos == null) return '—'
-  const ms = nanos / 1_000_000
-  if (ms < 1) return (nanos / 1000).toFixed(1) + ' µs'
-  if (ms < 1000) return ms.toFixed(1) + ' ms'
-  return (ms / 1000).toFixed(2) + ' s'
-}
-
-function formatTime(epochNanos) {
-  if (!epochNanos) return '—'
-  const ms = Math.floor(epochNanos / 1_000_000)
-  return new Date(ms).toLocaleTimeString()
-}
 
 function spanColor(span) {
   if (span.statusCode === 'ERROR') return 'bg-danger'
