@@ -12,14 +12,14 @@ Spring Boot 4 application through a starter dependency.
 
 ## 1.1 Target platform
 
-BootUI v0.1 targets:
+BootUI currently targets:
 
 - Spring Boot 4.x.
 - Java 25.
 - Maven-based applications first.
 - Servlet web applications first.
 
-Out of scope for v0.1:
+Out of scope for the current pre-1.0 line:
 
 - Spring Boot 3.x compatibility.
 - Spring Framework 6 / Boot 3 compatibility shims.
@@ -97,8 +97,8 @@ http://localhost:${server.port}/bootui
 ```
 
 The current implementation serves the UI at `/bootui/` and APIs at `/bootui/api/**`. Configuration properties for the
-UI/API paths exist, but v0.1 should treat `/bootui` as the supported route until path customization is wired through
-every controller and packaged asset:
+UI/API paths exist, but `/bootui` remains the supported route until path customization is wired through every controller
+and packaged asset:
 
 ```properties
 bootui.path=/bootui
@@ -616,7 +616,7 @@ Features:
   - For `@Query`-annotated methods: the declared query string, native flag, and named-query reference if any.
 - Filter by repository interface, bean name, domain type, method, or query content.
 
-Out of scope for v0.1:
+Out of scope for the current release surface:
 
 - Executing repository methods or arbitrary queries from the UI.
 - Schema migration controls.
@@ -694,7 +694,7 @@ Features:
 - Skip lazy, prototype, abstract, or otherwise uninitialized service beans instead of creating them from a read-only
   panel request, and show a warning that explains why they were skipped.
 
-Status: implemented and supported for `0.1.0` as part of the harden-all-visible-panels release scope.
+Status: implemented and supported for the current pre-1.0 release surface.
 
 Acceptance criteria:
 
@@ -898,7 +898,7 @@ Initial properties:
 | Property                                     | Default                                 | Description                                                                                       |
 | -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `bootui.enabled`                             | `AUTO`                                  | Enables BootUI. Values: `AUTO`, `ON`, `OFF`.                                                      |
-| `bootui.path`                                | `/bootui`                               | UI base path used by the banner and safety filter; `/bootui` is the supported v0.1 route.         |
+| `bootui.path`                                | `/bootui`                               | UI base path used by the banner and safety filter; `/bootui` is the supported route.              |
 | `bootui.api-path`                            | `/bootui/api`                           | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`.   |
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
@@ -1093,15 +1093,15 @@ Future compatibility:
 - Masked values stay masked.
 - Empty states are readable.
 
-## 10. Acceptance criteria for v0.1
+## 10. Acceptance criteria for the current pre-1.0 release surface
 
-BootUI v0.1 is complete when:
+BootUI's current pre-1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Services, Diagnostics, Developer tools, and Disabled / unavailable
-  navigation groups covering Health, Metrics, Memory, Startup Timeline, Scheduled Tasks, Configuration, Profile Diff,
-  Loggers, Beans, Conditions, Mappings, Data, Cache, Security, AI Usage, Traces, Log Tail, HTTP Probe, Pentesting,
-  Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
+  navigation groups covering Health, Metrics, Memory, Heap Dump, Startup Timeline, Scheduled Tasks, Connection Pools,
+  Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Data, Cache, Security, AI Usage, Traces, Log Tail,
+  HTTP Probe, Architecture, Pentesting, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.
@@ -1109,10 +1109,11 @@ BootUI v0.1 is complete when:
 
 ## 11. Release decisions
 
-Resolved for `0.1.0`:
+Resolved for `0.1.0` and carried forward through `0.2.0`:
 
 1. Harden every visible panel and ship the full current route set as supported local-development functionality.
-2. Publish the final `0.1.0` artifacts to Maven Central.
+2. Publish release artifacts to Maven Central through the Prepare Release workflow so module versions, the README install
+   snippet, tags, and release notes stay synchronized.
 3. Keep optional panels visible and show clear unavailable/empty states when their classpath or data source is absent.
-4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for v0.1; revisit broader metadata
-   abstractions after `0.1.x`.
+4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for the pre-1.0 line; revisit broader
+   metadata abstractions after the current starter surface stabilizes.

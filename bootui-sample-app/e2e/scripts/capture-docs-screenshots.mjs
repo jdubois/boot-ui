@@ -50,7 +50,7 @@ const panelOrder = [
 ]
 
 const overview = {
-  bootUiVersion: '0.1.0',
+  bootUiVersion: '0.2.0',
   applicationName: 'bootui-sample',
   springBootVersion: '4.0.6',
   javaVersion: '25',
@@ -1414,7 +1414,7 @@ const screenshots = [
   ['mappings', 'Mappings', 'bootui-mappings.png', waitForText('/api/sample/products')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   [
-    'hikari',
+    'database-connection-pools',
     'Connection Pools',
     'bootui-database-connection-pools.png',
     async (page) => {
