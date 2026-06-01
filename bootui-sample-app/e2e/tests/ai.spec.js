@@ -112,7 +112,7 @@ test.describe('AI Usage view', () => {
     })
 
     await page.goto('/bootui/#/ai')
-    await expect(page.getByText('Enable BootUI telemetry capture')).toBeVisible()
+    await expect(page.getByText('Enable BootUI telemetry capture', {exact: true})).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })
 
