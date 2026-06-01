@@ -1112,8 +1112,8 @@ BootUI's current pre-1.0 release surface is complete when:
 Resolved for `0.1.0` and carried forward through `0.2.0`:
 
 1. Harden every visible panel and ship the full current route set as supported local-development functionality.
-2. Publish release artifacts to Maven Central through the Prepare Release workflow so module versions, the README install
-   snippet, tags, and release notes stay synchronized.
+2. Publish release artifacts to Maven Central through the Release workflow so module versions, the README install
+   snippet, tags, release notes, and Central publishing stay synchronized.
 3. Keep optional panels visible and show clear unavailable/empty states when their classpath or data source is absent.
 4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for the pre-1.0 line; revisit broader
    metadata abstractions after the current starter surface stabilizes.

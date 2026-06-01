@@ -86,13 +86,11 @@ the release profile:
   `{"keytext": ...}` body, and `POST https://keyserver.ubuntu.com/pks/add` with form field `keytext`).
 - **A failed deployment still consumes the version coordinate in Central.** Once the publishing plugin uploads
   `com.julien-dubois.bootui:<artifact>:<version>` — even if validation rejects it — you cannot re-upload that exact GAV
-  without dropping the failed deployment from the Sonatype Central Portal first. The default path is to bump the
-  version (`./mvnw -B versions:set -DnewVersion=… -DgenerateBackupPoms=false`), commit, tag `v<version>`, and let the
-  tag push trigger `release.yml` again.
-- **Use the `Prepare Release` workflow (`.github/workflows/prepare-release.yml`) to bump versions** rather than running
-  `versions:set` by hand. It runs `versions:set` *and* `perl`-substitutes the old version into `README.md` (the install
-  snippet there is the only documentation that references a specific version), then verify-builds, commits, tags, and
-  pushes. Manual `versions:set` skips the README rewrite, leaving the install snippet pointing at a stale (and possibly
+  without dropping the failed deployment from the Sonatype Central Portal first. The default path is to run the `Release`
+  workflow with a new version so it bumps the codebase, commits, tags, and publishes in one run.
+- **Use the `Release` workflow (`.github/workflows/release.yml`) to bump versions** rather than running `versions:set` by
+  hand. It runs `versions:set` *and* updates the README install snippet, then verify-builds, commits, tags, and publishes.
+  Manual `versions:set` skips the README rewrite, leaving the install snippet pointing at a stale (and possibly
   never-published) version.
 - **The sample app is excluded from release deploys** via `<maven.deploy.skip>true</maven.deploy.skip>` in
   `bootui-sample-app/pom.xml`; keep it that way — it must still be built so the central-publishing plugin sees the full

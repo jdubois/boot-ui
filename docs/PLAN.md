@@ -486,8 +486,8 @@ Reason:
 ## 9. Suggested next steps
 
 `0.1.0` has been released to Maven Central, and the `0.2.0` docs, screenshots, and changelog are reconciled for the next
-release. The final version bump, release commit, tag, Maven module versions, and README install snippet should stay
-synchronized through the `Prepare Release` workflow; keep using that workflow for future version bumps.
+release. The final version bump, release commit, tag, Maven module versions, README install snippet, and Maven Central
+publish should stay synchronized through the `Release` workflow; keep using that workflow for future version bumps.
 
 Backend test coverage for the harden-all-visible-panels scope has been completed: `BootUiPropertiesTests`,
 `BootUiActivationConditionAdditionalTests`, controller mapping and DTO serialization tests for every `/bootui/api/**`
