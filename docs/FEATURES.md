@@ -182,8 +182,11 @@ spot expensive interactions during local development. Vector store and embedding
 present. The BootUI starter captures local application spans automatically when telemetry is enabled. Cooperating local
 services can still send OTLP spans to the embedded receiver. The sidebar dims the panel when telemetry is disabled or
 neither Spring AI nor LangChain4j is on the classpath, and the view
-explains the unavailable state. When both prerequisites are ready but no chat spans have arrived yet, the panel shows a
-ready empty state rather than setup guidance. Recent chats, model breakdowns, token-series windows, spans, and attributes
+explains the unavailable state. When no framework is detected, the setup checklist also shows two side-by-side guides —
+one for Spring AI and one for LangChain4j — explaining the dependency and configuration each needs to emit GenAI spans
+(including optional prompt/completion content capture). When both prerequisites are ready but no chat spans have arrived
+yet, the panel shows a ready empty state rather than setup guidance. Recent chats, model breakdowns, token-series
+windows, spans, and attributes
 are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from BootUI's local telemetry
 capture, is in-memory only, and is cleared on restart.
 

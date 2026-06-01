@@ -1,6 +1,8 @@
 <script setup>
 import {computed} from 'vue'
 import {useCopyToClipboard} from '../../utils/useCopyToClipboard'
+import AiSpringAiSetup from './AiSpringAiSetup.vue'
+import AiLangChain4jSetup from './AiLangChain4jSetup.vue'
 
 const props = defineProps({
   springAiDetected: Boolean,
@@ -94,5 +96,24 @@ const otlpEndpoint = `/bootui/api/otlp/v1/traces`
         </div>
       </li>
     </ul>
+  </div>
+
+  <div v-if="!frameworkDetected">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <i class="bi bi-stars text-warning"></i>
+      <h6 class="mb-0">Choose a framework to instrument</h6>
+    </div>
+    <p class="text-muted small">
+      BootUI works with either framework — add one of them to start collecting AI usage. Both emit OpenTelemetry GenAI
+      spans that this panel reads; the BootUI starter already provides the tracing pipeline that receives them.
+    </p>
+    <div class="row row-cols-1 row-cols-lg-2 g-3">
+      <div class="col">
+        <AiSpringAiSetup />
+      </div>
+      <div class="col">
+        <AiLangChain4jSetup />
+      </div>
+    </div>
   </div>
 </template>
