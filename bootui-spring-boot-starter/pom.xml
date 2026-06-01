@@ -23,6 +23,10 @@
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-ui</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
