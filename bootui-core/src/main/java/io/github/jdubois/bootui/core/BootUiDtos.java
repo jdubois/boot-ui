@@ -205,7 +205,22 @@ public final class BootUiDtos {
     /**
      * Health node, possibly nested.
      */
-    public record HealthNodeDto(String name, String status, Object details, List<HealthNodeDto> components) {}
+    public record HealthNodeDto(
+            String name,
+            String status,
+            Object details,
+            List<HealthNodeDto> components,
+            boolean available,
+            String unavailableReason,
+            String guidanceReason,
+            List<HealthSetupStepDto> setup) {
+
+        public HealthNodeDto(String name, String status, Object details, List<HealthNodeDto> components) {
+            this(name, status, details, components, true, null, null, List.of());
+        }
+    }
+
+    public record HealthSetupStepDto(String title, String description, List<String> snippets) {}
 
     public record LoggerDto(String name, String configuredLevel, String effectiveLevel) {}
 
