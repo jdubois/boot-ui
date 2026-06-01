@@ -6,27 +6,37 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      version:
+        description: Release version to prepare, for example 0.2.0. Leave empty to publish the selected tagged ref.
+        required: false
+        type: string
+        default: ''
+      skip_build:
+        description: Skip the verification build before creating the release commit and tag
+        type: boolean
+        default: false
       auto_publish:
         description: Publish automatically after upload to Maven Central
         type: boolean
         default: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-release
   cancel-in-progress: false
-
-permissions:
-  contents: read
 
 jobs:
   maven-central:
     name: Maven Central
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       CENTRAL_AUTO_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_publish }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 25
         uses: actions/setup-java@v5
@@ -42,18 +52,104 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
+      - name: Configure Git author
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Prepare release commit and tag
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SKIP_BUILD: ${{ inputs.skip_build }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${RELEASE_VERSION#v}"
+          TAG="v$VERSION"
+
+          if [[ -z "$VERSION" || "$VERSION" == *[[:space:]]* || "$VERSION" == */* ]]; then
+            echo "::error::Invalid release version: $RELEASE_VERSION"
+            exit 2
+          fi
+
+          if [[ "$VERSION" == *-SNAPSHOT ]]; then
+            echo "::error::Refusing to prepare a snapshot release: $VERSION"
+            exit 2
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
+            echo "::error::Preparing a release requires running this workflow from a branch, not $GITHUB_REF_TYPE"
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag $TAG already exists locally"
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists on origin"
+            exit 1
+          fi
+
+          CURRENT_VERSION="$(./mvnw -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          echo "Preparing release $TAG from $CURRENT_VERSION"
+
+          ./mvnw -B -ntp versions:set \
+            -DnewVersion="$VERSION" \
+            -DprocessAllModules=true \
+            -DgenerateBackupPoms=false
+
+          export CURRENT_VERSION VERSION
+          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)\Q$ENV{CURRENT_VERSION}\E(</version>)}{$1$ENV{VERSION}$2}g' README.md
+
+          if [[ "$SKIP_BUILD" != "true" ]]; then
+            ./mvnw -B -ntp -Prelease clean verify
+          fi
+
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add pom.xml */pom.xml README.md
+            git commit -m "Release $TAG"
+          else
+            echo "Project files already declare version $VERSION; tagging current HEAD."
+          fi
+
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+          git push origin "$TAG"
+
+          echo "PREPARED_TAG=$TAG" >> "$GITHUB_ENV"
+
       - name: Verify release version
         run: |
-          VERSION="$(./mvnw -q -N -DforceStdout help:evaluate -Dexpression=project.version)"
+          set -euo pipefail
+
+          VERSION="$(./mvnw -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          EXPECTED_TAG="v$VERSION"
 
           if [[ "$VERSION" == *-SNAPSHOT ]]; then
             echo "::error::Refusing to release snapshot version $VERSION"
             exit 1
           fi
 
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+          if [[ -n "${PREPARED_TAG:-}" && "$PREPARED_TAG" != "$EXPECTED_TAG" ]]; then
+            echo "::error::Prepared tag $PREPARED_TAG does not match project version $VERSION"
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match project version $VERSION"
             exit 1
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" != "tag" && -z "${PREPARED_TAG:-}" ]]; then
+            EXACT_TAG="$(git tag --points-at HEAD | grep -Fx "$EXPECTED_TAG" || true)"
+            if [[ -z "$EXACT_TAG" ]]; then
+              echo "::error::Manual publishing from a branch requires preparing a version or selecting a ref tagged $EXPECTED_TAG"
+              exit 1
+            fi
           fi
 
           echo "Releasing version $VERSION"

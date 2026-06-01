@@ -126,16 +126,19 @@ server from `~/.m2/settings.xml`. The sample app is not deployed. By default,
 Central uploads are published automatically; set `-Dcentral.autoPublish=false`
 to stage for manual publishing instead.
 
-To prepare a release, run the **Prepare Release** GitHub Actions workflow from
-the branch you want to release, usually `main`, and enter the target version
-without the leading `v`, for example `0.1.0-alpha.2`. The workflow updates all
-Maven module versions, refreshes the README dependency example, commits the
-release, creates an annotated `v0.1.0-alpha.2` tag, and pushes the branch plus
-tag. Pushing the tag starts the release workflow below.
+To prepare and publish a release, run the **Release** GitHub Actions workflow
+from the branch you want to release, usually `main`, and enter the target version
+without the leading `v`, for example `0.2.0`. The workflow updates all Maven
+module versions, refreshes the README dependency example, optionally verifies
+with the `release` Maven profile, commits the release, creates an annotated
+`v0.2.0` tag, pushes the branch plus tag, and publishes to Maven Central in the
+same run. The selected branch must allow `github-actions[bot]` to push the
+release commit and tag.
 
-The GitHub Actions release workflow (`.github/workflows/release.yml`) runs on
-`v*` tags or manually through `workflow_dispatch`. Configure these repository or
-environment secrets before running it:
+The same workflow (`.github/workflows/release.yml`) also runs on manually pushed
+`v*` tags, or manually with an empty version when the selected ref is already
+tagged with the Maven project version. Configure these repository or environment
+secrets before running it:
 
 | Secret                   | Value                                            |
 |--------------------------|--------------------------------------------------|
@@ -144,10 +147,8 @@ environment secrets before running it:
 | `GPG_PRIVATE_KEY`        | ASCII-armored private key used to sign artifacts |
 | `MAVEN_GPG_PASSPHRASE`   | Passphrase for the GPG private key               |
 
-For a tag release, create a tag that matches the Maven project version, for
-example `v0.1.0-alpha.1`. Manual runs publish automatically by default; disable
-`auto_publish` when you want to review and publish the deployment in the Central
-Portal.
+Manual runs publish automatically by default; disable `auto_publish` when you
+want to review and publish the deployment in the Central Portal.
 
 ## Submitting a change
 
