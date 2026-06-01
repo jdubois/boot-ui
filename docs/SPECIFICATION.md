@@ -294,7 +294,7 @@ Features:
 - Show details when available.
 - Explain when details are hidden by Actuator configuration.
 - Show a disabled state with setup guidance when the Actuator health endpoint is not available.
-- Treat a tree made only of Spring Boot default health indicators as not yet application-health-ready.
+- Show guidance, without changing reported statuses, when a tree is made only of Spring Boot default health indicators.
 
 Acceptance criteria:
 

@@ -84,7 +84,7 @@ class HealthControllerTests {
     }
 
     @Test
-    void healthReturnsDisabledWhenOnlyDefaultIndicatorsArePresent() throws Exception {
+    void healthAddsGuidanceWhenOnlyDefaultIndicatorsArePresent() throws Exception {
         IndicatedHealthDescriptor liveness =
                 mock(IndicatedHealthDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
         when(liveness.getStatus()).thenReturn(Status.UP);
@@ -116,17 +116,18 @@ class HealthControllerTests {
 
         mvc.perform(get("/bootui/api/health").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("DISABLED"))
-                .andExpect(jsonPath("$.available").value(false))
-                .andExpect(jsonPath("$.unavailableReason")
-                        .value("Only Spring Boot default health indicators are available"))
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.unavailableReason").doesNotExist())
+                .andExpect(
+                        jsonPath("$.guidanceReason").value("Only Spring Boot default health indicators are available"))
                 .andExpect(jsonPath("$.setup[0].title").value("Add application health contributors"))
                 .andExpect(jsonPath("$.components.length()").value(3))
                 .andExpect(jsonPath("$.components[?(@.name=='livenessState')].status")
-                        .value("DISABLED"))
+                        .value("UP"))
                 .andExpect(jsonPath("$.components[?(@.name=='readinessState')].status")
-                        .value("DISABLED"))
-                .andExpect(jsonPath("$.components[?(@.name=='ssl')].status").value("DISABLED"));
+                        .value("UP"))
+                .andExpect(jsonPath("$.components[?(@.name=='ssl')].status").value("UP"));
     }
 
     @Test

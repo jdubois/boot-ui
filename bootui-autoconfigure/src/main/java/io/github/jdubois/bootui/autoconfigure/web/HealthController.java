@@ -25,9 +25,6 @@ public class HealthController {
     private static final String DEFAULT_CONTRIBUTORS_REASON =
             "Only Spring Boot default health indicators are available";
 
-    private static final String DEFAULT_CONTRIBUTOR_NODE_REASON =
-            "Default Spring Boot health indicator; add application or dependency contributors to make health actionable";
-
     private static final Set<String> DEFAULT_HEALTH_CONTRIBUTORS =
             Set.of("diskSpace", "livenessState", "readinessState", "ping", "ssl");
 
@@ -84,8 +81,7 @@ public class HealthController {
         }
         HealthNodeDto root = toNode("application", he.health());
         if (hasOnlyDefaultContributors(root)) {
-            return disabledRoot(
-                    DEFAULT_CONTRIBUTORS_REASON, DEFAULT_CONTRIBUTOR_SETUP, disableNodes(root.components()));
+            return withGuidance(root, DEFAULT_CONTRIBUTORS_REASON, DEFAULT_CONTRIBUTOR_SETUP);
         }
         return root;
     }
@@ -114,7 +110,12 @@ public class HealthController {
     }
 
     private HealthNodeDto disabledRoot(String reason, List<HealthSetupStepDto> setup, List<HealthNodeDto> components) {
-        return new HealthNodeDto("application", "DISABLED", null, components, false, reason, setup);
+        return new HealthNodeDto("application", "DISABLED", null, components, false, reason, null, setup);
+    }
+
+    private HealthNodeDto withGuidance(HealthNodeDto root, String reason, List<HealthSetupStepDto> setup) {
+        return new HealthNodeDto(
+                root.name(), root.status(), root.details(), root.components(), true, null, reason, setup);
     }
 
     private boolean hasOnlyDefaultContributors(HealthNodeDto root) {
@@ -138,20 +139,5 @@ public class HealthController {
 
     private boolean isHealthyDefaultStatus(HealthNodeDto node) {
         return "UP".equals(node.status()) || "UNKNOWN".equals(node.status());
-    }
-
-    private List<HealthNodeDto> disableNodes(List<HealthNodeDto> nodes) {
-        return nodes.stream().map(this::disabledNode).toList();
-    }
-
-    private HealthNodeDto disabledNode(HealthNodeDto node) {
-        return new HealthNodeDto(
-                node.name(),
-                "DISABLED",
-                node.details(),
-                disableNodes(node.components()),
-                false,
-                DEFAULT_CONTRIBUTOR_NODE_REASON,
-                List.of());
     }
 }

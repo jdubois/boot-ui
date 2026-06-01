@@ -53,13 +53,13 @@ describe('Health', () => {
     expect(wrapper.text()).not.toContain('Component tree')
   })
 
-  it('shows default health contributors as disabled while setup guidance is visible', async () => {
+  it('shows default health contributors as live with setup guidance', async () => {
     const wrapper = await mountWithHealth({
       name: 'application',
-      status: 'DISABLED',
+      status: 'UP',
       details: null,
-      available: false,
-      unavailableReason: 'Only Spring Boot default health indicators are available',
+      available: true,
+      guidanceReason: 'Only Spring Boot default health indicators are available',
       setup: [
         {
           title: 'Add application health contributors',
@@ -70,31 +70,32 @@ describe('Health', () => {
       components: [
         {
           name: 'livenessState',
-          status: 'DISABLED',
+          status: 'UP',
           details: {livenessState: 'CORRECT'},
           components: [],
-          available: false
+          available: true
         },
         {
           name: 'readinessState',
-          status: 'DISABLED',
+          status: 'UP',
           details: {readinessState: 'ACCEPTING_TRAFFIC'},
           components: [],
-          available: false
+          available: true
         },
         {
           name: 'ssl',
-          status: 'DISABLED',
+          status: 'UP',
           details: {validChains: []},
           components: [],
-          available: false
+          available: true
         }
       ]
     })
 
+    expect(wrapper.text()).toContain('UP')
     expect(wrapper.text()).toContain('Only Spring Boot default health indicators are available')
     expect(wrapper.text()).toContain('Add application health contributors')
-    expect(wrapper.text()).toContain('Actuator health is present')
+    expect(wrapper.text()).toContain('Actuator health is available')
     expect(wrapper.text()).toContain('Spring Boot default health indicators: livenessState, readinessState, ssl')
     expect(wrapper.text()).toContain('The SSL indicator only appears when Spring has SSL bundles to validate.')
     expect(wrapper.text()).toContain('Component tree')
@@ -106,15 +107,15 @@ describe('Health', () => {
   it('does not render empty detail sections for contributors', async () => {
     const wrapper = await mountWithHealth({
       name: 'application',
-      status: 'DISABLED',
+      status: 'UP',
       details: null,
-      available: false,
-      unavailableReason: 'Only Spring Boot default health indicators are available',
+      available: true,
+      guidanceReason: 'Only Spring Boot default health indicators are available',
       setup: [],
       components: [
-        {name: 'livenessState', status: 'DISABLED', details: {}, components: [], available: false},
-        {name: 'ping', status: 'DISABLED', details: {}, components: [], available: false},
-        {name: 'readinessState', status: 'DISABLED', details: {}, components: [], available: false}
+        {name: 'livenessState', status: 'UP', details: {}, components: [], available: true},
+        {name: 'ping', status: 'UP', details: {}, components: [], available: true},
+        {name: 'readinessState', status: 'UP', details: {}, components: [], available: true}
       ]
     })
 

@@ -212,10 +212,11 @@ public final class BootUiDtos {
             List<HealthNodeDto> components,
             boolean available,
             String unavailableReason,
+            String guidanceReason,
             List<HealthSetupStepDto> setup) {
 
         public HealthNodeDto(String name, String status, Object details, List<HealthNodeDto> components) {
-            this(name, status, details, components, true, null, List.of());
+            this(name, status, details, components, true, null, null, List.of());
         }
     }
 

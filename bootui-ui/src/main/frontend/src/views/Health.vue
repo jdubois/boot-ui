@@ -38,7 +38,10 @@ const healthUnavailable = computed(() => root.value?.available === false)
 const setupSteps = computed(() => root.value?.setup || [])
 const hasHealthComponents = computed(() => componentCount.value > 0)
 const defaultOnlyHealth = computed(
-  () => root.value?.unavailableReason === 'Only Spring Boot default health indicators are available'
+  () => root.value?.guidanceReason === 'Only Spring Boot default health indicators are available'
+)
+const healthGuidance = computed(
+  () => healthUnavailable.value || Boolean(root.value?.guidanceReason) || setupSteps.value.length > 0
 )
 const defaultContributorNames = computed(() =>
   (root.value?.components || []).map((component) => component.name).join(', ')
@@ -49,7 +52,7 @@ const setupTitle = computed(() =>
 const setupIntro = computed(() => {
   if (defaultOnlyHealth.value) {
     const contributors = defaultContributorNames.value ? `: ${defaultContributorNames.value}` : ''
-    return `Actuator health is present, but BootUI only found Spring Boot default health indicators${contributors}. These framework checks are useful, but they do not prove that your application dependencies are healthy. The SSL indicator only appears when Spring has SSL bundles to validate.`
+    return `Actuator health is available, but the reported tree contains only Spring Boot default health indicators${contributors}. These framework checks are useful, but they do not prove that your application dependencies are healthy. The SSL indicator only appears when Spring has SSL bundles to validate.`
   }
   return (
     'The Health panel is disabled until a Spring Boot Actuator HealthEndpoint is available. Once it is configured, ' +
@@ -71,6 +74,7 @@ const detailsHidden = computed(
 const statusMessage = computed(() => {
   if (!root.value) return ''
   if (healthUnavailable.value) return root.value.unavailableReason || 'Actuator health data is unavailable'
+  if (root.value.guidanceReason) return root.value.guidanceReason
   if (problemNodes.value.length) {
     return (
       problemNodes.value.length + ' component' + (problemNodes.value.length === 1 ? ' needs' : 's need') + ' attention'
@@ -156,7 +160,7 @@ onMounted(load)
         <code>management.endpoint.health.show-details=always</code> to show component details.
       </div>
 
-      <div v-if="healthUnavailable" class="card border-info mb-3">
+      <div v-if="healthGuidance" class="card border-info mb-3">
         <div class="card-body">
           <h5 class="card-title d-flex align-items-center gap-2">
             <i class="bi bi-info-circle text-info"></i>
