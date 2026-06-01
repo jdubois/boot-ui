@@ -4,6 +4,7 @@ import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const MAX_PROPERTY_SUGGESTIONS = 200
 const props = defineProps(panelProps)
@@ -259,20 +260,19 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
 
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-start mb-2">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-sliders me-2"></i>Configuration</h2>
-        <p class="text-muted mb-0 small">Inspect and override every Spring property the running application can see.</p>
-      </div>
-      <div class="d-flex gap-2">
+    <PanelHeader
+      icon="bi-sliders"
+      title="Configuration"
+      subtitle="Inspect and override every Spring property the running application can see."
+      :error="error ? `Could not load configuration properties: ${error}` : null"
+      @refresh="load"
+    >
+      <template #actions>
         <button :disabled="readOnly || !!newRow" class="btn btn-success" @click="startCreate">
           <i class="bi bi-plus-lg me-1"></i> Add override
         </button>
-        <button class="btn btn-outline-secondary" title="Refresh" @click="load">
-          <i class="bi bi-arrow-clockwise"></i>
-        </button>
-      </div>
-    </div>
+      </template>
+    </PanelHeader>
 
     <div :class="readOnly ? 'alert-warning' : 'alert-info'" class="alert d-flex align-items-start mb-3">
       <i :class="readOnly ? 'bi-lock' : 'bi-pencil-square'" class="bi fs-4 me-3"></i>
@@ -303,7 +303,6 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
       </div>
       <button class="btn-close" @click="banner = null"></button>
     </div>
-    <div v-if="error" class="alert alert-danger">Could not load configuration properties: {{ error }}</div>
 
     <div class="row g-2 mb-3">
       <div class="col-md-6">

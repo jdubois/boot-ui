@@ -1,10 +1,14 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import HealthNode from './HealthNode.vue'
+import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const root = ref(null)
 const loading = ref(true)
 const error = ref(null)
+const lastFetched = ref(null)
 
 async function load() {
   loading.value = true
@@ -13,12 +17,15 @@ async function load() {
     const res = await fetch('api/health')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     root.value = await res.json()
+    lastFetched.value = Date.now()
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
 }
+
+const {interval, intervalOptions} = useAutoRefresh(load, [0, 5, 15, 30, 60], 0)
 
 function flatten(node) {
   if (!node) return []
@@ -49,20 +56,25 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-start mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-heart-pulse me-2"></i>Health</h2>
-        <p class="text-muted mb-0 small">
-          Inspect application and dependency health without reading raw Actuator JSON.
-        </p>
-      </div>
-      <button :disabled="loading" class="btn btn-outline-secondary" title="Refresh" @click="load">
-        <i class="bi bi-arrow-clockwise"></i>
-      </button>
-    </div>
+    <PanelHeader
+      icon="bi-heart-pulse"
+      title="Health"
+      subtitle="Inspect application and dependency health without reading raw Actuator JSON."
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastFetched"
+      @refresh="load"
+    >
+      <template #actions>
+        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
+          <option v-for="s in intervalOptions" :key="s" :value="s">
+            {{ s === 0 ? 'Manual' : `${s}s` }}
+          </option>
+        </select>
+      </template>
+    </PanelHeader>
 
-    <div v-if="loading" class="text-muted">Loading…</div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelSkeleton v-if="loading" />
 
     <template v-else-if="root">
       <div class="row g-3 mb-3">

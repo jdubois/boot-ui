@@ -2,6 +2,7 @@
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -147,23 +148,25 @@ onMounted(loadDependencies)
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-      <div>
-        <h2 class="h4 mb-1"><i class="bi bi-bug me-2"></i>Vulnerabilities</h2>
-        <p class="text-muted mb-0">Inspect runtime Maven JARs and scan them for known dependency vulnerabilities.</p>
-      </div>
-      <button
-        :disabled="loading || readOnly || data?.scanningEnabled === false"
-        class="btn btn-primary"
-        type="button"
-        @click="scanDependencies"
-      >
-        <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
-        Scan with OSV.dev
-      </button>
-    </div>
-
-    <div v-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelHeader
+      icon="bi-bug"
+      title="Vulnerabilities"
+      subtitle="Inspect runtime Maven JARs and scan them for known dependency vulnerabilities."
+      :loading="loading"
+      :error="error"
+    >
+      <template #actions>
+        <button
+          :disabled="loading || readOnly || data?.scanningEnabled === false"
+          class="btn btn-primary"
+          type="button"
+          @click="scanDependencies"
+        >
+          <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
+          Scan with OSV.dev
+        </button>
+      </template>
+    </PanelHeader>
     <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>
 
     <template v-if="data">

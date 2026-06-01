@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
 import {SERVER_PAGE_SIZE} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
 
@@ -83,7 +84,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <h2><i class="bi bi-check2-circle me-2"></i>Auto-configuration conditions</h2>
+    <PanelHeader
+      icon="bi-check2-circle"
+      title="Auto-configuration conditions"
+      :error="error ? `Could not load conditions: ${error}` : null"
+    />
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item">
         <a :class="{active: tab === 'positive'}" class="nav-link" href="#" @click.prevent="tab = 'positive'">
@@ -96,7 +101,6 @@ onBeforeUnmount(() => {
         </a>
       </li>
     </ul>
-    <div v-if="error" class="alert alert-danger">Could not load conditions: {{ error }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
     <p class="small text-muted">{{ matchedCount }} of {{ totalCount }} {{ tab }} entries matched</p>
     <div v-for="e in entries" :key="e.autoConfigurationClass + e.condition + e.message" class="mb-2">

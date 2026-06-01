@@ -2,6 +2,8 @@
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -13,6 +15,7 @@ const selected = ref(null)
 const logs = ref(null)
 const actionMessage = ref(null)
 const busyService = ref(null)
+const lastFetched = ref(null)
 
 async function load(options = {}) {
   loading.value = true
@@ -24,6 +27,7 @@ async function load(options = {}) {
     const res = await fetch('api/dev-services')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
+    lastFetched.value = Date.now()
     syncSelectedService()
   } catch (e) {
     error.value = e.message
@@ -187,19 +191,19 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-box-seam me-2"></i>Dev Services</h2>
-        <div v-if="report" class="text-muted small">
-          Snapshot {{ formatSnapshot(report.snapshotTimestamp) }} · Docker Compose
-          {{ report.dockerComposePresent ? 'available' : 'not detected' }} · Testcontainers
-          {{ report.testcontainersPresent ? 'available' : 'not detected' }}
-        </div>
-      </div>
-      <button class="btn btn-sm btn-outline-secondary" @click="load">
-        <i class="bi bi-arrow-clockwise"></i> Refresh
-      </button>
-    </div>
+    <PanelHeader
+      icon="bi-box-seam"
+      title="Dev Services"
+      :subtitle="
+        report
+          ? `Snapshot ${formatSnapshot(report.snapshotTimestamp)} · Docker Compose ${report.dockerComposePresent ? 'available' : 'not detected'} · Testcontainers ${report.testcontainersPresent ? 'available' : 'not detected'}`
+          : null
+      "
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastFetched"
+      @refresh="load"
+    />
 
     <div class="alert alert-info">
       Docker Compose services are shown from Spring Boot's startup snapshot. Restart controls appear only for
@@ -214,8 +218,7 @@ onMounted(load)
       </ul>
     </div>
 
-    <div v-if="loading" class="text-muted">Loading…</div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">
       No Docker Compose, Testcontainers, or Spring Boot service connection beans were detected.
     </div>

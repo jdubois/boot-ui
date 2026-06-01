@@ -2,6 +2,7 @@
 import {computed, onMounted, onUnmounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -10,6 +11,7 @@ const loading = ref(true)
 const actionLoading = ref(null)
 const banner = ref(null)
 const restarting = ref(false)
+const lastFetched = ref(null)
 let reconnectTimer = null
 
 const restartReady = computed(() => status.value?.restartAvailable && !status.value?.restartPending)
@@ -21,6 +23,7 @@ async function load() {
     const res = await fetch('api/devtools')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     status.value = await res.json()
+    lastFetched.value = Date.now()
   } catch (e) {
     flash('Could not load DevTools status: ' + e.message, 'danger')
   } finally {
@@ -124,17 +127,14 @@ onUnmounted(clearReconnectTimer)
 
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-start mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-lightning-charge me-2"></i>DevTools</h2>
-        <p class="text-muted mb-0 small">
-          Trigger Spring Boot DevTools LiveReload notifications or restart the local application.
-        </p>
-      </div>
-      <button :disabled="loading || restarting" class="btn btn-outline-secondary" title="Refresh" @click="load">
-        <i :class="{spin: loading}" class="bi bi-arrow-clockwise"></i>
-      </button>
-    </div>
+    <PanelHeader
+      icon="bi-lightning-charge"
+      title="DevTools"
+      subtitle="Trigger Spring Boot DevTools LiveReload notifications or restart the local application."
+      :loading="loading || restarting"
+      :last-fetched="lastFetched"
+      @refresh="load"
+    />
 
     <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
       <div>

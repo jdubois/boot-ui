@@ -1,6 +1,7 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, inject, onMounted, ref} from 'vue'
 
+const injectedOverview = inject('overview', null)
 const data = ref(null)
 const loading = ref(true)
 const error = ref(null)
@@ -70,7 +71,13 @@ const quickLinks = [
   }
 ]
 
-async function load() {
+async function load(force = false) {
+  if (!force && injectedOverview?.value) {
+    error.value = null
+    data.value = injectedOverview.value
+    loading.value = false
+    return
+  }
   loading.value = true
   error.value = null
   try {
@@ -115,7 +122,7 @@ onMounted(load)
           <i class="bi bi-github me-1"></i>
           BootUI GitHub project
         </a>
-        <button :disabled="loading" class="btn btn-light hero-refresh" @click="load">
+        <button :disabled="loading" class="btn btn-light hero-refresh" @click="load(true)">
           <i :class="{spin: loading}" class="bi bi-arrow-clockwise me-1"></i>
           Refresh snapshot
         </button>

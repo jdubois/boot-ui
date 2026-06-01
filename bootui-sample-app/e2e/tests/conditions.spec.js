@@ -21,7 +21,7 @@ test.describe('Auto-configuration conditions view', () => {
 
   test('filter narrows the visible auto-configuration entries', async ({openView}) => {
     const page = await openView('conditions', 'Auto-configuration conditions')
-    const entries = page.locator('h2 ~ div.mb-2')
+    const entries = page.locator('div.mb-2')
 
     const initial = await entries.count()
     expect(initial).toBeGreaterThan(0)

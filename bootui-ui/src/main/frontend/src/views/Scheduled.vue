@@ -1,10 +1,13 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const report = ref(null)
 const loading = ref(true)
 const error = ref(null)
 const filter = ref('')
+const lastFetched = ref(null)
 
 async function load() {
   loading.value = true
@@ -13,6 +16,7 @@ async function load() {
     const res = await fetch('api/scheduled')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
+    lastFetched.value = Date.now()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -58,15 +62,16 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2><i class="bi bi-clock-history me-2"></i>Scheduled Tasks</h2>
-      <button class="btn btn-sm btn-outline-secondary" @click="load">
-        <i class="bi bi-arrow-clockwise"></i> Refresh
-      </button>
-    </div>
+    <PanelHeader
+      icon="bi-clock-history"
+      title="Scheduled Tasks"
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastFetched"
+      @refresh="load"
+    />
 
-    <div v-if="loading" class="text-muted">Loading…</div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelSkeleton v-if="loading" />
     <div v-else-if="report && !report.schedulingPresent" class="alert alert-info">
       No Spring Scheduling detected on the classpath.
     </div>

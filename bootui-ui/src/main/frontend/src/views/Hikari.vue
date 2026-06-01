@@ -1,6 +1,9 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatNumber} from '../utils/format.js'
+import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const report = ref(null)
 const loading = ref(true)
@@ -55,6 +58,7 @@ async function load() {
     const res = await fetch('api/hikari/pools')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
+    lastUpdated.value = new Date()
     if (!selectedPool.value && pools.value.length) {
       selectPool(poolKey(pools.value[0]))
     }
@@ -137,29 +141,31 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
+
+const {interval, intervalOptions} = useAutoRefresh(load, [0, 10, 30, 60], 0)
 </script>
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-hdd-network me-2"></i>Connection Pools</h2>
-        <div v-if="report" class="text-muted small">
-          {{ pools.length }} HikariCP pool{{ pools.length === 1 ? '' : 's' }} · read-only
-        </div>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        <span v-if="lastUpdated" class="text-muted small">
-          <i class="bi bi-arrow-repeat me-1"></i>Updated {{ lastUpdatedText() }}
-        </span>
-        <button :disabled="loading" class="btn btn-sm btn-outline-secondary" @click="load">
-          <i class="bi bi-arrow-clockwise"></i> Refresh
-        </button>
-      </div>
-    </div>
+    <PanelHeader
+      icon="bi-hdd-network"
+      title="Connection Pools"
+      :subtitle="report ? `${pools.length} HikariCP pool${pools.length === 1 ? '' : 's'} · read-only` : null"
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
+      @refresh="load"
+    >
+      <template #actions>
+        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
+          <option v-for="s in intervalOptions" :key="s" :value="s">
+            {{ s === 0 ? 'Manual' : `${s}s` }}
+          </option>
+        </select>
+      </template>
+    </PanelHeader>
 
-    <div v-if="loading" class="text-muted">Loading connection pools…</div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelSkeleton v-if="loading" />
 
     <template v-else-if="report">
       <div v-if="!pools.length" class="alert alert-secondary">

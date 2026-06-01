@@ -2,6 +2,8 @@
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -14,6 +16,7 @@ const filter = ref('')
 const selectedTraceId = ref(null)
 const detailLoading = ref(false)
 const busy = ref(false)
+const lastFetched = ref(null)
 
 async function load() {
   loading.value = true
@@ -22,6 +25,7 @@ async function load() {
     const res = await fetch('api/traces')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
+    lastFetched.value = Date.now()
   } catch (e) {
     error.value = e.message
   } finally {
@@ -147,15 +151,18 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-bezier2 me-2"></i>Traces</h2>
-        <div v-if="report" class="text-muted small">
-          {{ report.retained }} / {{ report.capacity }} retained trace{{ report.retained === 1 ? '' : 's' }}
-          <span v-if="!report.enabled" class="badge text-bg-secondary ms-1">Disabled</span>
-        </div>
-      </div>
-      <div class="d-flex gap-2">
+    <PanelHeader
+      icon="bi-bezier2"
+      title="Traces"
+      :subtitle="
+        report ? `${report.retained} / ${report.capacity} retained trace${report.retained === 1 ? '' : 's'}` : null
+      "
+      :loading="loading"
+      :error="error"
+      :last-fetched="lastFetched"
+      @refresh="load"
+    >
+      <template #actions>
         <button
           :disabled="!report || readOnly || report.retained === 0 || busy"
           class="btn btn-sm btn-outline-danger"
@@ -164,19 +171,15 @@ onMounted(load)
           <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
           <i v-else class="bi bi-trash me-1"></i>Clear
         </button>
-        <button :disabled="loading" class="btn btn-sm btn-outline-secondary" @click="load">
-          <i class="bi bi-arrow-clockwise"></i> Refresh
-        </button>
-      </div>
-    </div>
+      </template>
+    </PanelHeader>
 
     <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
       <div>{{ banner.text }}</div>
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
-    <div v-if="loading" class="text-muted">Loading traces…</div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <PanelSkeleton v-if="loading" />
 
     <template v-else-if="report">
       <div v-if="!report.enabled" class="alert alert-info small">
