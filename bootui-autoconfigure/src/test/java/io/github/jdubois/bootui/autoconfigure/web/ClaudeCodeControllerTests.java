@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotActivityEvent;
 import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
+import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -48,11 +49,18 @@ class ClaudeCodeControllerTests {
         ClaudeCodeSessionStore store = storeFor(props);
         MockMvc mvc = standaloneSetup(new ClaudeCodeController(store, props)).build();
 
+        // Build the expected reason from the store's own display path so the assertion
+        // stays platform-independent. On Windows @TempDir lives under the user home, so
+        // the production message collapses it to a "~/..." form that differs from the raw
+        // absolute path.
+        CopilotSessionListDto list = store.listSessions();
+        assertThat(list.sessionStateDir()).contains("does-not-exist");
+        String expectedReason = "Claude Code session directory not found at " + list.sessionStateDir();
+
         mvc.perform(get("/bootui/api/claude-code/sessions").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(false))
-                .andExpect(
-                        jsonPath("$.unavailableReason").value("Claude Code session directory not found at " + missing))
+                .andExpect(jsonPath("$.unavailableReason").value(expectedReason))
                 .andExpect(jsonPath("$.total").value(0));
     }
 
