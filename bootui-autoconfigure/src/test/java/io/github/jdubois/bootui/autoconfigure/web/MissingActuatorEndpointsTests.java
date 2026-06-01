@@ -88,14 +88,17 @@ class MissingActuatorEndpointsTests {
     }
 
     @Test
-    void healthControllerReturnsUnknownRootWhenEndpointMissing() throws Exception {
+    void healthControllerReturnsDisabledRootWhenEndpointMissing() throws Exception {
         ObjectProvider<HealthEndpoint> provider = emptyProvider();
         MockMvc mvc = standaloneSetup(new HealthController(provider)).build();
 
         mvc.perform(get("/bootui/api/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("application"))
-                .andExpect(jsonPath("$.status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.status").value("DISABLED"))
+                .andExpect(jsonPath("$.available").value(false))
+                .andExpect(jsonPath("$.setup[0].snippets[0]")
+                        .value("org.springframework.boot:spring-boot-starter-actuator"))
                 .andExpect(jsonPath("$.components").isEmpty());
     }
 

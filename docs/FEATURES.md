@@ -27,7 +27,8 @@ first place to confirm whether BootUI is active for the reason you expect.
 
 The Health panel displays the Actuator health tree, including nested contributors and detailed status information when
 the host app exposes it. It keeps unavailable health data separate from unhealthy application state so missing Actuator
-infrastructure is clear.
+infrastructure is clear, and shows setup guidance instead of a healthy-looking status when the Actuator health endpoint
+is not available or only Spring Boot's default probe/SSL indicators are present.
 
 ![BootUI Health panel](images/bootui-health.png)
 

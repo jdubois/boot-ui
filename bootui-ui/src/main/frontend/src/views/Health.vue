@@ -34,13 +34,36 @@ function flatten(node) {
 
 const nodes = computed(() => flatten(root.value))
 const componentCount = computed(() => Math.max(nodes.value.length - 1, 0))
-const problemNodes = computed(() => nodes.value.filter((node) => !['UP', 'UNKNOWN'].includes(node.status)))
+const healthUnavailable = computed(() => root.value?.available === false)
+const setupSteps = computed(() => root.value?.setup || [])
+const hasHealthComponents = computed(() => componentCount.value > 0)
+const setupIntro = computed(() => {
+  if (hasHealthComponents.value) {
+    return (
+      'Actuator is present, but BootUI only found Spring Boot default probe and SSL indicators. Add application or ' +
+      'dependency health contributors so this panel reflects your app instead of framework defaults.'
+    )
+  }
+  return (
+    'The Health panel is disabled until a Spring Boot Actuator HealthEndpoint is available. Once it is configured, ' +
+    'BootUI will render the application status, liveness/readiness probes, SSL certificate checks, and any dependency ' +
+    'contributors reported by Actuator.'
+  )
+})
+const problemNodes = computed(() =>
+  nodes.value.filter((node) => node.available !== false && !['UP', 'UNKNOWN', 'DISABLED'].includes(node.status))
+)
 const detailsHidden = computed(
-  () => root.value && !root.value.details && (!root.value.components || root.value.components.length === 0)
+  () =>
+    root.value &&
+    !healthUnavailable.value &&
+    !root.value.details &&
+    (!root.value.components || root.value.components.length === 0)
 )
 
 const statusMessage = computed(() => {
   if (!root.value) return ''
+  if (healthUnavailable.value) return root.value.unavailableReason || 'Actuator health data is unavailable'
   if (problemNodes.value.length) {
     return (
       problemNodes.value.length + ' component' + (problemNodes.value.length === 1 ? ' needs' : 's need') + ' attention'
@@ -126,8 +149,31 @@ onMounted(load)
         <code>management.endpoint.health.show-details=always</code> to show component details.
       </div>
 
-      <h5 class="mb-2">Component tree</h5>
-      <HealthNode :node="root" />
+      <div v-if="healthUnavailable" class="card border-info mb-3">
+        <div class="card-body">
+          <h5 class="card-title d-flex align-items-center gap-2">
+            <i class="bi bi-info-circle text-info"></i>
+            Set up Spring Boot Actuator health
+          </h5>
+          <p class="text-muted mb-3">
+            {{ setupIntro }}
+          </p>
+          <ol v-if="setupSteps.length" class="mb-0 ps-3">
+            <li v-for="step in setupSteps" :key="step.title" class="mb-3">
+              <div class="fw-semibold">{{ step.title }}</div>
+              <div class="text-muted small mb-2">{{ step.description }}</div>
+              <div v-if="step.snippets?.length" class="d-flex flex-column gap-1">
+                <code v-for="snippet in step.snippets" :key="snippet" class="small">{{ snippet }}</code>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <template v-if="!healthUnavailable || hasHealthComponents">
+        <h5 class="mb-2">Component tree</h5>
+        <HealthNode :node="root" />
+      </template>
     </template>
   </div>
 </template>

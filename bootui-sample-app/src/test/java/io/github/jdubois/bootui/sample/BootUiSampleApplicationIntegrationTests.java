@@ -203,7 +203,7 @@ class BootUiSampleApplicationIntegrationTests {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
         assertThat(body).isNotNull();
-        assertThat(body.get("status")).isIn("UP", "DOWN", "UNKNOWN", "OUT_OF_SERVICE");
+        assertThat(body.get("status")).isIn("UP", "DOWN", "UNKNOWN", "OUT_OF_SERVICE", "DISABLED");
     }
 
     @Test

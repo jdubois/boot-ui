@@ -11,7 +11,8 @@ const statusClass = (s) =>
     UP: 'bg-success',
     DOWN: 'bg-danger',
     OUT_OF_SERVICE: 'bg-warning text-dark',
-    UNKNOWN: 'bg-secondary'
+    UNKNOWN: 'bg-secondary',
+    DISABLED: 'bg-secondary'
   })[s] || 'bg-secondary'
 
 const statusIcon = (s) =>
@@ -19,7 +20,8 @@ const statusIcon = (s) =>
     UP: 'bi-check-circle-fill text-success',
     DOWN: 'bi-x-circle-fill text-danger',
     OUT_OF_SERVICE: 'bi-exclamation-triangle-fill text-warning',
-    UNKNOWN: 'bi-question-circle-fill text-secondary'
+    UNKNOWN: 'bi-question-circle-fill text-secondary',
+    DISABLED: 'bi-slash-circle-fill text-secondary'
   })[s] || 'bi-question-circle-fill text-secondary'
 
 const childCount = (node) => (node.components || []).length
