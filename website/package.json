@@ -1,0 +1,18 @@
+{
+  "name": "bootui-website",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Documentation and marketing website for BootUI, published to GitHub Pages.",
+  "scripts": {
+    "copy-assets": "node scripts/copy-assets.mjs",
+    "predev": "npm run copy-assets",
+    "prebuild": "npm run copy-assets",
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

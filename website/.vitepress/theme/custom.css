@@ -1,0 +1,104 @@
+/**
+ * BootUI website theme.
+ *
+ * Mirrors the in-app developer console identity defined in
+ * bootui-ui/src/main/frontend/src/App.vue: Spring green (#198754) primary,
+ * Bootstrap blue (#0d6efd) secondary, a soft green->blue->purple gradient
+ * background, glassmorphism surfaces, and generously rounded corners.
+ */
+
+:root {
+  /* Brand palette */
+  --vp-c-brand-1: #157347;
+  --vp-c-brand-2: #198754;
+  --vp-c-brand-3: #198754;
+  --vp-c-brand-soft: rgba(25, 135, 84, 0.14);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  /* Home hero brand gradient (coffee-green to spring-green) */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #198754 30%, #0d6efd);
+
+  --vp-home-hero-image-background-image: linear-gradient(
+    135deg,
+    rgba(25, 135, 84, 0.5),
+    rgba(13, 110, 253, 0.45)
+  );
+  --vp-home-hero-image-filter: blur(48px);
+
+  /* Buttons */
+  --vp-button-brand-bg: #198754;
+  --vp-button-brand-hover-bg: #157347;
+  --vp-button-brand-active-bg: #146c43;
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-hover-border: transparent;
+}
+
+.dark {
+  --vp-c-brand-1: #4ade80;
+  --vp-c-brand-2: #34d399;
+  --vp-c-brand-3: #198754;
+  --vp-c-brand-soft: rgba(25, 135, 84, 0.2);
+}
+
+/* Soft gradient page background that echoes the console shell. */
+:root {
+  --vp-c-bg: #f7fbf9;
+}
+
+.dark {
+  --vp-c-bg: #0d1117;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(25, 135, 84, 0.12), transparent 34rem),
+    linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
+  background-attachment: fixed;
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at top left, rgba(25, 135, 84, 0.16), transparent 34rem),
+    linear-gradient(135deg, #0d1117 0%, #111827 60%, #14121f 100%);
+  background-attachment: fixed;
+}
+
+/* Glassmorphism surfaces for home feature cards. */
+.VPFeature {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 1.1rem;
+  box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.07);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(18px);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.VPFeature:hover {
+  border-color: rgba(25, 135, 84, 0.25);
+  box-shadow: 0 1.2rem 3rem rgba(15, 23, 42, 0.11);
+  transform: translateY(-2px);
+}
+
+.dark .VPFeature {
+  background: rgba(22, 27, 34, 0.72);
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+/* Rounded controls to match the console's button/badge radius. */
+.VPButton {
+  border-radius: 0.75rem !important;
+}
+
+/* Documentation screenshots: rounded, lifted, consistent with cards. */
+.vp-doc img {
+  border-radius: 0.9rem;
+  box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}

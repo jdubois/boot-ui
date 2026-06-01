@@ -1,0 +1,9 @@
+# VitePress build output and caches
+.vitepress/dist/
+.vitepress/cache/
+
+# Screenshots copied from ../docs/images at build time (single source of truth)
+public/images/
+
+# Node
+node_modules/
