@@ -1,6 +1,14 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
+import {
+  applyTheme,
+  nextTheme,
+  readThemePreference,
+  resolveTheme,
+  THEME_QUERY,
+  THEME_STORAGE_KEY
+} from './utils/theme.js'
 import CommandPalette from './views/components/CommandPalette.vue'
 
 const router = useRouter()
@@ -11,6 +19,14 @@ const error = ref(null)
 const sidebarCollapsed = ref(localStorage.getItem('bootui.sidebar.collapsed') === 'true')
 const commandPaletteOpen = ref(false)
 const commandPaletteRef = ref(null)
+const themeMediaQuery =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(THEME_QUERY) : null
+const themePreference = ref(readThemePreference(typeof window === 'undefined' ? null : window.localStorage))
+const systemPrefersDark = ref(themeMediaQuery?.matches === true)
+const resolvedTheme = computed(() => resolveTheme(themePreference.value, systemPrefersDark.value))
+const darkTheme = computed(() => resolvedTheme.value === 'dark')
+const themeToggleLabel = computed(() => `Switch to ${darkTheme.value ? 'light' : 'dark'} mode`)
+const themeToggleText = computed(() => `${darkTheme.value ? 'Light' : 'Dark'} mode`)
 
 provide('overview', overview)
 
@@ -21,8 +37,34 @@ function openCommandPalette() {
 
 watch(sidebarCollapsed, (v) => localStorage.setItem('bootui.sidebar.collapsed', v))
 
+watch(resolvedTheme, syncTheme, {immediate: true})
+
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+function syncTheme(theme) {
+  if (typeof document !== 'undefined') {
+    applyTheme(document.documentElement, theme)
+  }
+}
+
+function persistThemePreference(theme) {
+  try {
+    window.localStorage?.setItem(THEME_STORAGE_KEY, theme)
+  } catch {
+    // Ignore unavailable storage; the in-memory theme still applies for this session.
+  }
+}
+
+function toggleTheme() {
+  const theme = nextTheme(resolvedTheme.value)
+  themePreference.value = theme
+  persistThemePreference(theme)
+}
+
+function onSystemThemeChange(e) {
+  systemPrefersDark.value = e.matches === true
 }
 
 const semanticNavigationGroups = [
@@ -222,10 +264,12 @@ watch(
 onMounted(() => {
   loadShellData()
   window.addEventListener('keydown', onGlobalKeydown)
+  themeMediaQuery?.addEventListener?.('change', onSystemThemeChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  themeMediaQuery?.removeEventListener?.('change', onSystemThemeChange)
 })
 
 function onGlobalKeydown(e) {
@@ -275,9 +319,15 @@ function onGlobalKeydown(e) {
         >
           <button
             v-if="section.collapsible"
+            :aria-label="
+              sidebarCollapsed
+                ? `${isGroupExpanded(section.key) ? 'Collapse' : 'Expand'} ${section.title} panels`
+                : undefined
+            "
             :aria-controls="groupDomId(section)"
             :aria-expanded="isGroupExpanded(section.key)"
             :class="{active: groupHasActiveRoute(section)}"
+            :title="section.title"
             class="bootui-nav-group__toggle"
             type="button"
             @click="toggleGroup(section.key)"
@@ -360,13 +410,16 @@ function onGlobalKeydown(e) {
             <span class="cp-trigger-label">Go to panel</span>
             <kbd class="cp-trigger-hint">⌘K</kbd>
           </button>
-          <nav v-if="route.meta?.group && route.meta?.title" class="topbar-breadcrumb" aria-label="Current panel">
-            <span class="topbar-breadcrumb__group">{{ route.meta.group }}</span>
-            <i class="bi bi-chevron-right topbar-breadcrumb__sep"></i>
-            <span class="topbar-breadcrumb__panel">
-              <i v-if="route.meta.icon" :class="['bi', route.meta.icon, 'me-1']"></i>{{ route.meta.title }}
-            </span>
-          </nav>
+          <button
+            class="theme-toggle"
+            type="button"
+            :title="themeToggleLabel"
+            :aria-label="themeToggleLabel"
+            @click="toggleTheme"
+          >
+            <i :class="['bi', darkTheme ? 'bi-sun' : 'bi-moon-stars']"></i>
+            <span class="theme-toggle__label">{{ themeToggleText }}</span>
+          </button>
           <span class="status-pill">
             <i class="bi bi-broadcast-pin"></i>
             {{ activationLabel }}
@@ -448,46 +501,44 @@ function onGlobalKeydown(e) {
   --bootui-skeleton-shine: #f1f5f9;
 }
 
-@media (prefers-color-scheme: dark) {
-  :global(:root) {
-    /* Brand palette — dark mode */
-    --bootui-green: #34d068;
-    --bootui-green-dark: #4ade80;
-    --bootui-blue: #60a5fa;
-    --bootui-text: #e2e8f0;
-    --bootui-text-muted: #94a3b8;
-    --bootui-text-subtle: #64748b;
+:global(:root[data-bootui-theme='dark']) {
+  /* Brand palette — dark mode */
+  --bootui-green: #34d068;
+  --bootui-green-dark: #4ade80;
+  --bootui-blue: #60a5fa;
+  --bootui-text: #e2e8f0;
+  --bootui-text-muted: #94a3b8;
+  --bootui-text-subtle: #64748b;
 
-    /* Surfaces */
-    --bootui-bg-body: linear-gradient(135deg, #0d1a12 0%, #0f1929 46%, #100f1a 100%);
-    --bootui-bg-body-orb: rgba(52, 208, 104, 0.12);
-    --bootui-surface: rgba(30, 41, 59, 0.9);
-    --bootui-surface-solid: #1e293b;
-    --bootui-surface-alt: rgba(15, 23, 42, 0.86);
-    --bootui-sidebar-bg: rgba(15, 23, 42, 0.88);
+  /* Surfaces */
+  --bootui-bg-body: linear-gradient(135deg, #0d1a12 0%, #0f1929 46%, #100f1a 100%);
+  --bootui-bg-body-orb: rgba(52, 208, 104, 0.12);
+  --bootui-surface: rgba(30, 41, 59, 0.9);
+  --bootui-surface-solid: #1e293b;
+  --bootui-surface-alt: rgba(15, 23, 42, 0.86);
+  --bootui-sidebar-bg: rgba(15, 23, 42, 0.88);
 
-    /* Borders */
-    --bootui-border: rgba(226, 232, 240, 0.1);
-    --bootui-border-subtle: rgba(226, 232, 240, 0.07);
-    --bootui-border-alt: rgba(100, 116, 139, 0.25);
+  /* Borders */
+  --bootui-border: rgba(226, 232, 240, 0.1);
+  --bootui-border-subtle: rgba(226, 232, 240, 0.07);
+  --bootui-border-alt: rgba(100, 116, 139, 0.25);
 
-    /* Shadows */
-    --bootui-shadow-sm: 0 1rem 2.5rem rgba(0, 0, 0, 0.3);
-    --bootui-shadow-md: 0 1.2rem 3rem rgba(0, 0, 0, 0.4);
-    --bootui-shadow-sidebar: 0.75rem 0 2rem rgba(0, 0, 0, 0.25);
+  /* Shadows */
+  --bootui-shadow-sm: 0 1rem 2.5rem rgba(0, 0, 0, 0.3);
+  --bootui-shadow-md: 0 1.2rem 3rem rgba(0, 0, 0, 0.4);
+  --bootui-shadow-sidebar: 0.75rem 0 2rem rgba(0, 0, 0, 0.25);
 
-    /* Nav link state */
-    --bootui-nav-hover-bg: rgba(52, 208, 104, 0.1);
-    --bootui-nav-hover-color: #4ade80;
-    --bootui-nav-active-bg: linear-gradient(135deg, #198754, #2563eb);
-    --bootui-nav-active-color: #ffffff;
-    --bootui-nav-group-bg: rgba(30, 41, 59, 0.7);
-    --bootui-nav-group-color: #94a3b8;
+  /* Nav link state */
+  --bootui-nav-hover-bg: rgba(52, 208, 104, 0.1);
+  --bootui-nav-hover-color: #4ade80;
+  --bootui-nav-active-bg: linear-gradient(135deg, #198754, #2563eb);
+  --bootui-nav-active-color: #ffffff;
+  --bootui-nav-group-bg: rgba(30, 41, 59, 0.7);
+  --bootui-nav-group-color: #94a3b8;
 
-    /* Skeleton loaders */
-    --bootui-skeleton-base: #334155;
-    --bootui-skeleton-shine: #475569;
-  }
+  /* Skeleton loaders */
+  --bootui-skeleton-base: #334155;
+  --bootui-skeleton-shine: #475569;
 }
 
 :global(body) {
@@ -496,71 +547,69 @@ function onGlobalKeydown(e) {
     linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
 }
 
-@media (prefers-color-scheme: dark) {
-  :global(body) {
-    background:
-      radial-gradient(circle at top left, rgba(52, 208, 104, 0.12), transparent 34rem),
-      linear-gradient(135deg, #0d1a12 0%, #0f1929 46%, #100f1a 100%);
-  }
+:global(:root[data-bootui-theme='dark'] body) {
+  background:
+    radial-gradient(circle at top left, rgba(52, 208, 104, 0.12), transparent 34rem),
+    linear-gradient(135deg, #0d1a12 0%, #0f1929 46%, #100f1a 100%);
+}
 
-  :global(.card) {
-    background: var(--bootui-surface);
-    color: var(--bootui-text);
-  }
+:global(:root[data-bootui-theme='dark'] .card) {
+  background: var(--bootui-surface);
+  color: var(--bootui-text);
+}
 
-  :global(.table) {
-    --bs-table-bg: transparent;
-    --bs-table-color: var(--bootui-text);
-    --bs-table-border-color: var(--bootui-border-alt);
-    --bs-table-hover-bg: rgba(226, 232, 240, 0.04);
-    --bs-table-striped-bg: rgba(226, 232, 240, 0.03);
-  }
+:global(:root[data-bootui-theme='dark'] .table) {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--bootui-text);
+  --bs-table-border-color: var(--bootui-border-alt);
+  --bs-table-hover-bg: rgba(226, 232, 240, 0.04);
+  --bs-table-striped-bg: rgba(226, 232, 240, 0.03);
+}
 
-  :global(.form-control),
-  :global(.form-select) {
-    background-color: var(--bootui-surface-alt);
-    border-color: var(--bootui-border-alt);
-    color: var(--bootui-text);
-  }
+:global(:root[data-bootui-theme='dark'] .form-control),
+:global(:root[data-bootui-theme='dark'] .form-select) {
+  background-color: var(--bootui-surface-alt);
+  border-color: var(--bootui-border-alt);
+  color: var(--bootui-text);
+}
 
-  :global(.form-control::placeholder) {
-    color: var(--bootui-text-subtle);
-  }
+:global(:root[data-bootui-theme='dark'] .form-control::placeholder) {
+  color: var(--bootui-text-subtle);
+}
 
-  :global(.text-muted) {
-    color: var(--bootui-text-muted) !important;
-  }
+:global(:root[data-bootui-theme='dark'] .text-muted) {
+  color: var(--bootui-text-muted) !important;
+}
 
-  :global(.alert-danger) {
-    --bs-alert-bg: rgba(220, 38, 38, 0.15);
-    --bs-alert-border-color: rgba(220, 38, 38, 0.3);
-    --bs-alert-color: #fca5a5;
-  }
+:global(:root[data-bootui-theme='dark'] .alert-danger) {
+  --bs-alert-bg: rgba(220, 38, 38, 0.15);
+  --bs-alert-border-color: rgba(220, 38, 38, 0.3);
+  --bs-alert-color: #fca5a5;
+}
 
-  :global(.alert-warning) {
-    --bs-alert-bg: rgba(245, 158, 11, 0.12);
-    --bs-alert-border-color: rgba(245, 158, 11, 0.25);
-    --bs-alert-color: #fcd34d;
-  }
+:global(:root[data-bootui-theme='dark'] .alert-warning) {
+  --bs-alert-bg: rgba(245, 158, 11, 0.12);
+  --bs-alert-border-color: rgba(245, 158, 11, 0.25);
+  --bs-alert-color: #fcd34d;
+}
 
-  :global(.alert-info) {
-    --bs-alert-bg: rgba(96, 165, 250, 0.1);
-    --bs-alert-border-color: rgba(96, 165, 250, 0.2);
-    --bs-alert-color: #93c5fd;
-  }
+:global(:root[data-bootui-theme='dark'] .alert-info) {
+  --bs-alert-bg: rgba(96, 165, 250, 0.1);
+  --bs-alert-border-color: rgba(96, 165, 250, 0.2);
+  --bs-alert-color: #93c5fd;
+}
 
-  :global(.btn-outline-secondary) {
-    --bs-btn-color: var(--bootui-text-muted);
-    --bs-btn-border-color: var(--bootui-border-alt);
-    --bs-btn-hover-bg: rgba(226, 232, 240, 0.08);
-    --bs-btn-hover-color: var(--bootui-text);
-    --bs-btn-active-bg: rgba(226, 232, 240, 0.15);
-  }
+:global(:root[data-bootui-theme='dark'] .btn-outline-secondary) {
+  --bs-btn-color: var(--bootui-text-muted);
+  --bs-btn-border-color: var(--bootui-border-alt);
+  --bs-btn-hover-bg: rgba(226, 232, 240, 0.08);
+  --bs-btn-hover-color: var(--bootui-text);
+  --bs-btn-active-bg: rgba(226, 232, 240, 0.15);
+}
 
-  :global(.badge.bg-light) {
-    background-color: rgba(226, 232, 240, 0.12) !important;
-    color: var(--bootui-text-muted) !important;
-  }
+:global(:root[data-bootui-theme='dark'] .badge.bg-light) {
+  background-color: rgba(226, 232, 240, 0.12) !important;
+  color: var(--bootui-text-muted) !important;
 }
 
 :global(.card) {
@@ -651,7 +700,9 @@ function onGlobalKeydown(e) {
 }
 
 .bootui-sidebar--collapsed {
-  width: 4.5rem;
+  gap: 1rem;
+  padding: 1rem 0.75rem;
+  width: 5.25rem;
 }
 
 .brand-area {
@@ -683,17 +734,50 @@ function onGlobalKeydown(e) {
 
 .bootui-sidebar--collapsed .brand-text,
 .bootui-sidebar--collapsed .bootui-nav-link__label,
-.bootui-sidebar--collapsed .bootui-nav-group__label,
+.bootui-sidebar--collapsed .bootui-nav-group__label span,
 .bootui-sidebar--collapsed .bootui-nav-group__count,
 .bootui-sidebar--collapsed .bootui-nav-group__chevron,
+.bootui-sidebar--collapsed .bootui-nav-link__status,
 .bootui-sidebar--collapsed .contribute-card > span:last-child,
 .bootui-sidebar--collapsed .sidebar-bottom .alert {
   display: none;
 }
 
+.bootui-sidebar--collapsed .brand-area {
+  align-items: stretch;
+  flex-direction: column;
+}
+
 .bootui-sidebar--collapsed .brand-card {
   justify-content: center;
   padding: 0.85rem 0.5rem;
+}
+
+.bootui-sidebar--collapsed .sidebar-toggle {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.bootui-sidebar--collapsed .bootui-nav-group__toggle {
+  justify-content: center;
+  padding: 0.6rem 0.5rem;
+}
+
+.bootui-sidebar--collapsed .bootui-nav-group__label {
+  flex: 0;
+  justify-content: center;
+}
+
+.bootui-sidebar--collapsed .bootui-nav-group__label i {
+  font-size: 1.05rem;
+}
+
+.bootui-sidebar--collapsed .bootui-nav-section:not(.bootui-nav-section--overview) .bootui-nav-group__items {
+  border-left: 0;
+  margin-left: 0;
+  padding-left: 0;
 }
 
 .bootui-sidebar--collapsed .bootui-nav-link {
@@ -703,6 +787,7 @@ function onGlobalKeydown(e) {
 
 .bootui-sidebar--collapsed .contribute-card {
   justify-content: center;
+  padding: 0.7rem 0.5rem;
 }
 
 .brand-card {
@@ -968,32 +1053,6 @@ function onGlobalKeydown(e) {
   justify-content: flex-end;
 }
 
-.topbar-breadcrumb {
-  align-items: center;
-  color: var(--bootui-text-muted);
-  display: inline-flex;
-  font-size: 0.8rem;
-  gap: 0.3rem;
-}
-
-.topbar-breadcrumb__group {
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 0.72rem;
-  opacity: 0.75;
-}
-
-.topbar-breadcrumb__sep {
-  font-size: 0.65rem;
-  opacity: 0.5;
-}
-
-.topbar-breadcrumb__panel {
-  font-weight: 700;
-  color: var(--bootui-text);
-}
-
 .status-pill,
 .profile-chip {
   align-items: center;
@@ -1137,7 +1196,8 @@ function onGlobalKeydown(e) {
   max-width: 7rem;
 }
 
-.cp-trigger {
+.cp-trigger,
+.theme-toggle {
   align-items: center;
   background: var(--bootui-surface);
   border: 1px solid var(--bootui-border);
@@ -1154,7 +1214,8 @@ function onGlobalKeydown(e) {
     color 150ms ease;
 }
 
-.cp-trigger:hover {
+.cp-trigger:hover,
+.theme-toggle:hover {
   background: var(--bootui-nav-hover-bg);
   color: var(--bootui-text);
 }
@@ -1169,7 +1230,8 @@ function onGlobalKeydown(e) {
 
 @media (max-width: 576px) {
   .cp-trigger-label,
-  .cp-trigger-hint {
+  .cp-trigger-hint,
+  .theme-toggle__label {
     display: none;
   }
 }
