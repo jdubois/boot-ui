@@ -20,7 +20,7 @@ Panel settings are consistent across the UI and API:
 | `bootui.enabled` | `AUTO` | Activation mode. `AUTO` activates only for configured local profiles or DevTools; `ON` forces BootUI on; `OFF` forces it off. |
 | `bootui.enabled-profiles` | `dev,local` | Profiles that activate BootUI when `bootui.enabled=AUTO`. |
 | `bootui.disabled-profiles` | `prod,production` | Profiles that force BootUI off unless `bootui.enabled=ON`. |
-| `bootui.path` | `/bootui` | UI base path. `/bootui` is the supported route for v0.1. |
+| `bootui.path` | `/bootui` | UI base path. `/bootui` is the supported route. |
 | `bootui.api-path` | `/bootui/api` | Internal API base path used by the UI and safety filters. |
 | `bootui.allow-non-localhost` | `false` | Explicitly opt out of loopback-only protection. Keep this `false` unless the local network is trusted. |
 | `bootui.mask-secrets` | `true` | Enables secret-like value masking helpers. |

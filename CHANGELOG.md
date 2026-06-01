@@ -7,7 +7,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-05-31
+## [0.2.0] - 2026-06-01
 
 Second BootUI release, focused on local security diagnostics, three new local-only diagnostics panels — Architecture
 (ArchUnit), Heap Dump (value-free class histogram), and Database Connection Pools (HikariCP) — and safer defaults around
@@ -38,6 +38,9 @@ host-application security, plus release/documentation hardening for the full vis
 - Request-driven BootUI controllers and agent session stores are lazy-loaded, and agent session parsing is bounded to
   avoid unnecessary startup work.
 - Vulnerability findings are sorted by severity/importance first, with stable ordering inside each severity group.
+- The app shell, panel headers, skeleton states, auto-refresh controls, and command palette/navigation were polished for a
+  faster and more consistent UI.
+- Architecture, Pentesting, and Vulnerabilities now share clearer scan status messaging.
 - Startup Timeline configuration, panel read-only controls, application property reference docs, pentest catalogue docs,
   feature docs, screenshots, and E2E documentation were reconciled with the implemented `0.2.0` behavior.
 - Refreshed and reorganized `SECURITY.md`.
@@ -49,6 +52,8 @@ host-application security, plus release/documentation hardening for the full vis
 - Fixed sample-app and BootUI security audit findings, including enabling CSRF protection in the sample app.
 - Fixed hidden-BootUI-internals assumptions in Beans E2E coverage after self-data filtering became the default.
 - Removed duplicated panel headings and restored Overview/Metrics heading behavior.
+- Fixed BootUI navigation controls, including theme persistence and command palette shortcut behavior.
+- Fixed the Claude Code sidebar icon.
 - Added registry-level coverage so global read-only mode is checked for every action-capable panel.
 
 ## [0.1.0] - 2026-05-29
