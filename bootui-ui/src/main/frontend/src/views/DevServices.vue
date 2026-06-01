@@ -218,7 +218,7 @@ onMounted(load)
       </ul>
     </div>
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !report" />
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">
       No Docker Compose, Testcontainers, or Spring Boot service connection beans were detected.
     </div>

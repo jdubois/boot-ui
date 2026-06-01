@@ -68,6 +68,10 @@ function tagLabel(tag) {
   return `${tag.key}:${tag.value}`
 }
 
+function sampleKey(sample) {
+  return sample.tags.length ? sample.tags.map(tagLabel).join('|') : 'no-tags'
+}
+
 function lastUpdatedText() {
   if (!lastUpdated.value) return ''
   return lastUpdated.value.toLocaleTimeString([], {
@@ -341,7 +345,7 @@ const {interval, intervalOptions} = useAutoRefresh(loadMetrics, [0, 10, 30, 60],
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(sample, index) in detail.samples" :key="index">
+                  <tr v-for="sample in detail.samples" :key="sampleKey(sample)">
                     <td>
                       <span v-if="!sample.tags.length" class="text-muted">none</span>
                       <span v-for="tag in sample.tags" :key="tagLabel(tag)" class="badge text-bg-light me-1">

@@ -71,7 +71,7 @@ onMounted(load)
       @refresh="load"
     />
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !report" />
     <div v-else-if="report && !report.schedulingPresent" class="alert alert-info">
       No Spring Scheduling detected on the classpath.
     </div>

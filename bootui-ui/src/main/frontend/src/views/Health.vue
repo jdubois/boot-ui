@@ -74,7 +74,7 @@ onMounted(load)
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !root" />
 
     <template v-else-if="root">
       <div class="row g-3 mb-3">

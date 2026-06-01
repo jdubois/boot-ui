@@ -464,8 +464,8 @@ onBeforeUnmount(() => {
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="loading" />
-    <div v-else-if="error" class="alert alert-warning">
+    <PanelSkeleton v-if="loading && !overview" />
+    <div v-else-if="error && !overview" class="alert alert-warning">
       <div class="fw-semibold">Could not load AI usage data</div>
       <details class="mt-1">
         <summary class="small">Details</summary>

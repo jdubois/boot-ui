@@ -8,6 +8,7 @@ const filter = ref('')
 const selectedDurationBand = ref('all')
 const expandedStepIds = ref(new Set())
 const loading = ref(true)
+const loaded = ref(false)
 const error = ref('')
 const lastFetched = ref(null)
 
@@ -95,6 +96,7 @@ async function load() {
     error.value = err instanceof Error ? err.message : 'Unable to load startup data'
   } finally {
     loading.value = false
+    loaded.value = true
   }
 }
 
@@ -242,7 +244,7 @@ onMounted(load)
       </div>
     </div>
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !loaded" />
     <div v-else-if="report.steps.length === 0 && !error" class="alert alert-light border" role="status">
       <i class="bi bi-info-circle me-2"></i>No startup data available
     </div>

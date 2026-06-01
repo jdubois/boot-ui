@@ -179,7 +179,7 @@ onMounted(load)
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !report" />
 
     <template v-else-if="report">
       <div v-if="!report.enabled" class="alert alert-info small">

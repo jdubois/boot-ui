@@ -165,7 +165,7 @@ const {interval, intervalOptions} = useAutoRefresh(load, [0, 10, 30, 60], 0)
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !report" />
 
     <template v-else-if="report">
       <div v-if="!pools.length" class="alert alert-secondary">
