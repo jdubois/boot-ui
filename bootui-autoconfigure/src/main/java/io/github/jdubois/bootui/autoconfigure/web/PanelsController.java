@@ -174,7 +174,7 @@ public class PanelsController {
     }
 
     private boolean aiAvailable() {
-        return properties.getTelemetry().isEnabled() && classPresent("org.springframework.ai.chat.client.ChatClient");
+        return properties.getTelemetry().isEnabled() && AiFrameworkDetector.isAnyPresent();
     }
 
     private boolean hikariAvailable() {
@@ -214,7 +214,7 @@ public class PanelsController {
         if (!properties.getTelemetry().isEnabled()) {
             return "Telemetry receiver is disabled";
         }
-        return "Spring AI ChatClient is not on the classpath";
+        return "Spring AI or LangChain4j is not on the classpath";
     }
 
     private boolean cliSessionPanelAvailable(BootUiProperties.Copilot settings) {

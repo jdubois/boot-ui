@@ -918,6 +918,7 @@ public final class BootUiDtos {
     public record AiOverviewDto(
             boolean enabled,
             boolean springAiDetected,
+            boolean langChain4jDetected,
             int totalChats,
             long totalInputTokens,
             long totalOutputTokens,

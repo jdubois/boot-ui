@@ -112,7 +112,7 @@ class PanelsControllerTests {
     }
 
     @Test
-    void panelsMarksAiUnavailableWithoutSpringAi() throws Exception {
+    void panelsMarksAiUnavailableWithoutAiFramework() throws Exception {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.refresh();
             MockMvc mvc = standaloneSetup(
@@ -124,7 +124,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[16].id").value("ai"))
                     .andExpect(jsonPath("$.panels[16].available").value(false))
                     .andExpect(jsonPath("$.panels[16].unavailableReason")
-                            .value("Spring AI ChatClient is not on the classpath"));
+                            .value("Spring AI or LangChain4j is not on the classpath"));
         }
     }
 

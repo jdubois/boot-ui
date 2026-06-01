@@ -6,6 +6,7 @@ const chatSpanId = '1111111111111111'
 const overview = {
   enabled: true,
   springAiDetected: true,
+  langChain4jDetected: false,
   totalChats: 1,
   totalInputTokens: 42,
   totalOutputTokens: 7,
@@ -100,6 +101,7 @@ test.describe('AI Usage view', () => {
       ...overview,
       enabled: false,
       springAiDetected: false,
+      langChain4jDetected: false,
       totalChats: 0,
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -135,10 +137,11 @@ test.describe('AI Usage view', () => {
     await expect(page.getByText('OTLP exporter configured')).toHaveCount(0)
   })
 
-  test('shows unavailable mode when Spring AI is missing', async ({page}) => {
+  test('shows unavailable mode when no AI framework is on the classpath', async ({page}) => {
     await stubAi(page, {
       ...overview,
       springAiDetected: false,
+      langChain4jDetected: false,
       totalChats: 0,
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -149,13 +152,16 @@ test.describe('AI Usage view', () => {
     })
 
     await page.goto('/bootui/#/ai')
-    await expect(page.getByText('Spring AI on classpath')).toBeVisible()
+    await expect(page.getByText('Spring AI or LangChain4j on classpath')).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })
 })
 
 async function stubAi(page, overviewResponse) {
-  await stubShell(page, overviewResponse.enabled && overviewResponse.springAiDetected)
+  await stubShell(
+    page,
+    overviewResponse.enabled && (overviewResponse.springAiDetected || overviewResponse.langChain4jDetected)
+  )
   await page.route(
     (url) => url.pathname === '/bootui/api/ai/overview',
     async (route) => {

@@ -423,6 +423,19 @@ const errorRate = computed(() => {
 
 const hasAnyData = computed(() => overview.value && overview.value.totalChats > 0)
 
+const frameworkDetected = computed(
+  () => !!overview.value && (overview.value.springAiDetected || overview.value.langChain4jDetected)
+)
+
+const detectedFrameworkLabel = computed(() => {
+  if (!overview.value) return null
+  const frameworks = []
+  if (overview.value.springAiDetected) frameworks.push('Spring AI')
+  if (overview.value.langChain4jDetected) frameworks.push('LangChain4j')
+  if (frameworks.length === 0) return 'Spring AI or LangChain4j not on classpath'
+  return `${frameworks.join(' & ')} detected`
+})
+
 onMounted(() => {
   load()
   startAutoRefresh()
@@ -440,7 +453,7 @@ onBeforeUnmount(() => {
     <PanelHeader
       icon="bi-cpu"
       title="AI Usage"
-      :subtitle="overview ? (overview.springAiDetected ? 'Spring AI detected' : 'Spring AI not on classpath') : null"
+      :subtitle="overview ? detectedFrameworkLabel : null"
       :loading="loading"
       :error="error"
       :last-fetched="lastUpdated"
@@ -480,10 +493,11 @@ onBeforeUnmount(() => {
       </div>
 
       <AiSetupChecklist
-        v-if="!overview.enabled || !overview.springAiDetected"
+        v-if="!overview.enabled || !frameworkDetected"
         :enabled="overview.enabled"
         :has-data="hasAnyData"
         :spring-ai-detected="overview.springAiDetected"
+        :lang-chain4j-detected="overview.langChain4jDetected"
       />
 
       <div v-else-if="!hasAnyData" class="card mb-3 border-info-subtle">
@@ -495,7 +509,7 @@ onBeforeUnmount(() => {
               <span class="badge text-bg-info">Telemetry ready</span>
             </div>
             <p class="text-muted mb-0">
-              BootUI's telemetry capture is active and Spring AI is detected. Exercise a Spring AI chat flow; this panel
+              BootUI's telemetry capture is active and an AI framework is detected. Exercise an AI chat flow; this panel
               will refresh automatically when the first completion span arrives.
             </p>
           </div>

@@ -4,16 +4,21 @@ import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 
 /**
- * Heuristics for recognizing Spring AI / OTel GenAI spans inside the BootUI
- * telemetry store. Centralized so the Traces and AI controllers stay in sync.
+ * Heuristics for recognizing AI spans inside the BootUI telemetry store.
+ * Centralized so the Traces and AI controllers stay in sync.
  *
- * <p>Spring AI emits spans following the OTel GenAI semantic conventions:</p>
+ * <p>Spring AI and LangChain4j both emit spans following the OTel GenAI semantic
+ * conventions, so recognition is driven by the vendor-neutral {@code gen_ai.*}
+ * attributes:</p>
  * <ul>
  *   <li>Chat: {@code gen_ai.operation.name=chat} and {@code gen_ai.system=<provider>}.</li>
  *   <li>Embeddings: {@code gen_ai.operation.name=embeddings}.</li>
  *   <li>Tool execution: {@code gen_ai.operation.name=execute_tool} or {@code spring.ai.tool}.</li>
  *   <li>Vector store: {@code db.system=spring_ai_vector_store} or scope contains "vectorstore".</li>
  * </ul>
+ *
+ * <p>Spring-AI-specific attributes (such as {@code spring.ai.tool.name}) are kept as
+ * fallbacks for spans that predate the GenAI conventions.</p>
  */
 public final class AiSpanRecognizer {
 

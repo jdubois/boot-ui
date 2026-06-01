@@ -926,7 +926,7 @@ Initial properties:
 | `bootui.telemetry.max-request-bytes`         | `8388608`                               | Maximum OTLP payload size accepted by the local receiver.                                         |
 | `bootui.ai.token-series-minutes`             | `60`                                    | Default token-usage chart window for the AI Usage panel, capped by the API.                       |
 | `bootui.ai.max-recent-chats`                 | `100`                                   | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API.                       |
-| `bootui.ai.show-content-capture-banner`      | `true`                                  | Shows guidance when Spring AI prompt/completion content is not captured in spans.                 |
+| `bootui.ai.show-content-capture-banner`      | `true`                                  | Shows guidance when Spring AI or LangChain4j prompt/completion content is not captured in spans.  |
 | `bootui.copilot.enabled`                     | `AUTO`                                  | Enable the Copilot panel when local Copilot CLI session state exists.                             |
 | `bootui.copilot.session-state-dir`           | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.                   |
 | `bootui.copilot.max-events-per-session`      | `2000`                                  | Maximum Copilot events retained per parsed session.                                               |
