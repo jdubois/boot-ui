@@ -53,7 +53,7 @@ onMounted(load)
       @refresh="load"
     />
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !data" />
     <div v-else-if="data">
       <div class="mb-3">
         <span class="me-2 text-muted small">Active profiles:</span>

@@ -201,7 +201,7 @@ onMounted(load)
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="loading && !report" />
 
     <template v-else-if="report">
       <div v-for="warning in report.warnings" :key="warning" class="alert alert-warning small">

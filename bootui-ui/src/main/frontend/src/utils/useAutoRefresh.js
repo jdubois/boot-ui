@@ -1,42 +1,86 @@
-import {onBeforeUnmount, ref, watch} from 'vue'
+import {onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {useRefreshState} from './useRefreshState.js'
 
 /**
- * Composable that runs a callback on a configurable interval.
+ * Composable that loads immediately and refreshes while auto-refresh is enabled and the tab is visible.
  *
- * @param {Function} callback - function to call on each tick (and on interval change when immediate is true)
- * @param {number[]} [intervals] - available interval options in seconds; 0 means "off"
- * @param {number} [defaultInterval] - index into the intervals array to use by default
- * @returns {{ interval, intervalOptions, isRunning, stop }}
+ * @param {Function} callback - function to call for initial, manual, interval, and visibility refreshes
+ * @param {{intervalMs?: number, defaultEnabled?: boolean}} [options] - auto-refresh options
+ * @returns {{ autoRefresh, intervalMs, loading, hasLoaded, initialLoading, load, refresh, startAutoRefresh, stopAutoRefresh }}
  */
-export function useAutoRefresh(callback, intervals = [0, 5, 10, 30, 60], defaultInterval = 1) {
-  const interval = ref(intervals[defaultInterval] ?? intervals[0])
+export function useAutoRefresh(callback, {intervalMs = 10_000, defaultEnabled = true} = {}) {
+  const autoRefresh = ref(defaultEnabled)
+  const {loading, hasLoaded, initialLoading, refresh} = useRefreshState(callback)
   let timer = null
+  let inFlight = false
 
-  function stop() {
+  function stopAutoRefresh() {
     if (timer) {
       clearInterval(timer)
       timer = null
     }
   }
 
-  function start() {
-    stop()
-    if (interval.value > 0) {
-      timer = setInterval(() => {
-        if (document.visibilityState !== 'hidden') {
-          callback()
-        }
-      }, interval.value * 1000)
+  async function load(...args) {
+    if (inFlight) return
+    inFlight = true
+    try {
+      return await refresh(...args)
+    } finally {
+      inFlight = false
     }
   }
 
-  watch(interval, () => start(), {immediate: true})
+  function startAutoRefresh() {
+    stopAutoRefresh()
+    if (autoRefresh.value && document.visibilityState === 'visible') {
+      timer = setInterval(() => {
+        if (autoRefresh.value && document.visibilityState === 'visible') {
+          load()
+        }
+      }, intervalMs)
+    }
+  }
 
-  onBeforeUnmount(stop)
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      startAutoRefresh()
+      if (autoRefresh.value) {
+        load()
+      }
+    } else {
+      stopAutoRefresh()
+    }
+  }
+
+  watch(autoRefresh, () => {
+    if (autoRefresh.value) {
+      startAutoRefresh()
+    } else {
+      stopAutoRefresh()
+    }
+  })
+
+  onMounted(() => {
+    load()
+    startAutoRefresh()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  })
+
+  onBeforeUnmount(() => {
+    stopAutoRefresh()
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  })
 
   return {
-    interval,
-    intervalOptions: intervals,
-    stop
+    autoRefresh,
+    intervalMs,
+    loading,
+    hasLoaded,
+    initialLoading,
+    load,
+    refresh: load,
+    startAutoRefresh,
+    stopAutoRefresh
   }
 }

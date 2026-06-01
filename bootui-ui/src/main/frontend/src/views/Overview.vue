@@ -129,10 +129,10 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="loading" class="overview-skeleton">
+    <div v-if="loading && !data" class="overview-skeleton">
       <div v-for="n in 4" :key="n" class="skeleton-card"></div>
     </div>
-    <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
+    <div v-else-if="error && !data" class="alert alert-danger">{{ error }}</div>
     <template v-else-if="data">
       <div class="row g-3 mb-4">
         <div v-for="(stat, index) in stats" :key="stat.label" class="col-xl-3 col-md-6">

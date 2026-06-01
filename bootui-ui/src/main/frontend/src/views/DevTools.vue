@@ -157,7 +157,7 @@ onUnmounted(clearReconnectTimer)
       </div>
     </div>
 
-    <div v-if="loading" class="card">
+    <div v-if="loading && !status" class="card">
       <div class="card-body text-muted">Loading DevTools status…</div>
     </div>
 

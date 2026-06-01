@@ -1,5 +1,5 @@
 <script setup>
-import {computed, useAttrs} from 'vue'
+import {computed, getCurrentInstance, onBeforeUnmount, ref, watch} from 'vue'
 import {formatRelative} from '../../utils/format.js'
 
 const props = defineProps({
@@ -13,13 +13,36 @@ const props = defineProps({
 
 const emit = defineEmits(['refresh'])
 
-const attrs = useAttrs()
-const hasRefresh = computed(() => typeof attrs.onRefresh === 'function')
+const instance = getCurrentInstance()
+const hasRefresh = computed(() => typeof instance?.vnode.props?.onRefresh === 'function')
+const now = ref(Date.now())
+let relativeTimer = null
+
+function stopRelativeTimer() {
+  if (relativeTimer) {
+    clearInterval(relativeTimer)
+    relativeTimer = null
+  }
+}
+
+function startRelativeTimer() {
+  stopRelativeTimer()
+  if (props.lastFetched) {
+    now.value = Date.now()
+    relativeTimer = setInterval(() => {
+      now.value = Date.now()
+    }, 1000)
+  }
+}
 
 const lastFetchedText = computed(() => {
   if (!props.lastFetched) return null
-  return formatRelative(props.lastFetched)
+  return formatRelative(props.lastFetched, now.value)
 })
+
+watch(() => props.lastFetched, startRelativeTimer, {immediate: true})
+
+onBeforeUnmount(stopRelativeTimer)
 </script>
 
 <template>
