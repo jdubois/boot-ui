@@ -94,6 +94,9 @@ describe('Health', () => {
 
     expect(wrapper.text()).toContain('Only Spring Boot default health indicators are available')
     expect(wrapper.text()).toContain('Add application health contributors')
+    expect(wrapper.text()).toContain('Actuator health is present')
+    expect(wrapper.text()).toContain('Spring Boot default health indicators: livenessState, readinessState, ssl')
+    expect(wrapper.text()).toContain('The SSL indicator only appears when Spring has SSL bundles to validate.')
     expect(wrapper.text()).toContain('Component tree')
     expect(wrapper.text()).toContain('livenessState')
     expect(wrapper.text()).toContain('readinessState')

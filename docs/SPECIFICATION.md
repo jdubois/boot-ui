@@ -294,7 +294,7 @@ Features:
 - Show details when available.
 - Explain when details are hidden by Actuator configuration.
 - Show a disabled state with setup guidance when the Actuator health endpoint is not available.
-- Treat a tree made only of Spring Boot default probe/SSL indicators as not yet application-health-ready.
+- Treat a tree made only of Spring Boot default health indicators as not yet application-health-ready.
 
 Acceptance criteria:
 
@@ -1041,7 +1041,7 @@ Examples:
   - "Health details are hidden. In local development, set `management.endpoint.health.show-details=always`."
 - No Actuator health endpoint:
   - "The Health panel is disabled until a Spring Boot Actuator `HealthEndpoint` is available."
-- Only default probe/SSL health contributors:
+- Only default health contributors:
   - "Only Spring Boot default health indicators are available. Add application or dependency health contributors."
 - No startup timeline:
   - "Startup data is unavailable. Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero,

@@ -37,12 +37,19 @@ const componentCount = computed(() => Math.max(nodes.value.length - 1, 0))
 const healthUnavailable = computed(() => root.value?.available === false)
 const setupSteps = computed(() => root.value?.setup || [])
 const hasHealthComponents = computed(() => componentCount.value > 0)
+const defaultOnlyHealth = computed(
+  () => root.value?.unavailableReason === 'Only Spring Boot default health indicators are available'
+)
+const defaultContributorNames = computed(() =>
+  (root.value?.components || []).map((component) => component.name).join(', ')
+)
+const setupTitle = computed(() =>
+  defaultOnlyHealth.value ? 'Add application health contributors' : 'Set up Spring Boot Actuator health'
+)
 const setupIntro = computed(() => {
-  if (hasHealthComponents.value) {
-    return (
-      'Actuator is present, but BootUI only found Spring Boot default probe and SSL indicators. Add application or ' +
-      'dependency health contributors so this panel reflects your app instead of framework defaults.'
-    )
+  if (defaultOnlyHealth.value) {
+    const contributors = defaultContributorNames.value ? `: ${defaultContributorNames.value}` : ''
+    return `Actuator health is present, but BootUI only found Spring Boot default health indicators${contributors}. These framework checks are useful, but they do not prove that your application dependencies are healthy. The SSL indicator only appears when Spring has SSL bundles to validate.`
   }
   return (
     'The Health panel is disabled until a Spring Boot Actuator HealthEndpoint is available. Once it is configured, ' +
@@ -153,7 +160,7 @@ onMounted(load)
         <div class="card-body">
           <h5 class="card-title d-flex align-items-center gap-2">
             <i class="bi bi-info-circle text-info"></i>
-            Set up Spring Boot Actuator health
+            {{ setupTitle }}
           </h5>
           <p class="text-muted mb-3">
             {{ setupIntro }}
