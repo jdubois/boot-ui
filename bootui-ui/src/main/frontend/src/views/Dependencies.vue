@@ -2,6 +2,7 @@
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
@@ -83,7 +84,7 @@ const maxSeverityCount = computed(() => {
   return Math.max(1, ...data.value.severityCounts.map((count) => count.count))
 })
 
-const hasScanData = computed(() => data.value?.scan?.status && data.value.scan.status !== 'NOT_SCANNED')
+const hasScanData = computed(() => hasScanResult(data.value?.scan?.status))
 
 function severityClass(severity) {
   return severityClasses[severity] || 'text-bg-light'
@@ -181,6 +182,19 @@ onMounted(loadDependencies)
         <div class="col-md-3">
           <div class="card h-100">
             <div class="card-body">
+              <div class="text-muted small">Scan status</div>
+              <div class="mt-2">
+                <span :class="scanStatusBadgeClass(data.scan.status)" class="badge fs-6">
+                  {{ scanStatusLabel(data.scan.status) }}
+                </span>
+              </div>
+              <div v-if="scanTime()" class="small text-muted">Scanned at {{ scanTime() }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card h-100">
+            <div class="card-body">
               <div class="text-muted small">Dependencies</div>
               <div class="display-6">{{ data.total }}</div>
             </div>
@@ -194,18 +208,12 @@ onMounted(loadDependencies)
             </div>
           </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-3">
           <div class="card h-100">
             <div class="card-body">
-              <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                <div>
-                  <div class="text-muted small">Scan status</div>
-                  <div class="fw-semibold">{{ data.scan.status }}</div>
-                </div>
-                <span class="badge text-bg-light">{{ data.scan.scanner }}</span>
-              </div>
+              <div class="text-muted small">Scanner</div>
+              <div class="fw-semibold">{{ data.scan.scanner }}</div>
               <div class="small text-muted">{{ data.scan.message }}</div>
-              <div v-if="scanTime()" class="small text-muted mt-1">Scanned at {{ scanTime() }}</div>
             </div>
           </div>
         </div>
