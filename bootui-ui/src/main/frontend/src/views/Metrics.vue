@@ -1,6 +1,8 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const data = ref(null)
@@ -72,16 +74,6 @@ function sampleKey(sample) {
   return sample.tags.length ? sample.tags.map(tagLabel).join('|') : 'no-tags'
 }
 
-function lastUpdatedText() {
-  if (!lastUpdated.value) return ''
-  return lastUpdated.value.toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
-}
-
 function resetHistory() {
   history.value = []
 }
@@ -122,7 +114,7 @@ function changeStatistic(event) {
   appendHistoryPoint()
 }
 
-async function loadMetrics() {
+async function fetchMetrics() {
   try {
     const res = await fetch('api/metrics')
     if (!res.ok) throw new Error('HTTP ' + res.status)
@@ -177,23 +169,20 @@ function appendHistoryPoint() {
 function scheduleNextPoll() {
   if (timer) clearTimeout(timer)
   timer = setTimeout(async () => {
-    if (document.visibilityState !== 'hidden') {
+    if (autoRefresh.value && document.visibilityState === 'visible') {
       await loadDetail()
     }
     scheduleNextPoll()
   }, 2000)
 }
 
-onMounted(async () => {
-  await loadMetrics()
-  scheduleNextPoll()
-})
+onMounted(scheduleNextPoll)
 
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
 
-const {interval, intervalOptions} = useAutoRefresh(loadMetrics, [0, 10, 30, 60], 0)
+const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh(fetchMetrics)
 </script>
 
 <template>
@@ -202,20 +191,19 @@ const {interval, intervalOptions} = useAutoRefresh(loadMetrics, [0, 10, 30, 60],
       icon="bi-activity"
       title="Metrics"
       subtitle="Browse meters, filter tag sets, and watch live values update every 2 seconds."
+      :loading="loading"
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
       @refresh="loadMetrics"
     >
       <template #actions>
-        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
-          <option v-for="s in intervalOptions" :key="s" :value="s">
-            {{ s === 0 ? 'Manual' : `${s}s` }}
-          </option>
-        </select>
+        <AutoRefreshToggle v-model="autoRefresh" />
       </template>
     </PanelHeader>
 
-    <div v-if="data && !data.metricsAvailable" class="alert alert-warning">
+    <PanelSkeleton v-if="initialLoading" />
+
+    <div v-else-if="data && !data.metricsAvailable" class="alert alert-warning">
       Micrometer metrics are not available. Add Actuator or a MeterRegistry to browse live metrics.
     </div>
 

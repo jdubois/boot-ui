@@ -1,12 +1,12 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatNumber} from '../utils/format.js'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const report = ref(null)
-const loading = ref(true)
 const error = ref(null)
 const selectedName = ref('')
 const history = ref([])
@@ -51,8 +51,7 @@ function poolKey(pool) {
   return pool.poolName || pool.beanName
 }
 
-async function load() {
-  loading.value = true
+async function fetchPools() {
   error.value = null
   try {
     const res = await fetch('api/hikari/pools')
@@ -64,8 +63,6 @@ async function load() {
     }
   } catch (e) {
     error.value = e.message
-  } finally {
-    loading.value = false
   }
 }
 
@@ -101,21 +98,11 @@ async function pollSnapshot() {
 function scheduleNextPoll() {
   if (timer) clearTimeout(timer)
   timer = setTimeout(async () => {
-    if (document.visibilityState !== 'hidden') {
+    if (autoRefresh.value && document.visibilityState === 'visible') {
       await pollSnapshot()
     }
     scheduleNextPoll()
   }, 2000)
-}
-
-function lastUpdatedText() {
-  if (!lastUpdated.value) return ''
-  return lastUpdated.value.toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
 }
 
 function formatMillis(value) {
@@ -133,16 +120,13 @@ function shortName(name) {
 
 const currentSnapshot = computed(() => history.value[history.value.length - 1] || null)
 
-onMounted(async () => {
-  await load()
-  scheduleNextPoll()
-})
+onMounted(scheduleNextPoll)
 
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
 
-const {interval, intervalOptions} = useAutoRefresh(load, [0, 10, 30, 60], 0)
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchPools)
 </script>
 
 <template>
@@ -157,15 +141,11 @@ const {interval, intervalOptions} = useAutoRefresh(load, [0, 10, 30, 60], 0)
       @refresh="load"
     >
       <template #actions>
-        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
-          <option v-for="s in intervalOptions" :key="s" :value="s">
-            {{ s === 0 ? 'Manual' : `${s}s` }}
-          </option>
-        </select>
+        <AutoRefreshToggle v-model="autoRefresh" />
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="loading && !report" />
+    <PanelSkeleton v-if="initialLoading" />
 
     <template v-else-if="report">
       <div v-if="!pools.length" class="alert alert-secondary">

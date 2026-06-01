@@ -1,5 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import Health from './Health.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -19,7 +19,17 @@ function jsonResponse(body, ok = true, status = 200) {
 }
 
 describe('Health', () => {
+  let wrapper
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    Object.defineProperty(document, 'visibilityState', {configurable: true, value: 'visible'})
+  })
+
   afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -28,7 +38,7 @@ describe('Health', () => {
     const fetchMock = vi.fn().mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
     vi.stubGlobal('fetch', fetchMock)
 
-    const wrapper = mount(Health)
+    wrapper = mount(Health)
 
     // Before any data has arrived, the skeleton is visible.
     expect(wrapper.findComponent(PanelSkeleton).exists()).toBe(true)
@@ -59,7 +69,7 @@ describe('Health', () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(healthRoot()))
     vi.stubGlobal('fetch', fetchMock)
 
-    const wrapper = mount(Health)
+    wrapper = mount(Health)
     await flushPromises()
     expect(wrapper.text()).toContain('Overall status')
 

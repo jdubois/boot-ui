@@ -1,6 +1,8 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, onBeforeUnmount, ref, watch} from 'vue'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const data = ref(null)
@@ -29,7 +31,7 @@ function buildQuery() {
   return parts.length ? '?' + parts.join('&') : ''
 }
 
-async function load() {
+async function fetchMemory() {
   try {
     const res = await fetch('api/memory' + buildQuery())
     if (!res.ok) throw new Error('HTTP ' + res.status)
@@ -66,16 +68,6 @@ function progressClass(pct) {
   if (pct >= 90) return 'bg-danger'
   if (pct >= 75) return 'bg-warning'
   return 'bg-success'
-}
-
-function lastUpdatedText() {
-  if (!lastUpdated.value) return ''
-  return lastUpdated.value.toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
 }
 
 async function copyOptions() {
@@ -128,9 +120,7 @@ watch([totalMemoryMb, threadCount, headRoomPercent], () => {
   if (inputsInitialized.value) scheduleReload()
 })
 
-const {interval, intervalOptions} = useAutoRefresh(load, [0, 5, 10, 30], 1)
-
-onMounted(load)
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchMemory)
 
 onBeforeUnmount(() => {
   if (debounceHandle) clearTimeout(debounceHandle)
@@ -142,21 +132,20 @@ onBeforeUnmount(() => {
     <PanelHeader
       icon="bi-memory"
       title="Memory"
-      :subtitle="interval > 0 ? `auto-refreshes every ${interval}s` : null"
+      subtitle="Inspect JVM memory usage and plan container memory limits."
+      :loading="loading"
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
       @refresh="load"
     >
       <template #actions>
-        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
-          <option v-for="s in intervalOptions" :key="s" :value="s">
-            {{ s === 0 ? 'Manual' : `${s}s` }}
-          </option>
-        </select>
+        <AutoRefreshToggle v-model="autoRefresh" />
       </template>
     </PanelHeader>
 
-    <template v-if="data">
+    <PanelSkeleton v-if="initialLoading" />
+
+    <template v-else-if="data">
       <!-- Memory Calculator Panel -->
       <div v-if="data.calculation" class="card mb-4 border-primary">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">

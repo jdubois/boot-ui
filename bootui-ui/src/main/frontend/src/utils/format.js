@@ -16,9 +16,9 @@ export function formatNumber(n) {
   return Number(n).toLocaleString()
 }
 
-export function formatRelative(epochMillis) {
+export function formatRelative(epochMillis, nowMillis = Date.now()) {
   if (epochMillis == null) return '—'
-  const diff = Date.now() - epochMillis
+  const diff = nowMillis - epochMillis
   if (diff < 5000) return 'just now'
   if (diff < 60000) return Math.floor(diff / 1000) + 's ago'
   if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago'

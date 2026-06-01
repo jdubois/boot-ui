@@ -1,64 +1,27 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const overview = ref(null)
 const series = ref(null)
 const detail = ref(null)
-const loading = ref(true)
 const error = ref(null)
 const selectedSpanId = ref(null)
 const detailLoading = ref(false)
 const lastUpdated = ref(null)
-const autoRefresh = ref(true)
-let refreshInterval = null
-
-function startAutoRefresh() {
-  stopAutoRefresh()
-  if (autoRefresh.value) {
-    refreshInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') load()
-    }, 10000)
-  }
-}
-
-function stopAutoRefresh() {
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-    refreshInterval = null
-  }
-}
-
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible' && autoRefresh.value) {
-    load()
-  }
-}
-
-function onAutoRefreshChange() {
-  if (autoRefresh.value) {
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 const isStale = computed(() => {
   if (autoRefresh.value || !lastUpdated.value) return false
   return Date.now() - lastUpdated.value > 30_000
 })
 
-const lastUpdatedText = computed(() => {
-  if (!lastUpdated.value) return null
-  return formatRelative(lastUpdated.value)
-})
-
-async function load() {
-  loading.value = true
+async function fetchAiUsage() {
   error.value = null
   try {
     const [ovRes, tsRes] = await Promise.all([
@@ -73,10 +36,10 @@ async function load() {
     lastUpdated.value = Date.now()
   } catch (e) {
     error.value = e.message
-  } finally {
-    loading.value = false
   }
 }
+
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchAiUsage)
 
 function exportCsv() {
   const rows = filteredChats.value
@@ -422,17 +385,6 @@ const errorRate = computed(() => {
 })
 
 const hasAnyData = computed(() => overview.value && overview.value.totalChats > 0)
-
-onMounted(() => {
-  load()
-  startAutoRefresh()
-  document.addEventListener('visibilitychange', onVisibilityChange)
-})
-
-onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
-})
 </script>
 
 <template>
@@ -448,23 +400,14 @@ onBeforeUnmount(() => {
     >
       <template #actions>
         <span v-if="isStale" class="badge text-bg-warning">Data may be stale</span>
-        <div class="form-check form-switch mb-0">
-          <input
-            id="autoRefreshToggle"
-            v-model="autoRefresh"
-            class="form-check-input"
-            type="checkbox"
-            @change="onAutoRefreshChange"
-          />
-          <label class="form-check-label small" for="autoRefreshToggle">Auto-refresh</label>
-        </div>
+        <AutoRefreshToggle v-model="autoRefresh" />
         <button v-if="overview && hasAnyData" class="btn btn-sm btn-outline-secondary" @click="exportCsv">
           <i class="bi bi-download"></i> Export CSV
         </button>
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="loading && !overview" />
+    <PanelSkeleton v-if="initialLoading" />
     <div v-else-if="error && !overview" class="alert alert-warning">
       <div class="fw-semibold">Could not load AI usage data</div>
       <details class="mt-1">

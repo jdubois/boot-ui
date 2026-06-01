@@ -1192,10 +1192,6 @@ function onGlobalKeydown(e) {
   }
 }
 
-.auto-refresh-select {
-  max-width: 7rem;
-}
-
 .cp-trigger,
 .theme-toggle {
   align-items: center;

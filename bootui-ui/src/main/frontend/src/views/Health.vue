@@ -1,17 +1,16 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, ref} from 'vue'
 import HealthNode from './HealthNode.vue'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const root = ref(null)
-const loading = ref(true)
 const error = ref(null)
 const lastFetched = ref(null)
 
-async function load() {
-  loading.value = true
+async function fetchHealth() {
   error.value = null
   try {
     const res = await fetch('api/health')
@@ -20,12 +19,10 @@ async function load() {
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = e.message
-  } finally {
-    loading.value = false
   }
 }
 
-const {interval, intervalOptions} = useAutoRefresh(load, [0, 5, 15, 30, 60], 0)
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchHealth)
 
 function flatten(node) {
   if (!node) return []
@@ -50,8 +47,6 @@ const statusMessage = computed(() => {
   if (root.value.status === 'UNKNOWN') return 'Health endpoint did not report component details'
   return 'Application health is ' + root.value.status
 })
-
-onMounted(load)
 </script>
 
 <template>
@@ -66,15 +61,11 @@ onMounted(load)
       @refresh="load"
     >
       <template #actions>
-        <select v-model.number="interval" class="form-select form-select-sm auto-refresh-select" title="Auto-refresh">
-          <option v-for="s in intervalOptions" :key="s" :value="s">
-            {{ s === 0 ? 'Manual' : `${s}s` }}
-          </option>
-        </select>
+        <AutoRefreshToggle v-model="autoRefresh" />
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="loading && !root" />
+    <PanelSkeleton v-if="initialLoading" />
 
     <template v-else-if="root">
       <div class="row g-3 mb-3">
