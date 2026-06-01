@@ -293,6 +293,8 @@ Features:
 - Highlight failing contributors.
 - Show details when available.
 - Explain when details are hidden by Actuator configuration.
+- Show a disabled state with setup guidance when the Actuator health endpoint is not available.
+- Show guidance, without changing reported statuses, when a tree is made only of Spring Boot default health indicators.
 
 Acceptance criteria:
 
@@ -926,7 +928,7 @@ Initial properties:
 | `bootui.telemetry.max-request-bytes`         | `8388608`                               | Maximum OTLP payload size accepted by the local receiver.                                         |
 | `bootui.ai.token-series-minutes`             | `60`                                    | Default token-usage chart window for the AI Usage panel, capped by the API.                       |
 | `bootui.ai.max-recent-chats`                 | `100`                                   | Maximum recent chat rows surfaced by the AI Usage panel, capped by the API.                       |
-| `bootui.ai.show-content-capture-banner`      | `true`                                  | Shows guidance when Spring AI prompt/completion content is not captured in spans.                 |
+| `bootui.ai.show-content-capture-banner`      | `true`                                  | Shows guidance when Spring AI or LangChain4j prompt/completion content is not captured in spans.  |
 | `bootui.copilot.enabled`                     | `AUTO`                                  | Enable the Copilot panel when local Copilot CLI session state exists.                             |
 | `bootui.copilot.session-state-dir`           | `~/.copilot/session-state`              | Directory scanned for Copilot CLI session directories and `events.jsonl` files.                   |
 | `bootui.copilot.max-events-per-session`      | `2000`                                  | Maximum Copilot events retained per parsed session.                                               |
@@ -1037,6 +1039,10 @@ Examples:
 
 - No Actuator health details:
   - "Health details are hidden. In local development, set `management.endpoint.health.show-details=always`."
+- No Actuator health endpoint:
+  - "The Health panel is disabled until a Spring Boot Actuator `HealthEndpoint` is available."
+- Only default health contributors:
+  - "Only Spring Boot default health indicators are available. Add application or dependency health contributors."
 - No startup timeline:
   - "Startup data is unavailable. Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero,
     or provide your own `BufferingApplicationStartup`."

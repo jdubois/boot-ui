@@ -9,7 +9,7 @@ test.describe('Health view', () => {
     await expect(page.getByText('Component tree')).toBeVisible()
     const rootCard = page.locator('main .card').first()
     await expect(rootCard).toBeVisible()
-    await expect(rootCard.locator('.badge')).toHaveText(/UP|DOWN|UNKNOWN|OUT_OF_SERVICE/)
+    await expect(rootCard.locator('.badge')).toHaveText(/UP|DOWN|UNKNOWN|OUT_OF_SERVICE|DISABLED/)
     await expect(page.locator('main pre')).toHaveCount(0)
   })
 

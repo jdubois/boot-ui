@@ -2,14 +2,17 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import Health from './Health.vue'
-import PanelSkeleton from './components/PanelSkeleton.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import PanelSkeleton from './components/PanelSkeleton.vue'
 
 function healthRoot(overrides = {}) {
   return {
+    name: 'application',
     status: 'UP',
     details: null,
     components: [],
+    available: true,
+    setup: [],
     ...overrides
   }
 }
@@ -33,6 +36,13 @@ describe('Health', () => {
     vi.unstubAllGlobals()
   })
 
+  async function mountWithHealth(body) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(body)))
+    wrapper = mount(Health)
+    await flushPromises()
+    return wrapper
+  }
+
   it('shows the skeleton on the first load only', async () => {
     let resolveFirst
     const fetchMock = vi.fn().mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
@@ -40,17 +50,14 @@ describe('Health', () => {
 
     wrapper = mount(Health)
 
-    // Before any data has arrived, the skeleton is visible.
     expect(wrapper.findComponent(PanelSkeleton).exists()).toBe(true)
 
     resolveFirst(jsonResponse(healthRoot()))
     await flushPromises()
 
-    // Once data is present the skeleton is gone and content is rendered.
     expect(wrapper.findComponent(PanelSkeleton).exists()).toBe(false)
     expect(wrapper.text()).toContain('Overall status')
 
-    // Simulate an auto-refresh tick: a new in-flight request must not bring the skeleton back.
     let resolveRefresh
     fetchMock.mockImplementationOnce(() => new Promise((resolve) => (resolveRefresh = resolve)))
     wrapper.findComponent(PanelHeader).vm.$emit('refresh')
@@ -77,8 +84,118 @@ describe('Health', () => {
     wrapper.findComponent(PanelHeader).vm.$emit('refresh')
     await flushPromises()
 
-    // The skeleton never reappears and the previously rendered content stays visible.
     expect(wrapper.findComponent(PanelSkeleton).exists()).toBe(false)
     expect(wrapper.text()).toContain('Overall status')
+  })
+
+  it('shows setup guidance when Actuator health is unavailable', async () => {
+    await mountWithHealth(
+      healthRoot({
+        status: 'DISABLED',
+        available: false,
+        unavailableReason: 'Spring Boot Actuator health endpoint is not available',
+        setup: [
+          {
+            title: 'Add Spring Boot Actuator',
+            description: 'Add the Actuator starter.',
+            snippets: ['org.springframework.boot:spring-boot-starter-actuator']
+          },
+          {
+            title: 'Enable availability probes when you need them',
+            description: 'Expose liveness and readiness groups.',
+            snippets: ['management.endpoint.health.probes.enabled=true']
+          }
+        ]
+      })
+    )
+
+    expect(fetch).toHaveBeenCalledWith('api/health')
+    expect(wrapper.text()).toContain('DISABLED')
+    expect(wrapper.text()).toContain('Spring Boot Actuator health endpoint is not available')
+    expect(wrapper.text()).toContain('Set up Spring Boot Actuator health')
+    expect(wrapper.text()).toContain('org.springframework.boot:spring-boot-starter-actuator')
+    expect(wrapper.text()).toContain('management.endpoint.health.probes.enabled=true')
+    expect(wrapper.text()).not.toContain('Component tree')
+  })
+
+  it('shows default health contributors as live with setup guidance', async () => {
+    await mountWithHealth(
+      healthRoot({
+        guidanceReason: 'Only Spring Boot default health indicators are available',
+        setup: [
+          {
+            title: 'Add application health contributors',
+            description: 'Create a HealthIndicator bean.',
+            snippets: ['class MyHealthIndicator implements HealthIndicator']
+          }
+        ],
+        components: [
+          {
+            name: 'livenessState',
+            status: 'UP',
+            details: {livenessState: 'CORRECT'},
+            components: [],
+            available: true
+          },
+          {
+            name: 'readinessState',
+            status: 'UP',
+            details: {readinessState: 'ACCEPTING_TRAFFIC'},
+            components: [],
+            available: true
+          },
+          {
+            name: 'ssl',
+            status: 'UP',
+            details: {validChains: []},
+            components: [],
+            available: true
+          }
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('UP')
+    expect(wrapper.text()).toContain('Only Spring Boot default health indicators are available')
+    expect(wrapper.text()).toContain('Add application health contributors')
+    expect(wrapper.text()).toContain('Actuator health is available')
+    expect(wrapper.text()).toContain('Spring Boot default health indicators: livenessState, readinessState, ssl')
+    expect(wrapper.text()).toContain('The SSL indicator only appears when Spring has SSL bundles to validate.')
+    expect(wrapper.text()).toContain('Component tree')
+    expect(wrapper.text()).toContain('livenessState')
+    expect(wrapper.text()).toContain('readinessState')
+    expect(wrapper.text()).toContain('ssl')
+  })
+
+  it('does not render empty detail sections for contributors', async () => {
+    await mountWithHealth(
+      healthRoot({
+        guidanceReason: 'Only Spring Boot default health indicators are available',
+        components: [
+          {name: 'livenessState', status: 'UP', details: {}, components: [], available: true},
+          {name: 'ping', status: 'UP', details: {}, components: [], available: true},
+          {name: 'readinessState', status: 'UP', details: {}, components: [], available: true}
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('livenessState')
+    expect(wrapper.text()).toContain('ping')
+    expect(wrapper.text()).toContain('readinessState')
+    expect(wrapper.findAll('h6').filter((heading) => heading.text() === 'Details')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('0 details')
+  })
+
+  it('renders the component tree when health data is available', async () => {
+    await mountWithHealth(
+      healthRoot({
+        components: [{name: 'diskSpace', status: 'UP', details: {free: '128 GB'}, components: [], available: true}]
+      })
+    )
+
+    expect(wrapper.text()).toContain('All reported components are healthy')
+    expect(wrapper.text()).toContain('Component tree')
+    expect(wrapper.text()).toContain('diskSpace')
+    expect(wrapper.text()).not.toContain('Set up Spring Boot Actuator health')
   })
 })

@@ -13,14 +13,13 @@ import org.springframework.web.server.ResponseStatusException;
  * Read-only API for the BootUI AI Usage panel.
  *
  * <p>The data is derived from the OTLP spans accumulated in
- * {@link TelemetryStore}. Spring AI emits the OTel GenAI semantic-conventions
- * spans needed here automatically; no additional configuration is required.</p>
+ * {@link TelemetryStore}. Spring AI and LangChain4j both emit the OTel GenAI
+ * semantic-conventions spans needed here automatically; no additional
+ * configuration is required.</p>
  */
 @RestController
 @RequestMapping("/bootui/api/ai")
 public class AiController {
-
-    private static final String SPRING_AI_CLASS = "org.springframework.ai.chat.client.ChatClient";
 
     private static final long NANOS_PER_MS = 1_000_000L;
 
@@ -50,12 +49,11 @@ public class AiController {
     }
 
     private static boolean isSpringAiOnClasspath() {
-        try {
-            Class.forName(SPRING_AI_CLASS, false, AiController.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException ex) {
-            return false;
-        }
+        return AiFrameworkDetector.isSpringAiPresent();
+    }
+
+    private static boolean isLangChain4jOnClasspath() {
+        return AiFrameworkDetector.isLangChain4jPresent();
     }
 
     // helper used by unit tests
@@ -126,14 +124,15 @@ public class AiController {
         }
         boolean telemetryEnabled = properties.getTelemetry().isEnabled();
         boolean springAi = isSpringAiOnClasspath();
-        String banner = telemetryEnabled && springAi && aiConfig.isShowContentCaptureBanner()
-                ? "Prompt and completion text is not captured by default. Enable Spring AI's "
-                        + "include-prompt / include-completion observation options (or attach a custom "
-                        + "ObservationFilter) to see message content in the conversation drawer."
+        boolean langChain4j = isLangChain4jOnClasspath();
+        boolean frameworkDetected = springAi || langChain4j;
+        String banner = telemetryEnabled && frameworkDetected && aiConfig.isShowContentCaptureBanner()
+                ? overviewContentBanner(springAi)
                 : null;
         return new AiOverviewDto(
                 telemetryEnabled,
                 springAi,
+                langChain4j,
                 chats.size(),
                 totalIn,
                 totalOut,
@@ -144,6 +143,17 @@ public class AiController {
                 embeddingCount,
                 recent,
                 banner);
+    }
+
+    private static String overviewContentBanner(boolean springAi) {
+        if (springAi) {
+            return "Prompt and completion text is not captured by default. Enable Spring AI's "
+                    + "include-prompt / include-completion observation options (or attach a custom "
+                    + "ObservationFilter) to see message content in the conversation drawer.";
+        }
+        return "Prompt and completion text is not captured by default. Enable your AI framework's "
+                + "content-capture option (for LangChain4j, capture GenAI message content on the "
+                + "OpenTelemetry instrumentation) to see message content in the conversation drawer.";
     }
 
     @GetMapping("/chats")
@@ -284,8 +294,10 @@ public class AiController {
                         || chat.attributes().containsKey("gen_ai.input.messages")
                         || chat.attributes().containsKey("gen_ai.output.messages"));
         String banner = !contentCaptured && properties.getAi().isShowContentCaptureBanner()
-                ? "Message content is not on this span. Enable Spring AI's include-prompt / include-completion "
-                        + "observation options to capture prompt and completion text."
+                ? "Message content is not on this span. Enable your AI framework's content-capture option "
+                        + "(Spring AI's include-prompt / include-completion observation options, or LangChain4j's "
+                        + "GenAI message-content capture on the OpenTelemetry instrumentation) to capture prompt "
+                        + "and completion text."
                 : null;
         return new AiChatDetailDto(
                 toSummary(chat),

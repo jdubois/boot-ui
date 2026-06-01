@@ -27,7 +27,9 @@ first place to confirm whether BootUI is active for the reason you expect.
 
 The Health panel displays the Actuator health tree, including nested contributors and detailed status information when
 the host app exposes it. It keeps unavailable health data separate from unhealthy application state so missing Actuator
-infrastructure is clear.
+infrastructure is clear, and shows setup guidance instead of a healthy-looking status when the Actuator health endpoint
+is not available. When Actuator health is present but only Spring Boot's default indicators are reported, it keeps the
+live statuses visible and shows guidance for adding application or dependency health contributors.
 
 ![BootUI Health panel](images/bootui-health.png)
 
@@ -171,17 +173,22 @@ meant to explain local security wiring without exposing credentials or replacing
 
 ### AI Usage
 
-The AI Usage panel summarizes Spring AI activity collected from OpenTelemetry spans emitted by Spring AI's built-in
+The AI Usage panel summarizes Spring AI and LangChain4j activity collected from OpenTelemetry spans emitted by their
+built-in
 observability. It groups chat client and chat model spans by conversation so you can see request count, token usage (
-prompt, completion, total), latency, model, and the prompt/response snippet when Spring AI is configured to capture
-content (`spring.ai.chat.client.observations.log-prompt`, `spring.ai.chat.observations.log-prompt`,
-`spring.ai.chat.observations.log-completion`). A small inline chart shows total token usage over recent calls so you can
+prompt, completion, total), latency, model, and the prompt/response snippet when the framework is configured to capture
+content (for Spring AI: `spring.ai.chat.client.observations.log-prompt`, `spring.ai.chat.observations.log-prompt`,
+`spring.ai.chat.observations.log-completion`; for LangChain4j: enable GenAI message-content capture on the OpenTelemetry
+instrumentation). A small inline chart shows total token usage over recent calls so you can
 spot expensive interactions during local development. Vector store and embedding spans appear alongside chat spans when
 present. The BootUI starter captures local application spans automatically when telemetry is enabled. Cooperating local
 services can still send OTLP spans to the embedded receiver. The sidebar dims the panel when telemetry is disabled or
-Spring AI is not on the classpath, and the view
-explains the unavailable state. When both prerequisites are ready but no chat spans have arrived yet, the panel shows a
-ready empty state rather than setup guidance. Recent chats, model breakdowns, token-series windows, spans, and attributes
+neither Spring AI nor LangChain4j is on the classpath, and the view
+explains the unavailable state. When no framework is detected, the setup checklist also shows two side-by-side guides —
+one for Spring AI and one for LangChain4j — explaining the dependency and configuration each needs to emit GenAI spans
+(including optional prompt/completion content capture). When both prerequisites are ready but no chat spans have arrived
+yet, the panel shows a ready empty state rather than setup guidance. Recent chats, model breakdowns, token-series
+windows, spans, and attributes
 are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from BootUI's local telemetry
 capture, is in-memory only, and is cleared on restart.
 

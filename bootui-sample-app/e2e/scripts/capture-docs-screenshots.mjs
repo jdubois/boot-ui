@@ -496,6 +496,7 @@ const traceDetail = {
 const aiOverview = {
   enabled: true,
   springAiDetected: true,
+  langChain4jDetected: false,
   totalChats: 8,
   totalInputTokens: 2674,
   totalOutputTokens: 812,

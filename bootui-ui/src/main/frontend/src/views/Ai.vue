@@ -385,6 +385,25 @@ const errorRate = computed(() => {
 })
 
 const hasAnyData = computed(() => overview.value && overview.value.totalChats > 0)
+
+const frameworkDetected = computed(
+  () => !!overview.value && (overview.value.springAiDetected || overview.value.langChain4jDetected)
+)
+
+const detectedFrameworks = computed(() => {
+  if (!overview.value) return []
+  const frameworks = []
+  if (overview.value.springAiDetected) frameworks.push('Spring AI')
+  if (overview.value.langChain4jDetected) frameworks.push('LangChain4j')
+  return frameworks
+})
+
+const detectedFrameworkLabel = computed(() => {
+  if (!overview.value) return null
+  const frameworks = detectedFrameworks.value
+  if (frameworks.length === 0) return 'Spring AI or LangChain4j not on classpath'
+  return `${frameworks.join(' & ')} detected`
+})
 </script>
 
 <template>
@@ -392,13 +411,21 @@ const hasAnyData = computed(() => overview.value && overview.value.totalChats > 
     <PanelHeader
       icon="bi-cpu"
       title="AI Usage"
-      :subtitle="overview ? (overview.springAiDetected ? 'Spring AI detected' : 'Spring AI not on classpath') : null"
+      :subtitle="overview ? detectedFrameworkLabel : null"
       :loading="loading"
       :error="error"
       :last-fetched="lastUpdated"
       @refresh="load"
     >
       <template #actions>
+        <span
+          v-for="fw in detectedFrameworks"
+          :key="fw"
+          class="badge text-bg-primary d-inline-flex align-items-center"
+          title="AI framework detected on the application classpath"
+        >
+          <i class="bi bi-robot me-1"></i>{{ fw }}
+        </span>
         <span v-if="isStale" class="badge text-bg-warning">Data may be stale</span>
         <AutoRefreshToggle v-model="autoRefresh" />
         <button v-if="overview && hasAnyData" class="btn btn-sm btn-outline-secondary" @click="exportCsv">
@@ -423,10 +450,11 @@ const hasAnyData = computed(() => overview.value && overview.value.totalChats > 
       </div>
 
       <AiSetupChecklist
-        v-if="!overview.enabled || !overview.springAiDetected"
+        v-if="!overview.enabled || !frameworkDetected"
         :enabled="overview.enabled"
         :has-data="hasAnyData"
         :spring-ai-detected="overview.springAiDetected"
+        :lang-chain4j-detected="overview.langChain4jDetected"
       />
 
       <div v-else-if="!hasAnyData" class="card mb-3 border-info-subtle">
@@ -438,7 +466,7 @@ const hasAnyData = computed(() => overview.value && overview.value.totalChats > 
               <span class="badge text-bg-info">Telemetry ready</span>
             </div>
             <p class="text-muted mb-0">
-              BootUI's telemetry capture is active and Spring AI is detected. Exercise a Spring AI chat flow; this panel
+              BootUI's telemetry capture is active and an AI framework is detected. Exercise an AI chat flow; this panel
               will refresh automatically when the first completion span arrives.
             </p>
           </div>
