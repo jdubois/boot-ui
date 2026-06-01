@@ -9,7 +9,7 @@ const query = ref('')
 const inputEl = ref(null)
 const activeIndex = ref(0)
 
-const searchableRoutes = routes.filter((r) => r.meta?.title)
+const searchableRoutes = routes.filter((r) => r.name && r.meta?.title)
 
 function score(route, q) {
   const title = (route.meta.title || '').toLowerCase()
@@ -23,13 +23,12 @@ function score(route, q) {
 
 const results = computed(() => {
   const q = query.value.trim()
-  if (!q) return searchableRoutes.slice(0, 12)
+  if (!q) return searchableRoutes
   return searchableRoutes
     .map((r) => ({route: r, score: score(r, q)}))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((x) => x.route)
-    .slice(0, 12)
 })
 
 watch(query, () => {
