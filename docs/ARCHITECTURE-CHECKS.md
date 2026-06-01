@@ -138,6 +138,29 @@ a handful of sample detail lines from ArchUnit.
 - **Fires when**: a class references a deprecated API.
 - **Recommendation**: migrate to the recommended replacement API; deprecated members may be removed in future releases.
 
+### ARCH-CODE-010 — Exceptions should be named ending with Exception
+
+- **Severity**: LOW
+- **Inspects**: classes that extend `Exception` or `RuntimeException`.
+- **Fires when**: an exception type's simple class name does not end with `Exception`.
+- **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear.
+
+### ARCH-CODE-011 — Interfaces should not have names ending with Interface
+
+- **Severity**: LOW
+- **Inspects**: Java interfaces.
+- **Fires when**: an interface simple name ends with `Interface`.
+- **Recommendation**: name interfaces after the role or behaviour they expose instead of appending an `Interface`
+  suffix.
+
+### ARCH-CODE-012 — Loggers should be private static final
+
+- **Severity**: LOW
+- **Inspects**: `org.slf4j.Logger` and `java.util.logging.Logger` fields.
+- **Fires when**: a logger field is not `private`, `static`, and `final`.
+- **Recommendation**: make logger fields `private static final` to avoid accidental external access and per-instance
+  logger allocations.
+
 ## Spring stereotypes
 
 ### ARCH-SPRING-001 — Classes should not use field injection
@@ -184,3 +207,11 @@ a handful of sample detail lines from ArchUnit.
 - **Fires when**: a stereotype-annotated class has no package declaration.
 - **Recommendation**: move Spring stereotype beans into a named package so component scanning and proxying work as
   expected.
+
+### ARCH-SPRING-006 — Services should not depend on controllers
+
+- **Severity**: MEDIUM
+- **Inspects**: `@Service` beans that depend directly on `@Controller` / `@RestController` classes.
+- **Fires when**: service-layer code references web-layer classes, coupling business logic back to HTTP concerns.
+- **Recommendation**: keep service beans free of controller dependencies; web dependencies should flow from controllers
+  toward services, not back.

@@ -535,9 +535,7 @@ final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRul
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return classes()
-                .that().areAssignableTo(Exception.class)
-                .should().haveSimpleNameEndingWith("Exception");
+        return classes().that().areAssignableTo(Exception.class).should().haveSimpleNameEndingWith("Exception");
     }
 }
 
@@ -558,9 +556,7 @@ final class InterfacesShouldNotHaveInterfaceSuffixRule extends AbstractArchitect
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return noClasses()
-                .that().areInterfaces()
-                .should().haveSimpleNameEndingWith("Interface");
+        return noClasses().that().areInterfaces().should().haveSimpleNameEndingWith("Interface");
     }
 }
 
@@ -570,24 +566,28 @@ final class InterfacesShouldNotHaveInterfaceSuffixRule extends AbstractArchitect
 final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRule {
 
     LoggersShouldBePrivateStaticFinalRule() {
-        super(new ArchitectureRuleDefinition(
-                "ARCH-CODE-012",
-                "Loggers should be private static final",
-                ArchitectureCategory.CODING_PRACTICES,
-                "LOW",
-                "Detects logger fields that are not private, static, and final.",
-                "Make logger fields private, static, and final to avoid visibility issues and unnecessary allocations."));
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-012",
+                        "Loggers should be private static final",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "LOW",
+                        "Detects logger fields that are not private, static, and final.",
+                        "Make logger fields private, static, and final to avoid visibility issues and unnecessary allocations."));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return fields()
-                .that().haveRawType("org.slf4j.Logger")
-                .or().haveRawType("java.util.logging.Logger")
-                .should().bePrivate()
-                .andShould().beStatic()
-                .andShould().beFinal()
+        return fields().that()
+                .haveRawType("org.slf4j.Logger")
+                .or()
+                .haveRawType("java.util.logging.Logger")
+                .should()
+                .bePrivate()
+                .andShould()
+                .beStatic()
+                .andShould()
+                .beFinal()
                 .allowEmptyShould(true);
     }
 }
-
