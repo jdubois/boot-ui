@@ -5,7 +5,7 @@ const {copiedKey, copyToClipboard} = useCopyToClipboard()
 
 const dependency = `<dependency>
   <groupId>dev.langchain4j</groupId>
-  <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+  <artifactId>langchain4j-open-ai-official</artifactId>
 </dependency>`
 
 const instrumentation = `<dependency>
@@ -32,7 +32,7 @@ const otlpEndpoint = `/bootui/api/otlp/v1/traces`
       <ol class="ps-3 mb-0">
         <li class="mb-3">
           <div class="fw-semibold small mb-1">1. Add LangChain4j</div>
-          <div class="text-muted small mb-1">Use the Spring Boot starter for your provider (OpenAI shown here).</div>
+          <div class="text-muted small mb-1">Use the Official OpenAI module (OpenAI shown here).</div>
           <div class="d-flex align-items-start gap-1">
             <pre
               class="bg-light px-2 py-1 rounded small mb-0 flex-grow-1 text-break"
