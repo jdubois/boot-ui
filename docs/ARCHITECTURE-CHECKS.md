@@ -20,9 +20,10 @@ application's own base package(s) — never the entire classpath — and runs on
 invoked, caching the last report in the controller. When several base packages are detected, all of them are imported
 and analysed together.
 
-The panel is available only when:
+When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
+without an extra application dependency. The panel is available only when:
 
-- ArchUnit is on the classpath (it ships as an `optional` dependency of `bootui-autoconfigure`), and
+- ArchUnit is on the classpath, and
 - a base package is resolvable from the running application.
 
 If no classes can be imported (for example in some fat-jar or DevTools restart-classloader situations), the panel

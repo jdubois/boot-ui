@@ -231,9 +231,9 @@ architecture hygiene rules: package cycles between slices, general coding practi
 exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
 deprecated APIs, poorly named exceptions/interfaces, or mutable/visible loggers), and Spring stereotype heuristics (no
 field injection, controllers should not depend on repositories, repositories/services should not depend on controllers,
-no self-invocation of proxied methods, and stereotypes outside the default package). The panel is
-available only when a base package is resolvable and ArchUnit is on the classpath; the scan runs on demand and caches
-the last report.
+no self-invocation of proxied methods, and stereotypes outside the default package). When BootUI is installed through
+`bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available when a base package is
+resolvable and the scan runs on demand, caching the last report.
 
 Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
 starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
