@@ -37,7 +37,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Services        | [Data](docs/FEATURES.md#data)                         | Explore Spring Data repositories, domain types, IDs, and query methods.                                       |
 | Services        | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                     |
 | Services        | [Security](docs/FEATURES.md#security)                 | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                             |
-| Services        | [AI Usage](docs/FEATURES.md#ai-usage)                 | Summarize Spring AI chat conversations, token usage, latency, and model details from OpenTelemetry spans.     |
+| Services        | [AI Usage](docs/FEATURES.md#ai-usage)                 | Summarize Spring AI and LangChain4j chat conversations, token usage, latency, and model details from OpenTelemetry spans.     |
 | Diagnostics     | [Traces](docs/FEATURES.md#traces)                     | Inspect local spans captured automatically by the starter, plus OTLP spans from cooperating services.         |
 | Diagnostics     | [Log Tail](docs/FEATURES.md#log-tail)                 | Read recent application logs and stream new local log events from the running process.                        |
 | Diagnostics     | [HTTP Probe](docs/FEATURES.md#http-probe)             | Send local-only HTTP requests to the app and inspect response status, headers, and body.                      |
