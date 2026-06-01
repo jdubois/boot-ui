@@ -57,7 +57,7 @@ a collapsed Disabled / unavailable group, and opening a dimmed panel shows the u
 
 ### 1) Prerequisites
 
-- Java 25
+- Java 17 or later
 - Spring Boot 4.x application
 - Maven or your application's Maven Wrapper
 

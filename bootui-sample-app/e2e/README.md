@@ -44,7 +44,7 @@ flow) exposed by the sample app:
 ## Prerequisites
 
 - Node.js 20+
-- Java 25 and the repository Maven Wrapper (used to build & run the sample app)
+- Java 17 and the repository Maven Wrapper (used to build & run the sample app)
 - The BootUI parent build must be installed locally so the sample app can
   resolve its modules:
 

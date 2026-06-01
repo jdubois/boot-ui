@@ -6,7 +6,7 @@ read those before changing public behavior or visible panel behavior.
 
 ## Toolchain
 
-- Java 25, Spring Boot 4.0.x (`spring-boot.version` in root `pom.xml`; currently 4.0.6).
+- Java 17, Spring Boot 4.0.x (`spring-boot.version` in root `pom.xml`; currently 4.0.6).
 - Maven Wrapper (`./mvnw`) using Maven 3.9.16; do not require a system Maven install.
 - Published Maven coordinates use `com.julien-dubois.bootui:*`; Java packages remain `io.github.jdubois.bootui.*`.
 - Node.js / npm for the packaged Vue app are downloaded automatically by the `frontend-maven-plugin` (`node.version` /
@@ -42,7 +42,7 @@ read those before changing public behavior or visible panel behavior.
 ./mvnw -B -ntp -Prelease clean deploy
 ```
 
-CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 25, which includes the frontend Vitest
+CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17, which includes the frontend Vitest
 suite through Maven, installs Playwright Chromium, and runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers
 Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow (`.github/workflows/release.yml`)
 publishes `v*` tags to Maven Central through the `release` Maven profile and the Sonatype Central Publishing plugin.
