@@ -100,6 +100,28 @@ describe('Health', () => {
     expect(wrapper.text()).toContain('ssl')
   })
 
+  it('does not render empty detail sections for contributors', async () => {
+    const wrapper = await mountWithHealth({
+      name: 'application',
+      status: 'DISABLED',
+      details: null,
+      available: false,
+      unavailableReason: 'Only Spring Boot default health indicators are available',
+      setup: [],
+      components: [
+        {name: 'livenessState', status: 'DISABLED', details: {}, components: [], available: false},
+        {name: 'ping', status: 'DISABLED', details: {}, components: [], available: false},
+        {name: 'readinessState', status: 'DISABLED', details: {}, components: [], available: false}
+      ]
+    })
+
+    expect(wrapper.text()).toContain('livenessState')
+    expect(wrapper.text()).toContain('ping')
+    expect(wrapper.text()).toContain('readinessState')
+    expect(wrapper.findAll('h6').filter((heading) => heading.text() === 'Details')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('0 details')
+  })
+
   it('renders the component tree when health data is available', async () => {
     const wrapper = await mountWithHealth({
       name: 'application',
