@@ -229,8 +229,9 @@ application's own classes at runtime. It detects the application's base package 
 configuration, imports the compiled classes from that package, and evaluates a fixed set of universally-sensible
 architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
 exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
-deprecated APIs), and Spring stereotype heuristics (no field injection, controllers should not depend on repositories
-and vice versa, no self-invocation of proxied methods, and stereotypes outside the default package). The panel is
+deprecated APIs, poorly named exceptions/interfaces, or mutable/visible loggers), and Spring stereotype heuristics (no
+field injection, controllers should not depend on repositories, repositories/services should not depend on controllers,
+no self-invocation of proxied methods, and stereotypes outside the default package). The panel is
 available only when a base package is resolvable and ArchUnit is on the classpath; the scan runs on demand and caches
 the last report.
 

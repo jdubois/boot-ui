@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.architecture;
 
 import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predicates.annotatedWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.tngtech.archunit.base.DescribedPredicate;
@@ -80,6 +81,9 @@ final class SpringStereotypes {
 
     static final DescribedPredicate<CanBeAnnotated> REPOSITORY_ANNOTATED =
             annotatedWith(REPOSITORY).as("annotated with @Repository");
+
+    static final DescribedPredicate<CanBeAnnotated> SERVICE_ANNOTATED =
+            annotatedWith(SERVICE).as("annotated with @Service");
 
     static final DescribedPredicate<CanBeAnnotated> STEREOTYPE_ANNOTATED = annotatedWith(COMPONENT)
             .or(annotatedWith(SERVICE))
@@ -486,5 +490,104 @@ final class StereotypesShouldNotResideInDefaultPackageRule extends AbstractArchi
                 .should()
                 .haveNameMatching(".*\\..*")
                 .as("Spring stereotypes should not reside in the default package");
+    }
+}
+
+/**
+ * Flags services that depend directly on controllers.
+ */
+final class ServicesShouldNotDependOnControllersRule extends AbstractArchitectureRule {
+
+    ServicesShouldNotDependOnControllersRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-006",
+                        "Services should not depend on controllers",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Service beans that depend on @Controller / @RestController classes, violating the expected layering.",
+                        "Keep service layer free of web concerns; dependencies should flow from controllers toward services, not back."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .that(SpringStereotypes.SERVICE_ANNOTATED)
+                .should()
+                .dependOnClassesThat(SpringStereotypes.CONTROLLER_ANNOTATED);
+    }
+}
+
+/**
+ * Flags exceptions that do not have an 'Exception' suffix.
+ */
+final class ExceptionsShouldBeNamedExceptionRule extends AbstractArchitectureRule {
+
+    ExceptionsShouldBeNamedExceptionRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-010",
+                "Exceptions should be named ending with Exception",
+                ArchitectureCategory.CODING_PRACTICES,
+                "LOW",
+                "Detects classes extending Exception or RuntimeException that do not have names ending with 'Exception'.",
+                "Rename the class to end with 'Exception' so its purpose is immediately clear."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes().that().areAssignableTo(Exception.class).should().haveSimpleNameEndingWith("Exception");
+    }
+}
+
+/**
+ * Flags interfaces that have an 'Interface' suffix.
+ */
+final class InterfacesShouldNotHaveInterfaceSuffixRule extends AbstractArchitectureRule {
+
+    InterfacesShouldNotHaveInterfaceSuffixRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-011",
+                "Interfaces should not have names ending with 'Interface'",
+                ArchitectureCategory.CODING_PRACTICES,
+                "LOW",
+                "Detects interfaces with names ending in 'Interface', which is an unnecessary naming convention.",
+                "Rename the interface to describe its behavior or role without the 'Interface' suffix."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses().that().areInterfaces().should().haveSimpleNameEndingWith("Interface");
+    }
+}
+
+/**
+ * Flags loggers that are not private static final.
+ */
+final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRule {
+
+    LoggersShouldBePrivateStaticFinalRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-012",
+                        "Loggers should be private static final",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "LOW",
+                        "Detects logger fields that are not private, static, and final.",
+                        "Make logger fields private, static, and final to avoid visibility issues and unnecessary allocations."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return fields().that()
+                .haveRawType("org.slf4j.Logger")
+                .or()
+                .haveRawType("java.util.logging.Logger")
+                .should()
+                .bePrivate()
+                .andShould()
+                .beStatic()
+                .andShould()
+                .beFinal()
+                .allowEmptyShould(true);
     }
 }

@@ -23,4 +23,11 @@ class ArchitectureRuleRegistryTests {
             assertThat(definition.severity()).isIn("HIGH", "MEDIUM", "LOW", "INFO");
         });
     }
+
+    @Test
+    void activeRulesIncludeTheAdditionalSpringAndCodingPracticeChecks() {
+        assertThat(ArchitectureRuleRegistry.activeRules())
+                .extracting(rule -> rule.definition().id())
+                .contains("ARCH-SPRING-006", "ARCH-CODE-010", "ARCH-CODE-011", "ARCH-CODE-012");
+    }
 }

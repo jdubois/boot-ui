@@ -22,8 +22,12 @@ final class ArchitectureRuleRegistry {
             new NoFieldInjectionRule(),
             new ControllersShouldNotDependOnRepositoriesRule(),
             new RepositoriesShouldNotDependOnControllersRule(),
+            new ServicesShouldNotDependOnControllersRule(),
             new NoSelfInvocationOfProxiedMethodsRule(),
-            new StereotypesShouldNotResideInDefaultPackageRule());
+            new StereotypesShouldNotResideInDefaultPackageRule(),
+            new ExceptionsShouldBeNamedExceptionRule(),
+            new InterfacesShouldNotHaveInterfaceSuffixRule(),
+            new LoggersShouldBePrivateStaticFinalRule());
 
     private ArchitectureRuleRegistry() {}
 
