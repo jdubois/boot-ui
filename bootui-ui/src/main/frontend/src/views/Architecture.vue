@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 
@@ -27,7 +28,7 @@ const statusClasses = {
 
 const severityOrder = ['HIGH', 'MEDIUM', 'LOW', 'INFO']
 
-const hasScanData = computed(() => report.value?.scan?.status && report.value.scan.status !== 'NOT_SCANNED')
+const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
 
 const maxSeverityCount = computed(() => {
   if (!report.value?.severityCounts?.length) return 1
@@ -157,7 +158,11 @@ onMounted(loadReport)
           <div class="card h-100">
             <div class="card-body">
               <div class="text-muted small">Scan status</div>
-              <div class="display-6 fs-3">{{ report.scan.status }}</div>
+              <div class="mt-2">
+                <span :class="scanStatusBadgeClass(report.scan.status)" class="badge fs-6">
+                  {{ scanStatusLabel(report.scan.status) }}
+                </span>
+              </div>
               <div v-if="scanTime()" class="small text-muted">Scanned at {{ scanTime() }}</div>
             </div>
           </div>

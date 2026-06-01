@@ -77,6 +77,7 @@ describe('Architecture', () => {
       ])
     )
 
+    expect(wrapper.text()).toContain('Scan complete')
     expect(wrapper.text()).toContain('3 violating rules, sorted by importance')
     expect(wrapper.text()).toContain('What happened:')
     expect(wrapper.text()).toContain('3 violations found for this rule.')
