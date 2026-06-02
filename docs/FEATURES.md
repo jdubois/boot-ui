@@ -148,12 +148,12 @@ pools.
 
 ![BootUI Database Connection Pools panel](images/bootui-database-connection-pools.png)
 
-### Data
+### Spring Data
 
-The Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
+The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
 methods, and degrades to a clear empty state when Spring Data is not present or no repositories are registered.
 
-![BootUI Data panel](images/bootui-data.png)
+![BootUI Spring Data panel](images/bootui-data.png)
 
 ### Cache
 

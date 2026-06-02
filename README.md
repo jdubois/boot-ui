@@ -34,7 +34,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Configuration   | [Mappings](docs/FEATURES.md#mappings)                 | Review HTTP routes, handlers, methods, patterns, and produces/consumes metadata.                              |
 | Services        | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)   | View registered scheduled tasks and their trigger metadata.                                                   |
 | Services        | [Database Connection Pools](docs/FEATURES.md#database-connection-pools) | Watch database pool sizing, masked JDBC metadata, and live active/idle/total/pending saturation.              |
-| Services        | [Data](docs/FEATURES.md#data)                         | Explore Spring Data repositories, domain types, IDs, and query methods.                                       |
+| Services        | [Spring Data](docs/FEATURES.md#spring-data)            | Explore Spring Data repositories, domain types, IDs, and query methods.                                       |
 | Services        | [Cache](docs/FEATURES.md#cache)                       | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                     |
 | Services        | [Security](docs/FEATURES.md#security)                 | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                             |
 | Services        | [AI Usage](docs/FEATURES.md#ai-usage)                 | Summarize Spring AI and LangChain4j chat conversations, token usage, latency, and model details from OpenTelemetry spans.     |

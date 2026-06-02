@@ -50,7 +50,7 @@ Panel settings are consistent across the UI and API:
 | Configuration | Mappings | `mappings` | `bootui.panels.mappings.enabled` | Not applicable; view-only. |
 | Services | Scheduled Tasks | `scheduled` | `bootui.panels.scheduled.enabled` | Not applicable; view-only. |
 | Services | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only. |
-| Services | Data | `data` | `bootui.panels.data.enabled` | Not applicable; view-only. |
+| Services | Spring Data | `data` | `bootui.panels.data.enabled` | Not applicable; view-only. |
 | Services | Cache | `cache` | `bootui.panels.cache.enabled` | `bootui.panels.cache.read-only` |
 | Services | Security | `security` | `bootui.panels.security.enabled` | Not applicable; view-only. |
 | Services | AI Usage | `ai` | `bootui.panels.ai.enabled` | Not applicable; view-only. |
