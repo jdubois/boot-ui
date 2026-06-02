@@ -1,4 +1,5 @@
 <script setup>
+import {isPlainObject} from '../utils/format.js'
 import HealthDetails from './HealthDetails.vue'
 
 const props = defineProps({
@@ -25,10 +26,6 @@ const statusIcon = (s) =>
   })[s] || 'bi-question-circle-fill text-secondary'
 
 const childCount = (node) => (node.components || []).length
-
-function isPlainObject(value) {
-  return Object.prototype.toString.call(value) === '[object Object]'
-}
 
 function hasDetailValue(value) {
   if (value === null || value === undefined || value === '') return false

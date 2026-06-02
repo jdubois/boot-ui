@@ -1,6 +1,6 @@
 <script setup>
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
-import {formatNumber} from '../utils/format.js'
+import {formatNumber, shortName} from '../utils/format.js'
 import {formatLoadError} from '../utils/loadError.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -143,12 +143,6 @@ function formatMillis(value) {
   if (value === 0) return 'disabled'
   if (value >= 1000) return `${(value / 1000).toLocaleString(undefined, {maximumFractionDigits: 1})} s`
   return `${value} ms`
-}
-
-function shortName(name) {
-  if (!name) return '—'
-  const i = name.lastIndexOf('.')
-  return i < 0 ? name : name.substring(i + 1)
 }
 
 const currentSnapshot = computed(() => history.value[history.value.length - 1] || null)

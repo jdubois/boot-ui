@@ -16,6 +16,16 @@ export function formatNumber(n) {
   return Number(n).toLocaleString()
 }
 
+export function shortName(name) {
+  if (!name) return '—'
+  const i = name.lastIndexOf('.')
+  return i < 0 ? name : name.substring(i + 1)
+}
+
+export function isPlainObject(value) {
+  return Object.prototype.toString.call(value) === '[object Object]'
+}
+
 export function formatRelative(epochMillis, nowMillis = Date.now()) {
   if (epochMillis == null) return '—'
   const diff = nowMillis - epochMillis
