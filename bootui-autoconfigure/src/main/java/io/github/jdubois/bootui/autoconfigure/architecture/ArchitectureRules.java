@@ -7,16 +7,23 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.properties.CanBeAnnotated;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.EvaluationResult;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.ProxyRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Base class for curated architecture rules backed by a single ArchUnit {@link ArchRule}.
@@ -72,8 +79,10 @@ final class SpringStereotypes {
     static final String CONFIGURATION = "org.springframework.context.annotation.Configuration";
 
     static final String TRANSACTIONAL = "org.springframework.transaction.annotation.Transactional";
+    static final String JAKARTA_TRANSACTIONAL = "jakarta.transaction.Transactional";
     static final String ASYNC = "org.springframework.scheduling.annotation.Async";
     static final String CACHEABLE = "org.springframework.cache.annotation.Cacheable";
+    static final String SCHEDULED = "org.springframework.scheduling.annotation.Scheduled";
 
     static final DescribedPredicate<CanBeAnnotated> CONTROLLER_ANNOTATED = annotatedWith(CONTROLLER)
             .or(annotatedWith(REST_CONTROLLER))
@@ -85,6 +94,12 @@ final class SpringStereotypes {
     static final DescribedPredicate<CanBeAnnotated> SERVICE_ANNOTATED =
             annotatedWith(SERVICE).as("annotated with @Service");
 
+    static final DescribedPredicate<CanBeAnnotated> SERVICE_OR_REPOSITORY_ANNOTATED =
+            annotatedWith(SERVICE).or(annotatedWith(REPOSITORY)).as("annotated with @Service or @Repository");
+
+    static final DescribedPredicate<CanBeAnnotated> CONFIGURATION_ANNOTATED =
+            annotatedWith(CONFIGURATION).as("annotated with @Configuration");
+
     static final DescribedPredicate<CanBeAnnotated> STEREOTYPE_ANNOTATED = annotatedWith(COMPONENT)
             .or(annotatedWith(SERVICE))
             .or(annotatedWith(REPOSITORY))
@@ -93,7 +108,17 @@ final class SpringStereotypes {
             .or(annotatedWith(CONFIGURATION))
             .as("annotated with a Spring stereotype");
 
-    static final DescribedPredicate<CanBeAnnotated> PROXIED_METHOD_ANNOTATED = annotatedWith(TRANSACTIONAL)
+    static final DescribedPredicate<CanBeAnnotated> TRANSACTIONAL_ANNOTATED = annotatedWith(TRANSACTIONAL)
+            .or(annotatedWith(JAKARTA_TRANSACTIONAL))
+            .as("annotated with @Transactional");
+
+    static final DescribedPredicate<CanBeAnnotated> ASYNC_ANNOTATED =
+            annotatedWith(ASYNC).as("annotated with @Async");
+
+    static final DescribedPredicate<CanBeAnnotated> SCHEDULED_ANNOTATED =
+            annotatedWith(SCHEDULED).as("annotated with @Scheduled");
+
+    static final DescribedPredicate<CanBeAnnotated> PROXIED_METHOD_ANNOTATED = TRANSACTIONAL_ANNOTATED
             .or(annotatedWith(ASYNC))
             .or(annotatedWith(CACHEABLE))
             .as("annotated with @Transactional, @Async, or @Cacheable");
@@ -589,5 +614,379 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 .andShould()
                 .beFinal()
                 .allowEmptyShould(true);
+    }
+}
+
+/**
+ * Flags accidental dependencies from application classes to test-only APIs.
+ */
+final class NoTestFrameworkDependenciesRule extends AbstractArchitectureRule {
+
+    NoTestFrameworkDependenciesRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-013",
+                        "Application classes should not depend on test frameworks",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "MEDIUM",
+                        "Detects dependencies from application classes to common test-only APIs such as JUnit, Mockito, AssertJ, Spring Test, Hamcrest, or Testcontainers.",
+                        "Move test helpers and assertions to test sources; production code should not depend on test frameworks."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .should()
+                .dependOnClassesThat()
+                .resideInAnyPackage(
+                        "org.junit..",
+                        "org.mockito..",
+                        "org.assertj..",
+                        "org.hamcrest..",
+                        "org.springframework.boot.test..",
+                        "org.springframework.test..",
+                        "org.testcontainers..");
+    }
+}
+
+/**
+ * Flags repository beans that depend on service beans, which reverses the usual persistence-to-
+ * domain dependency direction.
+ */
+final class RepositoriesShouldNotDependOnServicesRule extends AbstractArchitectureRule {
+
+    RepositoriesShouldNotDependOnServicesRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-007",
+                        "Repositories should not depend on services",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Repository beans that depend directly on @Service beans, coupling persistence code back to business services.",
+                        "Keep repository beans focused on persistence concerns; dependencies should flow from services toward repositories, not back."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .that(SpringStereotypes.REPOSITORY_ANNOTATED)
+                .should()
+                .dependOnClassesThat(SpringStereotypes.SERVICE_ANNOTATED);
+    }
+}
+
+/**
+ * Flags service and repository beans that depend on servlet request/response infrastructure.
+ */
+final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends AbstractArchitectureRule {
+
+    ServicesAndRepositoriesShouldNotDependOnServletTypesRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-008",
+                        "Services and repositories should not depend on servlet types",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Service or @Repository beans that depend on servlet or Spring web request types.",
+                        "Extract request data in the web layer and pass plain application values into services and repositories."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .that(SpringStereotypes.SERVICE_OR_REPOSITORY_ANNOTATED)
+                .should()
+                .dependOnClassesThat()
+                .resideInAnyPackage(
+                        "jakarta.servlet..", "javax.servlet..", "org.springframework.web.context.request..");
+    }
+}
+
+/**
+ * Flags transaction annotations on interfaces, which Spring recommends avoiding because behaviour
+ * differs between proxy modes and can be silently ignored with AspectJ weaving.
+ */
+final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends AbstractArchitectureRule {
+
+    TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-009",
+                        "Transactional annotations should not be declared on interfaces",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Transactional on interfaces or interface methods.",
+                        "Declare transaction semantics on concrete implementation classes or methods so proxy and weaving modes behave consistently."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not declare @Transactional on interfaces") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        if (!javaClass.isInterface()) {
+                            return;
+                        }
+                        if (hasTransactionalAnnotation(javaClass)) {
+                            events.add(SimpleConditionEvent.violated(
+                                    javaClass,
+                                    "Interface " + javaClass.getName() + " is annotated with @Transactional"));
+                        }
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (hasTransactionalAnnotation(method)) {
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Interface method " + method.getFullName()
+                                                + " is annotated with @Transactional"));
+                            }
+                        }
+                    }
+                })
+                .as("Transactional annotations should not be declared on interfaces");
+    }
+
+    private static boolean hasTransactionalAnnotation(CanBeAnnotated annotated) {
+        return annotated.isAnnotatedWith(SpringStereotypes.TRANSACTIONAL)
+                || annotated.isAnnotatedWith(SpringStereotypes.JAKARTA_TRANSACTIONAL);
+    }
+}
+
+/**
+ * Flags private or static methods annotated with proxy-driven Spring annotations. Such methods
+ * cannot be invoked through the Spring proxy and the annotation is therefore misleading.
+ */
+final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchitectureRule {
+
+    ProxiedMethodsShouldNotBePrivateOrStaticRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-SPRING-010",
+                "Proxy-driven methods should not be private or static",
+                ArchitectureCategory.SPRING_STEREOTYPES,
+                "MEDIUM",
+                "Detects private or static methods annotated with @Transactional, @Async, or @Cacheable.",
+                "Move the annotation to an instance method that can be invoked through a Spring proxy."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not declare private or static proxy-driven methods") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method) && isPrivateOrStatic(method)) {
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Method " + method.getFullName()
+                                                + " is annotated with a proxy-driven Spring annotation but is "
+                                                + visibilityProblem(method)));
+                            }
+                        }
+                    }
+                })
+                .as("Proxy-driven methods should not be private or static");
+    }
+
+    private static boolean isPrivateOrStatic(JavaMethod method) {
+        Set<JavaModifier> modifiers = method.getModifiers();
+        return modifiers.contains(JavaModifier.PRIVATE) || modifiers.contains(JavaModifier.STATIC);
+    }
+
+    private static String visibilityProblem(JavaMethod method) {
+        Set<JavaModifier> modifiers = method.getModifiers();
+        if (modifiers.contains(JavaModifier.PRIVATE) && modifiers.contains(JavaModifier.STATIC)) {
+            return "private and static";
+        }
+        if (modifiers.contains(JavaModifier.PRIVATE)) {
+            return "private";
+        }
+        return "static";
+    }
+}
+
+/**
+ * Flags {@code @Async} methods with unsupported return types.
+ */
+final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchitectureRule {
+
+    AsyncMethodsShouldHaveSupportedSignaturesRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-011",
+                        "Async methods should return void or Future",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Async methods that return a value type other than java.util.concurrent.Future.",
+                        "Use void for fire-and-forget async work, or return Future/CompletableFuture when callers need a result."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("declare only supported @Async method signatures") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        boolean asyncClass = SpringStereotypes.ASYNC_ANNOTATED.test(javaClass);
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if ((asyncClass || SpringStereotypes.ASYNC_ANNOTATED.test(method))
+                                    && !returnsVoidOrFuture(method)) {
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Async method " + method.getFullName()
+                                                + " returns "
+                                                + method.getRawReturnType().getName()
+                                                + " instead of void or java.util.concurrent.Future"));
+                            }
+                        }
+                    }
+                })
+                .as("Async methods should return void or Future");
+    }
+
+    private static boolean returnsVoidOrFuture(JavaMethod method) {
+        JavaClass returnType = method.getRawReturnType();
+        return returnType.isEquivalentTo(void.class) || returnType.isAssignableTo(java.util.concurrent.Future.class);
+    }
+}
+
+/**
+ * Flags scheduled methods with parameters or unsupported return types.
+ */
+final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractArchitectureRule {
+
+    ScheduledMethodsShouldHaveSupportedSignaturesRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-012",
+                        "Scheduled methods should have supported signatures",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Scheduled methods that accept parameters or return non-void, non-reactive values that Spring ignores.",
+                        "Declare scheduled methods without parameters and return void unless using a supported deferred reactive Publisher type."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("declare only supported @Scheduled method signatures") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (SpringStereotypes.SCHEDULED_ANNOTATED.test(method)) {
+                                checkParameters(method, events);
+                                checkReturnType(method, events);
+                            }
+                        }
+                    }
+                })
+                .as("Scheduled methods should have supported signatures");
+    }
+
+    private static void checkParameters(JavaMethod method, ConditionEvents events) {
+        if (!method.getRawParameterTypes().isEmpty()) {
+            events.add(SimpleConditionEvent.violated(
+                    method,
+                    "Scheduled method " + method.getFullName()
+                            + " declares parameters, but Spring invokes @Scheduled methods without arguments"));
+        }
+    }
+
+    private static void checkReturnType(JavaMethod method, ConditionEvents events) {
+        JavaClass returnType = method.getRawReturnType();
+        if (returnType.isEquivalentTo(void.class) || isKnownReactiveReturnType(returnType)) {
+            return;
+        }
+        events.add(SimpleConditionEvent.violated(
+                method,
+                "Scheduled method " + method.getFullName()
+                        + " returns " + returnType.getName()
+                        + "; synchronous @Scheduled return values are ignored"));
+    }
+
+    private static boolean isKnownReactiveReturnType(JavaClass returnType) {
+        String name = returnType.getName();
+        return returnType.isAssignableTo("org.reactivestreams.Publisher")
+                || name.startsWith("reactor.core.publisher.")
+                || name.equals("kotlinx.coroutines.flow.Flow")
+                || name.equals("kotlinx.coroutines.Deferred")
+                || name.startsWith("io.reactivex.")
+                || name.startsWith("io.reactivex.rxjava3.");
+    }
+}
+
+/**
+ * Flags {@code @Async} usage in configuration classes, which Spring explicitly does not support.
+ */
+final class AsyncShouldNotBeUsedInConfigurationClassesRule extends AbstractArchitectureRule {
+
+    AsyncShouldNotBeUsedInConfigurationClassesRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-013",
+                        "Async should not be used in configuration classes",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects @Async on @Configuration classes or methods declared within them.",
+                        "Move asynchronous work to a regular Spring bean; @Async is not supported on methods declared in @Configuration classes."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not use @Async in @Configuration classes") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        if (!SpringStereotypes.CONFIGURATION_ANNOTATED.test(javaClass)) {
+                            return;
+                        }
+                        if (SpringStereotypes.ASYNC_ANNOTATED.test(javaClass)) {
+                            events.add(SimpleConditionEvent.violated(
+                                    javaClass,
+                                    "Configuration class " + javaClass.getName() + " is annotated with @Async"));
+                        }
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (SpringStereotypes.ASYNC_ANNOTATED.test(method)) {
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Configuration method " + method.getFullName() + " is annotated with @Async"));
+                            }
+                        }
+                    }
+                })
+                .as("Async should not be used in configuration classes");
+    }
+}
+
+/**
+ * Flags use of {@code AopContext.currentProxy()}, which couples application code directly to
+ * Spring AOP internals and requires exposing proxies.
+ */
+final class NoAopContextCurrentProxyRule extends AbstractArchitectureRule {
+
+    NoAopContextCurrentProxyRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-014",
+                        "Classes should not call AopContext.currentProxy",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "LOW",
+                        "Detects calls to AopContext.currentProxy(), which couples code to Spring AOP proxy internals.",
+                        "Prefer refactoring to avoid self-invocation, or inject a self-reference when a proxy call is truly required."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("AopContext.currentProxy() is called") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        return target.getName().equals("currentProxy")
+                                && target.getOwner().getName().equals("org.springframework.aop.framework.AopContext");
+                    }
+                })
+                .as("Classes should not call AopContext.currentProxy()");
     }
 }

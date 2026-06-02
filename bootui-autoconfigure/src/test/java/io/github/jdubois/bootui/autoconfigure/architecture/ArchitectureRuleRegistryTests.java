@@ -28,6 +28,19 @@ class ArchitectureRuleRegistryTests {
     void activeRulesIncludeTheAdditionalSpringAndCodingPracticeChecks() {
         assertThat(ArchitectureRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
-                .contains("ARCH-SPRING-006", "ARCH-CODE-010", "ARCH-CODE-011", "ARCH-CODE-012");
+                .contains(
+                        "ARCH-CODE-010",
+                        "ARCH-CODE-011",
+                        "ARCH-CODE-012",
+                        "ARCH-CODE-013",
+                        "ARCH-SPRING-006",
+                        "ARCH-SPRING-007",
+                        "ARCH-SPRING-008",
+                        "ARCH-SPRING-009",
+                        "ARCH-SPRING-010",
+                        "ARCH-SPRING-011",
+                        "ARCH-SPRING-012",
+                        "ARCH-SPRING-013",
+                        "ARCH-SPRING-014");
     }
 }

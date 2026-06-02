@@ -238,11 +238,14 @@ application's own classes at runtime. It detects the application's base package 
 configuration, imports the compiled classes from that package, and evaluates a fixed set of universally-sensible
 architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
 exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
-deprecated APIs, poorly named exceptions/interfaces, or mutable/visible loggers), and Spring stereotype heuristics (no
-field injection, controllers should not depend on repositories, repositories/services should not depend on controllers,
-no self-invocation of proxied methods, and stereotypes outside the default package). When BootUI is installed through
-`bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available when a base package is
-resolvable and the scan runs on demand, caching the last report.
+deprecated APIs, poorly named exceptions/interfaces, mutable/visible loggers, or production dependencies on test
+frameworks), and Spring stereotype/proxy heuristics (no field injection, controllers should not depend on repositories,
+repositories should not depend on controllers or services, services should not depend on controllers, services and
+repositories should stay servlet-agnostic, no self-invocation or unproxyable proxy annotations, async/scheduled method
+signatures should be supported, async should stay out of configuration classes, stereotypes should stay outside the
+default package, and code should avoid `AopContext.currentProxy()`). When BootUI is installed through
+`bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available when a base package is resolvable
+and the scan runs on demand, caching the last report.
 
 Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
 starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
