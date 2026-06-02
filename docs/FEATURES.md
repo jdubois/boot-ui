@@ -267,16 +267,17 @@ violating rules, sorted by severity and violation count. See
 
 ### Pentesting
 
-The Pentesting panel runs explicit, local-only OWASP hygiene checks against the host application, not BootUI's
-`/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the application
-context path for security headers, CORS behavior, cookie flags, verbose error exposure, Spring Security wiring, and
-actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such as an enabled H2 console,
-in-config security credentials, value-revealing actuator endpoints, and DevTools left on the classpath. It intentionally
-does not sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies.
-Findings are heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
+The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
+BootUI's `/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the
+application context path for missing or unsafe security headers, CORS behavior, cookie flags, verbose error exposure,
+Spring Security wiring, and actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such
+as wildcard actuator exposure, health detail exposure, an enabled H2 console, in-config security credentials,
+value-revealing actuator endpoints, request-detail logging, and DevTools left on the classpath. It intentionally does not
+sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies. Findings are
+heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
 
-Each hygiene check is registered with a stable identifier, OWASP category, evidence source, and recommendation so new
-checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
+Each hygiene check is registered with a stable identifier, OWASP 2025 category, evidence source, and recommendation so
+new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
 full catalogue of checks and what each one inspects.
 
 ![BootUI Pentesting panel](images/bootui-pentesting.png)
