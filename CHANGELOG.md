@@ -7,8 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.3.0] - 2026-06-02
 
+Third BootUI release, focused on the new JVM Tuning Advisor, Java 17 baseline, stronger AI telemetry guidance, and
+release-facing documentation/screenshots for the updated menu surface.
+
 ### Added
 
+- Tuning Advisor panel split out from Memory, with fixed bare-metal JVM options, percentage-based Kubernetes
+  `JAVA_TOOL_OPTIONS`, optional Burstable request sizing, Actuator probe YAML, and virtual-thread sizing guidance based on
+  the running JVM context.
 - LangChain4j support in the AI Usage panel. BootUI now detects Spring AI and/or LangChain4j, shows the selected
   framework with header badges, and offers side-by-side Spring AI and LangChain4j telemetry setup guides explaining the
   dependency and configuration each needs to emit GenAI spans (including optional prompt/completion content capture).
@@ -21,16 +27,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - ArchUnit is now bundled transitively through `bootui-spring-boot-starter`, so the Architecture panel works out of the
   box without an extra application dependency; the sample app's redundant direct dependency was removed.
+- Architecture checks were expanded with additional coding-practice and Spring proxy/stereotype heuristics.
+- Pentesting checks now align their local-only hygiene catalogue with OWASP Top 10 2025.
 - Release preparation (Maven module versions, README install snippet, release commit, and tag) and Maven Central
   publishing are unified into a single `Release` workflow, replacing the separate `Prepare Release` workflow.
 - Lowered the build baseline from Java 25 to Java 17, updating the Maven compiler release, the CI build matrix, and
   CodeQL analysis.
+- The Data menu item is now Spring Data, and the database pool view is consistently named Database Connection Pools.
 - AI Usage content-capture guidance and documentation now cover LangChain4j alongside Spring AI.
+- Copilot and Claude Code agent panels now share the standard panel refresh behavior.
 
 ### Fixed
 
 - Removed auto-refresh flicker by showing panel skeletons only on first load and sharing refresh state across panels.
+- Normalized frontend errors when the backend is offline or unavailable.
 - Removed duplicated `formatDuration`/`formatTime` helpers in the Traces panel in favor of the shared format utilities.
+- Updated the footer GitHub link, release docs, and regenerated feature screenshots for the current sidebar menu.
 
 ## [0.2.0] - 2026-06-01
 
@@ -206,7 +218,9 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.3.0...HEAD
+
+[0.3.0]: https://github.com/jdubois/boot-ui/compare/v0.2.0...v0.3.0
 
 [0.2.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0...v0.2.0
 

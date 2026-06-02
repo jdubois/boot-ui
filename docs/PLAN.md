@@ -486,7 +486,7 @@ Reason:
 
 ## 9. Suggested next steps
 
-`0.1.0` has been released to Maven Central, and the `0.2.0` docs, screenshots, and changelog are reconciled for the next
+`0.2.0` has been released to Maven Central, and the `0.3.0` docs, screenshots, and changelog are reconciled for the next
 release. The final version bump, release commit, tag, Maven module versions, README install snippet, and Maven Central
 publish should stay synchronized through the `Release` workflow; keep using that workflow for future version bumps.
 
@@ -505,13 +505,13 @@ Server-side filtering and pagination completed the final-release hardening set f
 User-facing documentation is reconciled with current behavior: `README.md`, `docs/FEATURES.md`, and
 `docs/SPECIFICATION.md` use the `AUTO|ON|OFF` activation model, the persisted-overrides behavior, the plain-JavaScript
 Vue 3 frontend, and the full visible panel set. The repository now ships a `CHANGELOG.md` with release notes through
-`0.2.0` and a sample-app walkthrough at `bootui-sample-app/README.md`.
+`0.3.0` and a sample-app walkthrough at `bootui-sample-app/README.md`.
 
-On 2026-05-29, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
-current branch. The Playwright run covered all 57 sample-app browser tests.
+On 2026-06-02, `./mvnw -B -ntp clean install` and the Playwright suite under `bootui-sample-app/e2e` both passed on the
+current branch. The Playwright run covered all 68 sample-app browser tests.
 
-The listed final-release hardening set is complete, `0.1.0` is released, and the `0.2.0` docs/screenshot/changelog audit
-was refreshed on 2026-06-01. The next workstream should be the Service Extension SPI in §7: extract AI Usage into
+The listed final-release hardening set is complete, `0.2.0` is released, and the `0.3.0` docs/screenshot/changelog audit
+was refreshed on 2026-06-02. The next workstream should be the Service Extension SPI in §7: extract AI Usage into
 `services/bootui-service-ai-usage`, add LangChain4j OpenTelemetry support alongside Spring AI, then move the remaining
 Services menu entries behind first-party modules under `services/`. Keep tests, docs, router ordering,
 `/bootui/api/panels` availability, sample-app Playwright coverage, and release validation in sync as behavior changes
@@ -519,7 +519,7 @@ land.
 
 ## 10. Validation checklist
 
-Last completed on 2026-05-29:
+Last completed on 2026-06-02:
 
 - [x] `./mvnw -B -ntp clean install` passes.
 - [x] The UI build is executed automatically by Maven.
@@ -536,11 +536,12 @@ Last completed on 2026-05-29:
 - [x] Non-local requests are rejected by default.
 - [x] Documentation matches actual behavior.
 
-Docs/screenshot/changelog audit refreshed on 2026-06-01:
+Docs/screenshot/changelog audit refreshed on 2026-06-02:
 
 - [x] `README.md`, `docs/FEATURES.md`, `docs/PROPERTIES.md`, `docs/SPECIFICATION.md`, and this plan describe the
-      current `0.2.0` surface.
-- [x] `CHANGELOG.md` has a dated `0.2.0` section with the release highlights, UI polish, scan-status polish, and fixes.
+      current `0.3.0` surface.
+- [x] `CHANGELOG.md` has a dated `0.3.0` section with the release highlights, menu updates, Java 17 baseline, Tuning
+      Advisor, AI guidance, and fixes.
 - [x] Every referenced docs screenshot exists, every `docs/images/bootui-*.png` is referenced, and all screenshots are
       1600x900.
 

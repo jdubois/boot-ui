@@ -33,8 +33,8 @@ const panelOrder = [
   ['conditions', 'Conditions'],
   ['mappings', 'Mappings'],
   ['scheduled', 'Scheduled Tasks'],
-  ['hikari', 'Connection Pools'],
-  ['data', 'Data'],
+  ['database-connection-pools', 'Database Connection Pools'],
+  ['data', 'Spring Data'],
   ['cache', 'Cache'],
   ['security', 'Security'],
   ['ai', 'AI Usage'],
@@ -51,11 +51,11 @@ const panelOrder = [
 ]
 
 const overview = {
-  bootUiVersion: '0.2.0',
+  bootUiVersion: '0.3.0',
   applicationName: 'bootui-sample',
   springBootVersion: '4.0.6',
-  javaVersion: '25',
-  javaVendor: 'Eclipse Adoptium',
+  javaVersion: '17',
+  javaVendor: 'Eclipse Temurin',
   activeProfiles: ['dev', 'local'],
   defaultProfiles: ['default'],
   webApplicationType: 'SERVLET',
@@ -671,7 +671,7 @@ const dataReport = {
   ]
 }
 
-const hikariReport = {
+const databaseConnectionPoolsReport = {
   available: true,
   unavailableReason: null,
   pools: [
@@ -714,13 +714,13 @@ const hikariReport = {
   ]
 }
 
-const hikariSnapshots = {
+const databaseConnectionPoolSnapshots = {
   'HikariPool-1': {active: 6, idle: 9, total: 15, pending: 1},
   'HikariPool-read': {active: 2, idle: 4, total: 6, pending: 0}
 }
 
-function hikariSnapshot(poolName) {
-  const base = hikariSnapshots[poolName] || {active: 0, idle: 0, total: 0, pending: 0}
+function databaseConnectionPoolSnapshot(poolName) {
+  const base = databaseConnectionPoolSnapshots[poolName] || {active: 0, idle: 0, total: 0, pending: 0}
   return {poolName, ...base}
 }
 
@@ -1398,7 +1398,7 @@ const screenshots = [
     }
   ],
   ['memory', 'Memory', 'bootui-memory.png', waitForText('Memory Pools')],
-  ['tuning-advisor', 'Tuning Advisor', 'bootui-tuning-advisor.png', waitForText('JVM memory calculator')],
+  ['tuning-advisor', 'Tuning Advisor', 'bootui-tuning-advisor.png', waitForText('Bare metal JVM calculator')],
   [
     'heap-dump',
     'Heap Dump',
@@ -1418,7 +1418,7 @@ const screenshots = [
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   [
     'database-connection-pools',
-    'Connection Pools',
+    'Database Connection Pools',
     'bootui-database-connection-pools.png',
     async (page) => {
       await page.getByText('HikariPool-1').first().waitFor()
@@ -1428,7 +1428,7 @@ const screenshots = [
   ],
   [
     'data',
-    'Data',
+    'Spring Data',
     'bootui-data.png',
     async (page) => {
       await page.getByText('ProductRepository').waitFor()
@@ -1946,10 +1946,10 @@ async function handleApiRoute(route) {
   if (endpoint === 'scheduled') return fulfillJson(route, scheduled)
   if (endpoint === 'data/repositories') return fulfillJson(route, dataReport)
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
-  if (endpoint === 'hikari/pools') return fulfillJson(route, hikariReport)
-  if (endpoint.startsWith('hikari/pools/') && endpoint.endsWith('/snapshot')) {
-    const poolName = endpoint.slice('hikari/pools/'.length, -'/snapshot'.length)
-    return fulfillJson(route, hikariSnapshot(poolName))
+  if (endpoint === 'database-connection-pools/pools') return fulfillJson(route, databaseConnectionPoolsReport)
+  if (endpoint.startsWith('database-connection-pools/pools/') && endpoint.endsWith('/snapshot')) {
+    const poolName = endpoint.slice('database-connection-pools/pools/'.length, -'/snapshot'.length)
+    return fulfillJson(route, databaseConnectionPoolSnapshot(poolName))
   }
   if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
   if (endpoint === 'cache') return fulfillJson(route, cache)
