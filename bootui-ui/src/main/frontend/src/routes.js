@@ -17,6 +17,7 @@ const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const Cache = () => import('./views/Cache.vue')
 const Security = () => import('./views/Security.vue')
 const Memory = () => import('./views/Memory.vue')
+const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
 const Metrics = () => import('./views/Metrics.vue')
 const Vulnerabilities = () => import('./views/Dependencies.vue')
@@ -60,6 +61,12 @@ export const routes = [
     name: 'memory',
     component: Memory,
     meta: {group: groups.runtime, icon: 'bi-memory', title: 'Memory'}
+  },
+  {
+    path: '/tuning-advisor',
+    name: 'tuning-advisor',
+    component: TuningAdvisor,
+    meta: {group: groups.runtime, icon: 'bi-calculator', title: 'Tuning advisor'}
   },
   {
     path: '/heap-dump',

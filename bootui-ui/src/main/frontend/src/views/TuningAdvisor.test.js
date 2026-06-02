@@ -1,7 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import Memory from './Memory.vue'
+import TuningAdvisor from './TuningAdvisor.vue'
 
 const MB = 1024 * 1024
 
@@ -62,7 +62,7 @@ function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
-describe('Memory', () => {
+describe('Tuning advisor', () => {
   let wrapper
 
   beforeEach(() => {
@@ -77,27 +77,28 @@ describe('Memory', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders only live memory metrics from the memory report', async () => {
+  it('renders JVM tuning and Kubernetes sizing recommendations from the memory report', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport())))
 
-    wrapper = mount(Memory)
+    wrapper = mount(TuningAdvisor)
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('api/memory')
+    expect(fetch).toHaveBeenCalledWith('api/tuning-advisor')
     const renderedText = wrapper.text()
-    const panelOrder = [
-      'Heap Memory',
-      'Non-Heap Memory',
-      'Memory Pools'
-    ]
+    const panelOrder = ['Current JVM Arguments', 'JVM memory calculator', 'Recommended JVM Options', 'Kubernetes sizing']
     const panelPositions = panelOrder.map((label) => {
       const position = renderedText.indexOf(label)
       expect(position).toBeGreaterThanOrEqual(0)
       return position
     })
     expect(panelPositions).toEqual([...panelPositions].sort((a, b) => a - b))
-    expect(wrapper.text()).not.toContain('JVM memory calculator')
-    expect(wrapper.text()).not.toContain('Recommended JVM Options')
-    expect(wrapper.text()).not.toContain('Kubernetes sizing')
+    expect(wrapper.text()).toContain('Kubernetes sizing')
+    expect(wrapper.text()).toContain('1024Mi')
+    expect(wrapper.text()).toContain('Guaranteed')
+    expect(wrapper.text()).toContain('Burstable alternative')
+    expect(wrapper.text()).toContain('512Mi')
+    expect(wrapper.text()).toContain('High confidence')
+    expect(wrapper.text()).toContain('Request equals limit')
+    expect(wrapper.html()).toContain('JAVA_TOOL_OPTIONS')
   })
 })

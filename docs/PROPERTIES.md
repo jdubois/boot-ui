@@ -40,6 +40,7 @@ Panel settings are consistent across the UI and API:
 | Runtime | Health | `health` | `bootui.panels.health.enabled` | Not applicable; view-only. |
 | Runtime | Metrics | `metrics` | `bootui.panels.metrics.enabled` | Not applicable; view-only. |
 | Runtime | Memory | `memory` | `bootui.panels.memory.enabled` | Not applicable; view-only. |
+| Runtime | Tuning advisor | `tuning-advisor` | `bootui.panels.tuning-advisor.enabled` | Not applicable; view-only. |
 | Runtime | Heap Dump | `heap-dump` | `bootui.panels.heap-dump.enabled` | `bootui.panels.heap-dump.read-only` |
 | Runtime | Startup Timeline | `startup` | `bootui.panels.startup.enabled` | Not applicable; view-only. |
 | Configuration | Configuration | `config` | `bootui.panels.config.enabled` | `bootui.panels.config.read-only` |

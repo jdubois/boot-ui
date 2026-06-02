@@ -2,7 +2,7 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Memory view', () => {
-  test('renders the JVM options panel and heap/non-heap cards', async ({openView, page, browserName, context}) => {
+  test('renders tuning advisor recommendations and copy action', async ({openView, page, browserName, context}) => {
     // Grant clipboard permissions for the copy button. Not all browsers expose them
     // through the same API; ignore failures gracefully.
     if (browserName === 'chromium') {
@@ -13,7 +13,7 @@ test.describe('Memory view', () => {
       }
     }
 
-    await openView('memory', 'Memory')
+    await openView('tuning-advisor', 'Tuning advisor')
 
     const jvmOptionsCard = page.locator('.card', {hasText: 'Recommended JVM Options'}).first()
     const kubernetesCard = page.locator('.card', {hasText: 'Kubernetes sizing'}).first()
@@ -21,9 +21,6 @@ test.describe('Memory view', () => {
     await expect(kubernetesCard).toBeVisible()
     await expect(kubernetesCard).toContainText('Guaranteed')
     await expect(kubernetesCard.locator('.options-box code')).toContainText('JAVA_TOOL_OPTIONS')
-    await expect(page.locator('.card', {hasText: 'Heap Memory'}).first()).toBeVisible()
-    await expect(page.locator('.card', {hasText: /Non[- ]?Heap/i}).first()).toBeVisible()
-
     const optionsBlock = jvmOptionsCard.locator('.options-box code')
     await expect(optionsBlock).toContainText(/-Xmx|-XX:/)
 
@@ -48,7 +45,7 @@ test.describe('Memory view', () => {
   })
 
   test('editing total memory updates the recommended -Xmx', async ({openView, page}) => {
-    await openView('memory', 'Memory')
+    await openView('tuning-advisor', 'Tuning advisor')
 
     const calculatorCard = page.locator('.card', {hasText: 'JVM memory calculator'})
     const jvmOptionsCard = page.locator('.card', {hasText: 'Recommended JVM Options'}).first()

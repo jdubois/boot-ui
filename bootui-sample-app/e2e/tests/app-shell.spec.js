@@ -6,6 +6,7 @@ const allPanelLinks = [
   {id: 'health', title: 'Health', heading: /^Health/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
   {id: 'memory', title: 'Memory', heading: /^Memory/},
+  {id: 'tuning-advisor', title: 'Tuning advisor', heading: /^Tuning advisor/},
   {id: 'heap-dump', title: 'Heap Dump', heading: /^Heap Dump/},
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
@@ -86,7 +87,7 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Runtime', count: 5},
+      {title: 'Runtime', count: 6},
       {title: 'Configuration', count: 6},
       {title: 'Services', count: 6},
       {title: 'Diagnostics', count: 6},
