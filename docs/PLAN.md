@@ -153,12 +153,12 @@ The visible-route parity check is current. The sample-app Playwright suite cover
 1. Overview.
 2. Runtime: Health, Metrics, Memory, Heap Dump, Startup Timeline.
 3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
-4. Services: Scheduled Tasks, Connection Pools, Data, Cache, Security, AI Usage.
+4. Services: Scheduled Tasks, Database Connection Pools, Data, Cache, Security, AI Usage.
 5. Diagnostics: Traces, Log Tail, HTTP Probe, Architecture, Pentesting, Vulnerabilities.
 6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
 7. Disabled / unavailable grouping for unavailable non-overview panels.
 
-Startup, Memory, Heap Dump, Spring Data, Connection Pools, Spring Cache, HTTP Probe, Architecture, Pentesting,
+Startup, Memory, Heap Dump, Spring Data, Database Connection Pools, Spring Cache, HTTP Probe, Architecture, Pentesting,
 Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code, Scheduled Tasks, Security, Metrics, Vulnerabilities,
 DevTools, and Dev Services are implemented, documented, covered by sample-app Playwright tests, and part of the supported
 current release surface. Any new visible route or browser-facing behavior should update the router, README feature table,
@@ -200,7 +200,7 @@ Completed reconciliation points:
 - `bootui.enabled` uses `AUTO|ON|OFF`.
 - Runtime config overrides persist to the BootUI overrides file by default.
 - The frontend is plain JavaScript Vue 3.
-- Startup Timeline, Memory, Heap Dump, Spring Data, Connection Pools, Spring Cache, HTTP Probe, Architecture,
+- Startup Timeline, Memory, Heap Dump, Spring Data, Database Connection Pools, Spring Cache, HTTP Probe, Architecture,
   Pentesting, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code, Scheduled Tasks, Security, Metrics,
   DevTools, Dev Services, and Vulnerabilities are implemented `0.2.0` surfaces, not deferred ideas.
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots,
@@ -354,8 +354,8 @@ The candidate hardening items originally tracked for a later `v0.2` were pulled 
 The next preferred workstream is to introduce the Service Extension SPI and move service-style panels behind it. The
 current **AI Usage** panel remains the first extraction candidate because it can establish framework-neutral OTLP DTOs
 before adding LangChain4j support. LangChain4j can emit OpenTelemetry spans, so BootUI should normalize those spans
-through the same in-app OTLP path used for Spring AI while keeping the released Spring AI behavior intact. The HikariCP
-**Connection Pools** panel shipped in `0.2.0` inside `bootui-autoconfigure`; move it behind the SPI with the other
+through the same in-app OTLP path used for Spring AI while keeping the released Spring AI behavior intact. The
+**Database Connection Pools** panel shipped in `0.2.0` inside `bootui-autoconfigure`; move it behind the SPI with the other
 Services entries once the SPI exists.
 
 Scope:
@@ -364,17 +364,17 @@ Scope:
   stable DTO endpoints, documentation metadata, and optional frontend assets.
 - Extract **AI Usage** into `services/bootui-service-ai-usage` first. Preserve the existing Spring AI observation
   aggregation and add LangChain4j OpenTelemetry span support to the same panel and DTO shape where possible.
-- Move the remaining current Services menu entries behind that SPI over time: Scheduled Tasks, Connection Pools, Data,
+- Move the remaining current Services menu entries behind that SPI over time: Scheduled Tasks, Database Connection Pools, Data,
   Cache, and Security.
 - Add Elasticsearch, Flyway/Liquibase, and MongoDB service visibility after the SPI exists.
-  - HikariCP connection-pool visibility shipped (read-only **Connection Pools** panel with a live saturation chart,
+  - Database connection-pool visibility shipped (read-only **Database Connection Pools** panel with a live saturation chart,
     masked JDBC metadata, and fail-closed behavior). It currently lives in `bootui-autoconfigure` and will move behind
     the `services/` SPI with the other Services entries. Elasticsearch, Flyway/Liquibase, and MongoDB remain pending.
 - Put all first-party service extensions under a top-level `services/` Maven directory, with one Maven submodule per
   service, for example:
   - `services/bootui-service-scheduled`
   - `services/bootui-service-data`
-  - `services/bootui-service-hikari`
+  - `services/bootui-service-database-connection-pools`
   - `services/bootui-service-cache`
   - `services/bootui-service-security`
   - `services/bootui-service-ai-usage`
@@ -395,8 +395,8 @@ Design constraints:
   embedding, tool, token, latency, error, and vector-store signals when present, and degrade gracefully when a framework
   omits optional attributes. Prompt/response content must remain opt-in through captured trace attributes and continue
   to follow the existing masking/value-exposure rules.
-- HikariCP support should be read-only at first and exposed as its own **Connection Pools** panel in the Services group,
-  placed after **Data** and before **Cache**. It should discover `HikariDataSource` beans only, fail closed when HikariCP
+- Database connection-pool support should be read-only at first and exposed as its own **Database Connection Pools** panel
+  in the Services group, placed after **Data** and before **Cache**. It should fail closed when pool support
   is absent, and show pool identity, masked JDBC connection metadata, current active/idle/total/pending counts, min/max
   sizing, timeout/lifetime settings, and unavailable reasons for closed or inaccessible pools. The panel should include a
   local live chart like the Metrics panel, polling bounded snapshots for active, idle, total, and pending connections so

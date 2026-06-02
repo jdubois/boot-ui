@@ -35,7 +35,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.2.0] - 2026-06-01
 
 Second BootUI release, focused on local security diagnostics, three new local-only diagnostics panels — Architecture
-(ArchUnit), Heap Dump (value-free class histogram), and Database Connection Pools (HikariCP) — and safer defaults around
+(ArchUnit), Heap Dump (value-free class histogram), and Database Connection Pools — and safer defaults around
 host-application security, plus release/documentation hardening for the full visible panel surface.
 
 ### Added
@@ -45,8 +45,8 @@ host-application security, plus release/documentation hardening for the full vis
 - Heap Dump panel that captures local JVM heap dumps on demand and analyzes a value-free class histogram, including a
   `max-classes` memory cap plus big-objects and collection-bloat smart filters. Raw `.hprof` download stays disabled by
   default because dumps contain plaintext secrets.
-- Database Connection Pools panel that surfaces read-only HikariCP pool sizing, masked JDBC metadata, and a live
-  active/idle/total/pending saturation chart, failing closed when HikariCP is unavailable.
+- Database Connection Pools panel that surfaces read-only database pool sizing, masked JDBC metadata, and a live
+  active/idle/total/pending saturation chart, failing closed when pool support is unavailable.
 - Pentesting panel with explicit, local-only OWASP-aligned hygiene checks for security headers, CORS behavior, cookie
   flags, verbose errors, Spring Security wiring, actuator exposure, DevTools, H2 console, and risky configuration values.
 - BootUI Spring Security integration that keeps `/bootui/**` and `/bootui/api/**` reachable in local applications using

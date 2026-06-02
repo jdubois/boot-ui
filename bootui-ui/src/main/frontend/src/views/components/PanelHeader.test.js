@@ -30,6 +30,20 @@ describe('PanelHeader', () => {
     wrapper.unmount()
   })
 
+  it('hides refresh controls when refresh is not available', () => {
+    const wrapper = mount(PanelHeader, {
+      props: {
+        title: 'Database Connection Pools',
+        refreshable: false,
+        onRefresh: vi.fn()
+      }
+    })
+
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('keeps the relative last-fetched text current', async () => {
     const wrapper = mount(PanelHeader, {
       props: {

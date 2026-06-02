@@ -1105,9 +1105,9 @@ BootUI's current pre-1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Services, Diagnostics, Developer tools, and Disabled / unavailable
-  navigation groups covering Health, Metrics, Memory, Heap Dump, Startup Timeline, Scheduled Tasks, Connection Pools,
-  Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Data, Cache, Security, AI Usage, Traces, Log Tail,
-  HTTP Probe, Architecture, Pentesting, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
+  navigation groups covering Health, Metrics, Memory, Heap Dump, Startup Timeline, Scheduled Tasks, Database Connection
+  Pools, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Data, Cache, Security, AI Usage, Traces, Log
+  Tail, HTTP Probe, Architecture, Pentesting, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

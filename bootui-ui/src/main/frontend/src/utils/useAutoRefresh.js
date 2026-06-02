@@ -1,16 +1,20 @@
-import {onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, unref, watch} from 'vue'
 import {useRefreshState} from './useRefreshState.js'
 
 /**
  * Composable that loads immediately and refreshes while auto-refresh is enabled and the tab is visible.
  *
  * @param {Function} callback - function to call for initial, manual, interval, and visibility refreshes
- * @param {{intervalMs?: number, defaultEnabled?: boolean}} [options] - auto-refresh options
+ * @param {{intervalMs?: number, defaultEnabled?: boolean, enabled?: boolean | import('vue').Ref<boolean>, initialLoading?: boolean}} [options] - auto-refresh options
  * @returns {{ autoRefresh, intervalMs, loading, hasLoaded, initialLoading, load, refresh, startAutoRefresh, stopAutoRefresh }}
  */
-export function useAutoRefresh(callback, {intervalMs = 10_000, defaultEnabled = true} = {}) {
+export function useAutoRefresh(
+  callback,
+  {intervalMs = 10_000, defaultEnabled = true, enabled = true, initialLoading = true} = {}
+) {
   const autoRefresh = ref(defaultEnabled)
-  const {loading, hasLoaded, initialLoading, refresh} = useRefreshState(callback)
+  const refreshEnabled = computed(() => unref(enabled) !== false)
+  const {loading, hasLoaded, initialLoading: isInitialLoading, refresh} = useRefreshState(callback, {initialLoading})
   let timer = null
   let inFlight = false
 
@@ -22,6 +26,7 @@ export function useAutoRefresh(callback, {intervalMs = 10_000, defaultEnabled = 
   }
 
   async function load(...args) {
+    if (!refreshEnabled.value) return
     if (inFlight) return
     inFlight = true
     try {
@@ -33,9 +38,9 @@ export function useAutoRefresh(callback, {intervalMs = 10_000, defaultEnabled = 
 
   function startAutoRefresh() {
     stopAutoRefresh()
-    if (autoRefresh.value && document.visibilityState === 'visible') {
+    if (refreshEnabled.value && autoRefresh.value && document.visibilityState === 'visible') {
       timer = setInterval(() => {
-        if (autoRefresh.value && document.visibilityState === 'visible') {
+        if (refreshEnabled.value && autoRefresh.value && document.visibilityState === 'visible') {
           load()
         }
       }, intervalMs)
@@ -43,6 +48,10 @@ export function useAutoRefresh(callback, {intervalMs = 10_000, defaultEnabled = 
   }
 
   function onVisibilityChange() {
+    if (!refreshEnabled.value) {
+      stopAutoRefresh()
+      return
+    }
     if (document.visibilityState === 'visible') {
       startAutoRefresh()
       if (autoRefresh.value) {
@@ -53,16 +62,21 @@ export function useAutoRefresh(callback, {intervalMs = 10_000, defaultEnabled = 
     }
   }
 
-  watch(autoRefresh, () => {
-    if (autoRefresh.value) {
-      startAutoRefresh()
-    } else {
+  watch([autoRefresh, refreshEnabled], ([autoRefreshEnabled, enabledNow], [, wasEnabled]) => {
+    if (!enabledNow || !autoRefreshEnabled) {
       stopAutoRefresh()
+      return
+    }
+    startAutoRefresh()
+    if (wasEnabled === false && document.visibilityState === 'visible') {
+      load()
     }
   })
 
   onMounted(() => {
-    load()
+    if (refreshEnabled.value) {
+      load()
+    }
     startAutoRefresh()
     document.addEventListener('visibilitychange', onVisibilityChange)
   })
@@ -77,7 +91,7 @@ export function useAutoRefresh(callback, {intervalMs = 10_000, defaultEnabled = 
     intervalMs,
     loading,
     hasLoaded,
-    initialLoading,
+    initialLoading: isInitialLoading,
     load,
     refresh: load,
     startAutoRefresh,

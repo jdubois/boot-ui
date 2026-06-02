@@ -75,7 +75,7 @@ class HikariControllerTests {
         MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/hikari/pools"))
+        mvc.perform(get("/bootui/api/database-connection-pools/pools"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hikariPresent").value(true))
                 .andExpect(jsonPath("$.total").value(1))
@@ -101,7 +101,7 @@ class HikariControllerTests {
         MockMvc mvc = standaloneSetup(new HikariController(provider(factory), properties))
                 .build();
 
-        mvc.perform(get("/bootui/api/hikari/pools"))
+        mvc.perform(get("/bootui/api/database-connection-pools/pools"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pools[0].jdbcUrl").value(RAW_JDBC_URL))
                 .andExpect(jsonPath("$.pools[0].username").value("app"));
@@ -118,7 +118,7 @@ class HikariControllerTests {
         MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/hikari/pools"))
+        mvc.perform(get("/bootui/api/database-connection-pools/pools"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pools[0].available").value(false))
                 .andExpect(jsonPath("$.pools[0].unavailableReason").value("Pool is closed"))
@@ -131,7 +131,7 @@ class HikariControllerTests {
         MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/hikari/pools/HikariPool-1/snapshot"))
+        mvc.perform(get("/bootui/api/database-connection-pools/pools/HikariPool-1/snapshot"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.active").value(3))
                 .andExpect(jsonPath("$.idle").value(2))
@@ -145,7 +145,8 @@ class HikariControllerTests {
         MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/hikari/pools/does-not-exist/snapshot")).andExpect(status().isNotFound());
+        mvc.perform(get("/bootui/api/database-connection-pools/pools/does-not-exist/snapshot"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -153,7 +154,7 @@ class HikariControllerTests {
         MockMvc mvc = standaloneSetup(new HikariController(provider(null), new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/hikari/pools"))
+        mvc.perform(get("/bootui/api/database-connection-pools/pools"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hikariPresent").value(true))
                 .andExpect(jsonPath("$.total").value(0));

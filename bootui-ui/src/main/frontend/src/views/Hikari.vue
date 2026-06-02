@@ -1,10 +1,14 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import {formatNumber} from '../utils/format.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+
+const props = defineProps({
+  panel: {type: Object, default: null}
+})
 
 const report = ref(null)
 const error = ref(null)
@@ -22,7 +26,26 @@ const SERIES = [
 
 const pools = computed(() => report.value?.pools ?? [])
 
-const selectedPool = computed(() => pools.value.find((pool) => pool.poolName === selectedName.value) || null)
+const selectedPool = computed(() => pools.value.find((pool) => poolKey(pool) === selectedName.value) || null)
+
+const panelStatusKnown = computed(() => props.panel !== null)
+const panelUnavailable = computed(() => props.panel?.enabled === false || props.panel?.available === false)
+const endpointAvailable = computed(() => panelStatusKnown.value && !panelUnavailable.value)
+const unavailableReason = computed(() => {
+  if (props.panel?.enabled === false) {
+    return 'Panel is disabled via bootui.panels.database-connection-pools.enabled=false'
+  }
+  return props.panel?.unavailableReason || 'No supported JDBC connection pool is available for this application.'
+})
+const headerSubtitle = computed(() => {
+  if (report.value) {
+    return `${pools.value.length} database pool${pools.value.length === 1 ? '' : 's'} · read-only`
+  }
+  if (panelUnavailable.value) {
+    return 'Database pool metrics unavailable for this application'
+  }
+  return 'Read-only JDBC pool metrics'
+})
 
 const chartMax = computed(() => {
   let max = 1
@@ -52,12 +75,13 @@ function poolKey(pool) {
 }
 
 async function fetchPools() {
+  if (!endpointAvailable.value) return
   error.value = null
   try {
-    const res = await fetch('api/hikari/pools')
+    const res = await fetch('api/database-connection-pools/pools')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
-    lastUpdated.value = new Date()
+    lastUpdated.value = Date.now()
     if (!selectedPool.value && pools.value.length) {
       selectPool(poolKey(pools.value[0]))
     }
@@ -75,9 +99,9 @@ function selectPool(name) {
 
 async function pollSnapshot() {
   const pool = selectedPool.value
-  if (!pool || !pool.available || !pool.poolName) return
+  if (!endpointAvailable.value || !pool || !pool.available || !pool.poolName) return
   try {
-    const res = await fetch(`api/hikari/pools/${encodeURIComponent(pool.poolName)}/snapshot`)
+    const res = await fetch(`api/database-connection-pools/pools/${encodeURIComponent(pool.poolName)}/snapshot`)
     if (!res.ok) return
     const snapshot = await res.json()
     history.value = [
@@ -89,16 +113,24 @@ async function pollSnapshot() {
         pending: snapshot.pending
       }
     ].slice(-60)
-    lastUpdated.value = new Date()
+    lastUpdated.value = Date.now()
   } catch {
     // Transient polling failures are ignored; the next tick retries.
   }
 }
 
+function stopSnapshotPoll() {
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
+}
+
 function scheduleNextPoll() {
-  if (timer) clearTimeout(timer)
+  stopSnapshotPoll()
+  if (!endpointAvailable.value) return
   timer = setTimeout(async () => {
-    if (autoRefresh.value && document.visibilityState === 'visible') {
+    if (endpointAvailable.value && autoRefresh.value && document.visibilityState === 'visible') {
       await pollSnapshot()
     }
     scheduleNextPoll()
@@ -120,37 +152,74 @@ function shortName(name) {
 
 const currentSnapshot = computed(() => history.value[history.value.length - 1] || null)
 
-onMounted(scheduleNextPoll)
-
-onBeforeUnmount(() => {
-  if (timer) clearTimeout(timer)
+const {autoRefresh, loading, initialLoading, load, stopAutoRefresh} = useAutoRefresh(fetchPools, {
+  enabled: endpointAvailable,
+  initialLoading: false
 })
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchPools)
+watch(
+  endpointAvailable,
+  (available) => {
+    if (available) {
+      scheduleNextPoll()
+      return
+    }
+    stopAutoRefresh()
+    stopSnapshotPoll()
+    error.value = null
+    report.value = null
+    selectedName.value = ''
+    history.value = []
+    lastUpdated.value = null
+  },
+  {immediate: true}
+)
+
+onBeforeUnmount(() => {
+  stopSnapshotPoll()
+})
 </script>
 
 <template>
   <div>
     <PanelHeader
       icon="bi-hdd-network"
-      title="Connection Pools"
-      :subtitle="report ? `${pools.length} HikariCP pool${pools.length === 1 ? '' : 's'} · read-only` : null"
-      :loading="loading"
-      :error="error"
-      :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
+      title="Database Connection Pools"
+      :subtitle="headerSubtitle"
+      :loading="endpointAvailable && loading"
+      :error="endpointAvailable ? error : null"
+      :last-fetched="lastUpdated"
+      :refreshable="endpointAvailable"
       @refresh="load"
     >
       <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
+        <AutoRefreshToggle v-if="endpointAvailable" v-model="autoRefresh" />
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="initialLoading" />
+    <PanelSkeleton v-if="!panelStatusKnown || initialLoading" />
+
+    <div v-else-if="panelUnavailable" class="card border-warning-subtle mb-3">
+      <div class="card-body d-flex align-items-start gap-3">
+        <span class="text-warning fs-3"><i class="bi bi-info-circle"></i></span>
+        <div>
+          <h5 class="mb-1">Database connection pool metrics are unavailable</h5>
+          <p class="text-muted mb-2">
+            BootUI can inspect active, idle, total, and pending connection counts when the application exposes a
+            supported JDBC connection pool bean. This application does not currently provide one.
+          </p>
+          <div class="small">
+            <span class="fw-semibold">Reason:</span>
+            {{ unavailableReason }}
+          </div>
+        </div>
+      </div>
+    </div>
 
     <template v-else-if="report">
       <div v-if="!pools.length" class="alert alert-secondary">
-        No <code>HikariDataSource</code> beans were detected. Configure a HikariCP-backed datasource to inspect pool
-        saturation here.
+        No database connection pool beans were detected. Configure a JDBC datasource backed by a supported connection
+        pool to inspect saturation here.
       </div>
 
       <div v-else class="row g-3">
