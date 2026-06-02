@@ -27,6 +27,7 @@ import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
@@ -45,6 +46,7 @@ import org.springframework.core.env.Environment;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @EnableConfigurationProperties(BootUiProperties.class)
+@ImportRuntimeHints(BootUiRuntimeHints.class)
 @Import({
     OverviewController.class,
     PanelsController.class,

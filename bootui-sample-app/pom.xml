@@ -147,6 +147,18 @@
                                 <goals>
                                     <goal>process-aot</goal>
                                 </goals>
+                                <configuration>
+                                    <!--
+                                        BootUI is a development console that is disabled by
+                                        default outside dev profiles, and spring-boot-devtools
+                                        (which would otherwise activate it) is excluded from the
+                                        native image. AOT freezes bean conditions at build time,
+                                        so BootUI must be explicitly enabled here for its panels
+                                        and the BootUI runtime hints to be included in the native
+                                        executable.
+                                    -->
+                                    <jvmArguments>-Dbootui.enabled=ON</jvmArguments>
+                                </configuration>
                             </execution>
                         </executions>
                     </plugin>

@@ -137,6 +137,24 @@ repository root:
 
 The `-am` flag also builds the BootUI modules the sample app depends on.
 
+### How BootUI is included in the native image
+
+BootUI is a development console that stays disabled outside dev profiles, and it
+normally activates because `spring-boot-devtools` is on the classpath — but
+devtools is excluded from the native image. Because GraalVM AOT processing
+freezes Spring's bean conditions at build time, the `native` profile enables
+BootUI for the AOT step (`-Dbootui.enabled=ON` on the `process-aot` execution)
+so the panels and BootUI's [`RuntimeHints`](../bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java)
+are baked into the executable. Those hints register the classpath resources and
+reflective calls that BootUI performs at runtime (Maven `pom.properties`,
+configuration metadata, the BootUI version file, the HotSpot diagnostic MXBean
+used for heap dumps, and the Spring Security types it inspects) so the
+Dependencies, Config, Heap Dump, and Security panels keep working under native.
+
+Applications that embed BootUI through the starter inherit these hints
+automatically; they only need to ensure BootUI is active during their own AOT
+processing for it to appear in their native image.
+
 ## Playwright suite
 
 The Playwright end-to-end tests in [`e2e/`](e2e/README.md) drive the same
