@@ -15,7 +15,7 @@ Spring Boot 4 application through a starter dependency.
 BootUI currently targets:
 
 - Spring Boot 4.x.
-- Java 25.
+- Java 17 or later.
 - Maven-based applications first.
 - Servlet web applications first.
 

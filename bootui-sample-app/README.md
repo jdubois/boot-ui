@@ -20,7 +20,7 @@ the Playwright suite under `e2e/` exercises.
 
 ## Prerequisites
 
-- Java 25
+- Java 17 or later
 - Docker (or any Docker-compatible engine) for the Postgres and Redis containers
 - The repository's Maven Wrapper (`./mvnw`) — no global Maven install needed
 

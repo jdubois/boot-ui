@@ -25,7 +25,7 @@ body:
     id: java-version
     attributes:
       label: Java version
-      placeholder: "25"
+      placeholder: "17"
     validations:
       required: true
   - type: dropdown

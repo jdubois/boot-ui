@@ -10,7 +10,7 @@ participating you are expected to uphold this code.
 
 ## Prerequisites
 
-- **Java 25** (or newer). The reference toolchain is OpenJDK 25.
+- **Java 17** (or newer). The reference toolchain is OpenJDK 17.
 - **Maven Wrapper**. Use the committed `./mvnw` script; no system Maven
   installation is required.
 - **Node.js 24+** and npm 11+ are downloaded automatically by the

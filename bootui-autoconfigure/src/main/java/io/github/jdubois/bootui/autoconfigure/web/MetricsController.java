@@ -136,7 +136,7 @@ public class MetricsController {
     }
 
     private Map<String, String> parseTagFilters(List<String> tagFilters) {
-        SequencedMap<String, String> tags = new LinkedHashMap<>();
+        Map<String, String> tags = new LinkedHashMap<>();
         if (tagFilters == null) {
             return tags;
         }
