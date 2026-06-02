@@ -63,6 +63,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           SKIP_BUILD: ${{ inputs.skip_build }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
 
@@ -106,7 +107,7 @@ jobs:
           perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)\Q$ENV{CURRENT_VERSION}\E(</version>)}{$1$ENV{VERSION}$2}g' README.md
 
           if [[ "$SKIP_BUILD" != "true" ]]; then
-            ./mvnw -B -ntp -Prelease clean verify
+            ./mvnw -B -ntp -Prelease clean verify -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
           fi
 
           if [[ -n "$(git status --porcelain)" ]]; then
