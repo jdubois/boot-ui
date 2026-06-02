@@ -1053,7 +1053,7 @@ Examples:
 
 Initial target:
 
-- Java 25.
+- Java 17 or later.
 - Spring Boot 4.x.
 - Maven first.
 - Servlet web applications first.
