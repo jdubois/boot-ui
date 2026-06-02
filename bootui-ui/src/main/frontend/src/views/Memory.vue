@@ -418,8 +418,9 @@ onBeforeUnmount(() => {
         </div>
         <div class="card-body">
           <p class="text-muted small mb-2">
-            Generated from your calculator inputs. <code>-Xms == -Xmx</code> for predictable container startup; GC
-            picked automatically (G1 below 4 GB, ZGC above).
+            Generated from your calculator inputs. Heap is expressed with
+            <code>-XX:InitialRAMPercentage == -XX:MaxRAMPercentage</code> so the JVM reads the cgroup limit at startup
+            and scales automatically when the pod limit changes; GC picked automatically (G1 below 4 GB, ZGC above).
           </p>
           <pre
             :class="{'opacity-50': data.calculation && !data.calculation.valid}"
@@ -446,6 +447,19 @@ onBeforeUnmount(() => {
             <code>requests.memory == limits.memory</code> for Guaranteed QoS because JVM memory is not throttled when a
             pod crosses its limit.
           </p>
+
+          <div class="alert alert-secondary small mb-3">
+            <div class="fw-semibold mb-1">
+              <i class="bi bi-lightbulb me-1"></i>JVM <code>OutOfMemoryError</code> vs Kubernetes <code>OOMKilled</code>
+            </div>
+            A JVM <code>OutOfMemoryError</code> happens when the <em>heap</em> is exhausted: the JVM can write a heap
+            dump (<code>-XX:+HeapDumpOnOutOfMemoryError</code>) before exiting. A Kubernetes
+            <code>OOMKilled</code> (exit code <strong>137</strong>) happens when total process memory crosses the
+            container limit: the kernel kills the process instantly with <strong>no heap dump</strong>. Capping every
+            off-heap region (metaspace, code cache, direct memory, thread stacks) and setting
+            <code>MALLOC_ARENA_MAX</code> keeps native usage inside the limit so the JVM fails with a diagnosable
+            <code>OutOfMemoryError</code> instead of a silent 137.
+          </div>
 
           <div v-if="data.kubernetes.detectedContainerLimitMemory" class="alert alert-light border small mb-3">
             <i class="bi bi-hdd-network me-1"></i>

@@ -31,7 +31,9 @@ class MemoryKubernetesSizerTests {
         assertThat(recommendation.detectedContainerLimitMemory()).isEqualTo("1024Mi");
         assertThat(recommendation.yaml())
                 .startsWith("resources:\n  requests:\n    memory: \"1024Mi\"\n  limits:\n    memory: \"1024Mi\"")
-                .contains("JAVA_TOOL_OPTIONS");
+                .contains("JAVA_TOOL_OPTIONS")
+                .contains("name: MALLOC_ARENA_MAX")
+                .contains("value: \"2\"");
     }
 
     @Test

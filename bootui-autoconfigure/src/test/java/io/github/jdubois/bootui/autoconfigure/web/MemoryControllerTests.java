@@ -93,8 +93,10 @@ class MemoryControllerTests {
 
         mvc.perform(get("/bootui/api/memory").param("totalMemoryMb", "1024").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.suggestedJvmOptions").value(org.hamcrest.Matchers.containsString("-Xmx")))
-                .andExpect(jsonPath("$.suggestedJvmOptions").value(org.hamcrest.Matchers.containsString("-Xms")))
+                .andExpect(jsonPath("$.suggestedJvmOptions")
+                        .value(org.hamcrest.Matchers.containsString("-XX:MaxRAMPercentage=")))
+                .andExpect(jsonPath("$.suggestedJvmOptions")
+                        .value(org.hamcrest.Matchers.containsString("-XX:InitialRAMPercentage=")))
                 .andExpect(jsonPath("$.suggestedJvmOptions")
                         .value(org.hamcrest.Matchers.containsString("-XX:MaxMetaspaceSize=")))
                 .andExpect(jsonPath("$.suggestedJvmOptions")

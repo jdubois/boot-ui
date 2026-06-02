@@ -47,7 +47,7 @@ test.describe('Memory view', () => {
     await expect(rows.first().locator('td').nth(4)).toContainText(/%/)
   })
 
-  test('editing total memory updates the recommended -Xmx', async ({openView, page}) => {
+  test('editing total memory updates the recommended heap RAM percentage', async ({openView, page}) => {
     await openView('memory', 'Memory')
 
     const calculatorCard = page.locator('.card', {hasText: 'JVM memory calculator'})
@@ -59,11 +59,11 @@ test.describe('Memory view', () => {
     await expect(totalInput).not.toHaveValue('')
 
     const optionsBlock = jvmOptionsCard.locator('.options-box code')
-    // Capture the current -Xmx value before editing
+    // Capture the current -XX:MaxRAMPercentage value before editing
     const before = await optionsBlock.innerText()
-    const beforeMatch = before.match(/-Xmx(\d+)m/)
+    const beforeMatch = before.match(/-XX:MaxRAMPercentage=(\d+(?:\.\d+)?)/)
     expect(beforeMatch).not.toBeNull()
-    const beforeXmx = parseInt(beforeMatch[1], 10)
+    const beforePercent = parseFloat(beforeMatch[1])
 
     // Pick a clearly different total: jump by 256 MB up or down to dodge clamping.
     const currentTotal = parseInt(await totalInput.inputValue(), 10)
@@ -76,11 +76,11 @@ test.describe('Memory view', () => {
       .poll(
         async () => {
           const text = await optionsBlock.innerText()
-          const m = text.match(/-Xmx(\d+)m/)
-          return m ? parseInt(m[1], 10) : 0
+          const m = text.match(/-XX:MaxRAMPercentage=(\d+(?:\.\d+)?)/)
+          return m ? parseFloat(m[1]) : 0
         },
         {timeout: 5_000}
       )
-      .not.toBe(beforeXmx)
+      .not.toBe(beforePercent)
   })
 })

@@ -165,7 +165,12 @@ final class MemoryCalculator {
         }
 
         String jvmOptions = buildJvmOptions(
-                heapBytes, metaspaceBytes, CODE_CACHE_BYTES, DIRECT_MEMORY_BYTES, STACK_BYTES_PER_THREAD);
+                clampedTotal,
+                heapBytes,
+                metaspaceBytes,
+                CODE_CACHE_BYTES,
+                DIRECT_MEMORY_BYTES,
+                STACK_BYTES_PER_THREAD);
 
         return new MemoryCalculationDto(
                 clampedTotal,
@@ -221,13 +226,13 @@ final class MemoryCalculator {
     }
 
     private String buildJvmOptions(
+            long totalMemoryBytes,
             long heapBytes,
             long metaspaceBytes,
             long codeCacheBytes,
             long directMemoryBytes,
             long stackBytesPerThread) {
 
-        long heapMb = bytesToMb(heapBytes);
         long metaMb = bytesToMb(metaspaceBytes);
         long ccMb = bytesToMb(codeCacheBytes);
         long dmMb = bytesToMb(directMemoryBytes);
@@ -235,9 +240,16 @@ final class MemoryCalculator {
 
         String gcFlag = heapBytes >= GC_FLIP_HEAP_BYTES ? "-XX:+UseZGC" : "-XX:+UseG1GC";
 
+        // Express the heap as a percentage of the container memory budget rather than
+        // absolute -Xms/-Xmx. Container-aware JVMs read the cgroup limit at startup, so a
+        // percentage lets the heap scale automatically when operators change the pod memory
+        // limit without editing JAVA_TOOL_OPTIONS. Initial == Max keeps the heap fully
+        // committed up front for predictable container startup, matching the old -Xms == -Xmx.
+        String heapPercent = formatRamPercentage(heapBytes, totalMemoryBytes);
+
         StringBuilder sb = new StringBuilder(256);
-        sb.append("-Xms").append(heapMb).append("m");
-        sb.append(" -Xmx").append(heapMb).append("m");
+        sb.append("-XX:InitialRAMPercentage=").append(heapPercent);
+        sb.append(" -XX:MaxRAMPercentage=").append(heapPercent);
         sb.append(" -XX:MaxMetaspaceSize=").append(metaMb).append("m");
         sb.append(" -XX:ReservedCodeCacheSize=").append(ccMb).append("m");
         sb.append(" -XX:MaxDirectMemorySize=").append(dmMb).append("m");
@@ -247,10 +259,21 @@ final class MemoryCalculator {
         if (jdkVersion.feature() >= 25) {
             sb.append(" -XX:+UseCompactObjectHeaders");
         }
-        sb.append(" -XX:+ExitOnOutOfMemoryError");
+        // CrashOnOutOfMemoryError (rather than ExitOnOutOfMemoryError) aborts the process
+        // immediately on a JVM OutOfMemoryError so Kubernetes restarts the pod quickly instead
+        // of risking a hang in shutdown hooks while the heap is exhausted.
+        sb.append(" -XX:+CrashOnOutOfMemoryError");
         sb.append(" -XX:+HeapDumpOnOutOfMemoryError");
         sb.append(" -XX:HeapDumpPath=/tmp");
+        // Native Memory Tracking has ~1-2% overhead but is essential for diagnosing why a
+        // container is OOMKilled (exit 137) when the JVM heap itself never threw.
+        sb.append(" -XX:NativeMemoryTracking=summary");
         return sb.toString();
+    }
+
+    private static String formatRamPercentage(long heapBytes, long totalMemoryBytes) {
+        double percent = totalMemoryBytes <= 0 ? 0.0 : (heapBytes * 100.0 / totalMemoryBytes);
+        return String.format(java.util.Locale.ROOT, "%.1f", percent);
     }
 
     /**

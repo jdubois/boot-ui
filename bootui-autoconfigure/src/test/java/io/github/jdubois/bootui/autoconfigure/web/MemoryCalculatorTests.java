@@ -88,12 +88,17 @@ class MemoryCalculatorTests {
     }
 
     @Test
-    void jvmOptionsSetXmsEqualToXmx() {
+    void jvmOptionsExpressHeapAsRamPercentage() {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
         MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
 
-        long heapMb = Math.round(result.heapBytes() / (double) MB);
-        assertThat(result.jvmOptions()).contains("-Xms" + heapMb + "m").contains("-Xmx" + heapMb + "m");
+        String expectedPercent =
+                String.format(java.util.Locale.ROOT, "%.1f", result.heapBytes() * 100.0 / result.totalMemoryBytes());
+        assertThat(result.jvmOptions())
+                .contains("-XX:InitialRAMPercentage=" + expectedPercent)
+                .contains("-XX:MaxRAMPercentage=" + expectedPercent)
+                .doesNotContain("-Xmx")
+                .doesNotContain("-Xms");
     }
 
     @Test
@@ -200,8 +205,10 @@ class MemoryCalculatorTests {
 
         assertThat(result.jvmOptions())
                 .contains("-XX:+UseStringDeduplication")
-                .contains("-XX:+ExitOnOutOfMemoryError")
+                .contains("-XX:+CrashOnOutOfMemoryError")
+                .doesNotContain("-XX:+ExitOnOutOfMemoryError")
                 .contains("-XX:+HeapDumpOnOutOfMemoryError")
-                .contains("-XX:HeapDumpPath=/tmp");
+                .contains("-XX:HeapDumpPath=/tmp")
+                .contains("-XX:NativeMemoryTracking=summary");
     }
 }
