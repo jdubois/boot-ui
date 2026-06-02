@@ -134,6 +134,9 @@ test.describe('Claude Code panel', () => {
 
     await page.goto('/bootui/#/claude-code')
 
+    await expect(page.getByLabel('Auto-refresh')).toBeChecked()
+    await expect(page.getByTitle('Refresh', {exact: true})).toBeVisible()
+    await expect(page.locator('.panel-header__actions .badge').filter({hasText: 'Live'})).toHaveCount(0)
     await expect(page.getByRole('heading', {name: 'Claude Code activity overview'})).toBeVisible()
     await expect(page.getByText('/home/dev/.claude/projects')).toBeVisible()
     await expect(page.getByText('bootui.claude-code.max-sessions')).toBeVisible()

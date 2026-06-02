@@ -56,8 +56,8 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - Micrometer metrics
   - dependency inventory and OSV vulnerability scan
   - DevTools reload/restart
-  - Copilot session dashboard, session explorer, and live SSE stream
-  - Claude Code project-log dashboard, session explorer, and live refresh stream
+  - Copilot session dashboard, session explorer, and shared auto-refresh UI
+  - Claude Code project-log dashboard, session explorer, and shared auto-refresh UI
   - OTLP traces receiver (`/bootui/api/otlp/v1/traces`), Traces panel API, and AI Usage panel API
 - Vue 3 UI shell with routes for:
   - Overview
@@ -288,8 +288,8 @@ Already implemented beyond the original MVP surface:
 - Micrometer metrics browser with live values.
 - DevTools reload/restart controls.
 - In-app OTLP/HTTP traces receiver, Traces panel, and AI Usage panel.
-- Copilot panel for sanitized GitHub Copilot CLI session dashboarding and live SSE updates.
-- Claude Code panel for sanitized local Claude Code project-log dashboarding and live refresh updates.
+- Copilot panel for sanitized GitHub Copilot CLI session dashboarding and shared auto-refresh updates.
+- Claude Code panel for sanitized local Claude Code project-log dashboarding and shared auto-refresh updates.
 
 Added in the late alpha line and included in `0.1.0`:
 
@@ -311,8 +311,8 @@ Added for the final `0.1.0` release after `0.1.0-alpha.5`:
   `~/.copilot/session-state/` and presents a sanitized activity dashboard: session count, total events, failures,
   24-hour and 7-day activity charts, event category mix, top tools, and model usage. The session explorer lets you
   drill into individual sessions with a turn-by-turn story, recent events, and failure list, while a configurable
-  parsed-session cap bounds heap usage for large local histories. Raw event JSON is opt-in and local-only. Live updates
-  are pushed via SSE. Inspired by
+  parsed-session cap bounds heap usage for large local histories. Raw event JSON is opt-in and local-only. The browser
+  refreshes through BootUI's shared visibility-aware auto-refresh control. Inspired by
   [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control).
 - **Claude Code panel**. Reads Claude Code JSONL project logs under `~/.claude/projects/` and presents the same
   sanitized session dashboard shape for local Claude Code usage. Normal responses only expose tool names, categories,

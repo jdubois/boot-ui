@@ -151,6 +151,9 @@ test.describe('Copilot panel', () => {
 
     await page.goto('/bootui/#/copilot')
 
+    await expect(page.getByLabel('Auto-refresh')).toBeChecked()
+    await expect(page.getByTitle('Refresh', {exact: true})).toBeVisible()
+    await expect(page.locator('.panel-header__actions .badge').filter({hasText: 'Live'})).toHaveCount(0)
     await expect(page.getByRole('heading', {name: 'Copilot activity overview'})).toBeVisible()
     await expect(page.getByRole('link', {name: 'copilot-mission-control'})).toHaveAttribute(
       'href',
