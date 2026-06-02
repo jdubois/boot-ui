@@ -1,0 +1,52 @@
+# Runs the BootUI sample app as a GraalVM native image together with the
+# PostgreSQL and Redis services it needs.
+#
+#   docker compose -f docker-compose-native.yml up --build
+#
+# The native image starts in well under a second. Spring Boot's Docker Compose
+# support is disabled here because the infrastructure is provided by this file
+# instead of being started by the application.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: bootui_sample
+      POSTGRES_USER: bootui
+      POSTGRES_PASSWORD: bootui
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bootui"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-native
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bootui_sample
+      SPRING_DATASOURCE_USERNAME: bootui
+      SPRING_DATASOURCE_PASSWORD: bootui
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      # Avoid reaching out to a (here absent) Ollama server during startup.
+      SPRING_AI_OLLAMA_INIT_PULL_MODEL_STRATEGY: never
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

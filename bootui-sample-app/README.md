@@ -92,6 +92,51 @@ Useful URLs:
 
 `Ctrl-C` the Spring Boot process. Spring Boot will stop Docker Compose.
 
+## Run it as a GraalVM native image
+
+The sample app can also be compiled ahead-of-time into a GraalVM native
+executable. A `native` Maven profile is declared in this module's
+[`pom.xml`](pom.xml), and ready-to-use Docker assets live at the repository
+root:
+
+- [`Dockerfile-native`](../Dockerfile-native) — builds the whole reactor with
+  GraalVM 25 and produces a native executable (startup is well under a second).
+- [`Dockerfile`](../Dockerfile) — a JVM image built with Eclipse Temurin 25, for
+  comparison.
+- [`docker-compose-native.yml`](../docker-compose-native.yml) — runs the native
+  image together with the PostgreSQL and Redis services it needs.
+
+### With Docker (recommended)
+
+No local GraalVM install is required — the toolchain lives in the build image.
+From the repository root:
+
+```bash
+# Build and run the native app with Postgres and Redis
+docker compose -f docker-compose-native.yml up --build
+```
+
+Then open <http://localhost:8080/> or hit
+<http://localhost:8080/actuator/health>.
+
+To build just the image:
+
+```bash
+docker build -f Dockerfile-native -t bootui-sample-native .
+```
+
+### With a local GraalVM
+
+With a GraalVM 25+ toolchain on the `PATH`, build the native executable from the
+repository root:
+
+```bash
+./mvnw -Pnative -DskipTests -pl bootui-sample-app -am package
+./bootui-sample-app/target/bootui-sample-app
+```
+
+The `-am` flag also builds the BootUI modules the sample app depends on.
+
 ## Playwright suite
 
 The Playwright end-to-end tests in [`e2e/`](e2e/README.md) drive the same

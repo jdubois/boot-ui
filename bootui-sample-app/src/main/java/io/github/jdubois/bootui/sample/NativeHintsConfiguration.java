@@ -1,0 +1,78 @@
+package io.github.jdubois.bootui.sample;
+
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
+import org.springframework.aot.hint.MemberCategory;
+import org.springframework.aot.hint.RuntimeHints;
+import org.springframework.aot.hint.RuntimeHintsRegistrar;
+import org.springframework.aot.hint.TypeReference;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ImportRuntimeHints;
+
+/**
+ * Registers the GraalVM reachability metadata that the sample app needs but that Spring Boot's AOT
+ * processing cannot infer automatically.
+ *
+ * <p>Two things are registered for the {@code @Cacheable} methods on {@link
+ * BootUiSampleApplication.SampleCatalog}:
+ *
+ * <ul>
+ *   <li><b>SpEL reflection</b> — {@code unless = "#result.isEmpty()"} on {@link
+ *       BootUiSampleApplication.SampleCatalog#activeProducts()} invokes a method reflectively. SpEL
+ *       resolves {@code isEmpty()} against the {@link List} interface while the receiver is the
+ *       concrete (JDK-internal) immutable list returned by {@link Stream#toList()} / {@link
+ *       List#of}; the public methods of both are registered.
+ *   <li><b>JDK serialization</b> — the default Redis cache serializer serializes cached values with
+ *       {@link java.io.ObjectOutputStream}. The cached {@code List<ProductSummary>} graph (the
+ *       record, its element wrappers and the immutable list type) is registered for serialization.
+ * </ul>
+ */
+@Configuration(proxyBeanMethods = false)
+@ImportRuntimeHints(NativeHintsConfiguration.SampleRuntimeHints.class)
+class NativeHintsConfiguration {
+
+    static class SampleRuntimeHints implements RuntimeHintsRegistrar {
+
+        @Override
+        public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+            Set<Class<?>> immutableCollections = new LinkedHashSet<>();
+            immutableCollections.add(List.of().getClass());
+            immutableCollections.add(List.of("a").getClass());
+            immutableCollections.add(List.of("a", "b", "c").getClass());
+            immutableCollections.add(Stream.of().toList().getClass());
+            immutableCollections.add(Stream.of("a").toList().getClass());
+
+            // SpEL resolves the invoked method against the collection interfaces, but calls it on
+            // the concrete immutable type; register the public methods of both.
+            Set<Class<?>> reflectiveInvoke = new LinkedHashSet<>();
+            reflectiveInvoke.add(Collection.class);
+            reflectiveInvoke.add(List.class);
+            reflectiveInvoke.add(Set.class);
+            reflectiveInvoke.add(Map.class);
+            reflectiveInvoke.addAll(immutableCollections);
+            for (Class<?> type : reflectiveInvoke) {
+                hints.reflection().registerType(type, MemberCategory.INVOKE_PUBLIC_METHODS);
+            }
+
+            // JDK serialization graph for the cached List<ProductSummary> value.
+            Set<String> serializable = new LinkedHashSet<>();
+            serializable.add(BootUiSampleApplication.ProductSummary.class.getName());
+            serializable.add(Long.class.getName());
+            serializable.add(Integer.class.getName());
+            serializable.add(Boolean.class.getName());
+            serializable.add(Number.class.getName());
+            // Serial proxy used by List.of()/Stream#toList() immutable collections.
+            serializable.add("java.util.CollSer");
+            for (Class<?> type : immutableCollections) {
+                serializable.add(type.getName());
+            }
+            for (String type : serializable) {
+                hints.serialization().registerType(TypeReference.of(type));
+            }
+        }
+    }
+}
