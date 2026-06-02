@@ -68,7 +68,7 @@ a collapsed Disabled / unavailable group, and opening a dimmed panel shows the u
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
