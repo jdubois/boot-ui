@@ -142,7 +142,7 @@ final class MemoryKubernetesSizer {
                     "The burstable request is based on the current committed-memory snapshot and can be too low after warmup.");
         }
         warnings.add(
-                "MALLOC_ARENA_MAX=2 is set to curb glibc native-memory fragmentation on standard (Debian/Ubuntu) images; omit it on musl-based images such as Alpine.");
+                "MALLOC_ARENA_MAX=2 is set to curb glibc native memory fragmentation on standard (Debian/Ubuntu) images; omit it on musl-based images such as Alpine.");
         return warnings;
     }
 
