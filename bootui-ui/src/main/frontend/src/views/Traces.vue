@@ -108,8 +108,8 @@ const filteredTraces = computed(() => {
 const waterfall = computed(() => {
   if (!detail.value || !detail.value.spans || detail.value.spans.length === 0) return null
   const spans = [...detail.value.spans]
-  const minStart = spans.reduce((m, s) => (s.startEpochNanos < m ? s.startEpochNanos : m), spans[0].startEpochNanos)
-  const maxEnd = spans.reduce((m, s) => (s.endEpochNanos > m ? s.endEpochNanos : m), spans[0].endEpochNanos)
+  const minStart = spans.reduce((m, s) => Math.min(s.startEpochNanos, m), spans[0].startEpochNanos)
+  const maxEnd = spans.reduce((m, s) => Math.max(s.endEpochNanos, m), spans[0].endEpochNanos)
   const totalNanos = Math.max(maxEnd - minStart, 1)
   const sorted = spans
     .map((s) => ({
