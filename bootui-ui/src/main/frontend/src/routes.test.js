@@ -19,7 +19,7 @@ describe('routes', () => {
       'Conditions',
       'Mappings',
       'Scheduled Tasks',
-      'Connection Pools',
+      'Database Connection Pools',
       'Data',
       'Cache',
       'Security',

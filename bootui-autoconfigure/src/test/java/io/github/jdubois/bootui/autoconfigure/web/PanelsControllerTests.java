@@ -87,7 +87,11 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[10].id").value("conditions"))
                     .andExpect(jsonPath("$.panels[10].available").value(false))
                     .andExpect(jsonPath("$.panels[11].id").value("mappings"))
-                    .andExpect(jsonPath("$.panels[11].available").value(false));
+                    .andExpect(jsonPath("$.panels[11].available").value(false))
+                    .andExpect(jsonPath("$.panels[12].id").value("database-connection-pools"))
+                    .andExpect(jsonPath("$.panels[12].available").value(false))
+                    .andExpect(jsonPath("$.panels[12].unavailableReason")
+                            .value("No database connection pool beans are available"));
         }
     }
 

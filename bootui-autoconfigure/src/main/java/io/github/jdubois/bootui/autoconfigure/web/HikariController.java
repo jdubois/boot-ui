@@ -23,8 +23,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Exposes read-only HikariCP connection-pool state for {@link HikariDataSource}
- * beans declared in the current application context.
+ * Exposes read-only database connection-pool state for supported JDBC pool beans
+ * declared in the current application context.
  *
  * <p>This controller is strictly read-only: it only reads pool configuration
  * getters and the live counters published by {@link HikariPoolMXBean}. It never
@@ -34,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @ConditionalOnClass(HikariDataSource.class)
-@RequestMapping("/bootui/api/hikari")
+@RequestMapping("/bootui/api/database-connection-pools")
 public class HikariController {
 
     private static final Pattern URL_CREDENTIALS =

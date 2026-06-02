@@ -165,7 +165,7 @@ Playwright coverage aligned for:
 - **Overview**: Overview
 - **Runtime**: Health, Metrics, Memory, Heap Dump, Startup Timeline
 - **Configuration**: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings
-- **Services**: Scheduled Tasks, Connection Pools, Data, Cache, Security, AI Usage
+- **Services**: Scheduled Tasks, Database Connection Pools, Data, Cache, Security, AI Usage
 - **Diagnostics**: Traces, Log Tail, HTTP Probe, Architecture, Pentesting, Vulnerabilities
 - **Developer Tools**: DevTools, Dev Services, Copilot, Claude Code
 - The router order in `bootui-ui/src/main/frontend/src/main.js`, `docs/FEATURES.md`, README feature table, and

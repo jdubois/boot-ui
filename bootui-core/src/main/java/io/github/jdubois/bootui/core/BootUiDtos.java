@@ -359,13 +359,13 @@ public final class BootUiDtos {
             List<String> warnings) {}
 
     /**
-     * Live connection counts for one HikariCP pool at a point in time.
+     * Live connection counts for one database connection pool at a point in time.
      */
     public record HikariPoolSnapshotDto(long timestamp, int active, int idle, int total, int pending) {}
 
     /**
-     * One HikariCP {@code HikariDataSource} bean, its (masked) connection metadata,
-     * sizing and timeout settings, and the latest pool snapshot when reachable.
+     * One database connection pool bean, its (masked) connection metadata, sizing
+     * and timeout settings, and the latest pool snapshot when reachable.
      */
     public record HikariPoolDto(
             String beanName,
@@ -387,7 +387,7 @@ public final class BootUiDtos {
             HikariPoolSnapshotDto snapshot) {}
 
     /**
-     * Top-level HikariCP connection-pool report.
+     * Top-level database connection-pool report.
      */
     public record HikariPoolsReport(boolean hikariPresent, int total, List<HikariPoolDto> pools) {}
 

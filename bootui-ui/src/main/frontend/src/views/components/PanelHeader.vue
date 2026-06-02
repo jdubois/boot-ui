@@ -8,13 +8,14 @@ const props = defineProps({
   subtitle: {type: String, default: null},
   loading: {type: Boolean, default: false},
   error: {type: String, default: null},
-  lastFetched: {type: Number, default: null}
+  lastFetched: {type: Number, default: null},
+  refreshable: {type: Boolean, default: true}
 })
 
 const emit = defineEmits(['refresh'])
 
 const instance = getCurrentInstance()
-const hasRefresh = computed(() => typeof instance?.vnode.props?.onRefresh === 'function')
+const hasRefresh = computed(() => props.refreshable && typeof instance?.vnode.props?.onRefresh === 'function')
 const now = ref(Date.now())
 let relativeTimer = null
 

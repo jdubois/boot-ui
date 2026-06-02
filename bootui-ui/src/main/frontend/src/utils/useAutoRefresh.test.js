@@ -1,14 +1,14 @@
 import {flushPromises, mount} from '@vue/test-utils'
-import {nextTick} from 'vue'
+import {nextTick, ref} from 'vue'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {useAutoRefresh} from './useAutoRefresh.js'
 
-function harness(callback) {
+function harness(callback, options) {
   let api
   const wrapper = mount({
     setup() {
-      api = useAutoRefresh(callback)
+      api = useAutoRefresh(callback, options)
       return () => null
     }
   })
@@ -107,6 +107,38 @@ describe('useAutoRefresh', () => {
     await nextTick()
     await vi.advanceTimersByTimeAsync(10_000)
     await flushPromises()
+
+    expect(callback).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+  })
+
+  it('waits for the enabled flag before loading or refreshing', async () => {
+    const enabled = ref(false)
+    const callback = vi.fn().mockResolvedValue()
+    const {api, wrapper} = harness(callback, {enabled, initialLoading: false})
+
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(callback).not.toHaveBeenCalled()
+    expect(api.initialLoading.value).toBe(false)
+
+    enabled.value = true
+    await nextTick()
+    await flushPromises()
+
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(api.hasLoaded.value).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+
+    expect(callback).toHaveBeenCalledTimes(2)
+
+    enabled.value = false
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(10_000)
 
     expect(callback).toHaveBeenCalledTimes(2)
 

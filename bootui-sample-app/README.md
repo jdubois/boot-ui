@@ -11,7 +11,7 @@ the Playwright suite under `e2e/` exercises.
 - A PostgreSQL-backed Spring Data repository so the Data panel has data to
   show.
 - PostgreSQL and Redis Docker Compose services (`compose.yaml`) so the Data,
-  Connection Pools, Cache, and Dev Services panels have realistic infrastructure
+  Database Connection Pools, Cache, and Dev Services panels have realistic infrastructure
   to show.
 - Spring Security, scheduled tasks, custom metrics, and a small static welcome
   page so the corresponding BootUI panels are populated.
@@ -69,7 +69,7 @@ Useful URLs:
    container limits, and Heap Dump can analyze a value-free class histogram.
 8. **Data** — open `BootUiSampleRepository` to inspect its query methods and
    domain type.
-9. **Connection Pools** — inspect the HikariCP datasource metadata and live
+9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
 10. **Cache** — verify the Redis-backed `sample-products` and
    `sample-greetings` caches are listed, inspect cache annotations, and clear a

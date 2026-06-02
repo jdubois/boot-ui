@@ -117,9 +117,9 @@ export const routes = [
   },
   {
     path: '/database-connection-pools',
-    name: 'hikari',
+    name: 'database-connection-pools',
     component: Hikari,
-    meta: {group: groups.services, icon: 'bi-hdd-network', title: 'Connection Pools'}
+    meta: {group: groups.services, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
   },
   {path: '/data', name: 'data', component: Data, meta: {group: groups.services, icon: 'bi-database', title: 'Data'}},
   {
