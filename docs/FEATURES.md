@@ -42,13 +42,23 @@ available measurements, and render a local live chart for a selected metric/tag 
 
 ### Memory
 
-The Memory panel summarizes JVM heap and non-heap usage, memory pools, garbage collectors, and selected runtime memory
-settings. It includes a Paketo-style JVM memory calculator, suggested JVM options, and a Kubernetes sizing card that
-turns the calculated process budget into copyable `requests.memory`, `limits.memory`, and `JAVA_TOOL_OPTIONS` snippets.
-The Kubernetes recommendation keeps request and limit equal by default for Guaranteed QoS and labels any smaller
-current-snapshot request as a Burstable alternative that should be validated under representative load.
+The Memory panel summarizes current live JVM heap and non-heap usage plus memory pool utilization. It stays focused on
+the running process metrics so you can spot high heap pressure, non-heap growth, and pool-level saturation without the
+JVM sizing controls mixed into the view.
 
 ![BootUI Memory panel](images/bootui-memory.png)
+
+### Tuning Advisor
+
+The Tuning Advisor panel uses the same live JVM context to review current JVM input arguments, run a Paketo-style JVM
+memory calculator, and generate suggested JVM options. The calculator partitions a target container memory budget into
+heap, metaspace, code cache, direct memory, thread stacks, and headroom, then turns that plan into copyable JVM options.
+Its Kubernetes calculator turns the calculated process budget into copyable `requests.memory`, `limits.memory`, and
+`JAVA_TOOL_OPTIONS` snippets. The Kubernetes recommendation keeps request and limit equal by default for Guaranteed QoS
+and labels any smaller current-snapshot request as a Burstable alternative that should be validated under representative
+load.
+
+![BootUI Tuning Advisor panel](images/bootui-tuning-advisor.png)
 
 ### Heap Dump
 
@@ -297,7 +307,7 @@ services, and shows restart controls only for supported Testcontainers services 
 otherwise uninitialized service beans that would need to be created just for inspection and reports those skips as
 warnings in the panel.
 
-> **Masking scope:** BootUI masks discovered *connection details* (for example credentials embedded in a JDBC URL or
+> **Masking scope:** BootUI masks discovered _connection details_ (for example credentials embedded in a JDBC URL or
 > connection properties) before they reach the browser. Raw container **log output** is streamed verbatim, bounded by
 > `bootui.dev-services.log-tail-bytes`, and is **not** scanned for secrets — a service that prints credentials to its
 > own logs will surface them in this panel. This is consistent with BootUI being a local-only, loopback-restricted

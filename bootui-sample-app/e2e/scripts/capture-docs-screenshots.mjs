@@ -23,6 +23,7 @@ const panelOrder = [
   ['health', 'Health'],
   ['metrics', 'Metrics'],
   ['memory', 'Memory'],
+  ['tuning-advisor', 'Tuning Advisor'],
   ['heap-dump', 'Heap Dump'],
   ['startup', 'Startup Timeline'],
   ['config', 'Configuration'],
@@ -1396,7 +1397,8 @@ const screenshots = [
       await page.waitForTimeout(2300)
     }
   ],
-  ['memory', 'Memory', 'bootui-memory.png', waitForText('JVM memory calculator')],
+  ['memory', 'Memory', 'bootui-memory.png', waitForText('Memory Pools')],
+  ['tuning-advisor', 'Tuning Advisor', 'bootui-tuning-advisor.png', waitForText('JVM memory calculator')],
   [
     'heap-dump',
     'Heap Dump',
@@ -1855,7 +1857,7 @@ async function handleApiRoute(route) {
       panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
     })
   if (endpoint === 'startup') return fulfillJson(route, startup)
-  if (endpoint.startsWith('memory')) return fulfillJson(route, memory)
+  if (endpoint.startsWith('memory') || endpoint.startsWith('tuning-advisor')) return fulfillJson(route, memory)
   if (endpoint === 'health') return fulfillJson(route, health)
   if (endpoint === 'metrics') return fulfillJson(route, metrics)
   if (endpoint === 'metrics/detail')

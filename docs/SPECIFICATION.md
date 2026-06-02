@@ -404,9 +404,10 @@ Acceptance criteria:
 - Polling does not overlap slow requests.
 - Switching meter, tag filters, or statistic resets the live graph history.
 
-### 5.10 JVM Memory Panel
+### 5.10 JVM Memory and Tuning Advisor Panels
 
-Purpose: answer "How much heap/non-heap memory is this app using, and what JVM options would be reasonable locally?"
+Purpose: answer "How much heap/non-heap memory is this app using, and what JVM/container options would be reasonable
+locally?"
 
 Data sources:
 
@@ -415,16 +416,16 @@ Data sources:
 
 Features:
 
-- Show heap and non-heap usage summaries.
-- Show memory pool usage.
-- Show JVM input arguments.
-- A Paketo `libjvm`-style memory calculator that partitions a user-chosen
+- The Memory panel shows live heap and non-heap usage summaries.
+- The Memory panel shows memory pool usage.
+- The Tuning Advisor panel shows JVM input arguments.
+- The Tuning Advisor panel provides a Paketo `libjvm`-style memory calculator that partitions a user-chosen
   target container memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
   using the live loaded-class count from `ClassLoadingMXBean` (with a 1.25× safety
   factor) and a live-or-floored thread count, so the recommendation is independent
   of the host machine's RAM rather than inheriting the JVM's `~25% of host RAM` heap-max default.
-- Suggest JVM options derived from the calculator output, including `-Xms`/`-Xmx`
+- The Tuning Advisor panel suggests JVM options derived from the calculator output, including `-Xms`/`-Xmx`
   (equal for predictable startup), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`,
   `-XX:MaxDirectMemorySize`, `-Xss`, GC selection (G1 below 4 GB, ZGC above), and
   out-of-memory safeguards.
@@ -867,6 +868,7 @@ Initial endpoints:
 | `/bootui/api/devtools/livereload`       | POST   | Trigger a DevTools LiveReload notification when available                 |
 | `/bootui/api/devtools/restart`          | POST   | Schedule a DevTools restart after explicit confirmation                   |
 | `/bootui/api/memory`                    | GET    | JVM memory report                                                         |
+| `/bootui/api/tuning-advisor`            | GET    | JVM tuning advisor report                                                 |
 | `/bootui/api/scheduled`                 | GET    | Scheduled tasks                                                           |
 | `/bootui/api/probe`                     | POST   | Local HTTP probe                                                          |
 | `/bootui/api/logs/recent`               | GET    | Recent log lines                                                          |
@@ -905,10 +907,10 @@ Initial properties:
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
-| `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                  |
+| `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                 |
 | `bootui.show-banner`                         | `true`                                  | Print BootUI URL on startup.                                                                      |
-| `bootui.startup.enabled`                     | `true`                                  | Install a `BufferingApplicationStartup` automatically while BootUI is active.                      |
-| `bootui.startup.capacity`                    | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                          |
+| `bootui.startup.enabled`                     | `true`                                  | Install a `BufferingApplicationStartup` automatically while BootUI is active.                     |
+| `bootui.startup.capacity`                    | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                         |
 | `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                    |
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
@@ -991,6 +993,7 @@ Top-level navigation:
   - Health.
   - Metrics.
   - Memory.
+  - Tuning Advisor.
   - Startup Timeline.
 - Configuration:
   - Configuration.
@@ -1105,7 +1108,7 @@ BootUI's current pre-1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Services, Diagnostics, Developer tools, and Disabled / unavailable
-  navigation groups covering Health, Metrics, Memory, Heap Dump, Startup Timeline, Scheduled Tasks, Database Connection
+  navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Startup Timeline, Scheduled Tasks, Database Connection
   Pools, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Data, Cache, Security, AI Usage, Traces, Log Tail,
   HTTP Probe, Architecture, Pentesting, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.

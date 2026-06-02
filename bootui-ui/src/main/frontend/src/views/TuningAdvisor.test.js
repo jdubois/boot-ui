@@ -1,7 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import Memory from './Memory.vue'
+import TuningAdvisor from './TuningAdvisor.vue'
 
 const MB = 1024 * 1024
 
@@ -62,7 +62,7 @@ function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
-describe('Memory', () => {
+describe('TuningAdvisor', () => {
   let wrapper
 
   beforeEach(() => {
@@ -77,23 +77,32 @@ describe('Memory', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders current live memory metrics from the memory report', async () => {
+  it('renders JVM and Kubernetes tuning recommendations from the memory report', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport())))
 
-    wrapper = mount(Memory)
+    wrapper = mount(TuningAdvisor)
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('api/memory')
+    expect(fetch).toHaveBeenCalledWith('api/tuning-advisor')
     const renderedText = wrapper.text()
-    const panelOrder = ['Heap Memory', 'Non-Heap Memory', 'Memory Pools']
+    const panelOrder = [
+      'Current JVM Arguments',
+      'JVM memory calculator',
+      'Recommended JVM Options',
+      'Kubernetes calculator'
+    ]
     const panelPositions = panelOrder.map((label) => {
       const position = renderedText.indexOf(label)
       expect(position).toBeGreaterThanOrEqual(0)
       return position
     })
     expect(panelPositions).toEqual([...panelPositions].sort((a, b) => a - b))
-    expect(renderedText).not.toContain('JVM memory calculator')
-    expect(renderedText).not.toContain('Recommended JVM Options')
-    expect(renderedText).not.toContain('Kubernetes calculator')
+    expect(renderedText).toContain('1024Mi')
+    expect(renderedText).toContain('Guaranteed')
+    expect(renderedText).toContain('Burstable alternative')
+    expect(renderedText).toContain('512Mi')
+    expect(renderedText).toContain('High confidence')
+    expect(renderedText).toContain('Request equals limit')
+    expect(wrapper.html()).toContain('JAVA_TOOL_OPTIONS')
   })
 })

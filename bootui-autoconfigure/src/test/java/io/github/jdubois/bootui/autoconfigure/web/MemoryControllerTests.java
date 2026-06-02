@@ -46,6 +46,20 @@ class MemoryControllerTests {
     }
 
     @Test
+    void tuningAdvisorAliasReturnsMemoryReport() throws Exception {
+        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+                .build();
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "512")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.heap.name").value("Heap"))
+                .andExpect(jsonPath("$.calculation.totalMemoryBytes").value(512L * 1024L * 1024L))
+                .andExpect(jsonPath("$.kubernetes").isMap());
+    }
+
+    @Test
     void memoryPoolDtoHasRequiredFields() throws Exception {
         MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
                 .build();
