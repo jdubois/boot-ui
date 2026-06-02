@@ -125,7 +125,7 @@ class MemoryKubernetesSizerTests {
 
         assertThat(recommendation.javaToolOptions())
                 .contains("-Xss512k")
-                .contains("-Dspring.threads.virtual.enabled=true")
+                .doesNotContain("spring.threads.virtual.enabled")
                 .doesNotContain("-Xmx")
                 .doesNotContain("-Xms");
     }

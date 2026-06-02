@@ -207,13 +207,8 @@ final class MemoryCalculator {
                     message);
         }
 
-        String jvmOptions = buildJvmOptions(
-                heapBytes,
-                metaspaceBytes,
-                CODE_CACHE_BYTES,
-                DIRECT_MEMORY_BYTES,
-                stackBytesPerThread,
-                virtualThreadsEnabled);
+        String jvmOptions =
+                buildJvmOptions(heapBytes, metaspaceBytes, CODE_CACHE_BYTES, DIRECT_MEMORY_BYTES, stackBytesPerThread);
 
         return new MemoryCalculationDto(
                 clampedTotal,
@@ -299,7 +294,7 @@ final class MemoryCalculator {
                 .append(bytesToMb(calculation.directMemoryBytes()))
                 .append("m");
         sb.append(" -Xss").append(calculation.stackBytesPerThread() / 1024).append("k");
-        appendCommonOptions(sb, calculation.heapBytes(), calculation.virtualThreadsEnabled());
+        appendCommonOptions(sb, calculation.heapBytes());
         return sb.toString();
     }
 
@@ -316,8 +311,7 @@ final class MemoryCalculator {
             long metaspaceBytes,
             long codeCacheBytes,
             long directMemoryBytes,
-            long stackBytesPerThread,
-            boolean virtualThreadsEnabled) {
+            long stackBytesPerThread) {
 
         long heapMb = bytesToMb(heapBytes);
         long metaMb = bytesToMb(metaspaceBytes);
@@ -333,11 +327,11 @@ final class MemoryCalculator {
         sb.append(" -XX:MaxDirectMemorySize=").append(dmMb).append("m");
         sb.append(" -Xss").append(stackKb).append("k");
         sb.append(" -XX:+AlwaysPreTouch");
-        appendCommonOptions(sb, heapBytes, virtualThreadsEnabled);
+        appendCommonOptions(sb, heapBytes);
         return sb.toString();
     }
 
-    private void appendCommonOptions(StringBuilder sb, long heapBytes, boolean virtualThreadsEnabled) {
+    private void appendCommonOptions(StringBuilder sb, long heapBytes) {
         if (heapBytes >= GC_FLIP_HEAP_BYTES) {
             sb.append(" -XX:+UseZGC");
             if (jdkVersion.feature() >= 21 && jdkVersion.feature() < 24) {
@@ -349,9 +343,6 @@ final class MemoryCalculator {
         sb.append(" -XX:+UseStringDeduplication");
         if (jdkVersion.feature() >= 25) {
             sb.append(" -XX:+UseCompactObjectHeaders");
-        }
-        if (virtualThreadsEnabled) {
-            sb.append(" -Dspring.threads.virtual.enabled=true");
         }
         sb.append(" -XX:+ExitOnOutOfMemoryError");
         sb.append(" -XX:+HeapDumpOnOutOfMemoryError");

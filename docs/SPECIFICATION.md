@@ -419,9 +419,9 @@ Features:
 - The Memory panel shows live heap and non-heap usage summaries.
 - The Memory panel shows memory pool usage.
 - The Tuning Advisor panel shows JVM input arguments.
-- The Tuning Advisor panel explains `spring.threads.virtual.enabled=true` and exposes a toggle that initializes from the
-  application's existing property value when set. When it is unset, the toggle remains off while the panel recommends
-  enabling it for performance. The toggle feeds the sizing calculations and generated snippets.
+- The Tuning Advisor panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
+  enabled in the current application, and shows an information or warning bubble. The detected state feeds the sizing
+  calculations, but generated JVM or Kubernetes snippets do not set the Spring property.
 - The Tuning Advisor panel provides a bare-metal JVM memory calculator that partitions a user-chosen
   target JVM process memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),

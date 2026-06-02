@@ -51,10 +51,10 @@ JVM sizing controls mixed into the view.
 ### Tuning Advisor
 
 The Tuning Advisor panel uses the same live JVM context to review current JVM input arguments, explain
-`spring.threads.virtual.enabled=true`, and run JVM sizing calculators for both dedicated hosts and Kubernetes. The
-virtual-thread toggle initializes from the application's existing property value when it is set. When the property is not
-configured, BootUI leaves the toggle off but marks enabling it as the recommended performance setting. It changes the
-platform-thread stack budget, generated Spring property, and heap sizing recommendations.
+`spring.threads.virtual.enabled=true`, and run JVM sizing calculators for both dedicated hosts and Kubernetes. It detects
+whether Spring virtual threads are enabled in the current application, shows an information or warning bubble, and feeds
+that detected state into platform-thread stack budgets and heap sizing recommendations without adding the Spring property
+to generated JVM or Kubernetes snippets.
 
 The bare-metal calculator partitions a target JVM process memory budget into heap, metaspace, code cache, direct memory,
 thread stacks, and headroom, then turns that plan into copyable JVM options with fixed `-Xms` and `-Xmx` values. The
