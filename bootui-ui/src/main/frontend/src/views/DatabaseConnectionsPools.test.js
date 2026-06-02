@@ -1,7 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import Hikari from './Hikari.vue'
+import DatabaseConnectionsPools from './DatabaseConnectionsPools.vue'
 import PanelHeader from './components/PanelHeader.vue'
 
 function jsonResponse(body, ok = true, status = 200) {
@@ -27,7 +27,7 @@ describe('Database connection pools panel', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mount(Hikari, {
+    wrapper = mount(DatabaseConnectionsPools, {
       props: {
         panel: {
           id: 'database-connection-pools',
@@ -50,7 +50,7 @@ describe('Database connection pools panel', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({total: 0, pools: []}))
     vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mount(Hikari, {
+    wrapper = mount(DatabaseConnectionsPools, {
       props: {
         panel: {
           id: 'database-connection-pools',

@@ -5,7 +5,7 @@ const Config = () => import('./views/Config.vue')
 const Mappings = () => import('./views/Mappings.vue')
 const Health = () => import('./views/Health.vue')
 const Loggers = () => import('./views/Loggers.vue')
-const Hikari = () => import('./views/Hikari.vue')
+const DatabaseConnectionsPools = () => import('./views/DatabaseConnectionsPools.vue')
 const Data = () => import('./views/Data.vue')
 const Startup = () => import('./views/Startup.vue')
 const Scheduled = () => import('./views/Scheduled.vue')
@@ -118,7 +118,7 @@ export const routes = [
   {
     path: '/database-connection-pools',
     name: 'database-connection-pools',
-    component: Hikari,
+    component: DatabaseConnectionsPools,
     meta: {group: groups.services, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
   },
   {
