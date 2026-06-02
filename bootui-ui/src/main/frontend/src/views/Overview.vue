@@ -1,5 +1,6 @@
 <script setup>
 import {computed, inject, onMounted, ref} from 'vue'
+import {formatLoadError} from '../utils/loadError.js'
 
 const injectedOverview = inject('overview', null)
 const data = ref(null)
@@ -85,7 +86,7 @@ async function load(force = false) {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load overview')
   } finally {
     loading.value = false
   }

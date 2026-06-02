@@ -1,6 +1,7 @@
 <script setup>
 import {computed, getCurrentInstance, onBeforeUnmount, ref, watch} from 'vue'
 import {formatRelative} from '../../utils/format.js'
+import {describeLoadError} from '../../utils/loadError.js'
 
 const props = defineProps({
   icon: {type: String, default: null},
@@ -40,6 +41,10 @@ const lastFetchedText = computed(() => {
   if (!props.lastFetched) return null
   return formatRelative(props.lastFetched, now.value)
 })
+const loadError = computed(() => (props.error ? describeLoadError(props.error) : null))
+const retryButtonClass = computed(() =>
+  loadError.value?.serverUnreachable ? 'btn-outline-warning' : 'btn-outline-danger'
+)
 
 watch(() => props.lastFetched, startRelativeTimer, {immediate: true})
 
@@ -66,10 +71,18 @@ onBeforeUnmount(stopRelativeTimer)
       </button>
     </div>
   </div>
-  <div v-if="error" class="alert alert-danger d-flex align-items-center gap-2 mb-3" role="alert">
+  <div
+    v-if="loadError"
+    :class="['alert', loadError.serverUnreachable ? 'alert-warning' : 'alert-danger']"
+    class="d-flex align-items-start gap-2 mb-3"
+    role="alert"
+  >
     <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
-    <span class="flex-grow-1">{{ error }}</span>
-    <button v-if="hasRefresh" class="btn btn-sm btn-outline-danger" @click="emit('refresh')">
+    <span class="flex-grow-1">
+      <strong class="d-block">{{ loadError.title }}</strong>
+      <span class="small">{{ loadError.message }}</span>
+    </span>
+    <button v-if="hasRefresh" :class="retryButtonClass" class="btn btn-sm flex-shrink-0" @click="emit('refresh')">
       <i class="bi bi-arrow-clockwise me-1"></i>Retry
     </button>
   </div>

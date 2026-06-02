@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref(null)
@@ -29,7 +30,7 @@ async function load() {
       springSecurityPresent.value = false
     }
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load Spring Security')
   }
 }
 
@@ -41,7 +42,7 @@ async function loadEndpoints() {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     endpoints.value = await res.json()
   } catch (e) {
-    endpointsError.value = e.message
+    endpointsError.value = formatLoadError(e, 'Unable to load secured endpoints')
   } finally {
     endpointsLoading.value = false
   }
@@ -62,6 +63,13 @@ async function explain() {
         matcherDescription: 'Error: HTTP ' + res.status,
         filters: []
       }
+    }
+  } catch (e) {
+    explainResult.value = {
+      matched: false,
+      bestEffort: false,
+      matcherDescription: formatLoadError(e, 'Unable to explain security match'),
+      filters: []
     }
   } finally {
     explainLoading.value = false

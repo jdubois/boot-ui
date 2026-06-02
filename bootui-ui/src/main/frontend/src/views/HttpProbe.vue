@@ -2,6 +2,7 @@
 import {computed, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
@@ -75,7 +76,7 @@ async function sendProbe() {
       headers: {},
       body: null,
       durationMs: 0,
-      error: error.message
+      error: formatLoadError(error, 'Unable to send HTTP probe')
     }
   } finally {
     loading.value = false

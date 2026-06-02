@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref(null)
@@ -20,7 +21,7 @@ async function load() {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load Spring Data repositories')
   }
 }
 

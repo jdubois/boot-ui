@@ -61,4 +61,19 @@ describe('PanelHeader', () => {
 
     wrapper.unmount()
   })
+
+  it('shows a server-not-running tip for browser network failures', () => {
+    const wrapper = mount(PanelHeader, {
+      props: {
+        title: 'Health',
+        error: 'Load failed'
+      }
+    })
+
+    expect(wrapper.text()).toContain('Server unreachable')
+    expect(wrapper.text()).toContain('The server may have been stopped')
+    expect(wrapper.text()).not.toContain('Load failed')
+
+    wrapper.unmount()
+  })
 })

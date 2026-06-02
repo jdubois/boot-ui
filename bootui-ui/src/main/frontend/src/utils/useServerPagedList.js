@@ -1,4 +1,5 @@
 import {computed, onBeforeUnmount, ref} from 'vue'
+import {toErrorMessage} from './loadError.js'
 
 export const SERVER_PAGE_SIZE = 200
 
@@ -53,7 +54,7 @@ export function useServerPagedList(endpoint, itemsKey, queryParams, options = {}
             }
           : next
     } catch (e) {
-      if (id === requestId) error.value = e.message
+      if (id === requestId) error.value = toErrorMessage(e)
     } finally {
       if (id === requestId) targetLoading.value = false
     }
