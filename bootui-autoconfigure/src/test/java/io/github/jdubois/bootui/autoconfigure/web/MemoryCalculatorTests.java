@@ -97,6 +97,14 @@ class MemoryCalculatorTests {
     }
 
     @Test
+    void bareMetalOptionsPreTouchTheFixedHeap() {
+        MemoryCalculator calc = new MemoryCalculator(JDK_25);
+        MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
+
+        assertThat(result.jvmOptions()).contains("-XX:+AlwaysPreTouch");
+    }
+
+    @Test
     void jvmOptionsExpressStackInKilobytes() {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
         MemoryCalculationDto result = calc.calculate(1024 * MB, 250, 5_000, 0, 1, 5_000);
@@ -191,6 +199,29 @@ class MemoryCalculatorTests {
         assertThat(MemoryCalculator.defaultThreadCount(10)).isEqualTo(250);
         assertThat(MemoryCalculator.defaultThreadCount(250)).isEqualTo(250);
         assertThat(MemoryCalculator.defaultThreadCount(500)).isEqualTo(500);
+    }
+
+    @Test
+    void virtualThreadsReduceStackBudgetAndEnableSpringProperty() {
+        MemoryCalculator calc = new MemoryCalculator(JDK_25);
+
+        MemoryCalculationDto platformThreads = calc.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000, false);
+        MemoryCalculationDto virtualThreads = calc.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000, true);
+
+        assertThat(virtualThreads.virtualThreadsEnabled()).isTrue();
+        assertThat(virtualThreads.stackBytesPerThread())
+                .isEqualTo(MemoryCalculator.VIRTUAL_THREAD_STACK_BYTES_PER_THREAD);
+        assertThat(virtualThreads.stackBytesTotal()).isLessThan(platformThreads.stackBytesTotal());
+        assertThat(virtualThreads.heapBytes()).isGreaterThan(platformThreads.heapBytes());
+        assertThat(virtualThreads.jvmOptions()).contains("-Xss512k").contains("-Dspring.threads.virtual.enabled=true");
+        assertThat(platformThreads.jvmOptions()).doesNotContain("spring.threads.virtual.enabled");
+    }
+
+    @Test
+    void virtualThreadDefaultsUseSmallerPlatformThreadFloor() {
+        assertThat(MemoryCalculator.defaultThreadCount(10, true)).isEqualTo(80);
+        assertThat(MemoryCalculator.defaultThreadCount(80, true)).isEqualTo(80);
+        assertThat(MemoryCalculator.defaultThreadCount(120, true)).isEqualTo(120);
     }
 
     @Test

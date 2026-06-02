@@ -419,16 +419,25 @@ Features:
 - The Memory panel shows live heap and non-heap usage summaries.
 - The Memory panel shows memory pool usage.
 - The Tuning Advisor panel shows JVM input arguments.
-- The Tuning Advisor panel provides a Paketo `libjvm`-style memory calculator that partitions a user-chosen
-  target container memory into JVM regions
+- The Tuning Advisor panel explains `spring.threads.virtual.enabled=true` and exposes a toggle that initializes from the
+  application's existing property value when set. When it is unset, the toggle remains off while the panel recommends
+  enabling it for performance. The toggle feeds the sizing calculations and generated snippets.
+- The Tuning Advisor panel provides a bare-metal JVM memory calculator that partitions a user-chosen
+  target JVM process memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
   using the live loaded-class count from `ClassLoadingMXBean` (with a 1.25× safety
-  factor) and a live-or-floored thread count, so the recommendation is independent
-  of the host machine's RAM rather than inheriting the JVM's `~25% of host RAM` heap-max default.
-- The Tuning Advisor panel suggests JVM options derived from the calculator output, including `-Xms`/`-Xmx`
+  factor) and a live-or-floored platform-thread count. When virtual threads are enabled, the calculator uses a smaller
+  platform-thread floor and stack size because request concurrency no longer reserves one native stack per request.
+- The Tuning Advisor panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
   (equal for predictable startup), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`,
   `-XX:MaxDirectMemorySize`, `-Xss`, GC selection (G1 below 4 GB, ZGC above), and
   out-of-memory safeguards.
+- The Tuning Advisor panel suggests Kubernetes resources and `JAVA_TOOL_OPTIONS` with `requests.memory == limits.memory`
+  for Guaranteed QoS and percentage-based heap sizing (`-XX:MaxRAMPercentage` / `-XX:InitialRAMPercentage`) instead of
+  fixed `-Xmx` / `-Xms`, while keeping fixed non-heap caps and warnings visible.
+- The Tuning Advisor panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
+  and lets the user include or omit Spring Boot Actuator startup/readiness/liveness probes. The Actuator toggle
+  initializes from the current application health-probe configuration and is recommended for Kubernetes deployments.
 
 Acceptance criteria:
 
