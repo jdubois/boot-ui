@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import {formatNumber} from '../utils/format.js'
+import {formatLoadError} from '../utils/loadError.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -86,7 +87,7 @@ async function fetchPools() {
       selectPool(poolKey(pools.value[0]))
     }
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load database connection pools')
   }
 }
 

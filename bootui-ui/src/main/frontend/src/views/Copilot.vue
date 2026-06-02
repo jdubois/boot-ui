@@ -2,6 +2,7 @@
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatNumber} from '../utils/format.js'
+import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -240,7 +241,7 @@ async function loadDashboard() {
     dashboard.value = await res.json()
     error.value = null
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} dashboard`)
   }
 }
 
@@ -258,7 +259,7 @@ async function loadSessions(window = activeSessionWindow.value) {
     sessionList.value = await res.json()
     error.value = null
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} sessions`)
   } finally {
     loading.value = false
   }
@@ -293,7 +294,7 @@ async function loadDetail(sessionId) {
     detail.value = await res.json()
     rawById.value = {}
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} session details`)
     detail.value = null
   } finally {
     detailLoading.value = false
@@ -338,7 +339,7 @@ async function revealRaw(event) {
     const payload = await res.json()
     rawById.value = {...rawById.value, [event.id]: payload.json}
   } catch (e) {
-    rawById.value = {...rawById.value, [event.id]: 'Unable to load raw event: ' + e.message}
+    rawById.value = {...rawById.value, [event.id]: formatLoadError(e, 'Unable to load raw event')}
   } finally {
     rawLoadingId.value = null
   }

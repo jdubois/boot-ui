@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import {formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const data = ref(null)
@@ -124,7 +125,7 @@ async function fetchMetrics() {
       selectMeter(preferredInitialMeter(data.value.meters))
     }
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load metrics')
   }
 }
 
@@ -155,7 +156,7 @@ async function loadDetail() {
     lastUpdated.value = new Date()
     detailError.value = null
   } catch (e) {
-    detailError.value = e.message
+    detailError.value = formatLoadError(e, 'Unable to load metric details')
   } finally {
     loadingDetail = false
   }

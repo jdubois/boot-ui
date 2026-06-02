@@ -2,6 +2,7 @@
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {formatNumber} from '../utils/format.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -26,7 +27,7 @@ async function load() {
     report.value = await res.json()
     lastFetched.value = Date.now()
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load cache report')
   } finally {
     loading.value = false
   }
@@ -148,7 +149,7 @@ async function clearCaches(payload, busyKey) {
     flash(result.message || 'Cache cleared.', 'success')
     await load()
   } catch (e) {
-    flash('Could not clear cache: ' + e.message, 'danger')
+    flash(formatLoadError(e, 'Could not clear cache'), 'danger')
   } finally {
     busy.value = null
   }
