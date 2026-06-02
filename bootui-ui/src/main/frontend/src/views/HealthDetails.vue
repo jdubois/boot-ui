@@ -1,11 +1,9 @@
 <script setup>
+import {isPlainObject} from '../utils/format.js'
+
 defineProps({
   value: {required: false, default: null}
 })
-
-function isPlainObject(value) {
-  return Object.prototype.toString.call(value) === '[object Object]'
-}
 
 function isScalar(value) {
   return value === null || value === undefined || ['string', 'number', 'boolean'].includes(typeof value)
