@@ -691,7 +691,8 @@ public final class BootUiDtos {
             List<MemoryPoolDto> pools,
             List<String> jvmInputArguments,
             String suggestedJvmOptions,
-            MemoryCalculationDto calculation) {}
+            MemoryCalculationDto calculation,
+            KubernetesMemoryRecommendationDto kubernetes) {}
 
     /**
      * Result of the Paketo-style memory calculator.
@@ -720,6 +721,26 @@ public final class BootUiDtos {
             String jvmOptions,
             boolean valid,
             String error) {}
+
+    /**
+     * Kubernetes resource recommendation derived from the JVM memory
+     * calculator and the current runtime snapshot.
+     */
+    public record KubernetesMemoryRecommendationDto(
+            long requestMemoryBytes,
+            long limitMemoryBytes,
+            long burstableRequestMemoryBytes,
+            long currentSnapshotBytes,
+            Long detectedContainerLimitBytes,
+            String requestMemory,
+            String limitMemory,
+            String burstableRequestMemory,
+            String currentSnapshotMemory,
+            String detectedContainerLimitMemory,
+            String qosClass,
+            String confidence,
+            List<String> warnings,
+            String yaml) {}
 
     /**
      * One captured heap dump file on local disk.

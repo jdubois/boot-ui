@@ -10,6 +10,7 @@ const data = ref(null)
 const error = ref(null)
 const lastUpdated = ref(null)
 const copied = ref(false)
+const copiedKubernetes = ref(false)
 let debounceHandle = null
 
 const totalMemoryMb = ref(null)
@@ -71,26 +72,42 @@ function progressClass(pct) {
   return 'bg-success'
 }
 
-async function copyOptions() {
-  if (!data.value) return
+function confidenceBadgeClass(confidence) {
+  if (confidence === 'High') return 'text-bg-success'
+  if (confidence === 'Medium') return 'text-bg-warning'
+  if (confidence === 'Low') return 'text-bg-secondary'
+  return 'text-bg-secondary'
+}
+
+function markCopied(copiedRef) {
+  copiedRef.value = true
+  setTimeout(() => {
+    copiedRef.value = false
+  }, 2000)
+}
+
+async function copyText(text, copiedRef) {
+  if (!text) return
   try {
-    await navigator.clipboard.writeText(data.value.suggestedJvmOptions)
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
+    await navigator.clipboard.writeText(text)
+    markCopied(copiedRef)
   } catch {
     const ta = document.createElement('textarea')
-    ta.value = data.value.suggestedJvmOptions
+    ta.value = text
     document.body.appendChild(ta)
     ta.select()
     document.execCommand('copy')
     document.body.removeChild(ta)
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
+    markCopied(copiedRef)
   }
+}
+
+async function copyOptions() {
+  await copyText(data.value?.suggestedJvmOptions, copied)
+}
+
+async function copyKubernetesYaml() {
+  await copyText(data.value?.kubernetes?.yaml, copiedKubernetes)
 }
 
 const breakdown = computed(() => {
@@ -113,7 +130,7 @@ const breakdown = computed(() => {
 })
 
 function stepTotal(delta) {
-  const next = Math.max(128, Math.min(8192, (totalMemoryMb.value || 0) + delta))
+  const next = Math.max(128, Math.min(65536, (totalMemoryMb.value || 0) + delta))
   totalMemoryMb.value = next
 }
 
@@ -170,7 +187,7 @@ onBeforeUnmount(() => {
                 <input
                   v-model.number="totalMemoryMb"
                   class="form-control text-center"
-                  max="8192"
+                  max="65536"
                   min="128"
                   step="64"
                   type="number"
@@ -236,6 +253,93 @@ onBeforeUnmount(() => {
               for {{ data.calculation.loadedClasses.toLocaleString() }} classes × 1.25 safety factor
             </div>
           </template>
+        </div>
+      </div>
+
+      <!-- Kubernetes sizing -->
+      <div v-if="data.kubernetes" class="card mb-4 border-success">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-box-seam me-2"></i>Kubernetes sizing</span>
+          <span :class="['badge', confidenceBadgeClass(data.kubernetes.confidence)]">
+            {{ data.kubernetes.confidence }} confidence
+          </span>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            Uses the calculator total as the hard Kubernetes memory limit. The generated manifest sets
+            <code>requests.memory == limits.memory</code> for Guaranteed QoS because JVM memory is not throttled when a
+            pod crosses its limit.
+          </p>
+
+          <div v-if="data.kubernetes.detectedContainerLimitMemory" class="alert alert-light border small mb-3">
+            <i class="bi bi-hdd-network me-1"></i>
+            Detected cgroup memory limit:
+            <strong>{{ data.kubernetes.detectedContainerLimitMemory }}</strong>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-3">
+              <div class="border rounded p-3 h-100">
+                <div class="text-muted small">Request memory</div>
+                <div class="fs-5 fw-semibold">{{ data.kubernetes.requestMemory || '—' }}</div>
+                <div class="text-muted small">Guaranteed scheduling request</div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="border rounded p-3 h-100">
+                <div class="text-muted small">Limit memory</div>
+                <div class="fs-5 fw-semibold">{{ data.kubernetes.limitMemory }}</div>
+                <div class="text-muted small">Container OOM boundary</div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="border rounded p-3 h-100">
+                <div class="text-muted small">QoS class</div>
+                <div class="fs-5 fw-semibold">{{ data.kubernetes.qosClass }}</div>
+                <div class="text-muted small">Recommended default</div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="border rounded p-3 h-100">
+                <div class="text-muted small">Current snapshot</div>
+                <div class="fs-5 fw-semibold">{{ data.kubernetes.currentSnapshotMemory }}</div>
+                <div class="text-muted small">Committed JVM memory + live stacks</div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="data.kubernetes.burstableRequestMemory" class="alert alert-info small mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            Burstable alternative:
+            <strong>{{ data.kubernetes.burstableRequestMemory }}</strong>
+            request with
+            <strong>{{ data.kubernetes.limitMemory }}</strong>
+            limit. Use only when your cluster intentionally overcommits memory and you have representative load data.
+          </div>
+
+          <div v-if="data.kubernetes.warnings?.length" class="alert alert-warning small mb-3">
+            <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Sizing notes</div>
+            <ul class="mb-0 ps-3">
+              <li v-for="warning in data.kubernetes.warnings" :key="warning">{{ warning }}</li>
+            </ul>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="small fw-semibold">Deployment snippet</div>
+            <button
+              :class="{'btn-success': copiedKubernetes}"
+              :disabled="!data.kubernetes.yaml"
+              class="btn btn-sm btn-outline-success"
+              @click="copyKubernetesYaml"
+            >
+              <i :class="['bi', copiedKubernetes ? 'bi-check-lg' : 'bi-clipboard', 'me-1']"></i>
+              {{ copiedKubernetes ? 'Copied!' : 'Copy YAML' }}
+            </button>
+          </div>
+          <pre
+            :class="{'opacity-50': !data.kubernetes.yaml}"
+            class="bg-dark text-light rounded p-3 mb-0 options-box"
+          ><code>{{ data.kubernetes.yaml || 'Adjust calculator inputs until a valid heap is available.' }}</code></pre>
         </div>
       </div>
 
