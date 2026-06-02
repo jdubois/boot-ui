@@ -43,8 +43,10 @@ available measurements, and render a local live chart for a selected metric/tag 
 ### Memory
 
 The Memory panel summarizes JVM heap and non-heap usage, memory pools, garbage collectors, and selected runtime memory
-settings. It also suggests JVM options that are useful during local development when memory pressure or startup behavior
-needs tuning.
+settings. It includes a Paketo-style JVM memory calculator, suggested JVM options, and a Kubernetes sizing card that
+turns the calculated process budget into copyable `requests.memory`, `limits.memory`, and `JAVA_TOOL_OPTIONS` snippets.
+The Kubernetes recommendation keeps request and limit equal by default for Guaranteed QoS and labels any smaller
+current-snapshot request as a Burstable alternative that should be validated under representative load.
 
 ![BootUI Memory panel](images/bootui-memory.png)
 

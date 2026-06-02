@@ -15,15 +15,20 @@ test.describe('Memory view', () => {
 
     await openView('memory', 'Memory')
 
-    await expect(page.locator('.card', {hasText: 'Recommended JVM Options'}).first()).toBeVisible()
+    const jvmOptionsCard = page.locator('.card', {hasText: 'Recommended JVM Options'}).first()
+    const kubernetesCard = page.locator('.card', {hasText: 'Kubernetes sizing'}).first()
+    await expect(jvmOptionsCard).toBeVisible()
+    await expect(kubernetesCard).toBeVisible()
+    await expect(kubernetesCard).toContainText('Guaranteed')
+    await expect(kubernetesCard.locator('.options-box code')).toContainText('JAVA_TOOL_OPTIONS')
     await expect(page.locator('.card', {hasText: 'Heap Memory'}).first()).toBeVisible()
     await expect(page.locator('.card', {hasText: /Non[- ]?Heap/i}).first()).toBeVisible()
 
-    const optionsBlock = page.locator('.options-box code')
+    const optionsBlock = jvmOptionsCard.locator('.options-box code')
     await expect(optionsBlock).toContainText(/-Xmx|-XX:/)
 
     // The copy button gives feedback after being clicked.
-    const copyButton = page.getByRole('button', {name: /Copy/})
+    const copyButton = jvmOptionsCard.getByRole('button', {name: /Copy/})
     await copyButton.click()
     await expect(page.getByRole('button', {name: /Copied!/})).toBeVisible({timeout: 5_000})
   })
@@ -46,13 +51,14 @@ test.describe('Memory view', () => {
     await openView('memory', 'Memory')
 
     const calculatorCard = page.locator('.card', {hasText: 'JVM memory calculator'})
+    const jvmOptionsCard = page.locator('.card', {hasText: 'Recommended JVM Options'}).first()
     await expect(calculatorCard).toBeVisible()
 
     const totalInput = calculatorCard.locator('input[type="number"]').first()
     await expect(totalInput).toBeVisible()
     await expect(totalInput).not.toHaveValue('')
 
-    const optionsBlock = page.locator('.options-box code')
+    const optionsBlock = jvmOptionsCard.locator('.options-box code')
     // Capture the current -Xmx value before editing
     const before = await optionsBlock.innerText()
     const beforeMatch = before.match(/-Xmx(\d+)m/)

@@ -1,11 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.core.BootUiDtos.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryPoolDto;
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryReport;
 import java.lang.management.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalLong;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -16,13 +18,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class MemoryController {
 
     private final MemoryCalculator calculator;
+    private final ContainerMemoryLimitDetector containerMemoryLimitDetector;
 
     public MemoryController() {
-        this(new MemoryCalculator());
+        this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard());
     }
 
     MemoryController(MemoryCalculator calculator) {
+        this(calculator, ContainerMemoryLimitDetector.standard());
+    }
+
+    MemoryController(MemoryCalculator calculator, ContainerMemoryLimitDetector containerMemoryLimitDetector) {
         this.calculator = calculator;
+        this.containerMemoryLimitDetector = containerMemoryLimitDetector;
     }
 
     @GetMapping
@@ -52,21 +60,31 @@ public class MemoryController {
 
         int liveThreads = threadBean.getThreadCount();
         int liveClasses = classBean.getLoadedClassCount();
+        OptionalLong detectedContainerMemoryLimit = containerMemoryLimitDetector.detectLimit();
 
         long resolvedTotalBytes = totalMemoryMb != null
                 ? totalMemoryMb * 1024L * 1024L
-                : calculator.defaultTotalMemoryBytes(
+                : detectedContainerMemoryLimit.orElseGet(() -> calculator.defaultTotalMemoryBytes(
                         heapUsage.getCommitted(),
                         nonHeapUsage.getCommitted(),
                         MemoryCalculator.defaultThreadCount(liveThreads),
-                        liveClasses);
+                        liveClasses));
         int resolvedThreads = threadCount != null ? threadCount : MemoryCalculator.defaultThreadCount(liveThreads);
         int resolvedHeadRoom = headRoomPercent != null ? headRoomPercent : 0;
 
         MemoryCalculationDto calculation = calculator.calculate(
                 resolvedTotalBytes, resolvedThreads, liveClasses, resolvedHeadRoom, liveThreads, liveClasses);
+        Long detectedContainerMemoryLimitBytes =
+                detectedContainerMemoryLimit.isPresent() ? detectedContainerMemoryLimit.getAsLong() : null;
+        KubernetesMemoryRecommendationDto kubernetes = MemoryKubernetesSizer.recommend(
+                calculation,
+                heapUsage.getCommitted(),
+                nonHeapUsage.getCommitted(),
+                directBufferMemoryUsedBytes(),
+                nativeMemoryTrackingEnabled(inputArgs),
+                detectedContainerMemoryLimitBytes);
 
-        return new MemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation);
+        return new MemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation, kubernetes);
     }
 
     private MemoryPoolDto toDto(String name, MemoryUsage usage) {
@@ -75,5 +93,24 @@ public class MemoryController {
         long max = usage.getMax();
         int pct = (max > 0) ? (int) (used * 100L / max) : (committed > 0 ? (int) (used * 100L / committed) : 0);
         return new MemoryPoolDto(name, used, committed, max, pct);
+    }
+
+    private long directBufferMemoryUsedBytes() {
+        long usedBytes = 0;
+        for (BufferPoolMXBean bufferPool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
+            if ("direct".equalsIgnoreCase(bufferPool.getName())) {
+                usedBytes += Math.max(0, bufferPool.getMemoryUsed());
+            }
+        }
+        return usedBytes;
+    }
+
+    private boolean nativeMemoryTrackingEnabled(List<String> inputArgs) {
+        for (String inputArg : inputArgs) {
+            if (inputArg.startsWith("-XX:NativeMemoryTracking=") && !inputArg.endsWith("=off")) {
+                return true;
+            }
+        }
+        return false;
     }
 }

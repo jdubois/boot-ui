@@ -179,7 +179,7 @@ test.describe('BootUI app shell', () => {
     await expandAllSidebarGroups(page)
 
     for (const link of allPanelLinks) {
-      await page.locator('aside .nav-link', {hasText: link.title}).click()
+      await page.getByRole('link', {name: link.title, exact: true}).click()
       await expect(page.locator('main h2').filter({hasText: link.heading}).first()).toBeVisible({timeout: 15_000})
     }
   })

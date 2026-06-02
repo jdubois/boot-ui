@@ -41,7 +41,8 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.pools").isArray())
                 .andExpect(jsonPath("$.jvmInputArguments").isArray())
                 .andExpect(jsonPath("$.suggestedJvmOptions").isString())
-                .andExpect(jsonPath("$.calculation").isMap());
+                .andExpect(jsonPath("$.calculation").isMap())
+                .andExpect(jsonPath("$.kubernetes").isMap());
     }
 
     @Test
@@ -123,5 +124,23 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.calculation.liveThreadCount").value(org.hamcrest.Matchers.greaterThan(0)))
                 // liveLoadedClassCount must be at least 1
                 .andExpect(jsonPath("$.calculation.liveLoadedClassCount").value(org.hamcrest.Matchers.greaterThan(0)));
+    }
+
+    @Test
+    void kubernetesRecommendationReportsGuaranteedResources() throws Exception {
+        MockMvc mvc = standaloneSetup(
+                        new MemoryController(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
+                .build();
+
+        long expectedBytes = 1024L * 1024L * 1024L;
+        mvc.perform(get("/bootui/api/memory")
+                        .param("totalMemoryMb", "1024")
+                        .param("headRoomPercent", "10")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kubernetes.requestMemoryBytes").value(expectedBytes))
+                .andExpect(jsonPath("$.kubernetes.limitMemoryBytes").value(expectedBytes))
+                .andExpect(jsonPath("$.kubernetes.qosClass").value("Guaranteed"))
+                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("resources:")));
     }
 }
