@@ -16,7 +16,7 @@ const allPanelLinks = [
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
-  {id: 'data', title: 'Data', heading: /Spring Data repositories/},
+  {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
   {id: 'cache', title: 'Cache', heading: /Spring Cache/},
   {id: 'security', title: 'Security', heading: /Spring Security/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
@@ -103,7 +103,7 @@ test.describe('BootUI app shell', () => {
     await expect(page.getByRole('group', {name: 'Services panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Scheduled Tasks',
       'Database Connection Pools',
-      'Data',
+      'Spring Data',
       'Cache',
       'Security',
       'AI Usage'

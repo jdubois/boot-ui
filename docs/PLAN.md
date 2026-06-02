@@ -80,7 +80,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - DevTools
   - Dev Services
   - Scheduled Tasks
-  - Data
+  - Spring Data
   - Cache
   - AI Usage
   - Security
@@ -153,7 +153,7 @@ The visible-route parity check is current. The sample-app Playwright suite cover
 1. Overview.
 2. Runtime: Health, Metrics, Memory, Heap Dump, Startup Timeline.
 3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
-4. Services: Scheduled Tasks, Database Connection Pools, Data, Cache, Security, AI Usage.
+4. Services: Scheduled Tasks, Database Connection Pools, Spring Data, Cache, Security, AI Usage.
 5. Diagnostics: Traces, Log Tail, HTTP Probe, Architecture, Pentesting, Vulnerabilities.
 6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
 7. Disabled / unavailable grouping for unavailable non-overview panels.
@@ -249,7 +249,7 @@ line:
 | Strategy                       | Scope                                                                                                                                         | Trade-off                                                                                                                             |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Harden all visible panels      | Ship every current route as supported `0.1.x` functionality.                                                                                 | Delivered for the alpha line and promoted to `0.1.0`; keep focused backend tests, docs, and release validation current.                |
-| Mark newer panels experimental | Keep all routes visible but clearly label Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations.                                                                                       |
+| Mark newer panels experimental | Keep all routes visible but clearly label Spring Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations.                                                                                  |
 | Hide unfinished panels         | Only expose the original MVP routes plus any fully hardened additions.                                                                        | Safest smaller surface, but requires UI gating work.                                                                                  |
 
 Delivered release stance: **harden all visible panels**.
@@ -364,7 +364,7 @@ Scope:
   stable DTO endpoints, documentation metadata, and optional frontend assets.
 - Extract **AI Usage** into `services/bootui-service-ai-usage` first. Preserve the existing Spring AI observation
   aggregation and add LangChain4j OpenTelemetry span support to the same panel and DTO shape where possible.
-- Move the remaining current Services menu entries behind that SPI over time: Scheduled Tasks, Database Connection Pools, Data,
+- Move the remaining current Services menu entries behind that SPI over time: Scheduled Tasks, Database Connection Pools, Spring Data,
   Cache, and Security.
 - Add Elasticsearch, Flyway/Liquibase, and MongoDB service visibility after the SPI exists.
   - Database connection-pool visibility shipped (read-only **Database Connection Pools** panel with a live saturation chart,
@@ -396,7 +396,7 @@ Design constraints:
   omits optional attributes. Prompt/response content must remain opt-in through captured trace attributes and continue
   to follow the existing masking/value-exposure rules.
 - Database connection-pool support should be read-only at first and exposed as its own **Database Connection Pools** panel
-  in the Services group, placed after **Data** and before **Cache**. It should fail closed when pool support
+  in the Services group, placed after **Spring Data** and before **Cache**. It should fail closed when pool support
   is absent, and show pool identity, masked JDBC connection metadata, current active/idle/total/pending counts, min/max
   sizing, timeout/lifetime settings, and unavailable reasons for closed or inaccessible pools. The panel should include a
   local live chart like the Metrics panel, polling bounded snapshots for active, idle, total, and pending connections so

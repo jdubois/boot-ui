@@ -121,7 +121,12 @@ export const routes = [
     component: Hikari,
     meta: {group: groups.services, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
   },
-  {path: '/data', name: 'data', component: Data, meta: {group: groups.services, icon: 'bi-database', title: 'Data'}},
+  {
+    path: '/data',
+    name: 'data',
+    component: Data,
+    meta: {group: groups.services, icon: 'bi-database', title: 'Spring Data'}
+  },
   {
     path: '/cache',
     name: 'cache',
