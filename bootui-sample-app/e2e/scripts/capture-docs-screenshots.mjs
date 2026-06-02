@@ -53,7 +53,7 @@ const overview = {
   bootUiVersion: '0.2.0',
   applicationName: 'bootui-sample',
   springBootVersion: '4.0.6',
-  javaVersion: '25',
+  javaVersion: '17',
   javaVendor: 'Eclipse Adoptium',
   activeProfiles: ['dev', 'local'],
   defaultProfiles: ['default'],

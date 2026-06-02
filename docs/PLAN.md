@@ -24,7 +24,7 @@ The project has moved beyond the original skeleton and the initial MVP panel set
   - `bootui-spring-boot-starter`
   - `bootui-ui`
   - `bootui-sample-app`
-- Java 25 and Spring Boot 4.x baseline.
+- Java 17 or later and Spring Boot 4.x baseline.
 - CI workflows and project metadata.
 - Core BootUI runtime:
   - activation properties and activation condition
@@ -416,7 +416,7 @@ Design constraints:
 
 ### 8.1 Java and Spring Boot
 
-Use Java 25 and Spring Boot 4.x for the initial codebase.
+Use Java 17 or later and Spring Boot 4.x for the initial codebase.
 
 Reason:
 

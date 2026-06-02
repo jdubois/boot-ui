@@ -7,6 +7,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- LangChain4j support in the AI Usage panel. BootUI now detects Spring AI and/or LangChain4j, shows the selected
+  framework with header badges, and offers side-by-side Spring AI and LangChain4j telemetry setup guides explaining the
+  dependency and configuration each needs to emit GenAI spans (including optional prompt/completion content capture).
+- Health panel setup guidance: a disabled state with guidance when no Actuator `HealthEndpoint` is available, and
+  guidance (without changing reported statuses) when a health tree contains only Spring Boot's default indicators.
+- Frontend test coverage for the shared auto-refresh and refresh-state utilities, the Health view, and the panel header
+  component.
+
+### Changed
+
+- ArchUnit is now bundled transitively through `bootui-spring-boot-starter`, so the Architecture panel works out of the
+  box without an extra application dependency; the sample app's redundant direct dependency was removed.
+- Release preparation (Maven module versions, README install snippet, release commit, and tag) and Maven Central
+  publishing are unified into a single `Release` workflow, replacing the separate `Prepare Release` workflow.
+- Lowered the build baseline from Java 25 to Java 17, updating the Maven compiler release, the CI build matrix, and
+  CodeQL analysis.
+- AI Usage content-capture guidance and documentation now cover LangChain4j alongside Spring AI.
+
+### Fixed
+
+- Removed auto-refresh flicker by showing panel skeletons only on first load and sharing refresh state across panels.
+- Removed duplicated `formatDuration`/`formatTime` helpers in the Traces panel in favor of the shared format utilities.
+
 ## [0.2.0] - 2026-06-01
 
 Second BootUI release, focused on local security diagnostics, three new local-only diagnostics panels — Architecture
