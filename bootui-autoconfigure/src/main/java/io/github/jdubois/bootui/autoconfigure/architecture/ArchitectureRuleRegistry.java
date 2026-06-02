@@ -22,12 +22,21 @@ final class ArchitectureRuleRegistry {
             new NoFieldInjectionRule(),
             new ControllersShouldNotDependOnRepositoriesRule(),
             new RepositoriesShouldNotDependOnControllersRule(),
+            new RepositoriesShouldNotDependOnServicesRule(),
             new ServicesShouldNotDependOnControllersRule(),
             new NoSelfInvocationOfProxiedMethodsRule(),
             new StereotypesShouldNotResideInDefaultPackageRule(),
             new ExceptionsShouldBeNamedExceptionRule(),
             new InterfacesShouldNotHaveInterfaceSuffixRule(),
-            new LoggersShouldBePrivateStaticFinalRule());
+            new LoggersShouldBePrivateStaticFinalRule(),
+            new NoTestFrameworkDependenciesRule(),
+            new ServicesAndRepositoriesShouldNotDependOnServletTypesRule(),
+            new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(),
+            new ProxiedMethodsShouldNotBePrivateOrStaticRule(),
+            new AsyncMethodsShouldHaveSupportedSignaturesRule(),
+            new ScheduledMethodsShouldHaveSupportedSignaturesRule(),
+            new AsyncShouldNotBeUsedInConfigurationClassesRule(),
+            new NoAopContextCurrentProxyRule());
 
     private ArchitectureRuleRegistry() {}
 

@@ -162,6 +162,17 @@ a handful of sample detail lines from ArchUnit.
 - **Recommendation**: make logger fields `private static final` to avoid accidental external access and per-instance
   logger allocations.
 
+### ARCH-CODE-013 — Application classes should not depend on test frameworks
+
+- **Severity**: MEDIUM
+- **Inspects**: dependencies on common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Spring Test, Spring Boot
+  Test, or Testcontainers.
+- **Fires when**: an application class references a test framework type.
+- **Why it matters**: production code that depends on test frameworks is usually an accidental source-set leak and can
+  pull unnecessary or unavailable test libraries into runtime code.
+- **Recommendation**: move assertions, fixtures, containers, and test helpers to test sources; keep production classes
+  independent of test APIs.
+
 ## Spring stereotypes
 
 ### ARCH-SPRING-001 — Classes should not use field injection
@@ -216,3 +227,82 @@ a handful of sample detail lines from ArchUnit.
 - **Fires when**: service-layer code references web-layer classes, coupling business logic back to HTTP concerns.
 - **Recommendation**: keep service beans free of controller dependencies; web dependencies should flow from controllers
   toward services, not back.
+
+### ARCH-SPRING-007 — Repositories should not depend on services
+
+- **Severity**: MEDIUM
+- **Inspects**: `@Repository` beans that depend directly on `@Service` beans.
+- **Fires when**: persistence code references business services, inverting the usual service-to-repository dependency
+  direction.
+- **Recommendation**: keep repository beans focused on persistence concerns; dependencies should flow from services
+  toward repositories, not back.
+
+### ARCH-SPRING-008 — Services and repositories should not depend on servlet types
+
+- **Severity**: MEDIUM
+- **Inspects**: `@Service` and `@Repository` beans that depend on `jakarta.servlet`, `javax.servlet`, or Spring web
+  request types.
+- **Fires when**: business or persistence code accepts, stores, or otherwise references servlet request/response
+  infrastructure.
+- **Why it matters**: service and repository code should be transport-agnostic so it can be reused from HTTP
+  controllers, CLI runners, scheduled jobs, tests, and message consumers.
+- **Recommendation**: extract request data in the controller and pass plain application values into services and
+  repositories.
+
+### ARCH-SPRING-009 — Transactional annotations should not be declared on interfaces
+
+- **Severity**: MEDIUM
+- **Inspects**: Spring or Jakarta `@Transactional` annotations on interfaces and interface methods.
+- **Fires when**: an interface or one of its methods declares transaction metadata.
+- **Why it matters**: Spring recommends annotating concrete classes or methods because interface-declared annotations can
+  behave differently across proxy modes and may be silently ignored with AspectJ weaving.
+- **Recommendation**: move transaction annotations to concrete implementation classes or methods.
+
+### ARCH-SPRING-010 — Proxy-driven methods should not be private or static
+
+- **Severity**: MEDIUM
+- **Inspects**: private or static methods annotated with `@Transactional`, `@Async`, or `@Cacheable`.
+- **Fires when**: a proxy-driven Spring annotation is applied to a method that cannot be invoked through a Spring proxy.
+- **Why it matters**: Spring AOP is proxy-based; private and static methods are not intercepted like normal bean method
+  calls, so the annotation is misleading or ineffective.
+- **Recommendation**: move the annotation to an instance method that is invoked through a Spring proxy.
+
+### ARCH-SPRING-011 — Async methods should return void or Future
+
+- **Severity**: MEDIUM
+- **Inspects**: methods annotated with `@Async`, and methods declared on `@Async` classes.
+- **Fires when**: an async method returns a value type that is neither `void` nor assignable to
+  `java.util.concurrent.Future`.
+- **Why it matters**: Spring supports async methods with `void` return values or `Future`/`CompletableFuture` handles;
+  other return values do not provide the caller a valid asynchronous result.
+- **Recommendation**: use `void` for fire-and-forget async work, or return `Future` / `CompletableFuture` when callers
+  need a result.
+
+### ARCH-SPRING-012 — Scheduled methods should have supported signatures
+
+- **Severity**: MEDIUM
+- **Inspects**: methods annotated with `@Scheduled`.
+- **Fires when**: a scheduled method declares parameters, or returns a non-`void`, non-reactive value type whose result
+  Spring will ignore.
+- **Why it matters**: Spring invokes scheduled methods without arguments; synchronous return values are discarded, which
+  often indicates a misunderstood job contract.
+- **Recommendation**: declare scheduled methods without parameters and return `void` unless using a supported deferred
+  reactive `Publisher` type.
+
+### ARCH-SPRING-013 — Async should not be used in configuration classes
+
+- **Severity**: MEDIUM
+- **Inspects**: `@Async` on `@Configuration` classes or methods declared inside `@Configuration` classes.
+- **Fires when**: configuration code is annotated for asynchronous execution.
+- **Why it matters**: Spring's `@Async` Javadoc explicitly states that it is not supported on methods declared within
+  `@Configuration` classes.
+- **Recommendation**: move asynchronous work to a regular Spring bean and call it through that bean's proxy.
+
+### ARCH-SPRING-014 — Classes should not call AopContext.currentProxy
+
+- **Severity**: LOW
+- **Inspects**: calls to `org.springframework.aop.framework.AopContext.currentProxy()`.
+- **Fires when**: application code looks up the current Spring AOP proxy directly.
+- **Why it matters**: Spring documents this as a discouraged last resort because it couples application code to Spring AOP
+  internals and requires proxy exposure.
+- **Recommendation**: refactor to avoid self-invocation, or inject a self-reference when a proxy call is truly required.
