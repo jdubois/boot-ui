@@ -455,7 +455,11 @@ function onGlobalKeydown(e) {
         </router-view>
       </main>
 
-      <footer class="bootui-footer">BootUI · embedded in your Spring Boot app · no external service required</footer>
+      <footer class="bootui-footer">
+        <a :href="githubProjectUrl" rel="noopener noreferrer" target="_blank">
+          BootUI - The missing developer UI for Spring Boot!
+        </a>
+      </footer>
     </div>
   </div>
 </template>
@@ -1117,6 +1121,14 @@ function onGlobalKeydown(e) {
   font-size: 0.82rem;
   padding: 0 2rem 1.25rem;
   text-align: center;
+}
+
+.bootui-footer a {
+  color: inherit;
+}
+
+.bootui-footer a:hover {
+  color: var(--bootui-green-dark);
 }
 
 .page-slide-enter-active,
