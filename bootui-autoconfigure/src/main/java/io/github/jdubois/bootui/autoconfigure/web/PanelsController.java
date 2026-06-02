@@ -68,6 +68,7 @@ public class PanelsController {
         return switch (id) {
             case BootUiPanels.OVERVIEW,
                     BootUiPanels.MEMORY,
+                    BootUiPanels.TUNING_ADVISOR,
                     BootUiPanels.CONFIG,
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTEST,

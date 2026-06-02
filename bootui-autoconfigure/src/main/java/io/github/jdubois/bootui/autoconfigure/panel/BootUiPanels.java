@@ -17,6 +17,7 @@ public final class BootUiPanels {
     public static final String HEALTH = "health";
     public static final String METRICS = "metrics";
     public static final String MEMORY = "memory";
+    public static final String TUNING_ADVISOR = "tuning-advisor";
     public static final String STARTUP = "startup";
     public static final String SCHEDULED = "scheduled";
     public static final String CONFIG = "config";
@@ -47,6 +48,7 @@ public final class BootUiPanels {
             new Panel(HEALTH, "Health", false, "/health"),
             new Panel(METRICS, "Metrics", false, "/metrics"),
             new Panel(MEMORY, "Memory", false, "/memory"),
+            new Panel(TUNING_ADVISOR, "Tuning Advisor", false, "/tuning-advisor"),
             new Panel(STARTUP, "Startup Timeline", false, "/startup"),
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(CONFIG, "Configuration", true, "/config"),

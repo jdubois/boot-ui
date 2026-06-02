@@ -96,17 +96,17 @@ The project has moved beyond the original skeleton and the initial MVP panel set
 
 ## 3. Milestone status
 
-| Milestone                                | Status                                   | Notes                                                                                                                                                                                                                                                   |
-| ---------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0. Project foundation                    | Done                                     | Multi-module build, Java/Spring baseline, sample app, docs, and CI exist.                                                                                                                                                                               |
-| 1. Auto-configuration and safety         | Implemented and covered                  | Activation, auto-configuration, localhost filter, banner, and overview API exist. Activation, localhost behavior, and fail-closed edge cases have focused tests.                                                                                        |
-| 2. Static UI shell                       | Implemented and smoke-tested             | Vue shell, Maven frontend build, classpath packaging, and routes exist; Playwright verifies sidebar navigation across every visible section.                                                                                                            |
-| 3. Actuator bridge                       | Implemented and covered                  | Stable BootUI DTO endpoints exist for every visible panel; missing-Actuator behavior has explicit empty-DTO coverage.                                                                                                                                   |
-| 4. Beans and Conditions panels           | Implemented and covered by sample e2e    | API and UI panels exist, with bounded server-side filtering and paging for large-app edge cases.                                                                                                                                                        |
-| 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e    | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests.                                                                                                              |
-| 6. Post-MVP diagnostic panels            | Implemented and covered                  | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Pentesting, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
-| 7. Documentation and release hardening   | Ready for `0.2.0`                       | User-facing docs and the changelog are reconciled with current behavior through `0.2.0`; docs screenshots exist, are referenced, and stay at 1600x900 as of 2026-06-01. Keep release checks current as later work lands.                              |
-| 8. In-app OTLP sink + Traces + AI Usage  | Delivered for `0.1.0`                    | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`.                                                         |
+| Milestone                                | Status                                | Notes                                                                                                                                                                                                                                                               |
+| ---------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Project foundation                    | Done                                  | Multi-module build, Java/Spring baseline, sample app, docs, and CI exist.                                                                                                                                                                                           |
+| 1. Auto-configuration and safety         | Implemented and covered               | Activation, auto-configuration, localhost filter, banner, and overview API exist. Activation, localhost behavior, and fail-closed edge cases have focused tests.                                                                                                    |
+| 2. Static UI shell                       | Implemented and smoke-tested          | Vue shell, Maven frontend build, classpath packaging, and routes exist; Playwright verifies sidebar navigation across every visible section.                                                                                                                        |
+| 3. Actuator bridge                       | Implemented and covered               | Stable BootUI DTO endpoints exist for every visible panel; missing-Actuator behavior has explicit empty-DTO coverage.                                                                                                                                               |
+| 4. Beans and Conditions panels           | Implemented and covered by sample e2e | API and UI panels exist, with bounded server-side filtering and paging for large-app edge cases.                                                                                                                                                                    |
+| 5. Config, Mappings, Health, and Loggers | Implemented and covered by sample e2e | Runtime config overrides, secret masking, mappings, health, and logger controls exist. Config override plumbing has focused backend tests.                                                                                                                          |
+| 6. Post-MVP diagnostic panels            | Implemented and covered               | Startup, Memory, Spring Data, Spring Cache, Scheduled Tasks, HTTP Probe, Pentesting, Log Tail, Profile Diff, Security, Metrics, Vulnerabilities, DevTools, and Dev Services panels have API/UI slices plus backend edge-case tests and focused Playwright coverage. |
+| 7. Documentation and release hardening   | Ready for `0.2.0`                     | User-facing docs and the changelog are reconciled with current behavior through `0.2.0`; docs screenshots exist, are referenced, and stay at 1600x900 as of 2026-06-01. Keep release checks current as later work lands.                                            |
+| 8. In-app OTLP sink + Traces + AI Usage  | Delivered for `0.1.0`                 | Adds an OTLP/HTTP receiver on `/bootui/api/otlp/v1/traces`, a Traces waterfall panel, an AI Usage panel for Spring AI observations, and a sample-app Ollama service started via `compose.yaml`.                                                                     |
 
 ## 4. Current status and next work
 
@@ -151,14 +151,14 @@ Future backend test work should be incremental and tied to new or changed behavi
 The visible-route parity check is current. The sample-app Playwright suite covers the grouped navigation order:
 
 1. Overview.
-2. Runtime: Health, Metrics, Memory, Heap Dump, Startup Timeline.
+2. Runtime: Health, Metrics, Memory, Tuning Advisor, Heap Dump, Startup Timeline.
 3. Configuration: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings.
 4. Services: Scheduled Tasks, Database Connection Pools, Spring Data, Cache, Security, AI Usage.
 5. Diagnostics: Traces, Log Tail, HTTP Probe, Architecture, Pentesting, Vulnerabilities.
 6. Developer tools: DevTools, Dev Services, Copilot, Claude Code.
 7. Disabled / unavailable grouping for unavailable non-overview panels.
 
-Startup, Memory, Heap Dump, Spring Data, Database Connection Pools, Spring Cache, HTTP Probe, Architecture, Pentesting,
+Startup, Memory, Tuning Advisor, Heap Dump, Spring Data, Database Connection Pools, Spring Cache, HTTP Probe, Architecture, Pentesting,
 Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code, Scheduled Tasks, Security, Metrics, Vulnerabilities,
 DevTools, and Dev Services are implemented, documented, covered by sample-app Playwright tests, and part of the supported
 current release surface. Any new visible route or browser-facing behavior should update the router, README feature table,
@@ -190,7 +190,7 @@ The `0.2.0` release documentation is current. Keep these user-facing topics curr
    caveats.
 7. Actuator requirements and degraded behavior when endpoints are unavailable.
 8. Panel-by-panel feature guide for every visible route, including Metrics, Traces, AI Usage, Copilot, Claude Code,
-   DevTools, Dev Services, and the JVM memory panel with its suggested JVM options.
+   DevTools, Dev Services, the JVM memory panel, and the Tuning Advisor with its suggested JVM options.
 9. Troubleshooting.
 10. Sample app walkthrough.
 11. Release notes.
@@ -200,7 +200,7 @@ Completed reconciliation points:
 - `bootui.enabled` uses `AUTO|ON|OFF`.
 - Runtime config overrides persist to the BootUI overrides file by default.
 - The frontend is plain JavaScript Vue 3.
-- Startup Timeline, Memory, Heap Dump, Spring Data, Database Connection Pools, Spring Cache, HTTP Probe, Architecture,
+- Startup Timeline, Memory, Tuning Advisor, Heap Dump, Spring Data, Database Connection Pools, Spring Cache, HTTP Probe, Architecture,
   Pentesting, Profile Diff, Log Tail, Traces, AI Usage, Copilot, Claude Code, Scheduled Tasks, Security, Metrics,
   DevTools, Dev Services, and Vulnerabilities are implemented `0.2.0` surfaces, not deferred ideas.
 - Dev Services / Docker Compose / Testcontainers behavior is documented: Docker Compose entries are startup snapshots,
@@ -246,11 +246,11 @@ Manual smoke checks:
 The codebase contains more than the original v0.1 MVP. The released `0.1.0` keeps the strategy selected for the alpha
 line:
 
-| Strategy                       | Scope                                                                                                                                         | Trade-off                                                                                                                             |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Harden all visible panels      | Ship every current route as supported `0.1.x` functionality.                                                                                 | Delivered for the alpha line and promoted to `0.1.0`; keep focused backend tests, docs, and release validation current.                |
-| Mark newer panels experimental | Keep all routes visible but clearly label Spring Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations.                                                                                  |
-| Hide unfinished panels         | Only expose the original MVP routes plus any fully hardened additions.                                                                        | Safest smaller surface, but requires UI gating work.                                                                                  |
+| Strategy                       | Scope                                                                                                                                                | Trade-off                                                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Harden all visible panels      | Ship every current route as supported `0.1.x` functionality.                                                                                         | Delivered for the alpha line and promoted to `0.1.0`; keep focused backend tests, docs, and release validation current. |
+| Mark newer panels experimental | Keep all routes visible but clearly label Spring Data, Startup, Memory, Scheduled, HTTP Probe, Log Tail, Profile Diff, and Security as experimental. | Faster release, but docs must set expectations.                                                                         |
+| Hide unfinished panels         | Only expose the original MVP routes plus any fully hardened additions.                                                                               | Safest smaller surface, but requires UI gating work.                                                                    |
 
 Delivered release stance: **harden all visible panels**.
 
@@ -277,6 +277,7 @@ Already implemented beyond the original MVP surface:
 
 - Startup Timeline.
 - JVM memory panel.
+- Tuning Advisor for JVM and Kubernetes memory sizing.
 - Spring Data repository explorer.
 - Spring Cache panel with metrics, annotation discovery, and confirmed clear actions.
 - Dev Services panel for Docker Compose snapshots, Testcontainers beans, and Spring Boot service connection metadata.
@@ -550,7 +551,7 @@ Before future releases, rerun this checklist after any release-facing code or do
 | Risk                                 | Impact | Mitigation                                                                                                                                                         |
 | ------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Accidentally exposing sensitive data | High   | Localhost-only, dev-only activation, secret masking, value exposure controls, production fail-closed defaults, and focused tests for every panel surfacing values. |
-| Regressing visible panel hardening   | High   | Keep the current route set as the supported release surface, and require focused tests, docs, and release validation for release-facing changes.                     |
+| Regressing visible panel hardening   | High   | Keep the current route set as the supported release surface, and require focused tests, docs, and release validation for release-facing changes.                   |
 | Actuator endpoints unavailable       | Medium | Internal bridge, stable empty DTOs, graceful UI states, setup guidance.                                                                                            |
 | Optional Spring modules unavailable  | Medium | Classpath gating, empty DTOs, and clear UI empty states for Spring Data, Spring Cache, Security, scheduling, and startup data.                                     |
 | Duplicating Spring Boot Admin        | Medium | Stay focused on embedded local single-app developer experience.                                                                                                    |
