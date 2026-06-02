@@ -24,6 +24,12 @@ describe('loadError', () => {
     expect(formatLoadError(new Error('HTTP 500'), 'Unable to load overview')).toBe('Unable to load overview: HTTP 500')
   })
 
+  it('formats browser fetch failures with the same backend-down message', () => {
+    expect(formatLoadError(new TypeError('Failed to fetch'), 'Unable to load health')).toBe(
+      'Server unreachable: BootUI could not reach the Spring Boot app. The server may have been stopped. Start it again, then retry or refresh this page.'
+    )
+  })
+
   it('normalizes non-error values', () => {
     expect(toErrorMessage('Load failed')).toBe('Load failed')
     expect(toErrorMessage(null)).toBe('Request failed')

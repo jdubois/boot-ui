@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import {formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const data = ref(null)
@@ -46,7 +47,7 @@ async function fetchMemory() {
       inputsInitialized.value = true
     }
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load memory data')
   }
 }
 

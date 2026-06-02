@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import {SERVER_PAGE_SIZE} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -54,7 +55,7 @@ async function load(options = {}) {
           }
         : next
   } catch (e) {
-    if (id === requestId) error.value = e.message
+    if (id === requestId) error.value = formatLoadError(e, 'Unable to load conditions')
   } finally {
     if (id === requestId) targetLoading.value = false
   }

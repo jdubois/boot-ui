@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, onUnmounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 
@@ -25,7 +26,7 @@ async function load() {
     status.value = await res.json()
     lastFetched.value = Date.now()
   } catch (e) {
-    flash('Could not load DevTools status: ' + e.message, 'danger')
+    flash(formatLoadError(e, 'Could not load DevTools status'), 'danger')
   } finally {
     loading.value = false
   }
@@ -48,7 +49,7 @@ async function triggerLiveReload() {
     flash(result.message || 'LiveReload triggered.', 'success')
     await load()
   } catch (e) {
-    flash('Could not trigger LiveReload: ' + e.message, 'danger')
+    flash(formatLoadError(e, 'Could not trigger LiveReload'), 'danger')
   } finally {
     actionLoading.value = null
   }
@@ -79,7 +80,7 @@ async function restart() {
     flash(result.message || 'Restart scheduled.', 'success')
     pollUntilOnline()
   } catch (e) {
-    flash('Could not schedule restart: ' + e.message, 'danger')
+    flash(formatLoadError(e, 'Could not schedule restart'), 'danger')
   } finally {
     actionLoading.value = null
   }

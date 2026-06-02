@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 
@@ -109,7 +110,7 @@ async function loadReport(options = {}) {
     report.value = next
     error.value = null
   } catch (e) {
-    if (requestId === reportRequestId) error.value = e.message
+    if (requestId === reportRequestId) error.value = formatLoadError(e, 'Unable to load heap dump report')
   }
 }
 
@@ -130,7 +131,7 @@ async function runAction(path, body) {
     await loadReport()
     error.value = null
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to run heap dump action')
   } finally {
     loading.value = false
   }
