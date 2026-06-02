@@ -84,6 +84,22 @@ describe('Memory', () => {
     await flushPromises()
 
     expect(fetch).toHaveBeenCalledWith('api/memory')
+    const renderedText = wrapper.text()
+    const panelOrder = [
+      'Heap Memory',
+      'Non-Heap Memory',
+      'Memory Pools',
+      'Current JVM Arguments',
+      'JVM memory calculator',
+      'Recommended JVM Options',
+      'Kubernetes sizing'
+    ]
+    const panelPositions = panelOrder.map((label) => {
+      const position = renderedText.indexOf(label)
+      expect(position).toBeGreaterThanOrEqual(0)
+      return position
+    })
+    expect(panelPositions).toEqual([...panelPositions].sort((a, b) => a - b))
     expect(wrapper.text()).toContain('Kubernetes sizing')
     expect(wrapper.text()).toContain('1024Mi')
     expect(wrapper.text()).toContain('Guaranteed')
