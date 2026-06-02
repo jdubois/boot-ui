@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -30,7 +31,7 @@ async function load(options = {}) {
     lastFetched.value = Date.now()
     syncSelectedService()
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load Dev Services')
   } finally {
     loading.value = false
   }
@@ -146,7 +147,7 @@ async function openLogs(service) {
     if (!res.ok) throw new Error(await responseMessage(res))
     logs.value = await res.json()
   } catch (e) {
-    actionMessage.value = {type: 'danger', text: e.message}
+    actionMessage.value = {type: 'danger', text: formatLoadError(e, 'Unable to load service logs')}
   } finally {
     busyService.value = null
   }
@@ -171,7 +172,7 @@ async function restart(service) {
     await load({preserveActionMessage: true})
     actionMessage.value = {type: 'success', text: result.message}
   } catch (e) {
-    actionMessage.value = {type: 'danger', text: e.message}
+    actionMessage.value = {type: 'danger', text: formatLoadError(e, 'Unable to restart service')}
   } finally {
     busyService.value = null
   }

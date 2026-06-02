@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
+import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -93,7 +94,7 @@ async function load() {
   } catch (err) {
     report.value = {steps: []}
     expandedStepIds.value = new Set()
-    error.value = err instanceof Error ? err.message : 'Unable to load startup data'
+    error.value = formatLoadError(err, 'Unable to load startup data')
   } finally {
     loading.value = false
     loaded.value = true

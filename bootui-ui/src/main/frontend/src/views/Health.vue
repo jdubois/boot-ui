@@ -4,6 +4,7 @@ import HealthNode from './HealthNode.vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import {formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const root = ref(null)
@@ -18,7 +19,7 @@ async function fetchHealth() {
     root.value = await res.json()
     lastFetched.value = Date.now()
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load health')
   }
 }
 

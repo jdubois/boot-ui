@@ -93,4 +93,13 @@ describe('useServerPagedList', () => {
     expect(api.error.value).toBe('HTTP 503')
     expect(api.loading.value).toBe(false)
   })
+
+  it('normalizes backend-down fetch failures', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    const {api} = harness('api/things', 'things', () => ({}))
+    await api.load()
+    expect(api.error.value).toBe(
+      'Server unreachable: BootUI could not reach the Spring Boot app. The server may have been stopped. Start it again, then retry or refresh this page.'
+    )
+  })
 })

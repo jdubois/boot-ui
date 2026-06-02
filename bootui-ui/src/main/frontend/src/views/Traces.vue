@@ -2,6 +2,7 @@
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {formatDuration, formatTime} from '../utils/format.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -28,7 +29,7 @@ async function load() {
     report.value = await res.json()
     lastFetched.value = Date.now()
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load traces')
   } finally {
     loading.value = false
   }
@@ -43,7 +44,7 @@ async function openTrace(traceId) {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
   } catch (e) {
-    banner.value = {type: 'danger', text: 'Could not load trace: ' + e.message}
+    banner.value = {type: 'danger', text: formatLoadError(e, 'Could not load trace')}
   } finally {
     detailLoading.value = false
   }
@@ -79,7 +80,7 @@ async function clearAll() {
       banner.value = null
     }, 4000)
   } catch (e) {
-    banner.value = {type: 'danger', text: 'Could not clear: ' + e.message}
+    banner.value = {type: 'danger', text: formatLoadError(e, 'Could not clear traces')}
   } finally {
     busy.value = false
   }

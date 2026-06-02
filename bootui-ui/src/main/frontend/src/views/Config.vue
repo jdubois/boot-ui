@@ -1,6 +1,7 @@
 <script setup>
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -216,7 +217,7 @@ async function postOverride(name, value, onSuccess) {
     if (onSuccess) onSuccess()
     await load()
   } catch (e) {
-    flash('Could not save override: ' + e.message, 'danger')
+    flash(formatLoadError(e, 'Could not save override'), 'danger')
   } finally {
     saving.value = false
   }

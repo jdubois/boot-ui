@@ -1,6 +1,7 @@
 <script setup>
 import {computed, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
@@ -35,7 +36,7 @@ async function fetchAiUsage() {
     }
     lastUpdated.value = Date.now()
   } catch (e) {
-    error.value = e.message
+    error.value = formatLoadError(e, 'Unable to load AI usage data')
   }
 }
 
@@ -94,7 +95,7 @@ async function openChat(spanId) {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
   } catch (e) {
-    detail.value = {error: e.message}
+    detail.value = {error: formatLoadError(e, 'Unable to load AI chat details')}
   } finally {
     detailLoading.value = false
   }
