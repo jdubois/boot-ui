@@ -318,8 +318,8 @@ Each event row shows only an allowlisted summary - raw prompts, tool arguments, 
 excluded. The per-event "Reveal raw" action is an explicit, local-only escape hatch that returns the source JSON; it can
 be disabled with `bootui.copilot.allow-raw-reveal=false` and is also blocked when `bootui.expose-values=METADATA_ONLY`.
 The sidebar dims the panel when no session-state directory is found. Data is read-only - BootUI never modifies anything
-under `~/.copilot/`. The panel watches the directory through a Java NIO `WatchService` thread and pushes live updates via
-Server-Sent Events. Inspired by
+under `~/.copilot/`. The panel uses the same header refresh button and visibility-aware auto-refresh toggle as the other
+live data panels, while the backend watches the directory through a Java NIO `WatchService` thread. Inspired by
 [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control), which pioneered this dashboarding of
 Copilot CLI session state.
 
@@ -337,6 +337,6 @@ retained in JVM heap. The raw JSONL reveal endpoint is disabled by default with 
 enabling it is an explicit local-only escape hatch and is still blocked when `bootui.expose-values=METADATA_ONLY`. The
 sidebar dims the panel when no Claude Code projects directory is found. Data is read-only - BootUI never modifies anything
 under `~/.claude/`. Because Claude Code writes sessions inside per-project subdirectories, BootUI refreshes this panel
-through bounded polling rather than relying on root-directory file-system events.
+through the shared visibility-aware auto-refresh polling used by the other live data panels.
 
 ![BootUI Claude Code panel](images/bootui-claude-code.png)

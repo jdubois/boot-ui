@@ -36,8 +36,8 @@ flow) exposed by the sample app:
 | `dependencies.spec.js` | Vulnerability inventory, severity ordering, OSV scan states, and read-only behavior                                   |
 | `devtools.spec.js`     | DevTools LiveReload / restart status cards and guarded action feedback                                                |
 | `dev-services.spec.js` | Dev Services snapshot, filtering, details, log viewing, and disabled restart controls                                 |
-| `copilot.spec.js`      | Copilot dashboard, session explorer, sanitized events, raw reveal gating, and live refresh                            |
-| `claude-code.spec.js`  | Claude Code dashboard, project-log parsing, sanitized events, raw reveal gating, and polling refresh                  |
+| `copilot.spec.js`      | Copilot dashboard, session explorer, sanitized events, raw reveal gating, and auto-refresh controls                   |
+| `claude-code.spec.js`  | Claude Code dashboard, project-log parsing, sanitized events, raw reveal gating, and auto-refresh controls            |
 | `read-only.spec.js`    | Global and per-panel read-only properties block unsafe APIs and lock mutating browser controls                        |
 | `sample-api.spec.js`   | Sample REST API (`/api/hello`, `/api/secure`, `/api/sample/hello`, `/api/sample/products`) and basic-auth on `/admin` |
 

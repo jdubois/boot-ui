@@ -1,8 +1,10 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatNumber} from '../utils/format.js'
 import {formatLoadError} from '../utils/loadError.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -43,13 +45,11 @@ const categoryFilter = ref('ALL')
 const textFilter = ref('')
 const activeDetailTab = ref('activity')
 const activeSessionWindow = ref(null)
-const loading = ref(true)
 const detailLoading = ref(false)
 const error = ref(null)
-const status = ref('Loading')
+const lastFetched = ref(null)
 const rawById = ref({})
 const rawLoadingId = ref(null)
-let eventSource = null
 
 const categories = [
   'ALL',
@@ -126,16 +126,6 @@ const dashboardCards = computed(() => [
 const categoryRows = computed(() => addPercent(dashboard.value?.categoryCounts ?? [], totalEvents.value))
 const topToolRows = computed(() => addPercent(dashboard.value?.topTools ?? [], dashboard.value?.eventCount ?? 0))
 const modelRows = computed(() => addPercent(dashboard.value?.modelCounts ?? [], dashboard.value?.sessionCount ?? 0))
-
-const statusClass = computed(
-  () =>
-    ({
-      Live: 'text-bg-success',
-      Loading: 'text-bg-secondary',
-      Disconnected: 'text-bg-danger',
-      Unavailable: 'text-bg-warning'
-    })[status.value] || 'text-bg-secondary'
-)
 
 const filteredEvents = computed(() => {
   const events = detail.value?.recentEvents ?? []
@@ -235,33 +225,65 @@ function bucketWindowLabel(bucket, granularity) {
 }
 
 async function loadDashboard() {
-  try {
-    const res = await fetch(`${panelConfig.value.apiBase}/dashboard`)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    dashboard.value = await res.json()
-    error.value = null
-  } catch (e) {
-    error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} dashboard`)
-  }
+  const res = await fetch(`${panelConfig.value.apiBase}/dashboard`)
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  dashboard.value = await res.json()
 }
 
 async function loadSessions(window = activeSessionWindow.value) {
+  let url = `${panelConfig.value.apiBase}/sessions`
+  if (window) {
+    const params = new URLSearchParams()
+    params.set('since', window.since)
+    params.set('until', window.until)
+    url += `?${params.toString()}`
+  }
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  sessionList.value = await res.json()
+}
+
+async function refreshSessions(window = activeSessionWindow.value) {
   try {
-    let url = `${panelConfig.value.apiBase}/sessions`
-    if (window) {
-      const params = new URLSearchParams()
-      params.set('since', window.since)
-      params.set('until', window.until)
-      url += `?${params.toString()}`
-    }
-    const res = await fetch(url)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    sessionList.value = await res.json()
+    await loadSessions(window)
+    lastFetched.value = Date.now()
     error.value = null
   } catch (e) {
     error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} sessions`)
-  } finally {
-    loading.value = false
+  }
+}
+
+async function refreshPanel() {
+  const jobs = [
+    {
+      run: loadSessions,
+      message: `Unable to load ${panelConfig.value.title} sessions`
+    },
+    {
+      run: loadDashboard,
+      message: `Unable to load ${panelConfig.value.title} dashboard`
+    }
+  ]
+  const results = await Promise.all(
+    jobs.map(async (job) => {
+      try {
+        await job.run()
+        return null
+      } catch (e) {
+        return formatLoadError(e, job.message)
+      }
+    })
+  )
+  const firstError = results.find(Boolean)
+  if (firstError) {
+    error.value = firstError
+    return
+  }
+
+  error.value = null
+  lastFetched.value = Date.now()
+  if (selectedSessionId.value) {
+    await loadDetail(selectedSessionId.value)
   }
 }
 
@@ -274,12 +296,12 @@ async function selectActivityWindow(bucket, granularity) {
   }
   selectedSessionId.value = null
   detail.value = null
-  await loadSessions(activeSessionWindow.value)
+  await refreshSessions(activeSessionWindow.value)
 }
 
 async function clearActivityWindow() {
   activeSessionWindow.value = null
-  await loadSessions(null)
+  await refreshSessions(null)
 }
 
 async function loadDetail(sessionId) {
@@ -293,6 +315,7 @@ async function loadDetail(sessionId) {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
     rawById.value = {}
+    error.value = null
   } catch (e) {
     error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} session details`)
     detail.value = null
@@ -359,55 +382,30 @@ function pickSession(sessionId, options = {}) {
   loadDetail(sessionId)
 }
 
-function connectStream() {
-  disconnect()
-  eventSource = new EventSource(`${panelConfig.value.apiBase}/stream`)
-  eventSource.addEventListener('sessions', async (event) => {
-    try {
-      if (activeSessionWindow.value) {
-        await loadSessions(activeSessionWindow.value)
-      } else {
-        sessionList.value = JSON.parse(event.data)
-      }
-      status.value = sessionList.value?.available === false ? 'Unavailable' : 'Live'
-      // refresh detail if the selected session changed
-      if (selectedSessionId.value) {
-        await loadDetail(selectedSessionId.value)
-      }
-    } catch (e) {
-      // ignore parse errors
-    }
-  })
-  eventSource.addEventListener('dashboard', (event) => {
-    try {
-      dashboard.value = JSON.parse(event.data)
-    } catch (e) {
-      // ignore parse errors
-    }
-  })
-  eventSource.onerror = () => {
-    status.value = 'Disconnected'
-  }
+function resetPanelState() {
+  sessionList.value = null
+  dashboard.value = null
+  selectedSessionId.value = null
+  detail.value = null
+  categoryFilter.value = 'ALL'
+  textFilter.value = ''
+  activeDetailTab.value = 'activity'
+  activeSessionWindow.value = null
+  error.value = null
+  lastFetched.value = null
+  rawById.value = {}
+  rawLoadingId.value = null
 }
 
-function disconnect() {
-  if (eventSource) {
-    eventSource.close()
-    eventSource = null
-  }
-}
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(refreshPanel)
 
-onMounted(async () => {
-  await Promise.all([loadSessions(), loadDashboard()])
-  if (sessionList.value?.available !== false) {
-    status.value = 'Live'
-    connectStream()
-  } else {
-    status.value = 'Unavailable'
+watch(
+  () => route.name,
+  () => {
+    resetPanelState()
+    load()
   }
-})
-
-onBeforeUnmount(disconnect)
+)
 </script>
 
 <template>
@@ -418,13 +416,15 @@ onBeforeUnmount(disconnect)
       :subtitle="panelConfig.description"
       :loading="loading"
       :error="error"
+      :last-fetched="lastFetched"
+      @refresh="load"
     >
       <template #actions>
-        <span :class="statusClass" class="badge">{{ status }}</span>
+        <AutoRefreshToggle v-model="autoRefresh" />
       </template>
     </PanelHeader>
 
-    <PanelSkeleton v-if="loading" />
+    <PanelSkeleton v-if="initialLoading" />
     <div v-else-if="!available" class="card border-info">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-info-circle me-2"></i>{{ panelConfig.emptyTitle }}</h5>
