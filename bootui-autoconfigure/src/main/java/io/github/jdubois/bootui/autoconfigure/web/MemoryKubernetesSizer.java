@@ -4,11 +4,14 @@ import io.github.jdubois.bootui.core.BootUiDtos.KubernetesMemoryRecommendationDt
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 final class MemoryKubernetesSizer {
 
     static final int RECOMMENDED_MIN_HEADROOM_PERCENT = 10;
     static final int RECOMMENDED_MAX_HEADROOM_PERCENT = 15;
+    static final double MAX_HEAP_PERCENTAGE = 75.0;
+    static final double RECOMMENDED_MIN_HEAP_PERCENTAGE = 65.0;
 
     private static final long MB = 1024L * 1024L;
     private static final long MIN_BURSTABLE_REQUEST_BYTES = 128L * MB;
@@ -24,7 +27,12 @@ final class MemoryKubernetesSizer {
             long nonHeapCommittedBytes,
             long directBufferMemoryUsedBytes,
             boolean nativeMemoryTrackingEnabled,
-            Long detectedContainerLimitBytes) {
+            Long detectedContainerLimitBytes,
+            double maxRamPercentage,
+            double initialRamPercentage,
+            String javaToolOptions,
+            boolean burstableEnabled,
+            boolean actuatorProbesEnabled) {
 
         long currentSnapshotBytes = estimateCurrentSnapshotBytes(
                 calculation, heapCommittedBytes, nonHeapCommittedBytes, directBufferMemoryUsedBytes);
@@ -48,20 +56,30 @@ final class MemoryKubernetesSizer {
                     "Unavailable",
                     "Low",
                     List.copyOf(warnings),
-                    "");
+                    "",
+                    0,
+                    0,
+                    "",
+                    burstableEnabled,
+                    actuatorProbesEnabled);
         }
 
         long limitBytes = calculation.totalMemoryBytes();
-        long requestBytes = limitBytes;
         long burstableRequestBytes = estimateBurstableRequestBytes(limitBytes, currentSnapshotBytes);
+        long requestBytes = burstableEnabled ? burstableRequestBytes : limitBytes;
         List<String> warnings = buildWarnings(
                 calculation,
                 nativeMemoryTrackingEnabled,
                 detectedContainerLimitBytes,
                 burstableRequestBytes,
-                limitBytes);
+                limitBytes,
+                maxRamPercentage,
+                javaToolOptions,
+                burstableEnabled,
+                actuatorProbesEnabled);
         String confidence = confidence(calculation, nativeMemoryTrackingEnabled, detectedContainerLimitBytes);
-        String yaml = buildYaml(formatMi(requestBytes), formatMi(limitBytes), calculation.jvmOptions());
+        String qosClass = requestBytes < limitBytes ? "Burstable" : "Guaranteed";
+        String yaml = buildYaml(formatMi(requestBytes), formatMi(limitBytes), javaToolOptions, actuatorProbesEnabled);
 
         return new KubernetesMemoryRecommendationDto(
                 requestBytes,
@@ -74,10 +92,23 @@ final class MemoryKubernetesSizer {
                 formatMi(burstableRequestBytes),
                 formatMi(currentSnapshotBytes),
                 detectedContainerLimitMemory,
-                "Guaranteed",
+                qosClass,
                 confidence,
                 List.copyOf(warnings),
-                yaml);
+                yaml,
+                maxRamPercentage,
+                initialRamPercentage,
+                javaToolOptions,
+                burstableEnabled,
+                actuatorProbesEnabled);
+    }
+
+    static double heapPercentage(MemoryCalculationDto calculation) {
+        if (!calculation.valid() || calculation.totalMemoryBytes() <= 0) {
+            return 0;
+        }
+        double calculated = calculation.heapBytes() * 100.0 / calculation.totalMemoryBytes();
+        return Math.max(1.0, Math.min(MAX_HEAP_PERCENTAGE, calculated));
     }
 
     private static long estimateCurrentSnapshotBytes(
@@ -105,11 +136,27 @@ final class MemoryKubernetesSizer {
             boolean nativeMemoryTrackingEnabled,
             Long detectedContainerLimitBytes,
             long burstableRequestBytes,
-            long limitBytes) {
+            long limitBytes,
+            double maxRamPercentage,
+            String javaToolOptions,
+            boolean burstableEnabled,
+            boolean actuatorProbesEnabled) {
 
         List<String> warnings = new ArrayList<>();
+        warnings.add(garbageCollectorWarning(javaToolOptions));
+        if (burstableEnabled) {
+            warnings.add(
+                    "Burstable mode lowers requests.memory below limits.memory; use it only in clusters that intentionally overcommit memory.");
+        } else {
+            warnings.add(
+                    "Request equals limit for Kubernetes Guaranteed QoS; enable burstable mode only in clusters that intentionally overcommit memory.");
+        }
+        if (!actuatorProbesEnabled) {
+            warnings.add(
+                    "Spring Boot Actuator probes are omitted from the snippet; enabling them is recommended so Kubernetes can restart or drain unhealthy pods.");
+        }
         warnings.add(
-                "Request equals limit for Kubernetes Guaranteed QoS; use the burstable request only in clusters that intentionally overcommit memory.");
+                "JAVA_TOOL_OPTIONS uses MaxRAMPercentage/InitialRAMPercentage so the heap follows the container memory limit; fixed metaspace, code cache, direct memory, and stack caps must still fit if you shrink the pod.");
         if (detectedContainerLimitBytes != null && detectedContainerLimitBytes.longValue() != limitBytes) {
             warnings.add("Detected cgroup memory limit is "
                     + formatMi(detectedContainerLimitBytes)
@@ -134,14 +181,35 @@ final class MemoryKubernetesSizer {
             warnings.add(
                     "Thread budget is below the current live thread count; increase it before applying these limits.");
         }
-        if (calculation.heapBytes() * 100.0 / limitBytes > 75.0) {
-            warnings.add("Heap is above 75% of the container limit; verify native memory under representative load.");
+        double calculatedHeapPercentage = calculation.heapBytes() * 100.0 / limitBytes;
+        if (calculatedHeapPercentage > MAX_HEAP_PERCENTAGE) {
+            warnings.add("Kubernetes heap sizing is capped at "
+                    + formatPercentage(MAX_HEAP_PERCENTAGE)
+                    + "% of the container limit to leave room for native memory.");
+        } else if (maxRamPercentage < RECOMMENDED_MIN_HEAP_PERCENTAGE) {
+            warnings.add(
+                    "Heap is "
+                            + formatPercentage(maxRamPercentage)
+                            + "% of the container limit because fixed non-heap and thread-stack reservations are high for this memory size.");
         }
         if (burstableRequestBytes < limitBytes) {
             warnings.add(
                     "The burstable request is based on the current committed-memory snapshot and can be too low after warmup.");
         }
         return warnings;
+    }
+
+    private static String garbageCollectorWarning(String javaToolOptions) {
+        if (javaToolOptions != null && javaToolOptions.contains("-XX:+UseZGC")) {
+            String mode = javaToolOptions.contains("-XX:+ZGenerational") ? " with generational mode" : "";
+            return "Garbage collector: ZGC"
+                    + mode
+                    + " is selected for calculated heaps of 4 GiB or more to prioritize low pause times.";
+        }
+        if (javaToolOptions != null && javaToolOptions.contains("-XX:+UseG1GC")) {
+            return "Garbage collector: G1GC is selected for calculated heaps below 4 GiB; the advisor switches to ZGC for larger heaps.";
+        }
+        return "Garbage collector: unavailable until the JVM options can be calculated.";
     }
 
     private static String confidence(
@@ -158,22 +226,50 @@ final class MemoryKubernetesSizer {
         return "Medium";
     }
 
-    private static String buildYaml(String requestMemory, String limitMemory, String jvmOptions) {
-        String escapedJvmOptions = jvmOptions.replace("\\", "\\\\").replace("\"", "\\\"");
-        return "resources:\n"
-                + "  requests:\n"
-                + "    memory: \""
-                + requestMemory
-                + "\"\n"
-                + "  limits:\n"
-                + "    memory: \""
-                + limitMemory
-                + "\"\n"
-                + "env:\n"
-                + "  - name: JAVA_TOOL_OPTIONS\n"
-                + "    value: \""
-                + escapedJvmOptions
-                + "\"";
+    private static String buildYaml(
+            String requestMemory, String limitMemory, String javaToolOptions, boolean actuatorProbesEnabled) {
+        String escapedJvmOptions = javaToolOptions.replace("\\", "\\\\").replace("\"", "\\\"");
+        StringBuilder yaml = new StringBuilder(512);
+        yaml.append("resources:\n")
+                .append("  requests:\n")
+                .append("    memory: \"")
+                .append(requestMemory)
+                .append("\"\n")
+                .append("  limits:\n")
+                .append("    memory: \"")
+                .append(limitMemory)
+                .append("\"\n")
+                .append("env:\n")
+                .append("  - name: JAVA_TOOL_OPTIONS\n")
+                .append("    value: >-\n")
+                .append("      ")
+                .append(escapedJvmOptions);
+        if (actuatorProbesEnabled) {
+            yaml.append("\n")
+                    .append("  - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED\n")
+                    .append("    value: \"true\"\n")
+                    .append("startupProbe:\n")
+                    .append("  httpGet:\n")
+                    .append("    path: /actuator/health/liveness\n")
+                    .append("    port: 8080\n")
+                    .append("  failureThreshold: 30\n")
+                    .append("  periodSeconds: 10\n")
+                    .append("readinessProbe:\n")
+                    .append("  httpGet:\n")
+                    .append("    path: /actuator/health/readiness\n")
+                    .append("    port: 8080\n")
+                    .append("  periodSeconds: 10\n")
+                    .append("  timeoutSeconds: 5\n")
+                    .append("  failureThreshold: 3\n")
+                    .append("livenessProbe:\n")
+                    .append("  httpGet:\n")
+                    .append("    path: /actuator/health/liveness\n")
+                    .append("    port: 8080\n")
+                    .append("  periodSeconds: 15\n")
+                    .append("  timeoutSeconds: 5\n")
+                    .append("  failureThreshold: 3");
+        }
+        return yaml.toString();
     }
 
     private static long nonNegative(long value) {
@@ -190,5 +286,9 @@ final class MemoryKubernetesSizer {
     static String formatMi(long bytes) {
         long mebibytes = Math.max(0, (bytes + MB - 1) / MB);
         return mebibytes + "Mi";
+    }
+
+    private static String formatPercentage(double percentage) {
+        return String.format(Locale.ROOT, "%.1f", percentage);
     }
 }

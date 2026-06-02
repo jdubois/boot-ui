@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
+import java.util.Locale;
 
 /**
  * Paketo {@code libjvm}-style JVM memory calculator.
@@ -23,8 +24,10 @@ import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
  *       not applied. We do apply a {@link #META_SAFETY_FACTOR} on top of the
  *       observed count to account for lazy class loading after the user
  *       opens the panel.</li>
- *   <li><b>Default thread count</b> is {@code max(liveThreads, 250)} so a
- *       freshly-started small app doesn't under-reserve stack memory.</li>
+ *   <li><b>Default thread count</b> is {@code max(liveThreads, 250)} for
+ *       platform threads and {@code max(liveThreads, 80)} when Spring
+ *       virtual threads are enabled, so a freshly-started small app doesn't
+ *       under-reserve stack memory.</li>
  * </ul>
  *
  * <p>This class is pure (no Spring, no JMX); the controller resolves all
@@ -46,6 +49,13 @@ final class MemoryCalculator {
      * libjvm: {@code DefaultStack = 1 * Mebi}.
      */
     static final long STACK_BYTES_PER_THREAD = 1L * 1024 * 1024;
+
+    /**
+     * Smaller platform-thread stacks for virtual-thread deployments. The JVM
+     * still needs carrier/platform thread stacks, but the request-concurrency
+     * model no longer reserves one native stack per request.
+     */
+    static final long VIRTUAL_THREAD_STACK_BYTES_PER_THREAD = 512L * 1024;
 
     /**
      * libjvm: {@code ClassOverhead = 14_000_000} (decimal MB, not MiB).
@@ -70,6 +80,14 @@ final class MemoryCalculator {
      */
     static final int DEFAULT_THREAD_COUNT_FLOOR = 250;
 
+    /**
+     * Conservative carrier/platform-thread floor when Spring virtual threads are
+     * enabled. It leaves room for Tomcat acceptors, GC/JIT/helper threads,
+     * scheduler/database workers, and carrier threads without assuming a
+     * 200-thread servlet request pool.
+     */
+    static final int VIRTUAL_THREAD_COUNT_FLOOR = 80;
+
     static final int MIN_THREAD_COUNT = 1;
     static final int MAX_THREAD_COUNT = 10_000;
     static final int MIN_HEAD_ROOM_PERCENT = 0;
@@ -90,7 +108,12 @@ final class MemoryCalculator {
     }
 
     static int defaultThreadCount(int liveThreadCount) {
-        return Math.max(liveThreadCount, DEFAULT_THREAD_COUNT_FLOOR);
+        return defaultThreadCount(liveThreadCount, false);
+    }
+
+    static int defaultThreadCount(int liveThreadCount, boolean virtualThreadsEnabled) {
+        int floor = virtualThreadsEnabled ? VIRTUAL_THREAD_COUNT_FLOOR : DEFAULT_THREAD_COUNT_FLOOR;
+        return Math.max(liveThreadCount, floor);
     }
 
     private static long bytesToMb(long bytes) {
@@ -127,6 +150,24 @@ final class MemoryCalculator {
             int headRoomPercent,
             int liveThreadCount,
             int liveLoadedClassCount) {
+        return calculate(
+                totalMemoryBytes,
+                threadCount,
+                loadedClasses,
+                headRoomPercent,
+                liveThreadCount,
+                liveLoadedClassCount,
+                false);
+    }
+
+    MemoryCalculationDto calculate(
+            long totalMemoryBytes,
+            int threadCount,
+            int loadedClasses,
+            int headRoomPercent,
+            int liveThreadCount,
+            int liveLoadedClassCount,
+            boolean virtualThreadsEnabled) {
 
         long clampedTotal = clamp(totalMemoryBytes, MIN_TOTAL_MEMORY_BYTES, MAX_TOTAL_MEMORY_BYTES);
         int clampedThreads = (int) clamp(threadCount, MIN_THREAD_COUNT, MAX_THREAD_COUNT);
@@ -134,7 +175,8 @@ final class MemoryCalculator {
         int clampedClasses = Math.max(loadedClasses, 0);
 
         long metaspaceBytes = computeMetaspaceBytes(clampedClasses);
-        long stackBytesTotal = STACK_BYTES_PER_THREAD * (long) clampedThreads;
+        long stackBytesPerThread = stackBytesPerThread(virtualThreadsEnabled);
+        long stackBytesTotal = stackBytesPerThread * (long) clampedThreads;
         long fixedRegionsBytes = DIRECT_MEMORY_BYTES + metaspaceBytes + CODE_CACHE_BYTES + stackBytesTotal;
         long headRoomBytes = (long) ((clampedHeadRoom / 100.0) * clampedTotal);
         long heapBytes = clampedTotal - headRoomBytes - fixedRegionsBytes;
@@ -150,7 +192,7 @@ final class MemoryCalculator {
                     metaspaceBytes,
                     CODE_CACHE_BYTES,
                     DIRECT_MEMORY_BYTES,
-                    STACK_BYTES_PER_THREAD,
+                    stackBytesPerThread,
                     stackBytesTotal,
                     headRoomBytes,
                     fixedRegionsBytes,
@@ -159,13 +201,19 @@ final class MemoryCalculator {
                     liveThreadCount,
                     liveLoadedClassCount,
                     clampedHeadRoom,
+                    virtualThreadsEnabled,
                     "",
                     false,
                     message);
         }
 
         String jvmOptions = buildJvmOptions(
-                heapBytes, metaspaceBytes, CODE_CACHE_BYTES, DIRECT_MEMORY_BYTES, STACK_BYTES_PER_THREAD);
+                heapBytes,
+                metaspaceBytes,
+                CODE_CACHE_BYTES,
+                DIRECT_MEMORY_BYTES,
+                stackBytesPerThread,
+                virtualThreadsEnabled);
 
         return new MemoryCalculationDto(
                 clampedTotal,
@@ -173,7 +221,7 @@ final class MemoryCalculator {
                 metaspaceBytes,
                 CODE_CACHE_BYTES,
                 DIRECT_MEMORY_BYTES,
-                STACK_BYTES_PER_THREAD,
+                stackBytesPerThread,
                 stackBytesTotal,
                 headRoomBytes,
                 fixedRegionsBytes,
@@ -182,6 +230,7 @@ final class MemoryCalculator {
                 liveThreadCount,
                 liveLoadedClassCount,
                 clampedHeadRoom,
+                virtualThreadsEnabled,
                 jvmOptions,
                 true,
                 null);
@@ -196,12 +245,22 @@ final class MemoryCalculator {
      */
     long defaultTotalMemoryBytes(
             long heapCommittedBytes, long nonHeapCommittedBytes, int threadCount, int loadedClasses) {
+        return defaultTotalMemoryBytes(heapCommittedBytes, nonHeapCommittedBytes, threadCount, loadedClasses, false);
+    }
 
-        int safeThreads = Math.max(threadCount, DEFAULT_THREAD_COUNT_FLOOR);
+    long defaultTotalMemoryBytes(
+            long heapCommittedBytes,
+            long nonHeapCommittedBytes,
+            int threadCount,
+            int loadedClasses,
+            boolean virtualThreadsEnabled) {
+
+        int safeThreads =
+                Math.max(threadCount, virtualThreadsEnabled ? VIRTUAL_THREAD_COUNT_FLOOR : DEFAULT_THREAD_COUNT_FLOOR);
         long fixed = DIRECT_MEMORY_BYTES
                 + computeMetaspaceBytes(loadedClasses)
                 + CODE_CACHE_BYTES
-                + STACK_BYTES_PER_THREAD * (long) safeThreads;
+                + stackBytesPerThread(virtualThreadsEnabled) * (long) safeThreads;
         long floor = fixed + 128L * 1024 * 1024;
 
         long useful = heapCommittedBytes + Math.max(0, nonHeapCommittedBytes);
@@ -220,20 +279,51 @@ final class MemoryCalculator {
         return (long) Math.ceil(withFactor);
     }
 
+    String buildKubernetesJvmOptions(
+            MemoryCalculationDto calculation, double maxRamPercentage, double initialRamPercentage) {
+        if (!calculation.valid()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder(256);
+        sb.append("-XX:+UseContainerSupport");
+        sb.append(" -XX:MaxRAMPercentage=").append(formatPercentage(maxRamPercentage));
+        sb.append(" -XX:InitialRAMPercentage=").append(formatPercentage(initialRamPercentage));
+        sb.append(" -XX:MaxMetaspaceSize=")
+                .append(bytesToMb(calculation.metaspaceBytes()))
+                .append("m");
+        sb.append(" -XX:ReservedCodeCacheSize=")
+                .append(bytesToMb(calculation.codeCacheBytes()))
+                .append("m");
+        sb.append(" -XX:MaxDirectMemorySize=")
+                .append(bytesToMb(calculation.directMemoryBytes()))
+                .append("m");
+        sb.append(" -Xss").append(calculation.stackBytesPerThread() / 1024).append("k");
+        appendCommonOptions(sb, calculation.heapBytes(), calculation.virtualThreadsEnabled());
+        return sb.toString();
+    }
+
+    private static long stackBytesPerThread(boolean virtualThreadsEnabled) {
+        return virtualThreadsEnabled ? VIRTUAL_THREAD_STACK_BYTES_PER_THREAD : STACK_BYTES_PER_THREAD;
+    }
+
+    private static String formatPercentage(double percentage) {
+        return String.format(Locale.ROOT, "%.1f", percentage);
+    }
+
     private String buildJvmOptions(
             long heapBytes,
             long metaspaceBytes,
             long codeCacheBytes,
             long directMemoryBytes,
-            long stackBytesPerThread) {
+            long stackBytesPerThread,
+            boolean virtualThreadsEnabled) {
 
         long heapMb = bytesToMb(heapBytes);
         long metaMb = bytesToMb(metaspaceBytes);
         long ccMb = bytesToMb(codeCacheBytes);
         long dmMb = bytesToMb(directMemoryBytes);
         long stackKb = stackBytesPerThread / 1024;
-
-        String gcFlag = heapBytes >= GC_FLIP_HEAP_BYTES ? "-XX:+UseZGC" : "-XX:+UseG1GC";
 
         StringBuilder sb = new StringBuilder(256);
         sb.append("-Xms").append(heapMb).append("m");
@@ -242,15 +332,30 @@ final class MemoryCalculator {
         sb.append(" -XX:ReservedCodeCacheSize=").append(ccMb).append("m");
         sb.append(" -XX:MaxDirectMemorySize=").append(dmMb).append("m");
         sb.append(" -Xss").append(stackKb).append("k");
-        sb.append(" ").append(gcFlag);
+        sb.append(" -XX:+AlwaysPreTouch");
+        appendCommonOptions(sb, heapBytes, virtualThreadsEnabled);
+        return sb.toString();
+    }
+
+    private void appendCommonOptions(StringBuilder sb, long heapBytes, boolean virtualThreadsEnabled) {
+        if (heapBytes >= GC_FLIP_HEAP_BYTES) {
+            sb.append(" -XX:+UseZGC");
+            if (jdkVersion.feature() >= 21 && jdkVersion.feature() < 24) {
+                sb.append(" -XX:+ZGenerational");
+            }
+        } else {
+            sb.append(" -XX:+UseG1GC");
+        }
         sb.append(" -XX:+UseStringDeduplication");
         if (jdkVersion.feature() >= 25) {
             sb.append(" -XX:+UseCompactObjectHeaders");
         }
+        if (virtualThreadsEnabled) {
+            sb.append(" -Dspring.threads.virtual.enabled=true");
+        }
         sb.append(" -XX:+ExitOnOutOfMemoryError");
         sb.append(" -XX:+HeapDumpOnOutOfMemoryError");
         sb.append(" -XX:HeapDumpPath=/tmp");
-        return sb.toString();
     }
 
     /**

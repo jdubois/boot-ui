@@ -35,13 +35,20 @@ export function useMemoryReport({endpoint = 'api/memory', tuningInputs = false} 
   const totalMemoryMb = ref(null)
   const threadCount = ref(null)
   const headRoomPercent = ref(null)
+  const virtualThreadsEnabled = ref(false)
+  const kubernetesBurstableEnabled = ref(false)
+  const kubernetesActuatorEnabled = ref(true)
   const inputsInitialized = ref(false)
   let debounceHandle = null
   let initializingInputs = false
 
   function buildQuery() {
-    if (!tuningInputs || !inputsInitialized.value) return ''
+    if (!tuningInputs) return ''
+    if (!inputsInitialized.value) return ''
     const params = new URLSearchParams()
+    params.set('virtualThreadsEnabled', String(virtualThreadsEnabled.value))
+    params.set('kubernetesBurstableEnabled', String(kubernetesBurstableEnabled.value))
+    params.set('kubernetesActuatorEnabled', String(kubernetesActuatorEnabled.value))
     if (totalMemoryMb.value != null) params.set('totalMemoryMb', String(totalMemoryMb.value))
     if (threadCount.value != null) params.set('threadCount', String(threadCount.value))
     if (headRoomPercent.value != null) params.set('headRoomPercent', String(headRoomPercent.value))
@@ -62,6 +69,9 @@ export function useMemoryReport({endpoint = 'api/memory', tuningInputs = false} 
         totalMemoryMb.value = bytesToMb(payload.calculation.totalMemoryBytes)
         threadCount.value = payload.calculation.threadCount
         headRoomPercent.value = payload.calculation.headRoomPercent
+        virtualThreadsEnabled.value = payload.calculation.virtualThreadsEnabled ?? false
+        kubernetesBurstableEnabled.value = payload.kubernetes?.burstableEnabled ?? false
+        kubernetesActuatorEnabled.value = payload.kubernetes?.actuatorProbesEnabled ?? true
         inputsInitialized.value = true
         queueMicrotask(() => {
           initializingInputs = false
@@ -80,9 +90,19 @@ export function useMemoryReport({endpoint = 'api/memory', tuningInputs = false} 
   }
 
   if (tuningInputs) {
-    watch([totalMemoryMb, threadCount, headRoomPercent], () => {
-      if (inputsInitialized.value && !initializingInputs) scheduleReload()
-    })
+    watch(
+      [
+        totalMemoryMb,
+        threadCount,
+        headRoomPercent,
+        virtualThreadsEnabled,
+        kubernetesBurstableEnabled,
+        kubernetesActuatorEnabled
+      ],
+      () => {
+        if (inputsInitialized.value && !initializingInputs) scheduleReload()
+      }
+    )
   }
 
   const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchMemory)
@@ -98,6 +118,9 @@ export function useMemoryReport({endpoint = 'api/memory', tuningInputs = false} 
     totalMemoryMb,
     threadCount,
     headRoomPercent,
+    virtualThreadsEnabled,
+    kubernetesBurstableEnabled,
+    kubernetesActuatorEnabled,
     autoRefresh,
     loading,
     initialLoading,

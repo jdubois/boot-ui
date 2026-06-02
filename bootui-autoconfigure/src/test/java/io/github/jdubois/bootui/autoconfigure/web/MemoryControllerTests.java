@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import io.github.jdubois.bootui.autoconfigure.web.MemoryCalculator.JdkVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -42,6 +43,7 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.jvmInputArguments").isArray())
                 .andExpect(jsonPath("$.suggestedJvmOptions").isString())
                 .andExpect(jsonPath("$.calculation").isMap())
+                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(false))
                 .andExpect(jsonPath("$.kubernetes").isMap());
     }
 
@@ -155,6 +157,144 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.kubernetes.requestMemoryBytes").value(expectedBytes))
                 .andExpect(jsonPath("$.kubernetes.limitMemoryBytes").value(expectedBytes))
                 .andExpect(jsonPath("$.kubernetes.qosClass").value("Guaranteed"))
-                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("resources:")));
+                .andExpect(jsonPath("$.kubernetes.burstableEnabled").value(false))
+                .andExpect(jsonPath("$.kubernetes.actuatorProbesEnabled").value(true))
+                .andExpect(jsonPath("$.kubernetes.maxRamPercentage").isNumber())
+                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("resources:")))
+                .andExpect(
+                        jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("MaxRAMPercentage")))
+                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("startupProbe")))
+                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("readinessProbe")))
+                .andExpect(jsonPath("$.kubernetes.yaml")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xmx"))))
+                .andExpect(jsonPath("$.kubernetes.yaml")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xms"))));
+    }
+
+    @Test
+    void tuningAdvisorVirtualThreadsParamChangesStackSizingAndSpringProperty() throws Exception {
+        MockMvc mvc = standaloneSetup(
+                        new MemoryController(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
+                .build();
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .param("threadCount", "250")
+                        .param("virtualThreadsEnabled", "false")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(false))
+                .andExpect(jsonPath("$.calculation.stackBytesPerThread").value(1024L * 1024L))
+                .andExpect(jsonPath("$.suggestedJvmOptions")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.containsString("spring.threads.virtual.enabled"))));
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .param("threadCount", "250")
+                        .param("virtualThreadsEnabled", "true")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(true))
+                .andExpect(jsonPath("$.calculation.stackBytesPerThread").value(512L * 1024L))
+                .andExpect(jsonPath("$.suggestedJvmOptions")
+                        .value(org.hamcrest.Matchers.containsString("-Dspring.threads.virtual.enabled=true")))
+                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
+                        .value(org.hamcrest.Matchers.containsString("-Dspring.threads.virtual.enabled=true")))
+                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xmx"))))
+                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xms"))));
+    }
+
+    @Test
+    void tuningAdvisorUsesApplicationVirtualThreadsPropertyWhenParamIsAbsent() throws Exception {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.threads.virtual.enabled", "false");
+        MockMvc mvc = standaloneSetup(new MemoryController(
+                        new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), environment))
+                .build();
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(false))
+                .andExpect(jsonPath("$.calculation.stackBytesPerThread").value(1024L * 1024L))
+                .andExpect(jsonPath("$.suggestedJvmOptions")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.containsString("spring.threads.virtual.enabled"))));
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .param("virtualThreadsEnabled", "true")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(true))
+                .andExpect(jsonPath("$.calculation.stackBytesPerThread").value(512L * 1024L));
+    }
+
+    @Test
+    void tuningAdvisorDoesNotEnableVirtualThreadsWhenPropertyIsAbsent() throws Exception {
+        MockMvc mvc = standaloneSetup(new MemoryController(
+                        new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), new MockEnvironment()))
+                .build();
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(false))
+                .andExpect(jsonPath("$.suggestedJvmOptions")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.containsString("spring.threads.virtual.enabled"))));
+    }
+
+    @Test
+    void kubernetesBurstableParamChangesRequestAndQos() throws Exception {
+        MockMvc mvc = standaloneSetup(
+                        new MemoryController(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
+                .build();
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "4096")
+                        .param("kubernetesBurstableEnabled", "true")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kubernetes.burstableEnabled").value(true))
+                .andExpect(jsonPath("$.kubernetes.qosClass").value("Burstable"))
+                .andExpect(jsonPath("$.kubernetes.limitMemory").value("4096Mi"))
+                .andExpect(jsonPath("$.kubernetes.requestMemory").value(org.hamcrest.Matchers.not("4096Mi")))
+                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("memory: \"")))
+                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("limits:")));
+    }
+
+    @Test
+    void kubernetesActuatorToggleUsesApplicationConfigAndCanBeOverridden() throws Exception {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("management.endpoint.health.probes.enabled", "false");
+        MockMvc mvc = standaloneSetup(new MemoryController(
+                        new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), environment))
+                .build();
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kubernetes.actuatorProbesEnabled").value(false))
+                .andExpect(jsonPath("$.kubernetes.yaml")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("startupProbe"))))
+                .andExpect(jsonPath("$.kubernetes.yaml")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.containsString("MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED"))));
+
+        mvc.perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .param("kubernetesActuatorEnabled", "true")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kubernetes.actuatorProbesEnabled").value(true))
+                .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("startupProbe")))
+                .andExpect(jsonPath("$.kubernetes.yaml")
+                        .value(org.hamcrest.Matchers.containsString("MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED")));
     }
 }

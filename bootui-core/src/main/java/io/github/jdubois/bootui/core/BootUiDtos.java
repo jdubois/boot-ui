@@ -718,6 +718,7 @@ public final class BootUiDtos {
             int liveThreadCount,
             int liveLoadedClassCount,
             int headRoomPercent,
+            boolean virtualThreadsEnabled,
             String jvmOptions,
             boolean valid,
             String error) {}
@@ -740,7 +741,12 @@ public final class BootUiDtos {
             String qosClass,
             String confidence,
             List<String> warnings,
-            String yaml) {}
+            String yaml,
+            double maxRamPercentage,
+            double initialRamPercentage,
+            String javaToolOptions,
+            boolean burstableEnabled,
+            boolean actuatorProbesEnabled) {}
 
     /**
      * One captured heap dump file on local disk.

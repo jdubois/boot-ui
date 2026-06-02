@@ -50,13 +50,20 @@ JVM sizing controls mixed into the view.
 
 ### Tuning Advisor
 
-The Tuning Advisor panel uses the same live JVM context to review current JVM input arguments, run a Paketo-style JVM
-memory calculator, and generate suggested JVM options. The calculator partitions a target container memory budget into
-heap, metaspace, code cache, direct memory, thread stacks, and headroom, then turns that plan into copyable JVM options.
-Its Kubernetes calculator turns the calculated process budget into copyable `requests.memory`, `limits.memory`, and
-`JAVA_TOOL_OPTIONS` snippets. The Kubernetes recommendation keeps request and limit equal by default for Guaranteed QoS
-and labels any smaller current-snapshot request as a Burstable alternative that should be validated under representative
-load.
+The Tuning Advisor panel uses the same live JVM context to review current JVM input arguments, explain
+`spring.threads.virtual.enabled=true`, and run JVM sizing calculators for both dedicated hosts and Kubernetes. The
+virtual-thread toggle initializes from the application's existing property value when it is set. When the property is not
+configured, BootUI leaves the toggle off but marks enabling it as the recommended performance setting. It changes the
+platform-thread stack budget, generated Spring property, and heap sizing recommendations.
+
+The bare-metal calculator partitions a target JVM process memory budget into heap, metaspace, code cache, direct memory,
+thread stacks, and headroom, then turns that plan into copyable JVM options with fixed `-Xms` and `-Xmx` values. The
+Kubernetes calculator keeps `requests.memory == limits.memory` for Guaranteed QoS by default, but can switch to a
+snapshot-based Burstable request when the operator intentionally overcommits memory. Its `JAVA_TOOL_OPTIONS` uses
+`-XX:MaxRAMPercentage` and `-XX:InitialRAMPercentage` instead of fixed heap sizes so the JVM heap follows the container
+memory limit when an operator resizes the pod. A Spring Boot Actuator probes toggle initializes from the current health
+probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
+non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
 
 ![BootUI Tuning Advisor panel](images/bootui-tuning-advisor.png)
 

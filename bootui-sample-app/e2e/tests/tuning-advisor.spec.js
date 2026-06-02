@@ -20,26 +20,71 @@ test.describe('Tuning Advisor view', () => {
 
     await openView('tuning-advisor', 'Tuning Advisor')
 
-    const jvmOptionsCard = page.locator('.card', {hasText: 'Recommended JVM Options'}).first()
+    const virtualThreadsCard = page.locator('.card', {hasText: 'Spring virtual threads'}).first()
+    const jvmOptionsCard = page.locator('.card', {hasText: 'Bare metal JVM options'}).first()
     const kubernetesCard = page.locator('.card', {hasText: 'Kubernetes calculator'}).first()
+    const kubernetesYaml = kubernetesCard.locator('.options-box code')
+    await expect(virtualThreadsCard).toBeVisible()
+    await expect(virtualThreadsCard).toContainText('spring.threads.virtual.enabled=true')
+    await expect(virtualThreadsCard.locator('#virtualThreadsEnabled')).not.toBeChecked()
     await expect(jvmOptionsCard).toBeVisible()
     await expect(kubernetesCard).toBeVisible()
     await expect(kubernetesCard).toContainText('Guaranteed')
-    await expect(kubernetesCard.locator('.options-box code')).toContainText('JAVA_TOOL_OPTIONS')
+    await expect(kubernetesCard.locator('#kubernetesBurstableEnabled')).not.toBeChecked()
+    await expect(kubernetesCard.locator('#kubernetesActuatorEnabled')).toBeChecked()
+    await expect(kubernetesYaml).toContainText('JAVA_TOOL_OPTIONS')
+    await expect(kubernetesYaml).toContainText('MaxRAMPercentage')
+    await expect(kubernetesYaml).toContainText('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
+    await expect(kubernetesYaml).toContainText('readinessProbe')
+    await expect(kubernetesYaml).not.toContainText('-Xmx')
+    await expect(kubernetesCard).toContainText('Garbage collector:')
+    await expect(kubernetesCard).toContainText('Sizing notes')
 
     const optionsBlock = jvmOptionsCard.locator('.options-box code')
     await expect(optionsBlock).toContainText(/-Xmx|-XX:/)
+    await expect(optionsBlock).not.toContainText('spring.threads.virtual.enabled=true')
 
     const copyButton = jvmOptionsCard.getByRole('button', {name: /Copy/})
     await copyButton.click()
     await expect(page.getByRole('button', {name: /Copied!/})).toBeVisible({timeout: 5_000})
   })
 
+  test('Kubernetes toggles update the deployment snippet', async ({openView, page}) => {
+    await openView('tuning-advisor', 'Tuning Advisor')
+
+    const kubernetesCard = page.locator('.card', {hasText: 'Kubernetes calculator'}).first()
+    const yamlBlock = kubernetesCard.locator('.options-box code')
+    const burstableToggle = kubernetesCard.locator('#kubernetesBurstableEnabled')
+    const actuatorToggle = kubernetesCard.locator('#kubernetesActuatorEnabled')
+
+    await expect(kubernetesCard).toBeVisible()
+    const guaranteedYaml = await yamlBlock.innerText()
+    const guaranteedRequest = guaranteedYaml.match(/requests:\s+memory: "([^"]+)"/)?.[1]
+    expect(guaranteedRequest).toBeTruthy()
+
+    await burstableToggle.check()
+    await expect
+      .poll(
+        async () => {
+          const yaml = await yamlBlock.innerText()
+          return yaml.match(/requests:\s+memory: "([^"]+)"/)?.[1] || ''
+        },
+        {timeout: 5_000}
+      )
+      .not.toBe(guaranteedRequest)
+    await expect(kubernetesCard).toContainText('Burstable')
+
+    await actuatorToggle.uncheck()
+    await expect(yamlBlock).not.toContainText('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
+    await expect(yamlBlock).not.toContainText('startupProbe')
+    await expect(yamlBlock).not.toContainText('readinessProbe')
+  })
+
   test('editing total memory updates the recommended -Xmx', async ({openView, page}) => {
     await openView('tuning-advisor', 'Tuning Advisor')
 
-    const calculatorCard = page.locator('.card', {hasText: 'JVM memory calculator'})
-    const jvmOptionsCard = page.locator('.card', {hasText: 'Recommended JVM Options'}).first()
+    const calculatorCard = page.locator('.card', {hasText: 'Bare metal JVM calculator'})
+    const jvmOptionsCard = page.locator('.card', {hasText: 'Bare metal JVM options'}).first()
     await expect(calculatorCard).toBeVisible()
 
     const totalInput = calculatorCard.locator('input[type="number"]').first()
