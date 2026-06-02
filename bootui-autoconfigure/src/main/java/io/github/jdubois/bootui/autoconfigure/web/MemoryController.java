@@ -59,7 +59,6 @@ public class MemoryController {
             @RequestParam(name = "totalMemoryMb", required = false) Long totalMemoryMb,
             @RequestParam(name = "threadCount", required = false) Integer threadCount,
             @RequestParam(name = "headRoomPercent", required = false) Integer headRoomPercent,
-            @RequestParam(name = "virtualThreadsEnabled", required = false) Boolean virtualThreadsEnabled,
             @RequestParam(name = "kubernetesBurstableEnabled", required = false) Boolean kubernetesBurstableEnabled,
             @RequestParam(name = "kubernetesActuatorEnabled", required = false) Boolean kubernetesActuatorEnabled) {
         MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
@@ -85,7 +84,7 @@ public class MemoryController {
         int liveThreads = threadBean.getThreadCount();
         int liveClasses = classBean.getLoadedClassCount();
         OptionalLong detectedContainerMemoryLimit = containerMemoryLimitDetector.detectLimit();
-        boolean resolvedVirtualThreadsEnabled = resolveVirtualThreadsEnabled(virtualThreadsEnabled);
+        boolean resolvedVirtualThreadsEnabled = resolveVirtualThreadsEnabled();
         boolean resolvedKubernetesBurstableEnabled = kubernetesBurstableEnabled != null && kubernetesBurstableEnabled;
         boolean resolvedKubernetesActuatorEnabled = resolveKubernetesActuatorEnabled(kubernetesActuatorEnabled);
         int defaultThreadCount = MemoryCalculator.defaultThreadCount(liveThreads, resolvedVirtualThreadsEnabled);
@@ -132,10 +131,7 @@ public class MemoryController {
         return new MemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation, kubernetes);
     }
 
-    private boolean resolveVirtualThreadsEnabled(Boolean virtualThreadsEnabled) {
-        if (virtualThreadsEnabled != null) {
-            return virtualThreadsEnabled;
-        }
+    private boolean resolveVirtualThreadsEnabled() {
         if (environment == null || !environment.containsProperty(VIRTUAL_THREADS_PROPERTY)) {
             return false;
         }

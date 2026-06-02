@@ -202,7 +202,7 @@ class MemoryCalculatorTests {
     }
 
     @Test
-    void virtualThreadsReduceStackBudgetAndEnableSpringProperty() {
+    void virtualThreadsReduceStackBudgetWithoutSettingSpringProperty() {
         MemoryCalculator calc = new MemoryCalculator(JDK_25);
 
         MemoryCalculationDto platformThreads = calc.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000, false);
@@ -213,7 +213,7 @@ class MemoryCalculatorTests {
                 .isEqualTo(MemoryCalculator.VIRTUAL_THREAD_STACK_BYTES_PER_THREAD);
         assertThat(virtualThreads.stackBytesTotal()).isLessThan(platformThreads.stackBytesTotal());
         assertThat(virtualThreads.heapBytes()).isGreaterThan(platformThreads.heapBytes());
-        assertThat(virtualThreads.jvmOptions()).contains("-Xss512k").contains("-Dspring.threads.virtual.enabled=true");
+        assertThat(virtualThreads.jvmOptions()).contains("-Xss512k").doesNotContain("spring.threads.virtual.enabled");
         assertThat(platformThreads.jvmOptions()).doesNotContain("spring.threads.virtual.enabled");
     }
 

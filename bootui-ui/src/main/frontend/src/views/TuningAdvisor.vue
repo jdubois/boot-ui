@@ -13,7 +13,6 @@ const {
   totalMemoryMb,
   threadCount,
   headRoomPercent,
-  virtualThreadsEnabled,
   kubernetesBurstableEnabled,
   kubernetesActuatorEnabled,
   autoRefresh,
@@ -22,6 +21,8 @@ const {
   load
 } = useMemoryReport({endpoint: 'api/tuning-advisor', tuningInputs: true})
 const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
+
+const springVirtualThreadsEnabled = computed(() => data.value?.calculation?.virtualThreadsEnabled === true)
 
 const breakdown = computed(() => {
   const c = data.value?.calculation
@@ -94,33 +95,38 @@ async function copyKubernetesYaml() {
         <div class="card-body text-muted small">No explicit JVM arguments were passed at startup.</div>
       </div>
 
-      <div class="card mb-4 border-info">
-        <div class="card-header bg-info-subtle d-flex justify-content-between align-items-center">
-          <span><i class="bi bi-lightning-charge me-2"></i>Spring virtual threads</span>
-          <div class="form-check form-switch mb-0">
-            <input
-              id="virtualThreadsEnabled"
-              v-model="virtualThreadsEnabled"
-              class="form-check-input"
-              type="checkbox"
-            />
-            <label class="form-check-label small fw-semibold" for="virtualThreadsEnabled">
-              {{ virtualThreadsEnabled ? 'Enabled' : 'Disabled' }}
-            </label>
+      <div
+        v-if="data.calculation"
+        :class="['alert mb-4 virtual-threads-status', springVirtualThreadsEnabled ? 'alert-info' : 'alert-warning']"
+      >
+        <div class="d-flex gap-2">
+          <i
+            :class="['bi', springVirtualThreadsEnabled ? 'bi-info-circle' : 'bi-exclamation-triangle', 'flex-shrink-0']"
+          ></i>
+          <div>
+            <div class="fw-semibold mb-1">
+              Spring virtual threads {{ springVirtualThreadsEnabled ? 'enabled' : 'not enabled' }}
+            </div>
+            <template v-if="springVirtualThreadsEnabled">
+              <p class="small mb-2">
+                This application is running with <code>spring.threads.virtual.enabled=true</code>. That is positive for
+                performance because Spring Boot can use virtual threads for web requests and supported task executors,
+                reducing platform-thread pressure during blocking work.
+              </p>
+            </template>
+            <template v-else>
+              <p class="small mb-2">
+                <code>spring.threads.virtual.enabled=true</code> is not active for this application. On Java 21+,
+                enabling it in application configuration is recommended for services that handle blocking web requests
+                or supported task-executor work because it can improve throughput and latency under concurrent blocking
+                workloads.
+              </p>
+              <p class="small mb-0">
+                BootUI keeps the JVM and Kubernetes snippets in platform-thread mode until the running application
+                enables Spring virtual threads.
+              </p>
+            </template>
           </div>
-        </div>
-        <div class="card-body small">
-          <p class="mb-2">
-            <code>spring.threads.virtual.enabled=true</code>
-            tells Spring Boot on Java 21+ to use virtual threads for web requests and supported task executors. BootUI
-            initializes this toggle from your application's existing property value when it is already set. If the
-            property is not configured, BootUI leaves the toggle off but recommends enabling it for performance. The
-            recommendations below include it as a system property only when enabled.
-          </p>
-          <p class="text-muted mb-0">
-            Enabling it reduces the platform-thread stack budget in the calculators, but high blocking concurrency can
-            still increase heap pressure and synchronized blocking code can pin carrier threads.
-          </p>
         </div>
       </div>
 

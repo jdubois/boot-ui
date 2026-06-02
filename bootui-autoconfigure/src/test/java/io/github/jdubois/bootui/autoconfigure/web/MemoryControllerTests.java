@@ -172,15 +172,42 @@ class MemoryControllerTests {
     }
 
     @Test
-    void tuningAdvisorVirtualThreadsParamChangesStackSizingAndSpringProperty() throws Exception {
-        MockMvc mvc = standaloneSetup(
-                        new MemoryController(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
+    void tuningAdvisorDetectedVirtualThreadsChangeStackSizingWithoutSettingSpringProperty() throws Exception {
+        MockEnvironment enabledEnvironment =
+                new MockEnvironment().withProperty("spring.threads.virtual.enabled", "true");
+        MockMvc enabledMvc = standaloneSetup(new MemoryController(
+                        new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), enabledEnvironment))
                 .build();
 
-        mvc.perform(get("/bootui/api/tuning-advisor")
+        enabledMvc
+                .perform(get("/bootui/api/tuning-advisor")
                         .param("totalMemoryMb", "1024")
                         .param("threadCount", "250")
-                        .param("virtualThreadsEnabled", "false")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(true))
+                .andExpect(jsonPath("$.calculation.stackBytesPerThread").value(512L * 1024L))
+                .andExpect(jsonPath("$.suggestedJvmOptions")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.containsString("spring.threads.virtual.enabled"))))
+                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.containsString("spring.threads.virtual.enabled"))))
+                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xmx"))))
+                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xms"))));
+
+        MockEnvironment disabledEnvironment =
+                new MockEnvironment().withProperty("spring.threads.virtual.enabled", "false");
+        MockMvc disabledMvc = standaloneSetup(new MemoryController(
+                        new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), disabledEnvironment))
+                .build();
+
+        disabledMvc
+                .perform(get("/bootui/api/tuning-advisor")
+                        .param("totalMemoryMb", "1024")
+                        .param("threadCount", "250")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(false))
@@ -188,27 +215,10 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.suggestedJvmOptions")
                         .value(org.hamcrest.Matchers.not(
                                 org.hamcrest.Matchers.containsString("spring.threads.virtual.enabled"))));
-
-        mvc.perform(get("/bootui/api/tuning-advisor")
-                        .param("totalMemoryMb", "1024")
-                        .param("threadCount", "250")
-                        .param("virtualThreadsEnabled", "true")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(true))
-                .andExpect(jsonPath("$.calculation.stackBytesPerThread").value(512L * 1024L))
-                .andExpect(jsonPath("$.suggestedJvmOptions")
-                        .value(org.hamcrest.Matchers.containsString("-Dspring.threads.virtual.enabled=true")))
-                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
-                        .value(org.hamcrest.Matchers.containsString("-Dspring.threads.virtual.enabled=true")))
-                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
-                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xmx"))))
-                .andExpect(jsonPath("$.kubernetes.javaToolOptions")
-                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("-Xms"))));
     }
 
     @Test
-    void tuningAdvisorUsesApplicationVirtualThreadsPropertyWhenParamIsAbsent() throws Exception {
+    void tuningAdvisorVirtualThreadsParamDoesNotOverrideApplicationState() throws Exception {
         MockEnvironment environment = new MockEnvironment().withProperty("spring.threads.virtual.enabled", "false");
         MockMvc mvc = standaloneSetup(new MemoryController(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), environment))
@@ -216,6 +226,7 @@ class MemoryControllerTests {
 
         mvc.perform(get("/bootui/api/tuning-advisor")
                         .param("totalMemoryMb", "1024")
+                        .param("virtualThreadsEnabled", "true")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(false))
@@ -223,14 +234,6 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.suggestedJvmOptions")
                         .value(org.hamcrest.Matchers.not(
                                 org.hamcrest.Matchers.containsString("spring.threads.virtual.enabled"))));
-
-        mvc.perform(get("/bootui/api/tuning-advisor")
-                        .param("totalMemoryMb", "1024")
-                        .param("virtualThreadsEnabled", "true")
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(true))
-                .andExpect(jsonPath("$.calculation.stackBytesPerThread").value(512L * 1024L));
     }
 
     @Test

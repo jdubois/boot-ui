@@ -13,8 +13,7 @@ function memoryReport({
   const requestMemory = kubernetesBurstableEnabled ? '512Mi' : '1024Mi'
   const qosClass = kubernetesBurstableEnabled ? 'Burstable' : 'Guaranteed'
   const javaToolOptions =
-    '-XX:+UseContainerSupport -XX:MaxRAMPercentage=62.5 -XX:InitialRAMPercentage=62.5 -XX:+UseG1GC' +
-    (virtualThreadsEnabled ? ' -Dspring.threads.virtual.enabled=true' : '')
+    '-XX:+UseContainerSupport -XX:MaxRAMPercentage=62.5 -XX:InitialRAMPercentage=62.5 -XX:+UseG1GC'
   const probeYaml = kubernetesActuatorEnabled
     ? '\n' +
       '  - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED\n' +
@@ -30,9 +29,7 @@ function memoryReport({
     nonHeap: {name: 'Non-Heap', usedBytes: 64 * MB, committedBytes: 128 * MB, maxBytes: -1, usedPercent: 50},
     pools: [{name: 'G1 Eden Space', usedBytes: 32 * MB, committedBytes: 64 * MB, maxBytes: 128 * MB, usedPercent: 25}],
     jvmInputArguments: [],
-    suggestedJvmOptions: virtualThreadsEnabled
-      ? '-Xms512m -Xmx512m -XX:+UseG1GC -Dspring.threads.virtual.enabled=true'
-      : '-Xms512m -Xmx512m -XX:+UseG1GC',
+    suggestedJvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
     calculation: {
       totalMemoryBytes: 1024 * MB,
       heapBytes: 512 * MB,
@@ -49,9 +46,7 @@ function memoryReport({
       liveLoadedClassCount: 5000,
       headRoomPercent: 10,
       virtualThreadsEnabled,
-      jvmOptions: virtualThreadsEnabled
-        ? '-Xms512m -Xmx512m -XX:+UseG1GC -Dspring.threads.virtual.enabled=true'
-        : '-Xms512m -Xmx512m -XX:+UseG1GC',
+      jvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
       valid: true,
       error: null
     },
@@ -143,25 +138,42 @@ describe('TuningAdvisor', () => {
     expect(renderedText.indexOf('Garbage collector: G1GC')).toBeLessThan(renderedText.indexOf('Request equals limit'))
     expect(renderedText).toContain('Burstable resources')
     expect(renderedText).toContain('Spring Boot Actuator probes')
-    expect(wrapper.html()).toContain('JAVA_TOOL_OPTIONS')
-    expect(wrapper.html()).toContain('MaxRAMPercentage=62.5')
-    expect(wrapper.html()).toContain('spring.threads.virtual.enabled=true')
-    expect(wrapper.html()).toContain('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
+    const virtualThreadsStatus = wrapper.find('.virtual-threads-status')
+    expect(virtualThreadsStatus.classes()).toContain('alert-warning')
+    expect(virtualThreadsStatus.text()).toContain('Spring virtual threads not enabled')
+    expect(virtualThreadsStatus.text()).toContain('improve throughput')
+    const optionsText = wrapper
+      .findAll('.options-box code')
+      .map((node) => node.text())
+      .join('\n')
+    expect(optionsText).toContain('JAVA_TOOL_OPTIONS')
+    expect(optionsText).toContain('MaxRAMPercentage=62.5')
+    expect(optionsText).not.toContain('spring.threads.virtual.enabled=true')
+    expect(optionsText).toContain('MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED')
     expect(wrapper.html()).not.toContain('value: &quot;-Xms512m')
-    expect(wrapper.find('#virtualThreadsEnabled').element.checked).toBe(false)
+    expect(wrapper.find('#virtualThreadsEnabled').exists()).toBe(false)
     expect(wrapper.find('#kubernetesBurstableEnabled').element.checked).toBe(false)
     expect(wrapper.find('#kubernetesActuatorEnabled').element.checked).toBe(true)
   })
 
-  it('initializes the virtual-thread toggle from the memory report', async () => {
+  it('shows an information bubble when Spring virtual threads are detected', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport({virtualThreadsEnabled: true}))))
 
     wrapper = mount(TuningAdvisor)
     await flushPromises()
 
     expect(fetch).toHaveBeenCalledWith('api/tuning-advisor')
-    expect(wrapper.find('#virtualThreadsEnabled').element.checked).toBe(true)
-    expect(wrapper.text()).toContain('Enabled')
+    const virtualThreadsStatus = wrapper.find('.virtual-threads-status')
+    expect(virtualThreadsStatus.classes()).toContain('alert-info')
+    expect(virtualThreadsStatus.text()).toContain('Spring virtual threads enabled')
+    expect(virtualThreadsStatus.text()).toContain('positive for performance')
+    expect(wrapper.find('#virtualThreadsEnabled').exists()).toBe(false)
+    expect(wrapper.text()).toContain('virtual-thread mode uses')
+    const optionsText = wrapper
+      .findAll('.options-box code')
+      .map((node) => node.text())
+      .join('\n')
+    expect(optionsText).not.toContain('spring.threads.virtual.enabled=true')
   })
 
   it('initializes Kubernetes toggles from the memory report', async () => {
@@ -182,22 +194,6 @@ describe('TuningAdvisor', () => {
     expect(wrapper.text()).toContain('Burstable')
   })
 
-  it('reloads recommendations when virtual threads are toggled', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(memoryReport()))
-    vi.stubGlobal('fetch', fetchMock)
-
-    wrapper = mount(TuningAdvisor)
-    await flushPromises()
-
-    await wrapper.find('#virtualThreadsEnabled').setValue(true)
-    vi.advanceTimersByTime(300)
-    await flushPromises()
-
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      'api/tuning-advisor?virtualThreadsEnabled=true&kubernetesBurstableEnabled=false&kubernetesActuatorEnabled=true&totalMemoryMb=1024&threadCount=250&headRoomPercent=10'
-    )
-  })
-
   it('reloads recommendations when Kubernetes toggles are changed', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(memoryReport()))
     vi.stubGlobal('fetch', fetchMock)
@@ -211,7 +207,7 @@ describe('TuningAdvisor', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenLastCalledWith(
-      'api/tuning-advisor?virtualThreadsEnabled=false&kubernetesBurstableEnabled=true&kubernetesActuatorEnabled=false&totalMemoryMb=1024&threadCount=250&headRoomPercent=10'
+      'api/tuning-advisor?kubernetesBurstableEnabled=true&kubernetesActuatorEnabled=false&totalMemoryMb=1024&threadCount=250&headRoomPercent=10'
     )
   })
 })
