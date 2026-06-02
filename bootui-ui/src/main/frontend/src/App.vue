@@ -9,13 +9,14 @@ import {
   THEME_QUERY,
   THEME_STORAGE_KEY
 } from './utils/theme.js'
+import {describeLoadError} from './utils/loadError.js'
 import CommandPalette from './views/components/CommandPalette.vue'
 
 const router = useRouter()
 const route = useRoute()
 const overview = ref(null)
 const panels = ref(null)
-const error = ref(null)
+const shellError = ref(null)
 const sidebarCollapsed = ref(localStorage.getItem('bootui.sidebar.collapsed') === 'true')
 const commandPaletteOpen = ref(false)
 const commandPaletteRef = ref(null)
@@ -118,14 +119,48 @@ const activePanelReadOnly = computed(() => activePanel.value?.readOnly === true 
 const activePanelReadOnlyReason = computed(() => activePanel.value?.readOnlyReason || 'This panel is read-only.')
 const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
 const runtimeSummary = computed(() => {
+  if (shellServerUnreachable.value) return 'Spring Boot app is not responding. Restart it and retry.'
+  if (shellError.value && !overview.value) return 'Unable to load BootUI runtime details.'
   if (!overview.value) return 'Loading runtime details'
   return `Spring Boot ${overview.value.springBootVersion} · Java ${overview.value.javaVersion}`
 })
 const activeProfiles = computed(() => overview.value?.activeProfiles ?? [])
-const activationLabel = computed(() => {
-  if (!overview.value?.activation) return 'Loading'
-  return overview.value.activation.enabled ? 'Active' : 'Disabled'
+const shellErrorMessage = computed(() => shellError.value?.message ?? null)
+const shellErrorTitle = computed(() => shellError.value?.title ?? 'Load failed')
+const shellServerUnreachable = computed(() => shellError.value?.serverUnreachable === true)
+const connectionState = computed(() => {
+  if (shellServerUnreachable.value) return 'unreachable'
+  if (shellError.value && !overview.value?.activation) return 'error'
+  if (!overview.value?.activation) return 'checking'
+  return overview.value.activation.enabled ? 'active' : 'disabled'
 })
+const activationLabel = computed(() => {
+  if (connectionState.value === 'unreachable') return 'Server unreachable'
+  if (connectionState.value === 'error') return 'API load failed'
+  if (connectionState.value === 'checking') return 'Checking server'
+  return connectionState.value === 'active' ? 'BootUI active' : 'BootUI disabled'
+})
+const activationIcon = computed(
+  () =>
+    ({
+      active: 'bi-broadcast-pin',
+      disabled: 'bi-slash-circle',
+      error: 'bi-exclamation-triangle',
+      checking: 'bi-hourglass-split',
+      unreachable: 'bi-wifi-off'
+    })[connectionState.value]
+)
+const activationTitle = computed(
+  () =>
+    ({
+      active: 'BootUI is active and the local API is reachable.',
+      disabled: 'BootUI answered the local API but is disabled for this application.',
+      error: 'BootUI reached the local API but could not load the shell data.',
+      checking: 'Checking the BootUI API connection.',
+      unreachable: 'BootUI cannot reach the Spring Boot app. It may have been stopped.'
+    })[connectionState.value]
+)
+const statusPillClass = computed(() => `status-pill--${connectionState.value}`)
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
 const navigationSections = computed(() => {
   const sections = [
@@ -158,27 +193,31 @@ const activeNavigationGroupKey = computed(() => {
 })
 
 async function loadOverview() {
-  try {
-    const res = await fetch('api/overview')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    overview.value = await res.json()
-  } catch (e) {
-    error.value = 'Unable to load overview: ' + e.message
-  }
+  const res = await fetch('api/overview')
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  overview.value = await res.json()
 }
 
 async function loadPanels() {
-  try {
-    const res = await fetch('api/panels')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    panels.value = await res.json()
-  } catch (e) {
-    error.value = 'Unable to load panel availability: ' + e.message
-  }
+  const res = await fetch('api/panels')
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  panels.value = await res.json()
 }
 
 async function loadShellData() {
-  await Promise.all([loadOverview(), loadPanels()])
+  const results = await Promise.allSettled([loadOverview(), loadPanels()])
+  const failures = [
+    {result: results[0], context: 'Unable to load overview'},
+    {result: results[1], context: 'Unable to load panel availability'}
+  ].filter(({result}) => result.status === 'rejected')
+
+  if (!failures.length) {
+    shellError.value = null
+    return
+  }
+
+  const descriptions = failures.map(({result, context}) => describeLoadError(result.reason, context))
+  shellError.value = descriptions.find((description) => description.serverUnreachable) || descriptions[0]
 }
 
 function panelForRoute(r) {
@@ -420,8 +459,8 @@ function onGlobalKeydown(e) {
             <i :class="['bi', darkTheme ? 'bi-sun' : 'bi-moon-stars']"></i>
             <span class="theme-toggle__label">{{ themeToggleText }}</span>
           </button>
-          <span class="status-pill">
-            <i class="bi bi-broadcast-pin"></i>
+          <span :class="['status-pill', statusPillClass]" :title="activationTitle">
+            <i :class="['bi', activationIcon]"></i>
             {{ activationLabel }}
           </span>
           <span v-if="activeProfiles.length" class="profile-stack">
@@ -432,7 +471,18 @@ function onGlobalKeydown(e) {
       </header>
 
       <main class="content-stage">
-        <div v-if="error" class="alert alert-danger shadow-sm">{{ error }}</div>
+        <div
+          v-if="shellErrorMessage"
+          :class="['alert', shellServerUnreachable ? 'alert-warning' : 'alert-danger']"
+          class="shell-error shadow-sm"
+          role="alert"
+        >
+          <div class="shell-error__title">
+            <i :class="['bi', shellServerUnreachable ? 'bi-wifi-off' : 'bi-exclamation-triangle-fill']"></i>
+            <strong>{{ shellErrorTitle }}</strong>
+          </div>
+          <div>{{ shellErrorMessage }}</div>
+        </div>
         <div v-if="activePanelUnavailable" class="alert alert-warning panel-availability-alert shadow-sm" role="status">
           <div class="panel-availability-alert__title">
             <i class="bi bi-slash-circle"></i>
@@ -1069,6 +1119,36 @@ function onGlobalKeydown(e) {
   font-weight: 700;
   gap: 0.35rem;
   padding: 0.45rem 0.75rem;
+}
+
+.status-pill--active {
+  background: rgba(25, 135, 84, 0.12);
+  border-color: rgba(25, 135, 84, 0.22);
+  color: var(--bootui-green-dark);
+}
+
+.status-pill--disabled,
+.status-pill--checking {
+  background: rgba(100, 116, 139, 0.1);
+  color: var(--bootui-text-muted);
+}
+
+.status-pill--error,
+.status-pill--unreachable {
+  background: rgba(220, 53, 69, 0.1);
+  border-color: rgba(220, 53, 69, 0.25);
+  color: #b02a37;
+}
+
+.shell-error {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.shell-error__title {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
 }
 
 .profile-stack {
