@@ -194,7 +194,8 @@ class HttpProbeControllerTests {
 
         MockEnvironment env = new MockEnvironment();
         env.setProperty("local.server.port", String.valueOf(closedPort));
-        MockMvc mvc = standaloneSetup(new HttpProbeController(new HttpProbeService(env))).build();
+        MockMvc mvc = standaloneSetup(new HttpProbeController(new HttpProbeService(env)))
+                .build();
 
         mvc.perform(post("/bootui/api/probe")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -216,7 +217,8 @@ class HttpProbeControllerTests {
         }
         MockEnvironment env = new MockEnvironment();
         env.setProperty("local.server.port", String.valueOf(closedPort));
-        MockMvc mvc = standaloneSetup(new HttpProbeController(new HttpProbeService(env))).build();
+        MockMvc mvc = standaloneSetup(new HttpProbeController(new HttpProbeService(env)))
+                .build();
 
         mvc.perform(post("/bootui/api/probe")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -315,7 +317,8 @@ class HttpProbeControllerTests {
     private MockMvc buildMvc() {
         MockEnvironment env = new MockEnvironment();
         env.setProperty("local.server.port", String.valueOf(serverPort));
-        return standaloneSetup(new HttpProbeController(new HttpProbeService(env))).build();
+        return standaloneSetup(new HttpProbeController(new HttpProbeService(env)))
+                .build();
     }
 
     private String toJson(Object value) {

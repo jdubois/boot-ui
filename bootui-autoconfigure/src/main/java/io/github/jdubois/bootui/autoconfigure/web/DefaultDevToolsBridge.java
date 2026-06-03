@@ -2,18 +2,18 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.BootUiDtos.DevToolsActionResult;
 import io.github.jdubois.bootui.core.BootUiDtos.DevToolsStatus;
+import io.github.jdubois.bootui.core.DevToolsException;
+import jakarta.annotation.PreDestroy;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import jakarta.annotation.PreDestroy;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import io.github.jdubois.bootui.core.DevToolsException;
 import org.springframework.context.ApplicationContext;
 import org.springframework.util.ClassUtils;
 
@@ -34,7 +34,8 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
     private final ClassLoader classLoader;
 
     private final AtomicBoolean restartPending = new AtomicBoolean(false);
-    private final ScheduledExecutorService restartExecutor = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "bootui-devtools-restart"));
+    private final ScheduledExecutorService restartExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "bootui-devtools-restart"));
 
     public DefaultDevToolsBridge(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;

@@ -12,7 +12,7 @@ import java.util.Set;
 public final class SecretMasker implements MaskingStrategy {
 
     public static final String MASKED_VALUE = "******";
-    
+
     private final MaskingStrategy strategy;
 
     public SecretMasker() {
@@ -22,7 +22,7 @@ public final class SecretMasker implements MaskingStrategy {
     public SecretMasker(Set<String> keyPatterns) {
         this.strategy = new KeywordPatternMasker(keyPatterns);
     }
-    
+
     public SecretMasker(MaskingStrategy strategy) {
         this.strategy = strategy;
     }
