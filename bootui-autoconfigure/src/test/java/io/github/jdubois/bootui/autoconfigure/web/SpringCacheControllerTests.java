@@ -27,10 +27,10 @@ import org.springframework.cache.interceptor.CacheOperationSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-class CacheControllerTests {
+class SpringCacheControllerTests {
 
     @SuppressWarnings("unchecked")
-    private static CacheController controller(
+    private static SpringCacheController controller(
             ListableBeanFactory factory,
             CacheOperationSource operationSource,
             MeterRegistry meterRegistry,
@@ -47,7 +47,7 @@ class CacheControllerTests {
         when(meterRegistryProvider.orderedStream())
                 .thenReturn(meterRegistry == null ? Stream.empty() : Stream.of(meterRegistry));
 
-        return new CacheController(factoryProvider, operationSourceProvider, meterRegistryProvider, properties);
+        return new SpringCacheController(factoryProvider, operationSourceProvider, meterRegistryProvider, properties);
     }
 
     private static BootUiProperties clearEnabledProperties() {
@@ -67,7 +67,7 @@ class CacheControllerTests {
         MockMvc mvc = standaloneSetup(controller(new StaticListableBeanFactory(), null, null, new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/cache"))
+        mvc.perform(get("/bootui/api/spring-cache"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cacheAvailable").value(false))
                 .andExpect(jsonPath("$.clearEnabled").value(true))
@@ -98,7 +98,7 @@ class CacheControllerTests {
                         controller(factory, new AnnotationCacheOperationSource(), registry, new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/cache"))
+        mvc.perform(get("/bootui/api/spring-cache"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cacheAvailable").value(true))
                 .andExpect(jsonPath("$.managerCount").value(1))
@@ -127,7 +127,7 @@ class CacheControllerTests {
                         controller(factory, new AnnotationCacheOperationSource(), null, new BootUiProperties()))
                 .build();
 
-        mvc.perform(get("/bootui/api/cache"))
+        mvc.perform(get("/bootui/api/spring-cache"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.operationCount").value(0))
                 .andExpect(jsonPath("$.operations").isEmpty());
@@ -144,7 +144,7 @@ class CacheControllerTests {
         MockMvc mvc = standaloneSetup(controller(factory, null, null, clearDisabledProperties()))
                 .build();
 
-        mvc.perform(post("/bootui/api/cache/clear")
+        mvc.perform(post("/bootui/api/spring-cache/clear")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                     {"managerName":"cacheManager","cacheName":"sample-products","confirm":true}
@@ -165,7 +165,7 @@ class CacheControllerTests {
         MockMvc mvc = standaloneSetup(controller(factory, null, null, clearEnabledProperties()))
                 .build();
 
-        mvc.perform(post("/bootui/api/cache/clear")
+        mvc.perform(post("/bootui/api/spring-cache/clear")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                     {"managerName":"cacheManager","cacheName":"sample-products"}
@@ -186,7 +186,7 @@ class CacheControllerTests {
         MockMvc mvc = standaloneSetup(controller(factory, null, null, clearEnabledProperties()))
                 .build();
 
-        mvc.perform(post("/bootui/api/cache/clear")
+        mvc.perform(post("/bootui/api/spring-cache/clear")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                     {"managerName":"cacheManager","cacheName":"sample-products","confirm":true}
@@ -211,7 +211,7 @@ class CacheControllerTests {
         MockMvc mvc = standaloneSetup(controller(factory, null, null, clearEnabledProperties()))
                 .build();
 
-        mvc.perform(post("/bootui/api/cache/clear")
+        mvc.perform(post("/bootui/api/spring-cache/clear")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                     {"all":true,"confirm":true}
@@ -231,7 +231,7 @@ class CacheControllerTests {
         MockMvc mvc = standaloneSetup(controller(factory, null, null, clearEnabledProperties()))
                 .build();
 
-        mvc.perform(post("/bootui/api/cache/clear")
+        mvc.perform(post("/bootui/api/spring-cache/clear")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                     {"managerName":"cacheManager","cacheName":"missing","confirm":true}

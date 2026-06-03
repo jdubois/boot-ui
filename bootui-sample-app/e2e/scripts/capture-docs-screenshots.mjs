@@ -35,7 +35,7 @@ const panelOrder = [
   ['scheduled', 'Scheduled Tasks'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['data', 'Spring Data'],
-  ['cache', 'Cache'],
+  ['spring-cache', 'Spring Cache'],
   ['security', 'Security'],
   ['ai', 'AI Usage'],
   ['traces', 'Traces'],
@@ -295,7 +295,7 @@ const mappings = {
             mapping('GET', '/api/sample/products', 'SampleController#products()'),
             mapping('POST', '/api/chat', 'ChatController#chat(ChatRequest)'),
             mapping('GET', '/admin', 'AdminController#admin()'),
-            mapping('GET', '/bootui/api/cache', 'CacheController#report()')
+            mapping('GET', '/bootui/api/spring-cache', 'SpringCacheController#springCache()')
           ]
         }
       }
@@ -314,7 +314,13 @@ const flatMappings = [
   },
   {method: 'POST', pattern: '/api/chat', handler: 'ChatController#chat(ChatRequest)', produces: null, consumes: null},
   {method: 'GET', pattern: '/admin', handler: 'AdminController#admin()', produces: null, consumes: null},
-  {method: 'GET', pattern: '/bootui/api/cache', handler: 'CacheController#report()', produces: null, consumes: null}
+  {
+    method: 'GET',
+    pattern: '/bootui/api/spring-cache',
+    handler: 'SpringCacheController#springCache()',
+    produces: null,
+    consumes: null
+  }
 ]
 
 const configuration = {
@@ -1436,7 +1442,7 @@ const screenshots = [
       await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
     }
   ],
-  ['cache', 'Cache', 'bootui-cache.png', waitForText('sample-products')],
+  ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
   ['security', 'Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
@@ -1952,7 +1958,7 @@ async function handleApiRoute(route) {
     return fulfillJson(route, databaseConnectionPoolSnapshot(poolName))
   }
   if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
-  if (endpoint === 'cache') return fulfillJson(route, cache)
+  if (endpoint === 'spring-cache') return fulfillJson(route, cache)
   if (endpoint === 'security') return fulfillJson(route, security)
   if (endpoint === 'security/endpoints') return fulfillJson(route, securityEndpoints)
   if (endpoint === 'security/explain')
@@ -2124,7 +2130,7 @@ function sampleLogLines() {
     {
       timestamp: nowMillis - 8_000,
       level: 'DEBUG',
-      logger: 'io.github.jdubois.bootui.autoconfigure.web.CacheController',
+      logger: 'io.github.jdubois.bootui.autoconfigure.web.SpringCacheController',
       message: 'Discovered 3 caches across 1 cache manager'
     },
     {

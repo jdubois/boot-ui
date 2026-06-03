@@ -28,7 +28,7 @@ public final class BootUiPanels {
     public static final String MAPPINGS = "mappings";
     public static final String DATA = "data";
     public static final String DATABASE_CONNECTION_POOLS = "database-connection-pools";
-    public static final String CACHE = "cache";
+    public static final String SPRING_CACHE = "spring-cache";
     public static final String SECURITY = "security";
     public static final String AI = "ai";
     public static final String TRACES = "traces";
@@ -60,7 +60,7 @@ public final class BootUiPanels {
             new Panel(MAPPINGS, "Mappings", false, "/mappings"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
             new Panel(DATA, "Data", false, "/data"),
-            new Panel(CACHE, "Cache", true, "/cache"),
+            new Panel(SPRING_CACHE, "Spring Cache", true, "/spring-cache"),
             new Panel(SECURITY, "Security", false, "/security"),
             new Panel(AI, "AI Usage", false, "/ai"),
             new Panel(TRACES, "Traces", true, "/traces"),
