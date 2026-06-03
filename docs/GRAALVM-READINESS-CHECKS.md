@@ -32,6 +32,13 @@ without an extra application dependency. The panel is available only when ArchUn
 package is resolvable from the running application. If no classes can be imported, the panel degrades to a stable, empty
 report with an explanatory reason rather than failing.
 
+Separately from the panel scan, BootUI registers Spring AOT runtime hints for its own native-image needs from
+[`BootUiRuntimeHints`](../bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java).
+Those built-in hints cover BootUI's runtime-scanned classpath resources, BootUI DTO records used by Jackson, and the
+well-known reflective calls used by the Heap Dump, Security, and Pentesting panels. They are contributed by
+`BootUiAutoConfiguration`, so applications using the starter should not need to copy BootUI-specific hints into their own
+native-image configuration.
+
 ## What BootUI does not do
 
 - It is **not a replacement for the [GraalVM tracing agent](https://www.graalvm.org/latest/reference-manual/native-image/metadata/AutomaticMetadataCollection/)
