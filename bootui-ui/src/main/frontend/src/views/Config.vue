@@ -1,7 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'

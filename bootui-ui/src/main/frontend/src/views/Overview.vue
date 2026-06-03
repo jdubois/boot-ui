@@ -1,7 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, inject, onMounted, ref} from 'vue'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {computed, inject, ref} from 'vue'
+import {describeLoadError} from '../utils/loadError.js'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
