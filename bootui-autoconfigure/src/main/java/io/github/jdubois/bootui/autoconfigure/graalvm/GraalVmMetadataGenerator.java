@@ -56,15 +56,40 @@ final class GraalVmMetadataGenerator {
         for (int i = 0; i < types.size(); i++) {
             String type = types.get(i);
             json.append(INDENT).append(INDENT).append("{").append('\n');
-            json.append(INDENT).append(INDENT).append(INDENT).append("\"condition\": {\"typeReached\": ")
-                    .append(quote(type)).append("},").append('\n');
-            json.append(INDENT).append(INDENT).append(INDENT).append("\"type\": ").append(quote(type))
-                    .append(",").append('\n');
-            json.append(INDENT).append(INDENT).append(INDENT).append("\"allDeclaredConstructors\": true,")
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append(INDENT)
+                    .append("\"condition\": {\"typeReached\": ")
+                    .append(quote(type))
+                    .append("},")
                     .append('\n');
-            json.append(INDENT).append(INDENT).append(INDENT).append("\"allDeclaredMethods\": true,").append('\n');
-            json.append(INDENT).append(INDENT).append(INDENT).append("\"allDeclaredFields\": true").append('\n');
-            json.append(INDENT).append(INDENT).append("}").append(i < types.size() - 1 ? "," : "").append('\n');
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append(INDENT)
+                    .append("\"type\": ")
+                    .append(quote(type))
+                    .append(",")
+                    .append('\n');
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append(INDENT)
+                    .append("\"allDeclaredConstructors\": true,")
+                    .append('\n');
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append(INDENT)
+                    .append("\"allDeclaredMethods\": true,")
+                    .append('\n');
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append(INDENT)
+                    .append("\"allDeclaredFields\": true")
+                    .append('\n');
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append("}")
+                    .append(i < types.size() - 1 ? "," : "")
+                    .append('\n');
         }
         json.append(INDENT).append("]");
     }
@@ -78,8 +103,13 @@ final class GraalVmMetadataGenerator {
         json.append('\n');
         for (int i = 0; i < types.size(); i++) {
             String type = types.get(i);
-            json.append(INDENT).append(INDENT).append("{\"condition\": {\"typeReached\": ").append(quote(type))
-                    .append("}, \"type\": ").append(quote(type)).append("}");
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append("{\"condition\": {\"typeReached\": ")
+                    .append(quote(type))
+                    .append("}, \"type\": ")
+                    .append(quote(type))
+                    .append("}");
             json.append(i < types.size() - 1 ? "," : "").append('\n');
         }
         json.append(INDENT).append("]");
@@ -93,7 +123,11 @@ final class GraalVmMetadataGenerator {
         }
         json.append('\n');
         for (int i = 0; i < globs.size(); i++) {
-            json.append(INDENT).append(INDENT).append("{\"glob\": ").append(quote(globs.get(i))).append("}");
+            json.append(INDENT)
+                    .append(INDENT)
+                    .append("{\"glob\": ")
+                    .append(quote(globs.get(i)))
+                    .append("}");
             json.append(i < globs.size() - 1 ? "," : "").append('\n');
         }
         json.append(INDENT).append("]");

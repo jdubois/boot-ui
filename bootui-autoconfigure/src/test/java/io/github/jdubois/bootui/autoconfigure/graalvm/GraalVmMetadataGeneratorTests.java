@@ -46,8 +46,7 @@ class GraalVmMetadataGeneratorTests {
 
     @Test
     void escapesSpecialCharactersInTypeNames() {
-        String json = generator.generate(
-                new GraalVmMetadata(List.of("com.example.Weird\"\\\n"), List.of(), List.of()));
+        String json = generator.generate(new GraalVmMetadata(List.of("com.example.Weird\"\\\n"), List.of(), List.of()));
 
         assertThat(json).contains("com.example.Weird\\\"\\\\\\n");
     }

@@ -33,8 +33,8 @@ final class GraalVmReadinessScanner {
     private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<GraalVmFindingDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (GraalVmFindingDto finding) -> severityRank(finding.severity()))
-            .thenComparing(Comparator.comparingInt(GraalVmFindingDto::occurrenceCount)
-                    .reversed())
+            .thenComparing(
+                    Comparator.comparingInt(GraalVmFindingDto::occurrenceCount).reversed())
             .thenComparing(GraalVmFindingDto::id);
 
     private final Supplier<List<String>> basePackagesSupplier;

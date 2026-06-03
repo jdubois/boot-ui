@@ -65,7 +65,8 @@ final class GraalVmDependencyScanner {
             Enumeration<JarEntry> entries = jarFile.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
-                if (entry.getName().startsWith(METADATA_PREFIX) && !entry.getName().equals(METADATA_PREFIX)) {
+                if (entry.getName().startsWith(METADATA_PREFIX)
+                        && !entry.getName().equals(METADATA_PREFIX)) {
                     return new GraalVmDependencyDto(jar.getName(), true, SHIPS_NOTE);
                 }
             }

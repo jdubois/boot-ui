@@ -7,8 +7,6 @@ public class ProxyFactory {
 
     public Object proxy() {
         return Proxy.newProxyInstance(
-                getClass().getClassLoader(),
-                new Class<?>[] {Runnable.class},
-                (proxy, method, args) -> null);
+                getClass().getClassLoader(), new Class<?>[] {Runnable.class}, (proxy, method, args) -> null);
     }
 }

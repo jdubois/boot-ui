@@ -19,15 +19,13 @@ class GraalVmReadinessScannerTests {
 
     private GraalVmReadinessScanner scanner(List<String> basePackages) {
         return new GraalVmReadinessScanner(
-                () -> basePackages,
-                new ClassFileGraalVmImporter(),
-                new GraalVmDependencyScanner(() -> ""),
-                CLOCK);
+                () -> basePackages, new ClassFileGraalVmImporter(), new GraalVmDependencyScanner(() -> ""), CLOCK);
     }
 
     @Test
     void initialResultIsNotScanned() {
-        GraalVmReadinessReport report = scanner(List.of(FIXTURES)).initialResult().report();
+        GraalVmReadinessReport report =
+                scanner(List.of(FIXTURES)).initialResult().report();
 
         assertThat(report.localOnly()).isTrue();
         assertThat(report.scan().status()).isEqualTo("NOT_SCANNED");
@@ -55,15 +53,8 @@ class GraalVmReadinessScannerTests {
                 .allSatisfy(finding -> assertThat(finding.status()).isEqualTo("REVIEW"));
         assertThat(report.findings())
                 .extracting(GraalVmFindingDto::id)
-                .contains(
-                        "GRAAL-REFLECT-001",
-                        "GRAAL-PROXY-001",
-                        "GRAAL-RES-001",
-                        "GRAAL-SER-001",
-                        "GRAAL-NATIVE-001");
-        assertThat(report.findings().stream()
-                        .map(GraalVmFindingDto::severity)
-                        .toList())
+                .contains("GRAAL-REFLECT-001", "GRAAL-PROXY-001", "GRAAL-RES-001", "GRAAL-SER-001", "GRAAL-NATIVE-001");
+        assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
                 .isSortedAccordingTo(Comparator.comparingInt(GraalVmReadinessScannerTests::severityRank));
         assertThat(report.severityCounts()).extracting("severity").containsExactly("HIGH", "MEDIUM", "LOW", "INFO");
 

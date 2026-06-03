@@ -92,6 +92,19 @@ unavailable, the panel shows an empty state instead of failing.
 
 ![BootUI Startup Timeline panel](images/bootui-startup-timeline.png)
 
+### GraalVM
+
+The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
+readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs a
+curated set of heuristic checks for constructs that native-image cannot resolve at build time — reflection, dynamic
+proxies, runtime resource loading, serialization, and native access. With the _Include dependencies_ toggle on (the
+default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
+`META-INF/native-image/`. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
+(modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
+standard configuration resource globs. The checks and generated metadata are heuristic review aids that complement, but
+do not replace, the GraalVM tracing agent and an actual native build. See
+[GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one inspects.
+
 ## Configuration
 
 ### Configuration
