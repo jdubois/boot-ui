@@ -31,7 +31,7 @@ class PanelsControllerTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.panels.length()").value(size))
                     .andExpect(jsonPath("$.panels[0].id").value("overview"))
-                    .andExpect(jsonPath("$.panels[" + (size - 1) + "].id").value("claude-code"));
+                    .andExpect(jsonPath("$.panels[" + (size - 1) + "].id").value("graalvm"));
         }
     }
 
