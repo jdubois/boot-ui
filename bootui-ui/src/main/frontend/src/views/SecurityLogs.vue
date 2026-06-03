@@ -98,7 +98,6 @@ function typeBadgeClass(typeName) {
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
-      @refresh="load"
     >
       <template #actions>
         <AutoRefreshToggle v-model="autoRefresh" />
