@@ -7,6 +7,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
@@ -29,6 +33,7 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
     private final ClassLoader classLoader;
 
     private final AtomicBoolean restartPending = new AtomicBoolean(false);
+    private final ScheduledExecutorService restartExecutor = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "bootui-devtools-restart"));
 
     public DefaultDevToolsBridge(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;
@@ -77,27 +82,28 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
         }
 
         Object restarter = restarter();
-        Thread restartThread = new Thread(() -> restartAfterResponse(restarter), "bootui-devtools-restart");
-        restartThread.setDaemon(false);
-        restartThread.start();
+        restartExecutor.schedule(() -> restartAfterResponse(restarter), 250, TimeUnit.MILLISECONDS);
         return new DevToolsActionResult(
                 "restart",
                 "scheduled",
                 "Restart scheduled. BootUI will reconnect when the application is available again.");
     }
 
+    @PreDestroy
+    public void stop() {
+        restartExecutor.shutdownNow();
+    }
+
     private void restartAfterResponse(Object restarter) {
         try {
-            Thread.sleep(250);
             Method restart = restarter.getClass().getMethod("restart");
             restart.invoke(restarter);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            restartPending.set(false);
-            log.warn("Spring Boot DevTools restart was interrupted", ex);
         } catch (ReflectiveOperationException ex) {
             restartPending.set(false);
             log.warn("Spring Boot DevTools restart failed", unwrap(ex));
+        } catch (Exception ex) {
+            restartPending.set(false);
+            log.warn("Spring Boot DevTools restart failed", ex);
         }
     }
 
