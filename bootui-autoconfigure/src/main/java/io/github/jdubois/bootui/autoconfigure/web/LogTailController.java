@@ -28,7 +28,14 @@ public class LogTailController {
     }
 
     private static LogLineDto toDto(BootUiLogAppender.LogLineDto line) {
-        return new LogLineDto(line.timestamp(), line.level(), line.logger(), line.message(), line.thread());
+        return new LogLineDto(
+                line.timestamp(),
+                line.level(),
+                line.logger(),
+                line.message(),
+                line.thread(),
+                line.traceId(),
+                line.spanId());
     }
 
     @GetMapping("/recent")

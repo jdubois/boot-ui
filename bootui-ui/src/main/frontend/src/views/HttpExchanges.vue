@@ -5,12 +5,16 @@ import ServerListFooter from './components/ServerListFooter.vue'
 import {formatNumber} from '../utils/format.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
+import {useTraceCorrelation} from '../utils/correlation.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
+import CorrelationBanner from './components/CorrelationBanner.vue'
 
 const filter = ref('')
 const method = ref('')
 const statusClass = ref('')
 const expanded = ref(new Set())
+
+const {traceFilter, pivotTargets, focusTrace, clearTrace, pivotTo} = useTraceCorrelation('http-exchanges')
 
 const {
   data,
@@ -29,7 +33,7 @@ const {
   'api/http-exchanges',
   'exchanges',
   () => ({
-    q: filter.value.trim(),
+    q: traceFilter.value || filter.value.trim(),
     method: method.value,
     statusClass: statusClass.value
   }),
@@ -128,7 +132,7 @@ function isExpanded(id) {
   return expanded.value.has(id)
 }
 
-watch([filter, method, statusClass], scheduleReload)
+watch([filter, method, statusClass, traceFilter], scheduleReload)
 </script>
 
 <template>
@@ -150,6 +154,8 @@ watch([filter, method, statusClass], scheduleReload)
       <strong>HTTP exchange recording is unavailable.</strong>
       <span class="d-block small">{{ unavailableReason }}</span>
     </div>
+
+    <CorrelationBanner :trace-id="traceFilter" :targets="pivotTargets" @pivot="pivotTo" @clear="clearTrace" />
 
     <div class="row g-2 mb-3">
       <div class="col-lg-6">
@@ -211,7 +217,15 @@ watch([filter, method, statusClass], scheduleReload)
               <td class="text-nowrap">{{ formatDurationMs(exchange.durationMs) }}</td>
               <td class="text-nowrap">{{ formatBytes(exchange.responseSizeBytes) }}</td>
               <td>
-                <code v-if="exchange.traceId" class="small">{{ exchange.traceId }}</code>
+                <button
+                  v-if="exchange.traceId"
+                  type="button"
+                  class="btn btn-link p-0 small font-monospace correlation-id-btn"
+                  :title="`Correlate by trace ${exchange.traceId}`"
+                  @click="focusTrace(exchange.traceId)"
+                >
+                  {{ exchange.traceId }}
+                </button>
                 <span v-else class="text-muted">—</span>
               </td>
               <td class="text-end">

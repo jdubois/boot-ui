@@ -1,5 +1,7 @@
 <script setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {useTraceCorrelation, shortTraceId} from '../utils/correlation.js'
+import CorrelationBanner from './components/CorrelationBanner.vue'
 
 const MAX_LINES = 2000
 
@@ -10,6 +12,8 @@ const autoScroll = ref(true)
 const status = ref('Paused')
 const pane = ref(null)
 let eventSource = null
+
+const {traceFilter, pivotTargets, focusTrace, clearTrace, pivotTo} = useTraceCorrelation('log-tail')
 
 const levelRank = {
   TRACE: 0,
@@ -29,6 +33,7 @@ const levelThreshold = {
 const visibleLines = computed(() => {
   const filter = textFilter.value.trim().toLowerCase()
   const threshold = levelThreshold[levelFilter.value] ?? -1
+  const trace = traceFilter.value
 
   return lines.value.filter((line) => {
     const rank = levelRank[line.level] ?? -1
@@ -36,8 +41,9 @@ const visibleLines = computed(() => {
     const message = (line.message || '').toLowerCase()
     const matchesLevel = threshold < 0 || rank >= threshold
     const matchesText = !filter || logger.startsWith(filter) || message.includes(filter)
+    const matchesTrace = !trace || line.traceId === trace
 
-    return matchesLevel && matchesText
+    return matchesLevel && matchesText && matchesTrace
   })
 })
 
@@ -139,6 +145,8 @@ onBeforeUnmount(() => disconnect(false))
       <span :class="statusClass" class="badge">{{ status }}</span>
     </div>
 
+    <CorrelationBanner :trace-id="traceFilter" :targets="pivotTargets" @pivot="pivotTo" @clear="clearTrace" />
+
     <div class="row g-3 mb-3 align-items-end">
       <div class="col-lg-4">
         <label class="form-label">Filter</label>
@@ -174,7 +182,10 @@ onBeforeUnmount(() => disconnect(false))
       class="d-block"
     ><span class="text-secondary">[{{ formatTime(line.timestamp) }}]</span> <span
       :class="levelClass(line.level)">{{ line.level }}</span> <span class="text-info-emphasis">{{ line.logger }}</span> <span
-      class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span></span></code><span v-else
+      class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span><button
+      v-if="line.traceId" type="button" class="btn btn-link p-0 ms-2 align-baseline log-trace-link"
+      :title="`Correlate by trace ${line.traceId}`"
+      @click="focusTrace(line.traceId)"><i class="bi bi-link-45deg"></i>{{ shortTraceId(line.traceId) }}</button></span></code><span v-else
                                                                                                             class="text-secondary">No log lines to display.</span></pre>
   </div>
 </template>
@@ -189,5 +200,11 @@ onBeforeUnmount(() => disconnect(false))
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.log-trace-link {
+  font-family: var(--bs-font-monospace);
+  font-size: 0.8rem;
+  text-decoration: none;
 }
 </style>

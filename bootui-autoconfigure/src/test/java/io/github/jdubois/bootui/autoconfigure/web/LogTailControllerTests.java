@@ -129,6 +129,37 @@ class LogTailControllerTests {
         assertThat(line.thread()).isEqualTo("worker-3");
     }
 
+    @Test
+    void traceContextFromMdcIsMapped() {
+        BootUiLogAppender appender = freshAppender();
+
+        ILoggingEvent evt = mock(ILoggingEvent.class);
+        when(evt.getTimeStamp()).thenReturn(System.currentTimeMillis());
+        when(evt.getLevel()).thenReturn(Level.INFO);
+        when(evt.getLoggerName()).thenReturn("com.example.Traced");
+        when(evt.getFormattedMessage()).thenReturn("handling request");
+        when(evt.getThreadName()).thenReturn("http-nio-1");
+        when(evt.getMDCPropertyMap())
+                .thenReturn(java.util.Map.of("traceId", "4bf92f3577b34da6a3ce929d0e0e4736", "spanId", "00f067aa0ba902b7"));
+        appender.doAppend(evt);
+
+        BootUiLogAppender.LogLineDto line = appender.getRecentLines().get(0);
+        assertThat(line.traceId()).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+        assertThat(line.spanId()).isEqualTo("00f067aa0ba902b7");
+    }
+
+    @Test
+    void traceContextDefaultsToNullWhenMdcAbsent() {
+        BootUiLogAppender appender = freshAppender();
+
+        // event(...) does not stub getMDCPropertyMap(); Mockito returns null by default.
+        appender.doAppend(event(Level.INFO, "no.trace.Logger", "no trace context"));
+
+        BootUiLogAppender.LogLineDto line = appender.getRecentLines().get(0);
+        assertThat(line.traceId()).isNull();
+        assertThat(line.spanId()).isNull();
+    }
+
     // ── controller endpoint ───────────────────────────────────────────────────
 
     @Test

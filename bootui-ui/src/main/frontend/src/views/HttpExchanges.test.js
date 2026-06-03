@@ -4,6 +4,14 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import HttpExchanges from './HttpExchanges.vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 
+const route = vi.hoisted(() => ({query: {}}))
+const push = vi.hoisted(() => vi.fn())
+
+vi.mock('vue-router', () => ({
+  useRoute: () => route,
+  useRouter: () => ({push})
+}))
+
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
@@ -46,6 +54,8 @@ describe('HTTP Exchanges', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
+    route.query = {}
+    push.mockReset()
   })
 
   it('renders recorded exchanges with masked details and auto-refresh controls', async () => {
@@ -95,5 +105,31 @@ describe('HTTP Exchanges', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenLastCalledWith('api/http-exchanges?method=POST&statusClass=4xx&offset=0&limit=200', {})
+  })
+
+  it('filters by the active trace id from the route and shows the correlation banner', async () => {
+    route.query = {trace: '4bf92f3577b34da6a3ce929d0e0e4736'}
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report())))
+
+    const wrapper = mount(HttpExchanges)
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledWith('api/http-exchanges?q=4bf92f3577b34da6a3ce929d0e0e4736&offset=0&limit=200', {})
+    const banner = wrapper.find('.correlation-banner')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('Correlated with trace')
+  })
+
+  it('focuses a trace when clicking the trace id of a row', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report())))
+
+    const wrapper = mount(HttpExchanges)
+    await flushPromises()
+
+    await wrapper.find('.correlation-id-btn').trigger('click')
+    expect(push).toHaveBeenCalledWith({
+      name: 'http-exchanges',
+      query: {trace: '4bf92f3577b34da6a3ce929d0e0e4736'}
+    })
   })
 })

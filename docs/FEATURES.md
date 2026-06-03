@@ -299,7 +299,9 @@ the panel's clear action.
 ### Log Tail
 
 The Log Tail panel reads recent local application logs and streams new log events from the running process. It is
-intended for quick local diagnosis without leaving the BootUI console.
+intended for quick local diagnosis without leaving the BootUI console. When distributed tracing is active, each log line
+that carries a trace context (read from the logging MDC) shows its trace id, which you can click to correlate the entry
+with the Traces and HTTP Exchanges panels (see [Trace correlation](#trace-correlation)).
 
 ![BootUI Log Tail panel](images/bootui-log-tail.png)
 
@@ -310,6 +312,8 @@ path, status, duration, response size when a `Content-Length` header is present,
 propagation headers. Expanding a row shows request and response headers, with secret-like headers and query parameters
 masked unless `bootui.expose-values=FULL` is explicitly configured. BootUI self-requests are hidden from the panel by
 default through `bootui.monitoring.exclude-self`, though they still count against the bounded in-memory recorder.
+Recorded trace ids are clickable so you can pivot to the related spans and log lines (see
+[Trace correlation](#trace-correlation)).
 
 BootUI contributes an in-memory `HttpExchangeRepository` when the panel is enabled and no application repository already
 exists. The default buffer retains 200 exchanges and can be changed with `bootui.http-exchanges.max-exchanges`; changing
@@ -317,6 +321,20 @@ that capacity requires an application restart. If the repository is unavailable,
 state instead of implying that no traffic has occurred.
 
 ![BootUI HTTP Exchanges panel](images/bootui-http-exchanges.png)
+
+### Trace correlation
+
+The Traces, Log Tail, and HTTP Exchanges panels are cross-linked by trace id so you can follow a single request across
+all three diagnostics views. Wherever a trace id is present — a span in the Traces panel, a log line carrying a trace
+context, or an HTTP exchange recorded with a propagation header — it is rendered as a clickable affordance. Selecting it
+filters the current panel to that trace and reveals a correlation banner with "view related" links that pivot to the
+other panels, pre-filtered to the same trace, and back again.
+
+Correlation is purely a read-only, client-side join over data the panels already expose; it does not add a new capture
+source. It degrades gracefully: when a span, log line, or exchange has no trace context, no correlation affordance is
+shown rather than guessing. Linked views reuse each panel's existing masking and value-exposure rules, so pivoting never
+widens what is exposed. Because trace propagation is best-effort, correlation is offered as a convenience for the common
+case where Micrometer Tracing/OTLP is active, and simply stays out of the way when it is not.
 
 ### HTTP Probe
 

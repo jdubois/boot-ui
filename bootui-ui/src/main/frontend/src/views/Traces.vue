@@ -4,11 +4,14 @@ import {computed, onMounted, ref} from 'vue'
 import {formatDuration, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useTraceCorrelation} from '../utils/correlation.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import CorrelationBanner from './components/CorrelationBanner.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {traceFilter, pivotTargets, focusTrace, clearTrace, pivotTo} = useTraceCorrelation('traces')
 const report = ref(null)
 const detail = ref(null)
 const loading = ref(true)
@@ -95,9 +98,13 @@ function showReadOnlyMessage() {
 
 const filteredTraces = computed(() => {
   if (!report.value) return []
+  let traces = report.value.traces
+  if (traceFilter.value) {
+    traces = traces.filter((t) => (t.traceId || '') === traceFilter.value)
+  }
   const v = filter.value.trim().toLowerCase()
-  if (!v) return report.value.traces
-  return report.value.traces.filter(
+  if (!v) return traces
+  return traces.filter(
     (t) =>
       (t.traceId || '').toLowerCase().includes(v) ||
       (t.rootSpanName || '').toLowerCase().includes(v) ||
@@ -167,6 +174,8 @@ onMounted(load)
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
+    <CorrelationBanner :trace-id="traceFilter" :targets="pivotTargets" @pivot="pivotTo" @clear="clearTrace" />
+
     <PanelSkeleton v-if="loading && !report" />
 
     <template v-else-if="report">
@@ -214,7 +223,14 @@ onMounted(load)
                 <tr :class="{'table-active': t.traceId === selectedTraceId}">
                   <td class="text-muted small">{{ formatTime(t.startEpochNanos) }}</td>
                   <td>
-                    <code class="me-2">{{ shortId(t.traceId) }}</code>
+                    <button
+                      type="button"
+                      class="btn btn-link p-0 me-2 font-monospace correlation-id-btn"
+                      :title="`Correlate by trace ${t.traceId}`"
+                      @click="focusTrace(t.traceId)"
+                    >
+                      {{ shortId(t.traceId) }}
+                    </button>
                     <span class="fw-semibold">{{ t.rootSpanName || '—' }}</span>
                     <span v-if="t.hasAi" class="badge text-bg-info ms-1"><i class="bi bi-stars"></i> AI</span>
                   </td>

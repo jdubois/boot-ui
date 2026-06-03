@@ -554,11 +554,13 @@ Features:
 - Show recent buffered log lines.
 - Stream new log events with Server-Sent Events.
 - Pause, resume, clear, and filter by severity in the browser.
+- Surface a per-line trace id, read from the logging MDC (for example `traceId`/`spanId`), for cross-panel correlation.
 
 Acceptance criteria:
 
 - The panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
+- Trace and span ids default to `null` when no trace context is present in the MDC.
 
 ### 5.14.1 HTTP Exchanges Panel
 
@@ -576,12 +578,36 @@ Features:
 - Show request and response headers in row details.
 - Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
 - Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`.
+- Render the recorded trace id as a clickable affordance for cross-panel correlation.
 
 Acceptance criteria:
 
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`.
 - The panel is read-only and returns a stable unavailable DTO when no `HttpExchangeRepository` is available.
+
+### 5.14.2 Trace Correlation
+
+Purpose: cross-link the Traces, Log Tail, and HTTP Exchanges panels by trace id so a single request can be followed
+across all three diagnostics views.
+
+Data sources:
+
+- Existing Traces (span trace ids), Log Tail (MDC trace context), and HTTP Exchanges (propagation-header trace ids) data.
+  Correlation introduces no new capture source.
+
+Features:
+
+- Render each available trace id as a clickable affordance that filters the current panel to that trace.
+- Show a correlation banner with "view related" links that pivot to the other panels pre-filtered to the same trace, and
+  back, driven by a shared `trace` route query parameter.
+- Omit the correlation affordance when a span, log line, or exchange has no trace context.
+
+Acceptance criteria:
+
+- Correlation is read-only and purely a client-side data join; it adds no new endpoint or capture source.
+- Linked views reuse each panel's existing masking and value-exposure rules, so pivoting never widens exposure.
+- The feature degrades gracefully when Micrometer Tracing/OTLP is inactive and no trace context is available.
 
 ### 5.15 Profile Diff Panel
 
