@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.core.BootUiDtos;
+import java.lang.reflect.Array;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -19,6 +21,8 @@ import org.springframework.aot.hint.RuntimeHintsRegistrar;
  *       the BootUI version reported as {@code unknown}.
  *   <li><b>Reflective method invocations</b> on well-known JDK and Spring Security types that BootUI
  *       discovers at runtime and calls reflectively.
+ *   <li><b>DTO binding types</b> that Jackson can synthesize while serializing BootUI records,
+ *       including array types derived from {@code List<...>} record components.
  * </ul>
  *
  * <p>The reflective sites in BootUI that operate on arbitrary user- or library-supplied types (for
@@ -56,6 +60,8 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
                 .registerPattern(CONFIGURATION_METADATA_RESOURCE)
                 .registerPattern(BOOTUI_VERSION_RESOURCE);
 
+        registerDtoBindingHints(hints);
+
         // Heap Dump panel: HeapDumpService reflectively calls HotSpotDiagnosticMXBean#dumpHeap.
         hints.reflection()
                 .registerTypeIfPresent(classLoader, HOTSPOT_DIAGNOSTIC_MXBEAN, MemberCategory.INVOKE_PUBLIC_METHODS);
@@ -67,5 +73,14 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         hints.reflection().registerTypeIfPresent(classLoader, GRANTED_AUTHORITY, MemberCategory.INVOKE_PUBLIC_METHODS);
         hints.reflection()
                 .registerTypeIfPresent(classLoader, SIMPLE_GRANTED_AUTHORITY, MemberCategory.INVOKE_PUBLIC_METHODS);
+    }
+
+    private void registerDtoBindingHints(RuntimeHints hints) {
+        for (Class<?> dtoType : BootUiDtos.class.getDeclaredClasses()) {
+            hints.reflection()
+                    .registerType(
+                            dtoType, MemberCategory.INVOKE_DECLARED_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            hints.reflection().registerType(Array.newInstance(dtoType, 0).getClass());
+        }
     }
 }

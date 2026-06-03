@@ -116,8 +116,10 @@ From the repository root:
 docker compose -f docker-compose-native.yml up --build
 ```
 
-Then open <http://localhost:8080/> or hit
-<http://localhost:8080/actuator/health>.
+Then open <http://localhost:8080/bootui/> or hit
+<http://localhost:8080/actuator/health>. The Compose file binds the app port to
+host loopback (`127.0.0.1`) so BootUI remains local-only while still allowing the
+browser to reach the containerized app.
 
 To build just the image:
 

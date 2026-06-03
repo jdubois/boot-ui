@@ -40,6 +40,13 @@ services:
     environment:
       SERVER_PORT: 8080
       SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      # The native image is AOT-processed with BootUI enabled; keep BootUI
+      # active at runtime so its startup buffering and endpoints are available.
+      BOOTUI_ENABLED: "ON"
+      # Host browser requests arrive through Docker's bridge gateway rather
+      # than loopback from the container's point of view. The port is bound to
+      # 127.0.0.1 below, so this remains local-only on the host.
+      BOOTUI_ALLOW_NON_LOCALHOST: "true"
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bootui_sample
       SPRING_DATASOURCE_USERNAME: bootui
       SPRING_DATASOURCE_PASSWORD: bootui
@@ -48,5 +55,5 @@ services:
       # Avoid reaching out to a (here absent) Ollama server during startup.
       SPRING_AI_OLLAMA_INIT_PULL_MODEL_STRATEGY: never
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped

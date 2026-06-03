@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.BootUiDtos.PanelDto;
+import io.github.jdubois.bootui.core.BootUiDtos.StartupStepDto;
 import org.junit.jupiter.api.Test;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
@@ -47,6 +49,18 @@ class BootUiRuntimeHintsTests {
         assertThat(RuntimeHintsPredicates.reflection()
                         .onType(TypeReference.of("org.springframework.security.core.authority.SimpleGrantedAuthority"))
                         .withMemberCategory(MemberCategory.INVOKE_PUBLIC_METHODS))
+                .accepts(hints);
+    }
+
+    @Test
+    void registersBootUiDtosAndArrayTypesForJacksonBinding() {
+        assertThat(RuntimeHintsPredicates.reflection()
+                        .onType(StartupStepDto.class)
+                        .withMemberCategory(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.reflection().onType(TypeReference.of(StartupStepDto[].class)))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.reflection().onType(TypeReference.of(PanelDto[].class)))
                 .accepts(hints);
     }
 }
