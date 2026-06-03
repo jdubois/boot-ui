@@ -49,7 +49,7 @@ async function refreshExchanges() {
   }
 }
 
-const {autoRefresh, loading: refreshLoading, load: refresh} = useAutoRefresh(refreshExchanges)
+const {autoRefresh, loading: refreshLoading} = useAutoRefresh(refreshExchanges)
 
 function formatTimestamp(timestamp) {
   if (!timestamp) return '—'
@@ -121,7 +121,6 @@ watch([filter, method, statusClass], scheduleReload)
       :loading="refreshLoading || loading"
       :error="error"
       :last-fetched="lastFetched"
-      @refresh="refresh"
     >
       <template #actions>
         <AutoRefreshToggle v-model="autoRefresh" />

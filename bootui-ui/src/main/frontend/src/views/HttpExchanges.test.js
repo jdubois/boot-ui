@@ -65,6 +65,7 @@ describe('HTTP Exchanges', () => {
     expect(wrapper.text()).toContain('******')
     expect(wrapper.text()).not.toContain('BootUI self-request')
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
   })
 
   it('sends method and status filters to the server', async () => {
