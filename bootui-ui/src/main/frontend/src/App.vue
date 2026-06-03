@@ -275,8 +275,11 @@ function isGroupExpanded(groupKey) {
   return expandedGroups[groupKey] === true
 }
 
-function toggleGroup(groupKey) {
+function toggleGroup(groupKey, event) {
   expandedGroups[groupKey] = !isGroupExpanded(groupKey)
+  if (event?.detail > 0 && event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.blur()
+  }
 }
 
 watch(
@@ -370,7 +373,7 @@ function onGlobalKeydown(e) {
             :title="section.title"
             class="bootui-nav-group__toggle"
             type="button"
-            @click="toggleGroup(section.key)"
+            @click="toggleGroup(section.key, $event)"
           >
             <span class="bootui-nav-group__label">
               <i :class="['bi', section.icon]"></i>
