@@ -1,0 +1,59 @@
+# Multi-stage Dockerfile for a GraalVM native image of the BootUI sample app.
+#
+# BootUI is a multi-module Maven project, so the whole reactor is copied into
+# the build stage and the sample app is built together with the modules it
+# depends on (`-pl bootui-sample-app -am`).
+#
+# Requires GraalVM 25+ for Spring Boot 4 (GraalVM 25 = JDK 25).
+
+# Build stage with GraalVM 25 (includes the native-image toolchain, JDK 25)
+FROM ghcr.io/graalvm/graalvm-community:25 AS build
+
+WORKDIR /app
+
+# Copy the whole multi-module project (see .dockerignore for exclusions).
+COPY . .
+RUN chmod +x mvnw
+
+# Build the native executable for the sample app and its reactor dependencies.
+# The `native` profile (declared in bootui-sample-app/pom.xml) runs Spring
+# Boot's process-aot goal, downloads GraalVM reachability metadata and then
+# compiles the native image during the `package` phase (build-native).
+RUN ./mvnw -Pnative -DskipTests -pl bootui-sample-app -am clean package
+
+# Move the native executable to a known path (the native-maven-plugin names it
+# after the module artifactId, i.e. bootui-sample-app).
+RUN if [ -f bootui-sample-app/target/bootui-sample-app ]; then \
+      cp bootui-sample-app/target/bootui-sample-app native-app; \
+    else \
+      native_exe=$(find bootui-sample-app/target -maxdepth 1 -type f -executable ! -name '*.jar' ! -name '*.jar.original' | head -1) && \
+      if [ -n "$native_exe" ]; then cp "$native_exe" native-app; \
+      else echo "ERROR: Native executable not found"; ls -laR bootui-sample-app/target | head -40; exit 1; fi; \
+    fi
+
+# Runtime stage with Debian slim (includes glibc + zlib needed by the binary)
+FROM debian:12-slim
+
+# Install curl for healthchecks
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user
+RUN useradd -m -u 1001 springboot
+
+WORKDIR /app
+
+# Copy the native executable from the build stage
+COPY --from=build --chown=springboot:springboot /app/native-app native-app
+
+USER springboot
+
+EXPOSE 8080
+
+# Health check using Spring Boot Actuator
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1
+
+# Run the native application
+ENTRYPOINT ["./native-app"]

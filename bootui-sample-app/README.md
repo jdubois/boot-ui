@@ -92,6 +92,69 @@ Useful URLs:
 
 `Ctrl-C` the Spring Boot process. Spring Boot will stop Docker Compose.
 
+## Run it as a GraalVM native image
+
+The sample app can also be compiled ahead-of-time into a GraalVM native
+executable. A `native` Maven profile is declared in this module's
+[`pom.xml`](pom.xml), and ready-to-use Docker assets live at the repository
+root:
+
+- [`Dockerfile-native`](../Dockerfile-native) — builds the whole reactor with
+  GraalVM 25 and produces a native executable (startup is well under a second).
+- [`Dockerfile`](../Dockerfile) — a JVM image built with Eclipse Temurin 25, for
+  comparison.
+- [`docker-compose-native.yml`](../docker-compose-native.yml) — runs the native
+  image together with the PostgreSQL and Redis services it needs.
+
+### With Docker (recommended)
+
+No local GraalVM install is required — the toolchain lives in the build image.
+From the repository root:
+
+```bash
+# Build and run the native app with Postgres and Redis
+docker compose -f docker-compose-native.yml up --build
+```
+
+Then open <http://localhost:8080/> or hit
+<http://localhost:8080/actuator/health>.
+
+To build just the image:
+
+```bash
+docker build -f Dockerfile-native -t bootui-sample-native .
+```
+
+### With a local GraalVM
+
+With a GraalVM 25+ toolchain on the `PATH`, build the native executable from the
+repository root:
+
+```bash
+./mvnw -Pnative -DskipTests -pl bootui-sample-app -am package
+./bootui-sample-app/target/bootui-sample-app
+```
+
+The `-am` flag also builds the BootUI modules the sample app depends on.
+
+### How BootUI is included in the native image
+
+BootUI is a development console that stays disabled outside dev profiles, and it
+normally activates because `spring-boot-devtools` is on the classpath — but
+devtools is excluded from the native image. Because GraalVM AOT processing
+freezes Spring's bean conditions at build time, the `native` profile enables
+BootUI for the AOT step (`-Dbootui.enabled=ON` on the `process-aot` execution)
+so the panels and BootUI's [`RuntimeHints`](../bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java)
+are baked into the executable. Those hints register the classpath resources and
+reflective calls that BootUI performs at runtime (Maven `pom.properties`,
+configuration metadata, the BootUI version file, the HotSpot diagnostic MXBean
+used for heap dumps, and the Spring Security types it inspects) so the
+Dependencies, Config, Heap Dump, and Security panels keep working under native.
+
+Applications that embed BootUI through the starter inherit these hints
+automatically; they only need to ensure BootUI is active during their own AOT
+processing for it to appear in their native image.
+
 ## Playwright suite
 
 The Playwright end-to-end tests in [`e2e/`](e2e/README.md) drive the same
