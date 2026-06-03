@@ -149,6 +149,12 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultHttpExchangesMaxExchangesIs200() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getHttpExchanges().getMaxExchanges()).isEqualTo(200);
+    }
+
+    @Test
     void defaultClaudeCodeRawRevealIsFalse() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getClaudeCode().isAllowRawReveal()).isFalse();
@@ -210,6 +216,16 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.FULL);
+    }
+
+    @Test
+    void bindsHttpExchangesMaxExchanges() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.http-exchanges.max-exchanges", "25");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getHttpExchanges().getMaxExchanges()).isEqualTo(25);
     }
 
     @Test

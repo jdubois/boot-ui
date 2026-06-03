@@ -42,6 +42,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Services        | [AI Usage](docs/FEATURES.md#ai-usage)                                   | Summarize Spring AI and LangChain4j chat conversations, token usage, latency, and model details from OpenTelemetry spans.               |
 | Diagnostics     | [Traces](docs/FEATURES.md#traces)                                       | Inspect local spans captured automatically by the starter, plus OTLP spans from cooperating services.                                   |
 | Diagnostics     | [Log Tail](docs/FEATURES.md#log-tail)                                   | Read recent application logs and stream new local log events from the running process.                                                  |
+| Diagnostics     | [HTTP Exchanges](docs/FEATURES.md#http-exchanges)                       | Review recent inbound application requests with masked headers, timings, status, and trace identifiers.                                 |
 | Diagnostics     | [HTTP Probe](docs/FEATURES.md#http-probe)                               | Send local-only HTTP requests to the app and inspect response status, headers, and body.                                                |
 | Diagnostics     | [Architecture](docs/FEATURES.md#architecture)                           | Run a curated, zero-config ArchUnit ruleset against the host app's own classes for architecture hygiene.                                |
 | Diagnostics     | [Pentesting](docs/FEATURES.md#pentesting)                               | Run explicit host-app OWASP Top 10 2025 hygiene checks without testing BootUI paths or sending exploit payloads.                        |
@@ -126,6 +127,7 @@ Common properties:
 | `bootui.startup.enabled`                 | `true`                                  | Auto-install startup buffering for the Startup Timeline panel while BootUI is active.    |
 | `bootui.startup.capacity`                | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                |
 | `bootui.cache.clear-enabled`             | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
+| `bootui.http-exchanges.max-exchanges`    | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.           |
 | `bootui.dev-services.restart-enabled`    | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |
 | `bootui.dev-services.log-tail-bytes`     | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                  |
 | `bootui.telemetry.enabled`               | `true`                                  | Enables local in-memory trace capture and the OTLP receiver used by Traces and AI Usage. |

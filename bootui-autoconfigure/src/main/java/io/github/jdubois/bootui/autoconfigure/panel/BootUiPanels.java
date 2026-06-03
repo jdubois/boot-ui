@@ -33,6 +33,7 @@ public final class BootUiPanels {
     public static final String AI = "ai";
     public static final String TRACES = "traces";
     public static final String LOG_TAIL = "log-tail";
+    public static final String HTTP_EXCHANGES = "http-exchanges";
     public static final String HTTP_PROBE = "http-probe";
     public static final String PENTEST = "pentest";
     public static final String VULNERABILITIES = "vulnerabilities";
@@ -65,6 +66,7 @@ public final class BootUiPanels {
             new Panel(AI, "AI Usage", false, "/ai"),
             new Panel(TRACES, "Traces", true, "/traces"),
             new Panel(LOG_TAIL, "Log Tail", false, "/logs"),
+            new Panel(HTTP_EXCHANGES, "HTTP Exchanges", false, "/http-exchanges"),
             new Panel(HTTP_PROBE, "HTTP Probe", true, "/probe"),
             new Panel(PENTEST, "Pentesting", true, "/pentest"),
             new Panel(VULNERABILITIES, "Vulnerabilities", true, "/dependencies"),

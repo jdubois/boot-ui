@@ -560,6 +560,29 @@ Acceptance criteria:
 - The panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
 
+### 5.14.1 HTTP Exchanges Panel
+
+Purpose: inspect recent inbound HTTP requests handled by the running application.
+
+Data sources:
+
+- Spring Boot Actuator `HttpExchangeRepository`, with a BootUI-provided bounded `InMemoryHttpExchangeRepository` when no
+  application repository exists.
+
+Features:
+
+- Show recent exchanges with timestamp, method, path, status, duration, response size when available, and trace id when a
+  common propagation header is present.
+- Show request and response headers in row details.
+- Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
+- Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`.
+
+Acceptance criteria:
+
+- The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
+- Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`.
+- The panel is read-only and returns a stable unavailable DTO when no `HttpExchangeRepository` is available.
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
@@ -925,6 +948,7 @@ Initial properties:
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
 | `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
+| `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
 | `bootui.dependencies.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
@@ -1020,6 +1044,7 @@ Top-level navigation:
 - Diagnostics:
   - Traces.
   - Log Tail.
+  - HTTP Exchanges.
   - HTTP Probe.
   - Pentesting.
   - Vulnerabilities.
@@ -1119,7 +1144,7 @@ BootUI's current pre-1.0 release surface is complete when:
 - The UI shows Overview, Runtime, Configuration, Services, Diagnostics, Developer tools, and Disabled / unavailable
   navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Startup Timeline, Scheduled Tasks, Database Connection
   Pools, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Data, Cache, Security, AI Usage, Traces, Log Tail,
-  HTTP Probe, Architecture, Pentesting, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
+  HTTP Exchanges, HTTP Probe, Architecture, Pentesting, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

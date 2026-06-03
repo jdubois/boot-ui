@@ -10,12 +10,20 @@ import io.github.jdubois.bootui.autoconfigure.pentest.*;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.web.*;
+import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.boot.actuate.web.exchanges.HttpExchange;
+import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.servlet.actuate.web.exchanges.HttpExchangesFilter;
+import org.springframework.boot.servlet.filter.OrderedFilter;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webmvc.autoconfigure.DispatcherServletAutoConfiguration;
@@ -48,6 +56,8 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(DevServicesController.class)
                         .hasSingleBean(DependenciesController.class)
                         .hasSingleBean(PentestController.class)
+                        .hasSingleBean(HttpExchangeRepository.class)
+                        .hasSingleBean(HttpExchangesController.class)
                         .hasSingleBean(BootUiSpanExporter.class)
                         .hasSingleBean(BootUiActivation.class));
     }
@@ -124,6 +134,7 @@ class BootUiAutoConfigurationTests {
                         "bootui.dev-services.restart-enabled=true",
                         "bootui.dev-services.log-tail-bytes=2048",
                         "bootui.cache.clear-enabled=false",
+                        "bootui.http-exchanges.max-exchanges=2",
                         "bootui.dependencies.osv-enabled=false",
                         "bootui.dependencies.max-packages=42",
                         "bootui.dependencies.max-advisories=24",
@@ -142,6 +153,7 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getDevServices().isRestartEnabled()).isTrue();
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
                     assertThat(properties.getCache().isClearEnabled()).isFalse();
+                    assertThat(properties.getHttpExchanges().getMaxExchanges()).isEqualTo(2);
                     assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
                     assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
                     assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
@@ -172,6 +184,7 @@ class BootUiAutoConfigurationTests {
                             GraalVmController.class,
                             HealthController.class,
                             HikariController.class,
+                            HttpExchangesController.class,
                             HttpProbeController.class,
                             HeapDumpController.class,
                             LoggersController.class,
@@ -267,6 +280,49 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void httpExchangeRepositoryUsesConfiguredCapacity() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.http-exchanges.max-exchanges=2")
+                .run(context -> {
+                    HttpExchangeRepository repository = context.getBean(HttpExchangeRepository.class);
+
+                    repository.add(exchange("/one"));
+                    repository.add(exchange("/two"));
+                    repository.add(exchange("/three"));
+
+                    assertThat(repository.findAll()).hasSize(2);
+                    assertThat(repository.findAll())
+                            .extracting(
+                                    exchange -> exchange.getRequest().getUri().getPath())
+                            .containsExactly("/three", "/two");
+                });
+    }
+
+    @Test
+    void httpExchangesFilterRunsBeforeSpringSecurityFilterOrder() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            HttpExchangesFilter filter = context.getBean(HttpExchangesFilter.class);
+
+            assertThat(filter.getOrder()).isEqualTo(OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER - 101);
+        });
+    }
+
+    @Test
+    void disabledSpringBootHttpExchangeRecordingDoesNotCreateFilter() {
+        runner.withPropertyValues("bootui.enabled=ON", "management.httpexchanges.recording.enabled=false")
+                .run(context -> assertThat(context)
+                        .hasSingleBean(HttpExchangeRepository.class)
+                        .doesNotHaveBean(HttpExchangesFilter.class));
+    }
+
+    @Test
+    void disabledHttpExchangesPanelDoesNotCreateRecordingRepository() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.panels.http-exchanges.enabled=false")
+                .run(context -> assertThat(context)
+                        .doesNotHaveBean(HttpExchangeRepository.class)
+                        .doesNotHaveBean(HttpExchangesFilter.class));
+    }
+
+    @Test
     void optionalClasspathPanelsAreRegisteredWhenDependenciesArePresent() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .run(context -> assertThat(context)
@@ -353,5 +409,15 @@ class BootUiAutoConfigurationTests {
         String[] beanNames = beanFactory.getBeanNamesForType(beanType, false, false);
         assertThat(beanNames).hasSize(1);
         return beanNames[0];
+    }
+
+    private static HttpExchange exchange(String path) {
+        return new HttpExchange(
+                Instant.parse("2026-06-03T09:15:00Z"),
+                new HttpExchange.Request(URI.create("http://localhost" + path), "127.0.0.1", "GET", Map.of()),
+                new HttpExchange.Response(200, Map.of()),
+                null,
+                null,
+                Duration.ofMillis(1));
     }
 }
