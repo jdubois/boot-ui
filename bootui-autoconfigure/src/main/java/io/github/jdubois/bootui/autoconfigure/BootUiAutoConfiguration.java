@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
+import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
@@ -79,6 +80,7 @@ import org.springframework.core.env.Environment;
     OtlpReceiverController.class,
     CopilotController.class,
     ClaudeCodeController.class,
+    GraalVmController.class,
     BootUiIndexController.class,
     BootUiOpenTelemetryConfiguration.class
 })
@@ -99,6 +101,7 @@ public class BootUiAutoConfiguration {
             DataController.class.getName(),
             DependenciesController.class.getName(),
             DevToolsController.class.getName(),
+            GraalVmController.class.getName(),
             HealthController.class.getName(),
             HikariController.class.getName(),
             HttpProbeController.class.getName(),

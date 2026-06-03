@@ -12,6 +12,7 @@ const Scheduled = () => import('./views/Scheduled.vue')
 const HttpProbe = () => import('./views/HttpProbe.vue')
 const Pentesting = () => import('./views/Pentesting.vue')
 const Architecture = () => import('./views/Architecture.vue')
+const GraalVm = () => import('./views/GraalVm.vue')
 const LogTail = () => import('./views/LogTail.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const Cache = () => import('./views/Cache.vue')
@@ -79,6 +80,12 @@ export const routes = [
     name: 'startup',
     component: Startup,
     meta: {group: groups.runtime, icon: 'bi-bar-chart-steps', title: 'Startup Timeline'}
+  },
+  {
+    path: '/graalvm',
+    name: 'graalvm',
+    component: GraalVm,
+    meta: {group: groups.runtime, icon: 'bi-rocket-takeoff', title: 'GraalVM'}
   },
   {
     path: '/config',

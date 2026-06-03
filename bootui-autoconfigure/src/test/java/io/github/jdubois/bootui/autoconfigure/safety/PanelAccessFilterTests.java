@@ -202,6 +202,7 @@ class PanelAccessFilterTests {
         requests.put("architecture", new ActionRequest("POST", "/bootui/api/architecture/scan"));
         requests.put("devtools", new ActionRequest("POST", "/bootui/api/devtools/restart"));
         requests.put("dev-services", new ActionRequest("POST", "/bootui/api/dev-services/services/demo/restart"));
+        requests.put("graalvm", new ActionRequest("POST", "/bootui/api/graalvm/scan"));
         return requests;
     }
 

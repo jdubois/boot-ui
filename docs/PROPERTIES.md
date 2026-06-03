@@ -43,6 +43,7 @@ Panel settings are consistent across the UI and API:
 | Runtime         | Tuning Advisor            | `tuning-advisor`            | `bootui.panels.tuning-advisor.enabled`            | Not applicable; view-only.                |
 | Runtime         | Heap Dump                 | `heap-dump`                 | `bootui.panels.heap-dump.enabled`                 | `bootui.panels.heap-dump.read-only`       |
 | Runtime         | Startup Timeline          | `startup`                   | `bootui.panels.startup.enabled`                   | Not applicable; view-only.                |
+| Runtime         | GraalVM                   | `graalvm`                   | `bootui.panels.graalvm.enabled`                   | `bootui.panels.graalvm.read-only`         |
 | Configuration   | Configuration             | `config`                    | `bootui.panels.config.enabled`                    | `bootui.panels.config.read-only`          |
 | Configuration   | Profile Diff              | `profiles`                  | `bootui.panels.profiles.enabled`                  | Not applicable; view-only.                |
 | Configuration   | Loggers                   | `loggers`                   | `bootui.panels.loggers.enabled`                   | `bootui.panels.loggers.read-only`         |
@@ -157,6 +158,13 @@ Panel settings are consistent across the UI and API:
 | -------------------------------------- | ------- | ------------------------------------------------------------------- |
 | `bootui.panels.architecture.enabled`   | `true`  | Show the ArchUnit architecture hygiene panel and its latest report. |
 | `bootui.panels.architecture.read-only` | `false` | Disable the on-demand architecture scan action.                     |
+
+### GraalVM
+
+| Property                          | Default | Description                                                                          |
+| --------------------------------- | ------- | ----------------------------------------------------------------------------------- |
+| `bootui.panels.graalvm.enabled`   | `true`  | Show the GraalVM native-image readiness panel and its latest report.                |
+| `bootui.panels.graalvm.read-only` | `false` | Disable the on-demand readiness scan action (the metadata download stays available). |
 
 ### DevTools
 
