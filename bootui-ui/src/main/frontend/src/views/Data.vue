@@ -1,7 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref(null)

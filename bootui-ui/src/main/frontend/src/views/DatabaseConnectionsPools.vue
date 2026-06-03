@@ -2,7 +2,7 @@
 import {apiFetch} from '../api.js'
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'

@@ -2,7 +2,7 @@
 import {apiFetch} from '../api.js'
 import {computed, ref} from 'vue'
 import {panelProps, usePanelState} from '../utils/panelState.js'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)

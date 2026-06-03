@@ -1,7 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'

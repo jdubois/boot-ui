@@ -1,7 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, onMounted, onUnmounted, ref} from 'vue'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 
