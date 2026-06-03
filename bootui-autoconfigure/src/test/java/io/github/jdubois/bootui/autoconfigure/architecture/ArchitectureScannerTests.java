@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.autoconfigure.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureReport;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureReport;
+import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;

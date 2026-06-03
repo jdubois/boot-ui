@@ -1,10 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureReport;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureScanStatusDto;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureSeverityCountDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureReport;
+import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureSeverityCountDto;
 import java.time.Clock;
 import java.util.Comparator;
 import java.util.LinkedHashMap;

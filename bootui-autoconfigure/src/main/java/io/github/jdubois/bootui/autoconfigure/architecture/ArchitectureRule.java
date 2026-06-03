@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.architecture;
 
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 
 /**
  * One curated architecture rule. Implementations describe themselves through a stable

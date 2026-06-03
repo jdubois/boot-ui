@@ -4,7 +4,6 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiOverridesPropertySource;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
-import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.github.jdubois.bootui.core.SecretMasker;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +11,11 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.web.bind.annotation.*;
+import io.github.jdubois.bootui.core.dto.ConfigOverrideRequest;
+import io.github.jdubois.bootui.core.dto.ConfigOverrideResult;
+import io.github.jdubois.bootui.core.dto.ConfigPropertyDto;
+import io.github.jdubois.bootui.core.dto.ConfigPropertySuggestionDto;
+import io.github.jdubois.bootui.core.dto.ConfigReport;
 
 @RestController
 @RequestMapping("/bootui/api/config")

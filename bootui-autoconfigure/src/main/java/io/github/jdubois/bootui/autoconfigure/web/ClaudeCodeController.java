@@ -1,11 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotDashboardDto;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotEventListDto;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotRawEventDto;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
+import io.github.jdubois.bootui.core.dto.CopilotDashboardDto;
+import io.github.jdubois.bootui.core.dto.CopilotEventListDto;
+import io.github.jdubois.bootui.core.dto.CopilotRawEventDto;
+import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
+import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;

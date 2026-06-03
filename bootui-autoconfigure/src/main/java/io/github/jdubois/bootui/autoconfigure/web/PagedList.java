@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.PageMetadata;
+import io.github.jdubois.bootui.core.dto.PageMetadata;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;

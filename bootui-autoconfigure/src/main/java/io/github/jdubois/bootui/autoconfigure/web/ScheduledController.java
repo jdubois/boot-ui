@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.BootUiDtos.ScheduledReport;
-import io.github.jdubois.bootui.core.BootUiDtos.ScheduledTaskDto;
+import io.github.jdubois.bootui.core.dto.ScheduledReport;
+import io.github.jdubois.bootui.core.dto.ScheduledTaskDto;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;

@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.HttpProbeRequest;
-import io.github.jdubois.bootui.core.BootUiDtos.HttpProbeResponse;
+import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
+import io.github.jdubois.bootui.core.dto.HttpProbeResponse;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;

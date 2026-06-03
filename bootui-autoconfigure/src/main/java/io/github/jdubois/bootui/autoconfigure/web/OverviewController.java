@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiActivation;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.ActivationStatus;
-import io.github.jdubois.bootui.core.BootUiDtos.OverviewDto;
+import io.github.jdubois.bootui.core.dto.ActivationStatus;
+import io.github.jdubois.bootui.core.dto.OverviewDto;
 import io.github.jdubois.bootui.core.BootUiInfo;
 import java.util.Arrays;
 import java.util.List;

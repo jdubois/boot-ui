@@ -6,12 +6,17 @@ import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedEvent;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
-import io.github.jdubois.bootui.core.BootUiDtos.*;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import io.github.jdubois.bootui.core.dto.SpanAttributeDto;
+import io.github.jdubois.bootui.core.dto.SpanDto;
+import io.github.jdubois.bootui.core.dto.SpanEventDto;
+import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.core.dto.TraceSummaryDto;
+import io.github.jdubois.bootui.core.dto.TracesReport;
 
 /**
  * Read-only API for the BootUI Traces panel.

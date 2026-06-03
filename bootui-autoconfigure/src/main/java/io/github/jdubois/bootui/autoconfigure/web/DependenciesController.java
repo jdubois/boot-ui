@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.DependenciesReport;
-import io.github.jdubois.bootui.core.BootUiDtos.DependencyDto;
+import io.github.jdubois.bootui.core.dto.DependenciesReport;
+import io.github.jdubois.bootui.core.dto.DependencyDto;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;

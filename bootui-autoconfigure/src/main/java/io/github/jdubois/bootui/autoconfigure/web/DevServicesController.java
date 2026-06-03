@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
-import io.github.jdubois.bootui.core.BootUiDtos.*;
 import io.github.jdubois.bootui.core.SecretMasker;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
@@ -28,6 +27,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import io.github.jdubois.bootui.core.dto.DevServiceDto;
+import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
+import io.github.jdubois.bootui.core.dto.DevServicePortDto;
+import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
+import io.github.jdubois.bootui.core.dto.DevServicesReport;
 
 @RestController
 @RequestMapping("/bootui/api/dev-services")

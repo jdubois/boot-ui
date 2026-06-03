@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
-import io.github.jdubois.bootui.core.BootUiDtos.DevServiceDto;
+import io.github.jdubois.bootui.core.dto.DevServiceDto;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;

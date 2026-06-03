@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.DevToolsActionResult;
-import io.github.jdubois.bootui.core.BootUiDtos.DevToolsRestartRequest;
-import io.github.jdubois.bootui.core.BootUiDtos.DevToolsStatus;
+import io.github.jdubois.bootui.core.dto.DevToolsActionResult;
+import io.github.jdubois.bootui.core.dto.DevToolsRestartRequest;
+import io.github.jdubois.bootui.core.dto.DevToolsStatus;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

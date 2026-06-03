@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
-import io.github.jdubois.bootui.core.BootUiDtos.PanelDto;
+import io.github.jdubois.bootui.core.dto.PanelDto;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.GenericApplicationContext;

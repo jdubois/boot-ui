@@ -1,9 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.BootUiDtos.StartupReport;
-import io.github.jdubois.bootui.core.BootUiDtos.StartupStepDto;
-import io.github.jdubois.bootui.core.BootUiDtos.TagDto;
+import io.github.jdubois.bootui.core.dto.StartupReport;
+import io.github.jdubois.bootui.core.dto.StartupStepDto;
+import io.github.jdubois.bootui.core.dto.TagDto;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;

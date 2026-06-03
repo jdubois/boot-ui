@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.BootUiDtos.MappingDto;
-import io.github.jdubois.bootui.core.BootUiDtos.MappingsReport;
+import io.github.jdubois.bootui.core.dto.MappingDto;
+import io.github.jdubois.bootui.core.dto.MappingsReport;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;

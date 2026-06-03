@@ -6,8 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
-import io.github.jdubois.bootui.core.BootUiDtos.DevToolsActionResult;
-import io.github.jdubois.bootui.core.BootUiDtos.DevToolsStatus;
+import io.github.jdubois.bootui.core.dto.DevToolsActionResult;
+import io.github.jdubois.bootui.core.dto.DevToolsStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;

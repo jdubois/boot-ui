@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;

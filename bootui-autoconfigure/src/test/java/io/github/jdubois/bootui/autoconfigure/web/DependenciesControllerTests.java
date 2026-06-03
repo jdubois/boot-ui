@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.DependencyDto;
+import io.github.jdubois.bootui.core.dto.DependencyDto;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;

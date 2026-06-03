@@ -6,7 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import com.sun.net.httpserver.HttpServer;
-import io.github.jdubois.bootui.core.BootUiDtos.HttpProbeRequest;
+import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import org.junit.jupiter.api.AfterEach;

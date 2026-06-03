@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.ConfigPropertySuggestionDto;
+import io.github.jdubois.bootui.core.dto.ConfigPropertySuggestionDto;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
