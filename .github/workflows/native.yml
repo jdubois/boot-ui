@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Build native image and start the stack
         run: docker compose -f docker-compose-native.yml up --build --detach
