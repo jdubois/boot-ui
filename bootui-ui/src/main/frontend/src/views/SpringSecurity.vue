@@ -20,7 +20,7 @@ const endpointFilter = ref('')
 
 async function load() {
   try {
-    const res = await apiFetch('api/security')
+    const res = await apiFetch('api/spring-security')
     if (res.status === 404) {
       springSecurityPresent.value = false
       return
@@ -39,7 +39,7 @@ async function loadEndpoints() {
   endpointsLoading.value = true
   endpointsError.value = null
   try {
-    const res = await apiFetch('api/security/endpoints')
+    const res = await apiFetch('api/spring-security/endpoints')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     endpoints.value = await res.json()
   } catch (e) {
@@ -54,7 +54,7 @@ async function explain() {
   explainResult.value = null
   try {
     const params = new URLSearchParams({method: explainMethod.value, path: explainPath.value})
-    const res = await apiFetch('api/security/explain?' + params)
+    const res = await apiFetch('api/spring-security/explain?' + params)
     if (res.ok) {
       explainResult.value = await res.json()
     } else {

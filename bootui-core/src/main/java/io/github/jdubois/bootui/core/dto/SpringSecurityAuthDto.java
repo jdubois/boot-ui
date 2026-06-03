@@ -5,5 +5,5 @@ import java.util.List;
 /**
  * Authentication and user-details summary.
  */
-public record SecurityAuthDto(
+public record SpringSecurityAuthDto(
         List<String> authenticationProviderTypes, List<String> userDetailsServiceTypes, String configuredUsername) {}

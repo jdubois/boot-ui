@@ -20,18 +20,19 @@ describe('routes', () => {
       'Beans',
       'Conditions',
       'Mappings',
+      'Spring Security',
+      'Security Logs',
+      'Pentesting',
       'Scheduled Tasks',
       'Database Connection Pools',
       'Spring Data',
       'Spring Cache',
-      'Security',
       'AI Usage',
       'Traces',
       'Log Tail',
       'HTTP Exchanges',
       'HTTP Probe',
       'Architecture',
-      'Pentesting',
       'Vulnerabilities',
       'DevTools',
       'Dev Services',
@@ -51,7 +52,7 @@ describe('routes', () => {
       expect(route.meta).toMatchObject({
         title: expect.any(String),
         icon: expect.stringMatching(/^bi-/),
-        group: expect.stringMatching(/^(overview|runtime|configuration|services|diagnostics|developer-tools)$/)
+        group: expect.stringMatching(/^(overview|runtime|configuration|security|services|diagnostics|developer-tools)$/)
       })
     }
   })
@@ -61,6 +62,7 @@ describe('routes', () => {
       'overview',
       'runtime',
       'configuration',
+      'security',
       'services',
       'diagnostics',
       'developer-tools'
@@ -81,13 +83,14 @@ describe('routes', () => {
       groups.configuration,
       groups.configuration,
       groups.configuration,
+      groups.security,
+      groups.security,
+      groups.security,
       groups.services,
       groups.services,
       groups.services,
       groups.services,
       groups.services,
-      groups.services,
-      groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,

@@ -77,6 +77,10 @@ public class BootUiProperties {
      */
     private Cache cache = new Cache();
     /**
+     * Security Logs panel settings.
+     */
+    private SecurityLogs securityLogs = new SecurityLogs();
+    /**
      * Dependency inventory and vulnerability scanning settings.
      */
     private Dependencies dependencies = new Dependencies();
@@ -250,6 +254,14 @@ public class BootUiProperties {
         this.cache = cache;
     }
 
+    public SecurityLogs getSecurityLogs() {
+        return securityLogs;
+    }
+
+    public void setSecurityLogs(SecurityLogs securityLogs) {
+        this.securityLogs = securityLogs == null ? new SecurityLogs() : securityLogs;
+    }
+
     public Dependencies getDependencies() {
         return dependencies;
     }
@@ -404,6 +416,22 @@ public class BootUiProperties {
 
         public void setClearEnabled(boolean clearEnabled) {
             this.clearEnabled = clearEnabled;
+        }
+    }
+
+    public static class SecurityLogs {
+
+        /**
+         * Maximum number of recent audit events retained in a single Security Logs response.
+         */
+        private int maxLogs = 500;
+
+        public int getMaxLogs() {
+            return maxLogs;
+        }
+
+        public void setMaxLogs(int maxLogs) {
+            this.maxLogs = maxLogs;
         }
     }
 

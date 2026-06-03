@@ -29,7 +29,8 @@ public final class BootUiPanels {
     public static final String DATA = "data";
     public static final String DATABASE_CONNECTION_POOLS = "database-connection-pools";
     public static final String SPRING_CACHE = "spring-cache";
-    public static final String SECURITY = "security";
+    public static final String SPRING_SECURITY = "spring-security";
+    public static final String SECURITY_LOGS = "security-logs";
     public static final String AI = "ai";
     public static final String TRACES = "traces";
     public static final String LOG_TAIL = "log-tail";
@@ -51,32 +52,33 @@ public final class BootUiPanels {
             new Panel(METRICS, "Metrics", false, "/metrics"),
             new Panel(MEMORY, "Memory", false, "/memory"),
             new Panel(TUNING_ADVISOR, "Tuning Advisor", false, "/tuning-advisor"),
+            new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
             new Panel(STARTUP, "Startup Timeline", false, "/startup"),
-            new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
+            new Panel(GRAALVM, "GraalVM", true, "/graalvm"),
             new Panel(CONFIG, "Configuration", true, "/config"),
             new Panel(PROFILES, "Profile Diff", false, "/profiles"),
             new Panel(LOGGERS, "Loggers", true, "/loggers"),
             new Panel(BEANS, "Beans", false, "/beans"),
             new Panel(CONDITIONS, "Conditions", false, "/conditions"),
             new Panel(MAPPINGS, "Mappings", false, "/mappings"),
+            new Panel(SPRING_SECURITY, "Spring Security", false, "/spring-security"),
+            new Panel(SECURITY_LOGS, "Security Logs", false, "/security-logs"),
+            new Panel(PENTEST, "Pentesting", true, "/pentest"),
+            new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
             new Panel(DATA, "Data", false, "/data"),
             new Panel(SPRING_CACHE, "Spring Cache", true, "/spring-cache"),
-            new Panel(SECURITY, "Security", false, "/security"),
             new Panel(AI, "AI Usage", false, "/ai"),
             new Panel(TRACES, "Traces", true, "/traces"),
             new Panel(LOG_TAIL, "Log Tail", false, "/logs"),
             new Panel(HTTP_EXCHANGES, "HTTP Exchanges", false, "/http-exchanges"),
             new Panel(HTTP_PROBE, "HTTP Probe", true, "/probe"),
-            new Panel(PENTEST, "Pentesting", true, "/pentest"),
-            new Panel(VULNERABILITIES, "Vulnerabilities", true, "/dependencies"),
-            new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
             new Panel(ARCHITECTURE, "Architecture", true, "/architecture"),
+            new Panel(VULNERABILITIES, "Vulnerabilities", true, "/dependencies"),
             new Panel(DEVTOOLS, "DevTools", true, "/devtools"),
             new Panel(DEV_SERVICES, "Dev Services", true, "/dev-services"),
             new Panel(COPILOT, "Copilot", false, "/copilot"),
-            new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"),
-            new Panel(GRAALVM, "GraalVM", true, "/graalvm"));
+            new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

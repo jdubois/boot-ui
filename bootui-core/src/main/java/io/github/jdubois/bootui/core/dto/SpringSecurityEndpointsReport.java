@@ -5,8 +5,8 @@ import java.util.List;
 /**
  * Per-endpoint Spring Security authorization report.
  */
-public record SecurityEndpointsReport(
+public record SpringSecurityEndpointsReport(
         boolean springSecurityPresent,
         boolean handlerMappingAvailable,
         int total,
-        List<SecurityEndpointDto> endpoints) {}
+        List<SpringSecurityEndpointDto> endpoints) {}

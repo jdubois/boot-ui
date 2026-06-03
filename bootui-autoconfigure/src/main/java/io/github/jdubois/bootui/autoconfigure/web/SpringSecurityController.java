@@ -2,9 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.dto.SecurityEndpointsReport;
-import io.github.jdubois.bootui.core.dto.SecurityExplainDto;
-import io.github.jdubois.bootui.core.dto.SecurityReport;
+import io.github.jdubois.bootui.core.dto.SpringSecurityEndpointsReport;
+import io.github.jdubois.bootui.core.dto.SpringSecurityExplainDto;
+import io.github.jdubois.bootui.core.dto.SpringSecurityReport;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -26,12 +26,12 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMappi
  */
 @RestController
 @ConditionalOnClass(FilterChainProxy.class)
-@RequestMapping("/bootui/api/security")
-public class SecurityController {
+@RequestMapping("/bootui/api/spring-security")
+public class SpringSecurityController {
 
-    private final SecurityService securityService;
+    private final SpringSecurityService securityService;
 
-    public SecurityController(
+    public SpringSecurityController(
             ObjectProvider<FilterChainProxy> filterChainProxyProvider,
             ObjectProvider<AuthenticationProvider> authenticationProviderProvider,
             ObjectProvider<UserDetailsService> userDetailsServiceProvider,
@@ -49,7 +49,7 @@ public class SecurityController {
     }
 
     @Autowired
-    public SecurityController(
+    public SpringSecurityController(
             ObjectProvider<FilterChainProxy> filterChainProxyProvider,
             ObjectProvider<AuthenticationProvider> authenticationProviderProvider,
             ObjectProvider<UserDetailsService> userDetailsServiceProvider,
@@ -57,7 +57,7 @@ public class SecurityController {
             Environment environment,
             BootUiProperties properties,
             BootUiSelfDataFilter selfDataFilter) {
-        this.securityService = new SecurityService(
+        this.securityService = new SpringSecurityService(
                 filterChainProxyProvider,
                 authenticationProviderProvider,
                 userDetailsServiceProvider,
@@ -68,18 +68,18 @@ public class SecurityController {
     }
 
     @GetMapping
-    public SecurityReport security() {
+    public SpringSecurityReport security() {
         return securityService.security();
     }
 
     @GetMapping("/explain")
-    public SecurityExplainDto explain(
+    public SpringSecurityExplainDto explain(
             @RequestParam(defaultValue = "GET") String method, @RequestParam(defaultValue = "/") String path) {
         return securityService.explain(method, path);
     }
 
     @GetMapping("/endpoints")
-    public SecurityEndpointsReport endpoints() {
+    public SpringSecurityEndpointsReport endpoints() {
         return securityService.endpoints();
     }
 }

@@ -156,8 +156,8 @@ class MissingActuatorEndpointsTests {
     }
 
     @Test
-    void securityControllerReturnsAbsentReportWhenFilterChainProxyMissing() throws Exception {
-        SecurityController controller = new SecurityController(
+    void springSecurityControllerReturnsAbsentReportWhenFilterChainProxyMissing() throws Exception {
+        SpringSecurityController controller = new SpringSecurityController(
                 emptyProvider(),
                 emptyProvider(),
                 emptyProvider(),
@@ -166,7 +166,7 @@ class MissingActuatorEndpointsTests {
                 new BootUiProperties());
         MockMvc mvc = standaloneSetup(controller).build();
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.springSecurityPresent").value(false))
                 .andExpect(jsonPath("$.chains").isEmpty())

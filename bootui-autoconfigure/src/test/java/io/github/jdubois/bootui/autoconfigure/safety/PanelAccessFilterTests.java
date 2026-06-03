@@ -191,18 +191,18 @@ class PanelAccessFilterTests {
 
     private Map<String, ActionRequest> actionRequestsByPanel() {
         Map<String, ActionRequest> requests = new LinkedHashMap<>();
+        requests.put("heap-dump", new ActionRequest("POST", "/bootui/api/heap-dump/capture"));
+        requests.put("graalvm", new ActionRequest("POST", "/bootui/api/graalvm/scan"));
         requests.put("config", new ActionRequest("POST", "/bootui/api/config/overrides"));
         requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
+        requests.put("pentest", new ActionRequest("POST", "/bootui/api/pentest/scan"));
         requests.put("spring-cache", new ActionRequest("POST", "/bootui/api/spring-cache/clear"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/probe"));
-        requests.put("pentest", new ActionRequest("POST", "/bootui/api/pentest/scan"));
-        requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/dependencies/scan"));
-        requests.put("heap-dump", new ActionRequest("POST", "/bootui/api/heap-dump/capture"));
         requests.put("architecture", new ActionRequest("POST", "/bootui/api/architecture/scan"));
+        requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/dependencies/scan"));
         requests.put("devtools", new ActionRequest("POST", "/bootui/api/devtools/restart"));
         requests.put("dev-services", new ActionRequest("POST", "/bootui/api/dev-services/services/demo/restart"));
-        requests.put("graalvm", new ActionRequest("POST", "/bootui/api/graalvm/scan"));
         return requests;
     }
 

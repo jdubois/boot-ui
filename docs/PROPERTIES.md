@@ -50,19 +50,20 @@ Panel settings are consistent across the UI and API:
 | Configuration   | Beans                     | `beans`                     | `bootui.panels.beans.enabled`                     | Not applicable; view-only.                |
 | Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                |
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
+| Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
+| Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
+| Security        | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`         |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                |
 | Services        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
 | Services        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                |
 | Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`    |
-| Services        | Security                  | `security`                  | `bootui.panels.security.enabled`                  | Not applicable; view-only.                |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
-| Diagnostics     | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`         |
-| Diagnostics     | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only` |
 | Diagnostics     | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
+| Diagnostics     | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only` |
 | Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                |
@@ -93,6 +94,26 @@ Panel settings are consistent across the UI and API:
 | --------------------------------- | ------- | ---------------------------------------------------- |
 | `bootui.panels.loggers.enabled`   | `true`  | Show logger data from the Actuator loggers endpoint. |
 | `bootui.panels.loggers.read-only` | `false` | Disable runtime logger level updates and resets.     |
+
+### Spring Security
+
+| Property                                  | Default | Description                                                                  |
+| ----------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `bootui.panels.spring-security.enabled`   | `true`  | Show Spring Security filter chains and best-effort endpoint rule explanations. |
+
+### Security Logs
+
+| Property                              | Default | Description                                                                 |
+| ------------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events from an `AuditEventRepository` bean. |
+| `bootui.security-logs.max-logs`       | `500`   | Maximum recent audit events returned in one Security Logs response.         |
+
+### Pentesting
+
+| Property                          | Default | Description                                                          |
+| --------------------------------- | ------- | -------------------------------------------------------------------- |
+| `bootui.panels.pentest.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
+| `bootui.panels.pentest.read-only` | `false` | Disable the explicit local scan action.                              |
 
 ### Spring Cache
 
@@ -129,13 +150,6 @@ Panel settings are consistent across the UI and API:
 | ------------------------------------ | ------- | ---------------------------------------------- |
 | `bootui.panels.http-probe.enabled`   | `true`  | Show the HTTP Probe panel.                     |
 | `bootui.panels.http-probe.read-only` | `false` | Disable sending probe requests through BootUI. |
-
-### Pentesting
-
-| Property                          | Default | Description                                                          |
-| --------------------------------- | ------- | -------------------------------------------------------------------- |
-| `bootui.panels.pentest.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
-| `bootui.panels.pentest.read-only` | `false` | Disable the explicit local scan action.                              |
 
 ### Vulnerabilities
 

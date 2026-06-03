@@ -197,7 +197,8 @@ class BootUiAutoConfigurationTests {
                             PentestController.class,
                             ProfileController.class,
                             ScheduledController.class,
-                            SecurityController.class,
+                            SecurityLogsController.class,
+                            SpringSecurityController.class,
                             StartupController.class,
                             TracesController.class)
                     .forEach(beanType -> assertLazyBean(beanFactory, beanType));
@@ -331,7 +332,8 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(HikariController.class)
                         .hasSingleBean(LogTailController.class)
                         .hasSingleBean(ScheduledController.class)
-                        .hasSingleBean(SecurityController.class));
+                        .hasSingleBean(SecurityLogsController.class)
+                        .hasSingleBean(SpringSecurityController.class));
     }
 
     @Test
@@ -382,10 +384,10 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
-    void skipsSecurityPanelWhenSpringSecurityWebIsMissing() {
+    void skipsSpringSecurityPanelWhenSpringSecurityWebIsMissing() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("org.springframework.security.web.FilterChainProxy"))
-                .run(context -> assertThat(context).doesNotHaveBean(SecurityController.class));
+                .run(context -> assertThat(context).doesNotHaveBean(SpringSecurityController.class));
     }
 
     private static void assertLazyBean(ConfigurableListableBeanFactory beanFactory, Class<?> beanType) {

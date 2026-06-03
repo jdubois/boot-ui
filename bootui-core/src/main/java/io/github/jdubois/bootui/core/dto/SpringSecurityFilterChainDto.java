@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * One Spring Security filter chain.
  */
-public record SecurityFilterChainDto(
+public record SpringSecurityFilterChainDto(
         int order,
         String requestMatcher,
         String requestMatcherType,

@@ -17,7 +17,8 @@ const LogTail = () => import('./views/LogTail.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
-const Security = () => import('./views/Security.vue')
+const SpringSecurity = () => import('./views/SpringSecurity.vue')
+const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const Memory = () => import('./views/Memory.vue')
 const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
@@ -33,6 +34,7 @@ export const groups = {
   overview: 'overview',
   runtime: 'runtime',
   configuration: 'configuration',
+  security: 'security',
   services: 'services',
   diagnostics: 'diagnostics',
   developerTools: 'developer-tools'
@@ -125,6 +127,24 @@ export const routes = [
     meta: {group: groups.configuration, icon: 'bi-signpost-2', title: 'Mappings'}
   },
   {
+    path: '/spring-security',
+    name: 'spring-security',
+    component: SpringSecurity,
+    meta: {group: groups.security, icon: 'bi-person-lock', title: 'Spring Security'}
+  },
+  {
+    path: '/security-logs',
+    name: 'security-logs',
+    component: SecurityLogs,
+    meta: {group: groups.security, icon: 'bi-shield-lock', title: 'Security Logs'}
+  },
+  {
+    path: '/pentest',
+    name: 'pentest',
+    component: Pentesting,
+    meta: {group: groups.security, icon: 'bi-shield-exclamation', title: 'Pentesting'}
+  },
+  {
     path: '/scheduled',
     name: 'scheduled',
     component: Scheduled,
@@ -149,12 +169,11 @@ export const routes = [
     meta: {group: groups.services, icon: 'bi-hdd-stack', title: 'Spring Cache'}
   },
   {
-    path: '/security',
-    name: 'security',
-    component: Security,
-    meta: {group: groups.services, icon: 'bi-person-lock', title: 'Security'}
+    path: '/ai',
+    name: 'ai',
+    component: Ai,
+    meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage'}
   },
-  {path: '/ai', name: 'ai', component: Ai, meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage'}},
   {
     path: '/traces',
     name: 'traces',
@@ -184,12 +203,6 @@ export const routes = [
     name: 'architecture',
     component: Architecture,
     meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
-  },
-  {
-    path: '/pentest',
-    name: 'pentest',
-    component: Pentesting,
-    meta: {group: groups.diagnostics, icon: 'bi-shield-exclamation', title: 'Pentesting'}
   },
   {
     path: '/vulnerabilities',

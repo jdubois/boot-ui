@@ -56,7 +56,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
     /** Spring Security filter chain whose {@code getFilters()} is invoked reflectively by the pentest scanner. */
     private static final String SECURITY_FILTER_CHAIN = "org.springframework.security.web.SecurityFilterChain";
 
-    /** Spring Security authority whose {@code getAuthority()} is invoked reflectively by {@code SecurityController}. */
+    /** Spring Security authority whose {@code getAuthority()} is invoked reflectively by {@code SpringSecurityService}. */
     private static final String GRANTED_AUTHORITY = "org.springframework.security.core.GrantedAuthority";
 
     private static final String SIMPLE_GRANTED_AUTHORITY =

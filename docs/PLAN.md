@@ -37,7 +37,7 @@ missing from BootUI today. The last two enrich existing data rather than adding 
 | 1        | Thread / Process Viewer               | Runtime       | Actuator `threaddump` / `ThreadMXBean`             |
 | 1        | HTTP Exchanges / Request History      | Diagnostics   | Actuator `httpexchanges`                           |
 | 1        | Flyway / Liquibase Migrations         | Services      | Actuator `flyway` / `liquibase`                    |
-| 1        | Audit / Security Events               | Services      | Actuator `auditevents`                             |
+| 1        | Audit / Security Events               | Security      | Actuator `auditevents`                             |
 | 2        | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data |
 | 2        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 |
 
@@ -115,10 +115,10 @@ Design constraints:
 - Mask any sensitive datasource metadata (URLs, credentials) through the existing model.
 - Fail closed per tool: an absent or inaccessible tool shows an unavailable reason, not an error.
 
-### 3.4 Audit / Security Events (Services)
+### 3.4 Audit / Security Events (Security)
 
-Pairs naturally with the existing Security panel and closes a gap versus Spring Boot Admin. Read-only view of recorded
-security audit events.
+Pairs naturally with the existing Spring Security panel and closes a gap versus Spring Boot Admin. Read-only view of
+recorded security audit events.
 
 Scope:
 
