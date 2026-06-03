@@ -1,8 +1,8 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {computed, onMounted, ref} from 'vue'
 import {formatDuration, formatTime} from '../utils/format.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -24,12 +24,12 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const res = await fetch('api/traces')
+    const res = await apiFetch('api/traces')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     lastFetched.value = Date.now()
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load traces')
+    error.value = describeLoadError(e, 'Unable to load traces')
   } finally {
     loading.value = false
   }
@@ -40,7 +40,7 @@ async function openTrace(traceId) {
   detail.value = null
   detailLoading.value = true
   try {
-    const res = await fetch('api/traces/' + traceId)
+    const res = await apiFetch('api/traces/' + traceId)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
   } catch (e) {

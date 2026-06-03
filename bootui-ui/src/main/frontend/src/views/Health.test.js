@@ -109,7 +109,7 @@ describe('Health', () => {
       })
     )
 
-    expect(fetch).toHaveBeenCalledWith('api/health')
+    expect(fetch).toHaveBeenCalledWith('api/health', expect.anything())
     expect(wrapper.text()).toContain('DISABLED')
     expect(wrapper.text()).toContain('Spring Boot Actuator health endpoint is not available')
     expect(wrapper.text()).toContain('Set up Spring Boot Actuator health')

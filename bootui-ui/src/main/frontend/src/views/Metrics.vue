@@ -1,9 +1,10 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const data = ref(null)
@@ -117,7 +118,7 @@ function changeStatistic(event) {
 
 async function fetchMetrics() {
   try {
-    const res = await fetch('api/metrics')
+    const res = await apiFetch('api/metrics')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
     error.value = null
@@ -125,7 +126,7 @@ async function fetchMetrics() {
       selectMeter(preferredInitialMeter(data.value.meters))
     }
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load metrics')
+    error.value = describeLoadError(e, 'Unable to load metrics')
   }
 }
 
@@ -145,7 +146,7 @@ async function loadDetail() {
     for (const tag of selectedTags.value) {
       params.append('tag', tag)
     }
-    const res = await fetch(`api/metrics/detail?${params}`)
+    const res = await apiFetch(`api/metrics/detail?${params}`)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
     if (!detail.value.measurements.some((measurement) => measurement.statistic === selectedStatistic.value)) {

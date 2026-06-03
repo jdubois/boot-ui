@@ -1,7 +1,8 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
@@ -26,8 +27,8 @@ async function fetchAiUsage() {
   error.value = null
   try {
     const [ovRes, tsRes] = await Promise.all([
-      fetch('api/ai/overview'),
-      fetch('api/ai/tokens?minutes=' + windowMinutes.value)
+      apiFetch('api/ai/overview'),
+      apiFetch('api/ai/tokens?minutes=' + windowMinutes.value)
     ])
     if (!ovRes.ok) throw new Error('HTTP ' + ovRes.status)
     overview.value = await ovRes.json()
@@ -36,7 +37,7 @@ async function fetchAiUsage() {
     }
     lastUpdated.value = Date.now()
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load AI usage data')
+    error.value = describeLoadError(e, 'Unable to load AI usage data')
   }
 }
 
@@ -91,7 +92,7 @@ async function openChat(spanId) {
   detail.value = null
   detailLoading.value = true
   try {
-    const res = await fetch('api/ai/chats/' + spanId)
+    const res = await apiFetch('api/ai/chats/' + spanId)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
   } catch (e) {
@@ -283,7 +284,7 @@ const tooltipData = ref(null)
 const chartContainerRef = ref(null)
 
 async function loadTokenSeries() {
-  const res = await fetch('api/ai/tokens?minutes=' + windowMinutes.value)
+  const res = await apiFetch('api/ai/tokens?minutes=' + windowMinutes.value)
   if (res.ok) series.value = await res.json()
 }
 
@@ -436,15 +437,6 @@ const detectedFrameworkLabel = computed(() => {
     </PanelHeader>
 
     <PanelSkeleton v-if="initialLoading" />
-    <div v-else-if="error && !overview" class="alert alert-warning">
-      <div class="fw-semibold">Could not load AI usage data</div>
-      <details class="mt-1">
-        <summary class="small">Details</summary>
-        <code class="small">{{ error }}</code>
-      </details>
-      <button class="btn btn-sm btn-outline-secondary mt-2" @click="load">Retry</button>
-    </div>
-
     <template v-else-if="overview">
       <div v-if="overview.contentBanner && hasAnyData" class="alert alert-info small">
         <i class="bi bi-info-circle me-1"></i>{{ overview.contentBanner }}

@@ -1,6 +1,7 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -80,7 +81,7 @@ async function load() {
   error.value = ''
 
   try {
-    const res = await fetch('api/startup')
+    const res = await apiFetch('api/startup')
     if (!res.ok) {
       throw new Error(`Request failed with status ${res.status}`)
     }
@@ -94,7 +95,7 @@ async function load() {
   } catch (err) {
     report.value = {steps: []}
     expandedStepIds.value = new Set()
-    error.value = formatLoadError(err, 'Unable to load startup data')
+    error.value = describeLoadError(err, 'Unable to load startup data')
   } finally {
     loading.value = false
     loaded.value = true

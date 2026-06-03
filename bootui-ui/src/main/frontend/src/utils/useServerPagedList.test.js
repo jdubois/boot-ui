@@ -90,7 +90,7 @@ describe('useServerPagedList', () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse(null, false, 503))
     const {api} = harness('api/things', 'things', () => ({}))
     await api.load()
-    expect(api.error.value).toBe('HTTP 503')
+    expect(api.error.value.message).toBe('Unable to load data: HTTP 503')
     expect(api.loading.value).toBe(false)
   })
 
@@ -98,8 +98,7 @@ describe('useServerPagedList', () => {
     global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
     const {api} = harness('api/things', 'things', () => ({}))
     await api.load()
-    expect(api.error.value).toBe(
-      'Server unreachable: BootUI could not reach the Spring Boot app. The server may have been stopped. Start it again, then retry or refresh this page.'
-    )
+    expect(api.error.value.serverUnreachable).toBe(true)
+    expect(api.error.value.title).toBe('Server unreachable')
   })
 })

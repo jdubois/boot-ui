@@ -59,7 +59,7 @@ describe('HeapDump', () => {
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenLastCalledWith('api/heap-dump?filter=com.missing')
+    expect(fetchMock).toHaveBeenLastCalledWith('api/heap-dump?filter=com.missing', expect.anything())
     expect(wrapper.text()).toContain('No classes match the current filter')
     expect(wrapper.get('input[type="text"]').attributes('disabled')).toBeUndefined()
 
@@ -68,7 +68,7 @@ describe('HeapDump', () => {
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenLastCalledWith('api/heap-dump')
+    expect(fetchMock).toHaveBeenLastCalledWith('api/heap-dump', expect.anything())
     expect(wrapper.text()).toContain('java.lang.String')
   })
 

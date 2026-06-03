@@ -62,7 +62,7 @@ describe('Database connection pools panel', () => {
     })
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith('api/database-connection-pools/pools')
+    expect(fetchMock).toHaveBeenCalledWith('api/database-connection-pools/pools', expect.anything())
     expect(wrapper.text()).toContain('No database connection pool beans were detected')
     expect(wrapper.findComponent(PanelHeader).props('refreshable')).toBe(true)
   })

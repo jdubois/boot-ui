@@ -92,8 +92,8 @@ describe('Copilot', () => {
     await vi.advanceTimersByTimeAsync(10_000)
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('api/copilot/dashboard')
-    expect(fetch).toHaveBeenCalledWith('api/copilot/sessions')
+    expect(fetch).toHaveBeenCalledWith('api/copilot/dashboard', expect.anything())
+    expect(fetch).toHaveBeenCalledWith('api/copilot/sessions', expect.anything())
     expect(fetch).toHaveBeenCalledTimes(4)
   })
 
@@ -113,7 +113,7 @@ describe('Copilot', () => {
 
     expect(wrapper.text()).toContain('Claude Code')
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
-    expect(fetch).toHaveBeenCalledWith('api/claude-code/dashboard')
-    expect(fetch).toHaveBeenCalledWith('api/claude-code/sessions')
+    expect(fetch).toHaveBeenCalledWith('api/claude-code/dashboard', expect.anything())
+    expect(fetch).toHaveBeenCalledWith('api/claude-code/sessions', expect.anything())
   })
 })

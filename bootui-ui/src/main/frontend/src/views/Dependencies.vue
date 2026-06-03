@@ -1,7 +1,7 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {computed, onMounted, ref} from 'vue'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -108,12 +108,12 @@ function scanTime() {
 
 async function loadDependencies() {
   try {
-    const res = await fetch('api/dependencies')
+    const res = await apiFetch('api/dependencies')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load dependencies')
+    error.value = describeLoadError(e, 'Unable to load dependencies')
   }
 }
 
@@ -132,7 +132,7 @@ async function scanDependencies() {
     }
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to scan dependencies')
+    error.value = describeLoadError(e, 'Unable to scan dependencies')
   } finally {
     loading.value = false
   }

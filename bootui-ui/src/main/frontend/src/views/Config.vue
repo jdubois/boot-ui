@@ -1,7 +1,7 @@
 <script setup>
-import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {computed, nextTick, onMounted, ref, watch} from 'vue'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -45,7 +45,7 @@ const {
     source: sourceFilter.value,
     overridesOnly: showOnlyOverrides.value ? 'true' : ''
   }
-})
+}, { errorContext: 'Could not load configuration properties' })
 
 const propertySuggestions = computed(() => data.value?.propertySuggestions || [])
 
@@ -265,7 +265,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
       icon="bi-sliders"
       title="Configuration"
       subtitle="Inspect and override every Spring property the running application can see."
-      :error="error ? `Could not load configuration properties: ${error}` : null"
+      :error="error"
       @refresh="load"
     >
       <template #actions>

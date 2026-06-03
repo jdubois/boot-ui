@@ -1,7 +1,7 @@
 <script setup>
-import {computed, onMounted, onUnmounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {computed, onMounted, onUnmounted, ref} from 'vue'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 
@@ -21,7 +21,7 @@ const liveReloadReady = computed(() => status.value?.liveReloadAvailable)
 async function load() {
   loading.value = true
   try {
-    const res = await fetch('api/devtools')
+    const res = await apiFetch('api/devtools')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     status.value = await res.json()
     lastFetched.value = Date.now()
@@ -90,7 +90,7 @@ function pollUntilOnline() {
   clearReconnectTimer()
   reconnectTimer = setTimeout(async () => {
     try {
-      const res = await fetch('api/devtools', {cache: 'no-store'})
+      const res = await apiFetch('api/devtools', {cache: 'no-store'})
       if (res.ok) {
         status.value = await res.json()
         restarting.value = false

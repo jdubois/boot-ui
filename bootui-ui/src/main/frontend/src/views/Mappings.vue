@@ -20,7 +20,7 @@ const {
   totalCount
 } = useServerPagedList('api/mappings/flat', 'mappings', () => {
   return {q: filter.value.trim()}
-})
+}, { errorContext: 'Could not load mappings' })
 
 const methodClass = (m) =>
   ({
@@ -41,7 +41,7 @@ watch(filter, scheduleReload)
     <PanelHeader
       icon="bi-signpost-2"
       title="HTTP mappings"
-      :error="error ? `Could not load mappings: ${error}` : null"
+      :error="error"
     />
     <input v-model="filter" class="form-control mb-3" placeholder="Filter…" />
     <p class="small text-muted">{{ matchedCount }} of {{ totalCount }} mappings matched</p>
