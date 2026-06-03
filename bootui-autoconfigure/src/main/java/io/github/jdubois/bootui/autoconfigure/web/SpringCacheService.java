@@ -31,9 +31,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.*;
 
-class CacheService {
+class SpringCacheService {
 
-    private static final Logger log = LoggerFactory.getLogger(CacheController.class);
+    private static final Logger log = LoggerFactory.getLogger(SpringCacheController.class);
 
     private static final int MAX_SCANNED_METHODS = 5_000;
 
@@ -49,7 +49,7 @@ class CacheService {
 
     private final BootUiSelfDataFilter selfDataFilter;
 
-    CacheService(
+    SpringCacheService(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<CacheOperationSource> cacheOperationSources,
             ObjectProvider<MeterRegistry> meterRegistries,
@@ -57,7 +57,7 @@ class CacheService {
         this(beanFactoryProvider, cacheOperationSources, meterRegistries, properties, BootUiSelfDataFilter.defaults());
     }
 
-    CacheService(
+    SpringCacheService(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<CacheOperationSource> cacheOperationSources,
             ObjectProvider<MeterRegistry> meterRegistries,

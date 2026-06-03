@@ -173,7 +173,7 @@ class BootUiAutoConfigurationTests {
                             ArchitectureController.class,
                             BeansController.class,
                             BootUiIndexController.class,
-                            CacheController.class,
+                            SpringCacheController.class,
                             ClaudeCodeController.class,
                             ConditionsController.class,
                             ConfigController.class,
@@ -326,7 +326,7 @@ class BootUiAutoConfigurationTests {
     void optionalClasspathPanelsAreRegisteredWhenDependenciesArePresent() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .run(context -> assertThat(context)
-                        .hasSingleBean(CacheController.class)
+                        .hasSingleBean(SpringCacheController.class)
                         .hasSingleBean(DataController.class)
                         .hasSingleBean(HikariController.class)
                         .hasSingleBean(LogTailController.class)

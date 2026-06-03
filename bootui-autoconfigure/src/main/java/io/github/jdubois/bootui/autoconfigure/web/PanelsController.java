@@ -103,7 +103,7 @@ public class PanelsController {
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
             case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
-            case BootUiPanels.CACHE ->
+            case BootUiPanels.SPRING_CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
             case BootUiPanels.SECURITY ->
                 availability(

@@ -16,7 +16,7 @@ const GraalVm = () => import('./views/GraalVm.vue')
 const LogTail = () => import('./views/LogTail.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
-const Cache = () => import('./views/Cache.vue')
+const SpringCache = () => import('./views/SpringCache.vue')
 const Security = () => import('./views/Security.vue')
 const Memory = () => import('./views/Memory.vue')
 const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
@@ -143,10 +143,10 @@ export const routes = [
     meta: {group: groups.services, icon: 'bi-database', title: 'Spring Data'}
   },
   {
-    path: '/cache',
-    name: 'cache',
-    component: Cache,
-    meta: {group: groups.services, icon: 'bi-hdd-stack', title: 'Cache'}
+    path: '/spring-cache',
+    name: 'spring-cache',
+    component: SpringCache,
+    meta: {group: groups.services, icon: 'bi-hdd-stack', title: 'Spring Cache'}
   },
   {
     path: '/security',

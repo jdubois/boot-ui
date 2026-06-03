@@ -20,19 +20,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Controller exposing Cache Manager introspection and cache eviction capabilities.
+ * Controller exposing Spring Cache manager introspection and cache eviction capabilities.
  *
  * <p>Supports generic Spring Cache managers, with specialized metrics extraction
  * for Caffeine and Redis (via Micrometer, if available).</p>
  */
 @RestController
 @ConditionalOnClass(CacheManager.class)
-@RequestMapping("/bootui/api/cache")
-public class CacheController {
+@RequestMapping("/bootui/api/spring-cache")
+public class SpringCacheController {
 
-    private final CacheService service;
+    private final SpringCacheService service;
 
-    public CacheController(
+    public SpringCacheController(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<CacheOperationSource> cacheOperationSources,
             ObjectProvider<MeterRegistry> meterRegistries,
@@ -41,18 +41,18 @@ public class CacheController {
     }
 
     @Autowired
-    public CacheController(
+    public SpringCacheController(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<CacheOperationSource> cacheOperationSources,
             ObjectProvider<MeterRegistry> meterRegistries,
             BootUiProperties properties,
             BootUiSelfDataFilter selfDataFilter) {
-        this.service = new CacheService(
+        this.service = new SpringCacheService(
                 beanFactoryProvider, cacheOperationSources, meterRegistries, properties, selfDataFilter);
     }
 
     @GetMapping
-    public CacheReport cache() {
+    public CacheReport springCache() {
         return service.cache();
     }
 

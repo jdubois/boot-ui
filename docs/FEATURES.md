@@ -10,7 +10,7 @@ also support `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=tr
 read-only. The complete list is in the [property reference](PROPERTIES.md).
 
 Monitoring-oriented panels hide BootUI's own runtime data by default so Beans, Conditions, Mappings, Loggers, Metrics,
-Startup Timeline, Scheduled Tasks, Cache, Security, and Traces stay focused on the host application. Set
+Startup Timeline, Scheduled Tasks, Spring Cache, Security, and Traces stay focused on the host application. Set
 `bootui.monitoring.exclude-self=false` to include BootUI internals while debugging the console itself.
 
 ## Overview
@@ -187,14 +187,14 @@ methods, and degrades to a clear empty state when Spring Data is not present or 
 
 ![BootUI Spring Data panel](images/bootui-data.png)
 
-### Cache
+### Spring Cache
 
-The Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native
+The Spring Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native
 implementations, safe local sizes, Micrometer cache metrics when registered, and discovered `@Cacheable`, `@CachePut`,
 and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser
 confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
-![BootUI Cache panel](images/bootui-cache.png)
+![BootUI Spring Cache panel](images/bootui-spring-cache.png)
 
 ### Security
 

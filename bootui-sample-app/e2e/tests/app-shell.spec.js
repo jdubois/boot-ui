@@ -19,7 +19,7 @@ const allPanelLinks = [
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
-  {id: 'cache', title: 'Cache', heading: /Spring Cache/},
+  {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
   {id: 'security', title: 'Security', heading: /Spring Security/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
   {id: 'traces', title: 'Traces', heading: /^Traces/},
@@ -107,7 +107,7 @@ test.describe('BootUI app shell', () => {
       'Scheduled Tasks',
       'Database Connection Pools',
       'Spring Data',
-      'Cache',
+      'Spring Cache',
       'Security',
       'AI Usage'
     ])

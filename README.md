@@ -37,7 +37,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Services        | [Scheduled Tasks](docs/FEATURES.md#scheduled-tasks)                     | View registered scheduled tasks and their trigger metadata.                                                                             |
 | Services        | [Database Connection Pools](docs/FEATURES.md#database-connection-pools) | Watch database pool sizing, masked JDBC metadata, and live active/idle/total/pending saturation.                                        |
 | Services        | [Spring Data](docs/FEATURES.md#spring-data)                             | Explore Spring Data repositories, domain types, IDs, and query methods.                                                                 |
-| Services        | [Cache](docs/FEATURES.md#cache)                                         | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                                               |
+| Services        | [Spring Cache](docs/FEATURES.md#spring-cache)                           | Inspect Spring Cache managers, caches, metrics, annotations, and confirmed clear actions.                                               |
 | Services        | [Security](docs/FEATURES.md#security)                                   | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                                                       |
 | Services        | [AI Usage](docs/FEATURES.md#ai-usage)                                   | Summarize Spring AI and LangChain4j chat conversations, token usage, latency, and model details from OpenTelemetry spans.               |
 | Diagnostics     | [Traces](docs/FEATURES.md#traces)                                       | Inspect local spans captured automatically by the starter, plus OTLP spans from cooperating services.                                   |
@@ -142,6 +142,17 @@ Common properties:
 | `bootui.claude-code.max-parsed-sessions` | `100`                                   | Maximum recent Claude Code JSONL files parsed and retained in memory.                    |
 | `bootui.claude-code.allow-raw-reveal`    | `false`                                 | Explicitly enable raw JSONL reveal; raw Claude Code logs can include prompts and output. |
 
+## GraalVM native images
+
+BootUI contributes Spring AOT runtime hints for the starter's own native-image needs. Applications using
+`bootui-spring-boot-starter` do not need to re-declare BootUI-specific hints for the classpath resources BootUI scans at
+runtime, BootUI DTO records serialized by Jackson, or the reflective calls used by the Heap Dump, Security, and
+Pentesting panels.
+
+The [GraalVM panel](docs/FEATURES.md#graalvm) is separate from those built-in hints: it surveys the host application and
+can generate a reviewable `reachability-metadata.json` scaffold for application code. Always validate native-image
+readiness with the GraalVM tracing agent and an actual native build.
+
 ## Runtime overrides
 
 The Configuration panel can create, update, and delete local runtime overrides. Overrides are stored in
@@ -172,6 +183,7 @@ app restarts; BootUI returns that warning with every override mutation.
 ## More docs
 
 - [Feature details](docs/FEATURES.md): panel-by-panel guide with screenshots
+- [GraalVM readiness checks](docs/GRAALVM-READINESS-CHECKS.md): native-image scan behavior and generated metadata notes
 - [Property reference](docs/PROPERTIES.md): global, per-panel, and action-gating configuration properties
 - [Sample app walkthrough](bootui-sample-app/README.md): the demo app behind the screenshots and Playwright suite
 - [CHANGELOG.md](CHANGELOG.md): release notes
