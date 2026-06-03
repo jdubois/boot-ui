@@ -179,6 +179,8 @@ class BootUiAutoConfigurationTests {
                             ConfigController.class,
                             CopilotController.class,
                             DataController.class,
+                            FlywayController.class,
+                            LiquibaseController.class,
                             DependenciesController.class,
                             DevToolsController.class,
                             GraalVmController.class,

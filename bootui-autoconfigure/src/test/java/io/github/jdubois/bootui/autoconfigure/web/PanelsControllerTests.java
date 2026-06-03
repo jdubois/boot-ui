@@ -49,7 +49,9 @@ class PanelsControllerTests {
             BootUiPanels.DEVTOOLS,
             BootUiPanels.DEV_SERVICES,
             BootUiPanels.COPILOT,
-            BootUiPanels.CLAUDE_CODE);
+            BootUiPanels.CLAUDE_CODE,
+            BootUiPanels.FLYWAY,
+            BootUiPanels.LIQUIBASE);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
@@ -136,7 +138,15 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_EXCHANGES) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_EXCHANGES) + ".unavailableReason")
-                            .value("HTTP exchange repository not available"));
+                            .value("HTTP exchange repository not available"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.FLYWAY) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.FLYWAY) + ".unavailableReason")
+                            .value("No Flyway beans are available"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.LIQUIBASE) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.LIQUIBASE) + ".unavailableReason")
+                            .value("No Liquibase beans are available"));
         }
     }
 

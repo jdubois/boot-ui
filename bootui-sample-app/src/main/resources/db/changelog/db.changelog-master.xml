@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Liquibase-managed "inventory" schema. These tables are fully separate from
+        the Flyway-managed "catalog" tables and are tracked in Liquibase's own
+        DATABASECHANGELOG history table.
+    -->
+    <changeSet id="1" author="bootui">
+        <comment>Create inventory_warehouse table</comment>
+        <createTable tableName="inventory_warehouse">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar(120)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="2" author="bootui">
+        <comment>Create inventory_item table and seed a warehouse</comment>
+        <createTable tableName="inventory_item">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="sku" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="warehouse_id" type="bigint"/>
+        </createTable>
+        <insert tableName="inventory_warehouse">
+            <column name="name" value="Main Warehouse"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
