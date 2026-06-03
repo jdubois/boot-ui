@@ -73,7 +73,7 @@ public class OtlpReceiverController {
                     "Rejecting OTLP payload exceeding bootui.telemetry.max-request-bytes ({} > {})",
                     body.length,
                     telemetry.getMaxRequestBytes());
-            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).build();
+            return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).build();
         }
         try {
             List<NormalizedSpan> spans = decoder.decode(body);

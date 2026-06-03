@@ -9,7 +9,6 @@ import java.util.stream.Stream;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
-import org.springframework.aot.hint.TypeReference;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportRuntimeHints;
 
@@ -59,19 +58,25 @@ class NativeHintsConfiguration {
             }
 
             // JDK serialization graph for the cached List<ProductSummary> value.
-            Set<String> serializable = new LinkedHashSet<>();
-            serializable.add(BootUiSampleApplication.ProductSummary.class.getName());
-            serializable.add(Long.class.getName());
-            serializable.add(Integer.class.getName());
-            serializable.add(Boolean.class.getName());
-            serializable.add(Number.class.getName());
+            Set<Class<?>> serializable = new LinkedHashSet<>();
+            serializable.add(BootUiSampleApplication.ProductSummary.class);
+            serializable.add(Long.class);
+            serializable.add(Integer.class);
+            serializable.add(Boolean.class);
+            serializable.add(Number.class);
             // Serial proxy used by List.of()/Stream#toList() immutable collections.
-            serializable.add("java.util.CollSer");
-            for (Class<?> type : immutableCollections) {
-                serializable.add(type.getName());
+            serializable.add(serializationProxyClass());
+            serializable.addAll(immutableCollections);
+            for (Class<?> type : serializable) {
+                hints.reflection().registerJavaSerialization(type);
             }
-            for (String type : serializable) {
-                hints.serialization().registerType(TypeReference.of(type));
+        }
+
+        private static Class<?> serializationProxyClass() {
+            try {
+                return Class.forName("java.util.CollSer");
+            } catch (ClassNotFoundException ex) {
+                throw new IllegalStateException("Failed to load java.util.CollSer", ex);
             }
         }
     }

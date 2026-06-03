@@ -97,7 +97,7 @@ final class ConfigMetadataCatalog {
         if (value == null || value.isNull()) {
             return null;
         }
-        return value.asText();
+        return value.asString();
     }
 
     private static Object toObject(JsonNode node, ObjectMapper objectMapper) {

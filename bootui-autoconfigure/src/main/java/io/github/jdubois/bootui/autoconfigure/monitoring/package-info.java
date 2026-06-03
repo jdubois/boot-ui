@@ -1,3 +1,2 @@
-@org.springframework.lang.NonNullApi
-@org.springframework.lang.NonNullFields
+@org.jspecify.annotations.NullMarked
 package io.github.jdubois.bootui.autoconfigure.monitoring;

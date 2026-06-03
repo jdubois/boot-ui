@@ -1357,7 +1357,7 @@ public abstract class AgentSessionStore {
         for (String n : names) {
             JsonNode v = node.get(n);
             if (v != null && !v.isNull() && v.isValueNode()) {
-                String s = v.asText();
+                String s = v.asString();
                 if (s != null && !s.isBlank()) {
                     return s;
                 }
@@ -1414,8 +1414,8 @@ public abstract class AgentSessionStore {
                 long candidate = v.asLong();
                 return normalizeEpochMillis(candidate);
             }
-            if (v.isTextual()) {
-                Long parsed = parseTimestamp(v.asText());
+            if (v.isString()) {
+                Long parsed = parseTimestamp(v.asString());
                 if (parsed != null) {
                     return parsed;
                 }
@@ -1684,14 +1684,14 @@ public abstract class AgentSessionStore {
         sb.append(category).append(" · ").append(displayTool != null ? displayTool : "event");
         JsonNode target = firstString(node, "target", "path", "file");
         if (target != null) {
-            String hint = pathHint(target.asText());
+            String hint = pathHint(target.asString());
             if (hint != null) {
                 sb.append(" · ").append(hint);
             }
         } else {
             JsonNode url = firstString(node, "url", "host");
             if (url != null) {
-                String hint = urlHint(url.asText());
+                String hint = urlHint(url.asString());
                 if (hint != null) {
                     sb.append(" · ").append(hint);
                 }
@@ -1706,7 +1706,7 @@ public abstract class AgentSessionStore {
         }
         for (String n : names) {
             JsonNode v = node.get(n);
-            if (v != null && v.isTextual()) {
+            if (v != null && v.isString()) {
                 return v;
             }
         }
