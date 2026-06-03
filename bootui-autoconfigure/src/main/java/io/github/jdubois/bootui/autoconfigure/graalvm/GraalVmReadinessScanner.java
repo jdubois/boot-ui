@@ -95,9 +95,11 @@ final class GraalVmReadinessScanner {
             // Catch LinkageError (e.g. NoClassDefFoundError/ClassFormatError) as well as RuntimeException so a
             // malformed or unresolvable class on the host classpath degrades to a stable report instead of failing.
         } catch (RuntimeException | LinkageError ex) {
+            String warning = "Application classes could not be imported for analysis: "
+                    + GraalVmCheckSupport.detail(ex.getMessage());
             GraalVmReadinessReport report = report(
-                    "SCANNED",
-                    "Application classes could not be imported for analysis: " + ex.getMessage(),
+                    "ERROR",
+                    warning,
                     clock.millis(),
                     basePackages.packages(),
                     includeDependencies,
@@ -105,7 +107,7 @@ final class GraalVmReadinessScanner {
                     0,
                     List.of(),
                     dependencies.dependencies(),
-                    warnings(basePackages, dependencies),
+                    warnings(basePackages, dependencies, warning),
                     GraalVmMetadata.empty());
             return new GraalVmScanResult(report, GraalVmMetadata.empty());
         }
@@ -180,6 +182,12 @@ final class GraalVmReadinessScanner {
 
     private List<String> warnings(BasePackageDetection basePackages, DependencyScan dependencies) {
         return java.util.stream.Stream.concat(basePackages.warnings().stream(), dependencies.warnings().stream())
+                .toList();
+    }
+
+    private List<String> warnings(BasePackageDetection basePackages, DependencyScan dependencies, String warning) {
+        return java.util.stream.Stream.concat(
+                        warnings(basePackages, dependencies).stream(), java.util.stream.Stream.of(warning))
                 .toList();
     }
 

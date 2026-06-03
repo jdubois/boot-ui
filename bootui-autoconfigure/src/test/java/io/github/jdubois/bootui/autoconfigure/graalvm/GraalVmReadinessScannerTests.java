@@ -95,6 +95,25 @@ class GraalVmReadinessScannerTests {
     }
 
     @Test
+    void scanSurfacesClassImportFailures() {
+        GraalVmReadinessReport report = new GraalVmReadinessScanner(
+                        () -> List.of(FIXTURES),
+                        ignored -> {
+                            throw new IllegalStateException("bytecode unavailable");
+                        },
+                        new GraalVmDependencyScanner(() -> ""),
+                        CLOCK)
+                .scan(true)
+                .report();
+
+        assertThat(report.scan().status()).isEqualTo("ERROR");
+        assertThat(report.checksRun()).isZero();
+        assertThat(report.findings()).isEmpty();
+        assertThat(report.warnings())
+                .containsExactly("Application classes could not be imported for analysis: bytecode unavailable");
+    }
+
+    @Test
     void scanWithNoBasePackagesProducesEmptyScannedReport() {
         GraalVmReadinessReport report = scanner(List.of()).scan(true).report();
 
