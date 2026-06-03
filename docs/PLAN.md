@@ -38,7 +38,7 @@ behaviour.
 
 | Priority | Feature                               | Group           | Primary data source                                | Mutation?         | Origin           |
 | -------- | ------------------------------------- | --------------- | -------------------------------------------------- | ----------------- | ---------------- |
-| 1        | Flyway / Liquibase Migrations         | Services        | Actuator `flyway` / `liquibase`                    | No                | Existing roadmap |
+| 1        | Flyway / Liquibase Migrations         | Database        | `Flyway` / `SpringLiquibase` beans                 | No                | Existing roadmap |
 | 2        | Feature Flags (Togglz)                | Configuration   | Togglz `FeatureManager`                            | Optional, gated   | New addition     |
 | 3        | Hibernate Scanner & Optimizer         | Services        | Hibernate / JPA `Metamodel`                        | No                | New addition     |
 | 4        | Trace ↔ Log ↔ Request correlation     | Diagnostics     | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
@@ -53,9 +53,11 @@ first.
 
 ## 3. Feature specifications
 
-### 3.1 Flyway / Liquibase Migrations — Services
+### 3.1 Flyway / Liquibase Migrations (Database) — shipped
 
-Already a long-standing roadmap item and a common ask. Read-only visibility into database schema migration state.
+Already a long-standing roadmap item and a common ask. Read-only visibility into database schema migration state. A new
+**Database** menu group (above Security) now hosts the existing Database Connection Pools and Spring Data panels alongside
+the new Flyway and Liquibase panels.
 
 Scope:
 
@@ -69,7 +71,8 @@ Design constraints:
 
 - Read-only at first. No migrate, repair, clean, baseline, or rollback actions in this iteration; if added later they must
   be confirmation-gated and disabled by default.
-- Prefer the Actuator `flyway` / `liquibase` endpoint data through an internal bridge.
+- Bridge directly from the `Flyway` / `SpringLiquibase` beans in the context (equivalent to the Actuator `flyway` /
+  `liquibase` endpoint data) without depending on the Actuator endpoints being exposed.
 - Mask any sensitive datasource metadata (URLs, credentials) through the existing model.
 - Fail closed per tool: an absent or inaccessible tool shows an unavailable reason, not an error.
 

@@ -664,6 +664,59 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
+### 5.17.1 Flyway Panel
+
+Purpose: answer "Which Flyway-managed databases exist, what schema version is applied, and which migrations are applied or
+pending?"
+
+Data sources:
+
+- `Flyway` beans discovered in the application context.
+- Each bean's `Flyway.info().all()` migration metadata (version, description, type, script, state, installed-by,
+  installed-on, installed-rank, execution time, checksum).
+
+Features:
+
+- List each `Flyway` bean as a database, with its current applied version plus applied and pending counts.
+- For each migration, show version, description, type, script, state, installed-by, installed-on, execution time, and
+  checksum.
+
+Out of scope for the current release surface:
+
+- Running `migrate`, `repair`, `clean`, `baseline`, `validate`, or any other mutating Flyway command from the UI.
+
+Acceptance criteria:
+
+- When Flyway is not on the classpath, the API endpoint is not registered.
+- When Flyway is present but no `Flyway` beans exist, the panel shows a clear empty state.
+- Opening the panel only reads already-computed migration metadata; no Flyway command is executed as a side effect.
+
+### 5.17.2 Liquibase Panel
+
+Purpose: answer "Which Liquibase-managed databases exist and which change sets have been executed?"
+
+Data sources:
+
+- `SpringLiquibase` beans discovered in the application context.
+- Each bean's Liquibase change-log history (id, author, change-log, description, comments, execution type, date executed,
+  order executed, checksum, tag, deployment id, contexts, labels).
+
+Features:
+
+- List each `SpringLiquibase` bean as a database, with its executed change sets.
+- For each change set, show id, author, change-log, description, comments, execution type, date executed, order executed,
+  checksum, tag, deployment id, contexts, and labels.
+
+Out of scope for the current release surface:
+
+- Running `update`, `rollback`, `dropAll`, or any other mutating Liquibase command from the UI.
+
+Acceptance criteria:
+
+- When Liquibase is not on the classpath, the API endpoint is not registered.
+- When Liquibase is present but no `SpringLiquibase` beans exist, the panel shows a clear empty state.
+- The panel fails closed per bean when a bean's change-log history cannot be read, and never mutates the database.
+
 ### 5.18 Spring Cache Panel
 
 Purpose: answer "Which Spring Cache managers and caches exist, how are they used, and can I clear them during local
@@ -943,6 +996,8 @@ Initial endpoints:
 | `/bootui/api/dev-services/{id}/restart` | POST   | Restart a bean-backed service only when explicitly enabled                |
 | `/bootui/api/data/repositories`         | GET    | Detected Spring Data repositories (summary)                               |
 | `/bootui/api/data/repositories/{name}`  | GET    | Spring Data repository detail with query methods                          |
+| `/bootui/api/flyway/migrations`         | GET    | Flyway migration state per database (read-only)                           |
+| `/bootui/api/liquibase/changesets`      | GET    | Executed Liquibase change sets per database (read-only)                   |
 | `/bootui/api/spring-cache`              | GET    | Spring Cache managers, caches, metrics, and annotation operations         |
 | `/bootui/api/spring-cache/clear`        | POST   | Clear one or all known caches only when explicitly enabled and confirmed  |
 | `/bootui/api/spring-security`           | GET    | Spring Security filter chain report                                       |
@@ -1071,14 +1126,17 @@ Top-level navigation:
   - Beans.
   - Conditions.
   - Mappings.
+- Database:
+  - Database Connection Pools.
+  - Spring Data.
+  - Flyway.
+  - Liquibase.
 - Security:
   - Spring Security.
   - Security Logs.
   - Pentesting.
 - Services:
   - Scheduled Tasks.
-  - Database Connection Pools.
-  - Spring Data.
   - Spring Cache.
   - AI Usage.
 - Diagnostics:
@@ -1181,11 +1239,11 @@ Future compatibility:
 BootUI's current pre-1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Runtime, Configuration, Security, Services, Diagnostics, Developer tools, and Disabled /
+- The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
   unavailable navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Threads, Startup Timeline,
   GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security, Security Logs, Pentesting,
-  Scheduled Tasks, Database Connection Pools, Spring Data, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges,
-  HTTP Probe, Architecture, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
+  Database Connection Pools, Spring Data, Flyway, Liquibase, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail,
+  HTTP Exchanges, HTTP Probe, Architecture, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.
