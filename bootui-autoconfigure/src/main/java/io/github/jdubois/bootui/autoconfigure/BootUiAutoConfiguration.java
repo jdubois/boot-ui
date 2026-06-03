@@ -95,6 +95,7 @@ import org.springframework.core.env.Environment;
     CopilotController.class,
     ClaudeCodeController.class,
     GraalVmController.class,
+    ThreadDumpController.class,
     BootUiIndexController.class,
     BootUiOpenTelemetryConfiguration.class
 })
@@ -134,7 +135,8 @@ public class BootUiAutoConfiguration {
             SecurityLogsController.class.getName(),
             SpringSecurityController.class.getName(),
             StartupController.class.getName(),
-            TracesController.class.getName());
+            TracesController.class.getName(),
+            ThreadDumpController.class.getName());
 
     private static final Set<String> LAZY_BEAN_NAMES =
             Set.of("bootUiConfigOverrideService", "bootUiDevToolsBridge", "bootUiOtlpSpanDecoder");

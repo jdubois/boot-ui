@@ -745,6 +745,36 @@ Acceptance criteria:
 - Restart controls are disabled by default and warn that already-created client
   beans may not reconnect after container ports change.
 
+### 5.20 Threads Panel
+
+Purpose: answer "What are the application's threads doing right now?"
+
+Data sources:
+
+- In-process `java.lang.management.ThreadMXBean` snapshot (`dumpAllThreads`, `findDeadlockedThreads` /
+  `findMonitorDeadlockedThreads`, and CPU/user time where supported), read directly rather than requiring the host app
+  to expose the Actuator `threaddump` endpoint over HTTP.
+
+Features:
+
+- Show a single bounded thread snapshot per request with a per-state count summary.
+- Detect and flag deadlocked threads.
+- Report virtual-thread context when running on a JDK that supports it.
+- Filter threads by name and by state, with stable server-side paging.
+- Expand a thread to view its stack trace.
+- Offer a confirmation-gated raw text thread dump download as a mutating `POST` that is blocked when the panel is
+  read-only.
+
+Status: implemented and supported for the current pre-1.0 release surface.
+
+Acceptance criteria:
+
+- Thread names and stack frames are routed through the existing masking and value-exposure model; stack traces are
+  omitted under metadata-only exposure and secret-like names are masked unless `bootui.expose-values=FULL`.
+- The panel fails closed, returning a stable empty report with an explained unavailable reason when thread information
+  cannot be read.
+- The raw dump download is a `POST` and is blocked when the panel is read-only.
+
 ## 6. Technical architecture
 
 ### 6.1 Proposed repository layout
@@ -892,6 +922,8 @@ Initial endpoints:
 | `/bootui/api/loggers`                   | GET    | Logger levels                                                             |
 | `/bootui/api/loggers/{name}`            | POST   | Change logger level                                                       |
 | `/bootui/api/startup`                   | GET    | Startup timeline                                                          |
+| `/bootui/api/threads`                   | GET    | Stable, paged live thread snapshot with state counts and deadlock info    |
+| `/bootui/api/threads/download`          | POST   | Confirmation-gated raw text thread dump download                          |
 | `/bootui/api/metrics`                   | GET    | Browseable Micrometer meter list                                          |
 | `/bootui/api/metrics/detail`            | GET    | Micrometer meter detail and live measurements                             |
 | `/bootui/api/dependencies`              | GET    | Runtime Maven dependency inventory without external scanning              |
@@ -1028,7 +1060,10 @@ Top-level navigation:
   - Metrics.
   - Memory.
   - Tuning Advisor.
+  - Heap Dump.
+  - Threads.
   - Startup Timeline.
+  - GraalVM.
 - Configuration:
   - Configuration.
   - Profile Diff.
@@ -1036,18 +1071,22 @@ Top-level navigation:
   - Beans.
   - Conditions.
   - Mappings.
+- Security:
+  - Spring Security.
+  - Security Logs.
+  - Pentesting.
 - Services:
   - Scheduled Tasks.
+  - Database Connection Pools.
   - Spring Data.
   - Spring Cache.
-  - Security.
   - AI Usage.
 - Diagnostics:
   - Traces.
   - Log Tail.
   - HTTP Exchanges.
   - HTTP Probe.
-  - Pentesting.
+  - Architecture.
   - Vulnerabilities.
 - Developer tools:
   - DevTools.
@@ -1143,11 +1182,10 @@ BootUI's current pre-1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Security, Services, Diagnostics, Developer tools, and Disabled /
-  unavailable navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Startup Timeline,
-  Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security, Security Logs, Pentesting,
+  unavailable navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Threads, Startup Timeline,
+  GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security, Security Logs, Pentesting,
   Scheduled Tasks, Database Connection Pools, Spring Data, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges,
-  HTTP Probe, Architecture,
-  Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
+  HTTP Probe, Architecture, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

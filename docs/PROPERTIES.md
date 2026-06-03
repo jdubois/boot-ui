@@ -42,6 +42,7 @@ Panel settings are consistent across the UI and API:
 | Runtime         | Memory                    | `memory`                    | `bootui.panels.memory.enabled`                    | Not applicable; view-only.                |
 | Runtime         | Tuning Advisor            | `tuning-advisor`            | `bootui.panels.tuning-advisor.enabled`            | Not applicable; view-only.                |
 | Runtime         | Heap Dump                 | `heap-dump`                 | `bootui.panels.heap-dump.enabled`                 | `bootui.panels.heap-dump.read-only`       |
+| Runtime         | Threads                   | `threads`                   | `bootui.panels.threads.enabled`                   | `bootui.panels.threads.read-only`         |
 | Runtime         | Startup Timeline          | `startup`                   | `bootui.panels.startup.enabled`                   | Not applicable; view-only.                |
 | Runtime         | GraalVM                   | `graalvm`                   | `bootui.panels.graalvm.enabled`                   | `bootui.panels.graalvm.read-only`         |
 | Configuration   | Configuration             | `config`                    | `bootui.panels.config.enabled`                    | `bootui.panels.config.read-only`          |
@@ -174,6 +175,13 @@ Panel settings are consistent across the UI and API:
 | `bootui.heap-dump.max-dumps`          | `5`                  | Maximum number of heap dump files retained on disk. Oldest dumps are deleted first.                                                                                                         |
 | `bootui.heap-dump.max-classes`        | `1000`               | Maximum number of classes retained in memory after a histogram analysis, ordered by retained bytes. Capping this prevents very large heaps from exhausting memory. Must be ≥ `top-classes`. |
 | `bootui.heap-dump.top-classes`        | `25`                 | Number of top classes shown in the value-free class histogram.                                                                                                                              |
+
+### Threads
+
+| Property                            | Default | Description                                                              |
+| ----------------------------------- | ------- | ----------------------------------------------------------------------- |
+| `bootui.panels.threads.enabled`     | `true`  | Show the Threads panel when a `ThreadMXBean` is available.              |
+| `bootui.panels.threads.read-only`   | `false` | Disable the confirmation-gated raw thread-dump download action.          |
 
 ### Architecture
 

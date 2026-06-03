@@ -83,6 +83,20 @@ unless explicitly enabled via configuration. Use it on a local JVM only, and tre
 
 ![BootUI Heap Dump panel](images/bootui-heap-dump.png)
 
+### Threads
+
+The Threads panel shows a live snapshot of the JVM's threads so you can answer "what is the application doing right
+now?" during local development. It reads thread information in-process through `ThreadMXBean` rather than requiring the
+host application to expose the Actuator `threaddump` endpoint, and presents a state summary header (counts per thread
+state), a flag when a deadlock is detected, and virtual-thread context when running on a JDK that supports it. The thread
+list supports server-side filtering by name and by state with paging, and each row can expand to show its stack trace.
+
+Stack frames and thread names can incidentally contain sensitive values, so the panel reuses BootUI's masking and
+value-exposure model: names are masked when they look like secrets, and stack traces are omitted entirely under
+metadata-only exposure. The raw text thread dump is offered as a confirmation-gated `POST` download that is blocked when
+the panel is read-only. The panel stays loopback-only and fails closed, showing an explained unavailable state instead
+of disappearing when thread information cannot be read.
+
 ### Startup Timeline
 
 The Startup Timeline panel visualizes Spring Boot startup steps from Actuator startup data. It helps identify expensive

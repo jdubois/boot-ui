@@ -192,6 +192,7 @@ class PanelAccessFilterTests {
     private Map<String, ActionRequest> actionRequestsByPanel() {
         Map<String, ActionRequest> requests = new LinkedHashMap<>();
         requests.put("heap-dump", new ActionRequest("POST", "/bootui/api/heap-dump/capture"));
+        requests.put("threads", new ActionRequest("POST", "/bootui/api/threads/download"));
         requests.put("graalvm", new ActionRequest("POST", "/bootui/api/graalvm/scan"));
         requests.put("config", new ActionRequest("POST", "/bootui/api/config/overrides"));
         requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
