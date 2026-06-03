@@ -512,6 +512,45 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void flywayEndpointListsAppliedCatalogMigrations() {
+        ResponseEntity<Map> response = getMap("/bootui/api/flyway/migrations");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("flywayPresent")).isEqualTo(true);
+        assertThat(((Number) body.get("total")).intValue()).isGreaterThanOrEqualTo(2);
+        assertThat((Iterable<?>) body.get("databases")).anySatisfy(database -> {
+            Map<?, ?> dto = (Map<?, ?>) database;
+            assertThat(((Number) dto.get("applied")).intValue()).isGreaterThanOrEqualTo(2);
+            assertThat((Iterable<?>) dto.get("migrations")).anySatisfy(migration -> {
+                Map<?, ?> entry = (Map<?, ?>) migration;
+                assertThat(entry.get("version")).isEqualTo("1");
+                assertThat((String) entry.get("description")).contains("create catalog");
+            });
+        });
+    }
+
+    @Test
+    void liquibaseEndpointListsExecutedInventoryChangeSets() {
+        ResponseEntity<Map> response = getMap("/bootui/api/liquibase/changesets");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("liquibasePresent")).isEqualTo(true);
+        assertThat(((Number) body.get("total")).intValue()).isGreaterThanOrEqualTo(2);
+        assertThat((Iterable<?>) body.get("databases")).anySatisfy(database -> {
+            Map<?, ?> dto = (Map<?, ?>) database;
+            assertThat((Iterable<?>) dto.get("changeSets")).anySatisfy(changeSet -> {
+                Map<?, ?> entry = (Map<?, ?>) changeSet;
+                assertThat(entry.get("author")).isEqualTo("bootui");
+                assertThat(entry.get("execType")).isEqualTo("EXECUTED");
+            });
+        });
+    }
+
+    @Test
     void cacheEndpointFindsSampleCachesAndClearsOneCache() {
         getList("/api/sample/products");
 
