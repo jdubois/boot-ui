@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.jdubois.bootui.core.DevToolsException;
 import org.springframework.context.ApplicationContext;
 import org.springframework.util.ClassUtils;
 
@@ -67,7 +68,7 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
             return new DevToolsActionResult(
                     "livereload", "triggered", "LiveReload notification sent to connected browsers.");
         } catch (ReflectiveOperationException ex) {
-            throw new IllegalStateException("Could not trigger Spring Boot DevTools LiveReload", unwrap(ex));
+            throw new DevToolsException("Could not trigger Spring Boot DevTools LiveReload", unwrap(ex));
         }
     }
 
@@ -126,13 +127,13 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
             return getInstance.invoke(null);
         } catch (InvocationTargetException ex) {
             Throwable cause = ex.getTargetException();
-            throw new IllegalStateException(
+            throw new DevToolsException(
                     cause.getMessage() == null
                             ? "Spring Boot DevTools Restarter is not initialized."
                             : cause.getMessage(),
                     cause);
         } catch (ReflectiveOperationException | LinkageError ex) {
-            throw new IllegalStateException("Spring Boot DevTools Restarter is not available.", ex);
+            throw new DevToolsException("Spring Boot DevTools Restarter is not available.", ex);
         }
     }
 
