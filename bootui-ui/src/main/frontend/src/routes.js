@@ -34,6 +34,7 @@ export const groups = {
   overview: 'overview',
   runtime: 'runtime',
   configuration: 'configuration',
+  security: 'security',
   services: 'services',
   diagnostics: 'diagnostics',
   developerTools: 'developer-tools'
@@ -126,6 +127,24 @@ export const routes = [
     meta: {group: groups.configuration, icon: 'bi-signpost-2', title: 'Mappings'}
   },
   {
+    path: '/spring-security',
+    name: 'spring-security',
+    component: SpringSecurity,
+    meta: {group: groups.security, icon: 'bi-person-lock', title: 'Spring Security'}
+  },
+  {
+    path: '/security-logs',
+    name: 'security-logs',
+    component: SecurityLogs,
+    meta: {group: groups.security, icon: 'bi-shield-lock', title: 'Security Logs'}
+  },
+  {
+    path: '/pentest',
+    name: 'pentest',
+    component: Pentesting,
+    meta: {group: groups.security, icon: 'bi-shield-exclamation', title: 'Pentesting'}
+  },
+  {
     path: '/scheduled',
     name: 'scheduled',
     component: Scheduled,
@@ -148,12 +167,6 @@ export const routes = [
     name: 'spring-cache',
     component: SpringCache,
     meta: {group: groups.services, icon: 'bi-hdd-stack', title: 'Spring Cache'}
-  },
-  {
-    path: '/spring-security',
-    name: 'spring-security',
-    component: SpringSecurity,
-    meta: {group: groups.services, icon: 'bi-person-lock', title: 'Spring Security'}
   },
   {
     path: '/ai',
@@ -186,22 +199,10 @@ export const routes = [
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe'}
   },
   {
-    path: '/security-logs',
-    name: 'security-logs',
-    component: SecurityLogs,
-    meta: {group: groups.diagnostics, icon: 'bi-shield-lock', title: 'Security Logs'}
-  },
-  {
     path: '/architecture',
     name: 'architecture',
     component: Architecture,
     meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
-  },
-  {
-    path: '/pentest',
-    name: 'pentest',
-    component: Pentesting,
-    meta: {group: groups.diagnostics, icon: 'bi-shield-exclamation', title: 'Pentesting'}
   },
   {
     path: '/vulnerabilities',

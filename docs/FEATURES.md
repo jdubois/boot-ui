@@ -161,6 +161,41 @@ on the server.
 
 ![BootUI Mappings panel](images/bootui-mappings.png)
 
+## Security
+
+### Spring Security
+
+The Spring Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
+meant to explain local security wiring without exposing credentials or replacing a full security audit.
+
+![BootUI Spring Security panel](images/bootui-security.png)
+
+### Security Logs
+
+The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
+authentication successes/failures and authorization denials when Spring Security audit listeners are configured by the
+host app. It supports filtering by principal, event type, and time window, summarizes retained event counts by type, uses
+the shared visibility-aware auto-refresh controls, and masks sensitive event data before rendering. Responses are bounded
+by `bootui.security-logs.max-logs`, which defaults to `500`; when no `AuditEventRepository` bean exists, the panel fails
+closed with a clear unavailable state.
+
+### Pentesting
+
+The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
+BootUI's `/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the
+application context path for missing or unsafe security headers, CORS behavior, cookie flags, verbose error exposure,
+Spring Security wiring, and actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such
+as wildcard actuator exposure, health detail exposure, an enabled H2 console, in-config security credentials,
+value-revealing actuator endpoints, request-detail logging, and DevTools left on the classpath. It intentionally does not
+sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies. Findings are
+heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
+
+Each hygiene check is registered with a stable identifier, OWASP 2025 category, evidence source, and recommendation so
+new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
+full catalogue of checks and what each one inspects.
+
+![BootUI Pentesting panel](images/bootui-pentesting.png)
+
 ## Services
 
 ### Scheduled Tasks
@@ -196,13 +231,6 @@ and `@CacheEvict` operations. Cache clear actions are enabled by default for loc
 confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
 ![BootUI Spring Cache panel](images/bootui-spring-cache.png)
-
-### Spring Security
-
-The Spring Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
-meant to explain local security wiring without exposing credentials or replacing a full security audit.
-
-![BootUI Spring Security panel](images/bootui-security.png)
 
 ### AI Usage
 
@@ -275,15 +303,6 @@ duration, and body. It is designed for quick route checks from inside the same l
 
 ![BootUI HTTP Probe panel](images/bootui-http-probe.png)
 
-### Security Logs
-
-The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
-authentication successes/failures and authorization denials when Spring Security audit listeners are configured by the
-host app. It supports filtering by principal, event type, and time window, summarizes retained event counts by type, uses
-the shared visibility-aware auto-refresh controls, and masks sensitive event data before rendering. Responses are bounded
-by `bootui.security-logs.max-logs`, which defaults to `500`; when no `AuditEventRepository` bean exists, the panel fails
-closed with a clear unavailable state.
-
 ### Architecture
 
 The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
@@ -307,23 +326,6 @@ violating rules, sorted by severity and violation count. See
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
 
 ![BootUI Architecture panel](images/bootui-architecture.png)
-
-### Pentesting
-
-The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
-BootUI's `/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the
-application context path for missing or unsafe security headers, CORS behavior, cookie flags, verbose error exposure,
-Spring Security wiring, and actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such
-as wildcard actuator exposure, health detail exposure, an enabled H2 console, in-config security credentials,
-value-revealing actuator endpoints, request-detail logging, and DevTools left on the classpath. It intentionally does not
-sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies. Findings are
-heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
-
-Each hygiene check is registered with a stable identifier, OWASP 2025 category, evidence source, and recommendation so
-new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
-full catalogue of checks and what each one inspects.
-
-![BootUI Pentesting panel](images/bootui-pentesting.png)
 
 ### Vulnerabilities
 

@@ -16,19 +16,19 @@ const allPanelLinks = [
   {id: 'beans', title: 'Beans', heading: /^Beans/},
   {id: 'conditions', title: 'Conditions', heading: /Auto-configuration conditions/},
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
+  {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
+  {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
+  {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
   {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
-  {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
   {id: 'traces', title: 'Traces', heading: /^Traces/},
   {id: 'log-tail', title: 'Log Tail', heading: /Log Tail/},
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
-  {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
-  {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
   {id: 'devtools', title: 'DevTools', heading: /^DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
@@ -92,8 +92,9 @@ test.describe('BootUI app shell', () => {
     const groups = [
       {title: 'Runtime', count: 7},
       {title: 'Configuration', count: 6},
-      {title: 'Services', count: 6},
-      {title: 'Diagnostics', count: 7},
+      {title: 'Security', count: 3},
+      {title: 'Services', count: 5},
+      {title: 'Diagnostics', count: 6},
       {title: 'Developer tools', count: 4}
     ]
 
@@ -103,24 +104,29 @@ test.describe('BootUI app shell', () => {
       await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Runtime' ? 'true' : 'false')
     }
 
-    await page.getByRole('button', {name: /Services\s+6/}).click()
+    await page.getByRole('button', {name: /Security\s+3/}).click()
+    await expect(page.getByRole('group', {name: 'Security panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Spring Security',
+      'Security Logs',
+      'Pentesting'
+    ])
+
+    await page.getByRole('button', {name: /Services\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Services panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Scheduled Tasks',
       'Database Connection Pools',
       'Spring Data',
       'Spring Cache',
-      'Spring Security',
       'AI Usage'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+7/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+6/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Traces',
       'Log Tail',
+      'HTTP Exchanges',
       'HTTP Probe',
-      'Security Logs',
       'Architecture',
-      'Pentesting',
       'Vulnerabilities'
     ])
   })
