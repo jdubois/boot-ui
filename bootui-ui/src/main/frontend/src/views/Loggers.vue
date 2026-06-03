@@ -25,9 +25,14 @@ const {
   scheduleReload,
   shownCount,
   totalCount
-} = useServerPagedList('api/loggers', 'loggers', () => {
-  return {q: filter.value.trim()}
-}, { errorContext: 'Could not load loggers' })
+} = useServerPagedList(
+  'api/loggers',
+  'loggers',
+  () => {
+    return {q: filter.value.trim()}
+  },
+  {errorContext: 'Could not load loggers'}
+)
 
 async function changeLevel(logger, level) {
   if (readOnly.value) {

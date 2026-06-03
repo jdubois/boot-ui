@@ -144,7 +144,11 @@ function portText(port, fallback) {
         <strong class="d-block">{{ error.title }}</strong>
         <span class="small">{{ error.message }}</span>
       </span>
-      <button :class="error.serverUnreachable ? 'btn-outline-warning' : 'btn-outline-danger'" class="btn btn-sm flex-shrink-0" @click="load">
+      <button
+        :class="error.serverUnreachable ? 'btn-outline-warning' : 'btn-outline-danger'"
+        class="btn btn-sm flex-shrink-0"
+        @click="load"
+      >
         <i class="bi bi-arrow-clockwise me-1"></i>Retry
       </button>
     </div>

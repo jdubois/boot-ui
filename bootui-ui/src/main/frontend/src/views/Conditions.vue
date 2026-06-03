@@ -86,11 +86,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <PanelHeader
-      icon="bi-check2-circle"
-      title="Auto-configuration conditions"
-      :error="error"
-    />
+    <PanelHeader icon="bi-check2-circle" title="Auto-configuration conditions" :error="error" />
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item">
         <a :class="{active: tab === 'positive'}" class="nav-link" href="#" @click.prevent="tab = 'positive'">

@@ -39,13 +39,18 @@ const {
   scheduleReload,
   shownCount,
   totalCount
-} = useServerPagedList('api/config', 'properties', () => {
-  return {
-    q: filter.value.trim(),
-    source: sourceFilter.value,
-    overridesOnly: showOnlyOverrides.value ? 'true' : ''
-  }
-}, { errorContext: 'Could not load configuration properties' })
+} = useServerPagedList(
+  'api/config',
+  'properties',
+  () => {
+    return {
+      q: filter.value.trim(),
+      source: sourceFilter.value,
+      overridesOnly: showOnlyOverrides.value ? 'true' : ''
+    }
+  },
+  {errorContext: 'Could not load configuration properties'}
+)
 
 const propertySuggestions = computed(() => data.value?.propertySuggestions || [])
 

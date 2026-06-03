@@ -20,12 +20,17 @@ const {
   scheduleReload,
   shownCount,
   totalCount
-} = useServerPagedList('api/beans', 'beans', () => {
-  return {
-    q: filter.value.trim(),
-    classification: classification.value
-  }
-}, { errorContext: 'Could not load beans' })
+} = useServerPagedList(
+  'api/beans',
+  'beans',
+  () => {
+    return {
+      q: filter.value.trim(),
+      classification: classification.value
+    }
+  },
+  {errorContext: 'Could not load beans'}
+)
 
 onMounted(load)
 watch([filter, classification], scheduleReload)
