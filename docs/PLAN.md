@@ -3,9 +3,10 @@
 ## 1. Strategy
 
 BootUI ships as a **Spring Boot 4 starter** that adds a safe, local-only developer console to a running application. The
-released surface already covers runtime introspection, configuration, services, diagnostics, and developer tooling across
-28 panels. This plan describes the **next feature workstream**: a focused set of six new capabilities chosen to close the
-clearest gaps against comparable developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse,
+released surface already covers runtime introspection, configuration, services, diagnostics, and developer tooling,
+including the recently shipped Thread / Process Viewer and HTTP Exchanges panels. This plan describes the **next feature
+workstream**: a focused set of four new capabilities chosen to close the clearest gaps against comparable developer
+dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse,
 Phoenix LiveDashboard, .NET Aspire, Symfony Web Profiler) while staying inside BootUI's read-mostly, fail-closed safety
 model.
 
@@ -29,73 +30,22 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-Six features, grouped by priority. The first four are high-value, table-stakes panels found in competing dashboards but
+Four features, grouped by priority. The first two are high-value, table-stakes panels found in competing dashboards but
 missing from BootUI today. The last two enrich existing data rather than adding new sources.
 
 | Priority | Feature                               | Group         | New data source                                    |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- |
-| 1        | Thread / Process Viewer               | Runtime       | Actuator `threaddump` / `ThreadMXBean`             |
-| 1        | HTTP Exchanges / Request History      | Diagnostics   | Actuator `httpexchanges`                           |
 | 1        | Flyway / Liquibase Migrations         | Services      | Actuator `flyway` / `liquibase`                    |
 | 1        | Audit / Security Events               | Security      | Actuator `auditevents`                             |
 | 2        | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data |
 | 2        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 |
 
-Items are intended to land roughly in the order listed. The HTTP Exchanges panel should land before the correlation work
-in §3.5, because correlation depends on captured request data.
+Items are intended to land roughly in the order listed. The Trace ↔ Log ↔ Request correlation work in §3.3 builds on the
+already-shipped HTTP Exchanges panel.
 
 ## 3. Feature specifications
 
-### 3.1 Thread / Process Viewer (Runtime)
-
-The largest gap versus Phoenix LiveDashboard and Spring Boot Admin. BootUI can capture a heap dump today but has no live
-view of thread state. This panel surfaces a point-in-time snapshot of the JVM's threads.
-
-Scope:
-
-- Show a snapshot of live threads with name, id, state, priority, daemon flag, CPU/user time where available, and the
-  current stack trace.
-- Summarize counts by thread state (RUNNABLE, BLOCKED, WAITING, TIMED_WAITING, etc.) and highlight the totals at the top
-  of the panel.
-- Detect and clearly flag deadlocks when the JVM reports them.
-- Surface virtual-thread context where it can be detected, so users running Loom-style workloads see carrier vs. virtual
-  thread information when available.
-- Provide server-side filtering and bounded paging for high thread counts, matching the Beans panel approach.
-- Offer an explicit, confirmation-gated download of the raw thread-dump snapshot for offline analysis.
-
-Design constraints:
-
-- Read-only. The panel must never suspend, interrupt, or kill threads.
-- Prefer an internal `ThreadMXBean` / thread-dump invoker over requiring the host app to expose `threaddump` over HTTP.
-- Stack frames may include in-flight argument-bearing class names; route any value-like content through the existing
-  masking model and keep the panel inside the loopback-only and value-exposure controls.
-- Fail closed with a stable empty DTO and an unavailable reason when thread information cannot be read.
-
-### 3.2 HTTP Exchanges / Request History (Diagnostics)
-
-Recorded request/response history is the centerpiece of Telescope, Symfony Web Profiler, and Django Debug Toolbar, yet
-BootUI only has outbound HTTP Probe and Log Tail. This panel records recent inbound HTTP exchanges handled by the running
-app.
-
-Scope:
-
-- List recent exchanges with timestamp, method, path, status, duration, and response size.
-- Show per-exchange detail: request headers, query/path, selected request metadata, response headers, and timing.
-- Provide server-side filtering (by method, status class, path fragment) and bounded paging.
-- Expose a stable trace identifier per exchange where one is present, to support the correlation work in §3.5.
-
-Design constraints:
-
-- Read-only.
-- Prefer Spring Boot's `HttpExchangeRepository` / `httpexchanges` data through an internal bridge rather than requiring the
-  endpoint to be exposed over HTTP.
-- Recorded exchanges can contain `Authorization`, `Cookie`, and other sensitive headers; mask them by default through the
-  existing value-exposure model and never log raw secret headers.
-- Request and response bodies stay out of scope by default; if added later they must be opt-in and masked.
-- Capture is bounded (fixed-size ring buffer) and disabled cleanly when the underlying repository bean is absent, with a
-  stable empty DTO and unavailable reason.
-
-### 3.3 Flyway / Liquibase Migrations (Services)
+### 3.1 Flyway / Liquibase Migrations (Services)
 
 Already a long-standing roadmap item and a common ask. Read-only visibility into database schema migration state.
 
@@ -115,7 +65,7 @@ Design constraints:
 - Mask any sensitive datasource metadata (URLs, credentials) through the existing model.
 - Fail closed per tool: an absent or inaccessible tool shows an unavailable reason, not an error.
 
-### 3.4 Audit / Security Events (Security)
+### 3.2 Audit / Security Events (Security)
 
 Pairs naturally with the existing Spring Security panel and closes a gap versus Spring Boot Admin. Read-only view of
 recorded security audit events.
@@ -135,10 +85,10 @@ Design constraints:
 - Capture is bounded and the panel fails closed with a stable empty DTO and unavailable reason when no audit repository is
   present.
 
-### 3.5 Trace ↔ Log ↔ Request correlation (Diagnostics)
+### 3.3 Trace ↔ Log ↔ Request correlation (Diagnostics)
 
 This is where Aspire and Symfony differentiate. BootUI already owns a trace pipeline (the in-app OTLP sink and Traces
-panel) plus Log Tail; once HTTP Exchanges (§3.2) lands, the three can be cross-linked by trace and span id.
+panel) plus Log Tail, and the HTTP Exchanges panel; the three can be cross-linked by trace and span id.
 
 Scope:
 
@@ -156,7 +106,7 @@ Design constraints:
 - Trace propagation is best-effort. Correlation is presented as a convenience, not a guarantee, and must work for the
   common case where Micrometer Tracing/OTLP is active without breaking when it is not.
 
-### 3.6 Bean / dependency graph visualization (Configuration)
+### 3.4 Bean / dependency graph visualization (Configuration)
 
 Layers an Aspire-style relationship view on top of data BootUI already has from the Beans and Conditions panels, without a
 new data source.
@@ -197,11 +147,11 @@ For each feature above, the following must move together, consistent with the ex
 | Risk                                                     | Impact | Mitigation                                                                                                                                 |
 | -------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Exposing sensitive headers, principals, or stack values  | High   | Loopback-only, dev-only activation, masking/value-exposure on every new surface, fail-closed defaults, and focused per-panel tests.        |
-| Unbounded capture buffers (exchanges, audit, threads)    | Medium | Fixed-size ring buffers, server-side paging, and bounded snapshots for every new data source.                                              |
+| Unbounded capture buffers (audit events)                 | Medium | Fixed-size ring buffers, server-side paging, and bounded snapshots for every new data source.                                              |
 | Optional Actuator endpoints/tools unavailable            | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.                                       |
 | Bean/dependency graph or correlation bloating the bundle | Medium | Bounded focus-and-neighborhood rendering, lightweight visualization, and lazy-loaded panels.                                               |
 | Duplicating Spring Boot Admin                            | Medium | Stay focused on the embedded local single-app developer experience; keep new panels read-mostly and dev-only.                              |
-| Scope creep beyond these six features                    | High   | Treat this list as the maximum near-term surface; move further ideas (messaging/queues, migrations actions, mail preview) to a later plan. |
+| Scope creep beyond these four features                   | High   | Treat this list as the maximum near-term surface; move further ideas (messaging/queues, migrations actions, mail preview) to a later plan. |
 
 ## 6. Validation checklist
 
