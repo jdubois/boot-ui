@@ -23,7 +23,7 @@ describe('routes', () => {
       'Scheduled Tasks',
       'Database Connection Pools',
       'Spring Data',
-      'Cache',
+      'Spring Cache',
       'Security',
       'AI Usage',
       'Traces',

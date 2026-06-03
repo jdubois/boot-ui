@@ -27,7 +27,7 @@ flow) exposed by the sample app:
 | `mappings.spec.js`       | HTTP mappings include the sample app routes, filter narrows the list                                                  |
 | `scheduled.spec.js`      | Scheduled tasks view lists the sample echo scheduler                                                                  |
 | `data.spec.js`           | `ProductRepository` is listed, detail panel shows `searchByName`                                                      |
-| `cache.spec.js`          | Cache managers, cache details, annotations, metrics, and guarded clear actions                                        |
+| `spring-cache.spec.js`   | Spring Cache managers, cache details, annotations, metrics, and guarded clear actions                                 |
 | `security.spec.js`       | Filter chains list `/api/secure`, explain endpoint returns a match                                                    |
 | `ai.spec.js`             | AI Usage summaries, token charts, content-capture guidance, and disabled states                                       |
 | `traces.spec.js`         | Local trace list, waterfall details, OTLP ingest behavior, and clear action                                           |
