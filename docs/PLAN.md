@@ -5,7 +5,7 @@
 BootUI ships as a **Spring Boot 4 starter** that adds a safe, local-only developer console to a running application. The
 released surface already covers runtime introspection, configuration, services, diagnostics, and developer tooling,
 including the recently shipped Thread / Process Viewer and HTTP Exchanges panels. This plan describes the **next feature
-workstream**: a focused set of four new capabilities chosen to close the clearest gaps against comparable developer
+workstream**: a focused set of three new capabilities chosen to close the clearest gaps against comparable developer
 dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse,
 Phoenix LiveDashboard, .NET Aspire, Symfony Web Profiler) while staying inside BootUI's read-mostly, fail-closed safety
 model.
@@ -30,17 +30,16 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-Four features, grouped by priority. The first two are high-value, table-stakes panels found in competing dashboards but
+Three features, grouped by priority. The first is a high-value, table-stakes panel found in competing dashboards but
 missing from BootUI today. The last two enrich existing data rather than adding new sources.
 
 | Priority | Feature                               | Group         | New data source                                    |
 | -------- | ------------------------------------- | ------------- | -------------------------------------------------- |
 | 1        | Flyway / Liquibase Migrations         | Services      | Actuator `flyway` / `liquibase`                    |
-| 1        | Audit / Security Events               | Security      | Actuator `auditevents`                             |
 | 2        | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data |
 | 2        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 |
 
-Items are intended to land roughly in the order listed. The Trace ↔ Log ↔ Request correlation work in §3.3 builds on the
+Items are intended to land roughly in the order listed. The Trace ↔ Log ↔ Request correlation work in §3.2 builds on the
 already-shipped HTTP Exchanges panel.
 
 ## 3. Feature specifications
@@ -65,27 +64,7 @@ Design constraints:
 - Mask any sensitive datasource metadata (URLs, credentials) through the existing model.
 - Fail closed per tool: an absent or inaccessible tool shows an unavailable reason, not an error.
 
-### 3.2 Audit / Security Events (Security)
-
-Pairs naturally with the existing Spring Security panel and closes a gap versus Spring Boot Admin. Read-only view of
-recorded security audit events.
-
-Scope:
-
-- List recent audit events with timestamp, principal, event type (for example authentication success/failure,
-  authorization denied), and bounded event data.
-- Provide server-side filtering by principal, type, and time window, with bounded paging.
-- Summarize recent event counts by type at the top of the panel (for example failed logins in the current buffer).
-
-Design constraints:
-
-- Read-only.
-- Prefer Spring Boot's `AuditEventRepository` / `auditevents` data through an internal bridge.
-- Principal names and event detail can be sensitive; route them through the existing masking and value-exposure controls.
-- Capture is bounded and the panel fails closed with a stable empty DTO and unavailable reason when no audit repository is
-  present.
-
-### 3.3 Trace ↔ Log ↔ Request correlation (Diagnostics)
+### 3.2 Trace ↔ Log ↔ Request correlation (Diagnostics)
 
 This is where Aspire and Symfony differentiate. BootUI already owns a trace pipeline (the in-app OTLP sink and Traces
 panel) plus Log Tail, and the HTTP Exchanges panel; the three can be cross-linked by trace and span id.
@@ -106,7 +85,7 @@ Design constraints:
 - Trace propagation is best-effort. Correlation is presented as a convenience, not a guarantee, and must work for the
   common case where Micrometer Tracing/OTLP is active without breaking when it is not.
 
-### 3.4 Bean / dependency graph visualization (Configuration)
+### 3.3 Bean / dependency graph visualization (Configuration)
 
 Layers an Aspire-style relationship view on top of data BootUI already has from the Beans and Conditions panels, without a
 new data source.
@@ -147,11 +126,11 @@ For each feature above, the following must move together, consistent with the ex
 | Risk                                                     | Impact | Mitigation                                                                                                                                 |
 | -------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Exposing sensitive headers, principals, or stack values  | High   | Loopback-only, dev-only activation, masking/value-exposure on every new surface, fail-closed defaults, and focused per-panel tests.        |
-| Unbounded capture buffers (audit events)                 | Medium | Fixed-size ring buffers, server-side paging, and bounded snapshots for every new data source.                                              |
+| Unbounded capture buffers (large lists)                  | Medium | Fixed-size ring buffers, server-side paging, and bounded snapshots for every new data source.                                              |
 | Optional Actuator endpoints/tools unavailable            | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.                                       |
 | Bean/dependency graph or correlation bloating the bundle | Medium | Bounded focus-and-neighborhood rendering, lightweight visualization, and lazy-loaded panels.                                               |
 | Duplicating Spring Boot Admin                            | Medium | Stay focused on the embedded local single-app developer experience; keep new panels read-mostly and dev-only.                              |
-| Scope creep beyond these four features                   | High   | Treat this list as the maximum near-term surface; move further ideas (messaging/queues, migrations actions, mail preview) to a later plan. |
+| Scope creep beyond these three features                  | High   | Treat this list as the maximum near-term surface; move further ideas (messaging/queues, migrations actions, mail preview) to a later plan. |
 
 ## 6. Validation checklist
 
