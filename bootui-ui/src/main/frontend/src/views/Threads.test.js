@@ -85,6 +85,12 @@ describe('Threads', () => {
     expect(wrapper.text()).toContain('com.example.App.main(App.java:10)')
   })
 
+  it('omits the stack toggle for threads with no stack frames', async () => {
+    const wrapper = await mountWithReport(report({threads: [thread({stackTrace: []})]}))
+
+    expect(wrapper.find('.btn-link').exists()).toBe(false)
+  })
+
   it('flags deadlocks prominently', async () => {
     const wrapper = await mountWithReport(report({deadlockDetected: true, deadlockedThreadIds: [1, 2]}))
 

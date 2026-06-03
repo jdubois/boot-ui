@@ -265,7 +265,14 @@ public class ThreadDumpService {
     }
 
     private static boolean virtualThreadsSupported() {
-        return Runtime.version().feature() >= 21;
+        // Detect the stable Thread.isVirtual() API (Java 21+) rather than assuming a version,
+        // matching the reflective detection used per-thread in isVirtual(Thread).
+        try {
+            Thread.class.getMethod("isVirtual");
+            return true;
+        } catch (NoSuchMethodException ignored) {
+            return false;
+        }
     }
 
     private List<String> renderStack(StackTraceElement[] elements) {
