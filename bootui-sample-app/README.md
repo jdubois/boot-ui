@@ -13,6 +13,8 @@ the Playwright suite under `e2e/` exercises.
 - PostgreSQL, Redis, and Ollama Docker Compose services (`compose.yaml`) so the Spring Data,
   Database Connection Pools, Spring Cache, AI Usage, and Dev Services panels have realistic infrastructure
   to show.
+- Flyway migrations (the `catalog_*` tables) and Liquibase change sets (the separate
+  `inventory_*` tables) so the Flyway and Liquibase panels each have data to show.
 - Spring Security, scheduled tasks, custom metrics, and a small static welcome
   page so the corresponding BootUI panels are populated.
 - Local diagnostics for Architecture, Pentesting, Vulnerabilities, Traces,
@@ -71,21 +73,25 @@ Useful URLs:
    domain type.
 9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
-10. **Spring Cache** — verify the Redis-backed `sample-products` and
+10. **Flyway** — inspect the applied `catalog_*` migrations (versions, descriptions,
+    state) tracked in `flyway_schema_history`, all read-only.
+11. **Liquibase** — inspect the executed `inventory_*` change sets recorded in
+    `DATABASECHANGELOG`, on a table set fully separate from Flyway's, all read-only.
+12. **Spring Cache** — verify the Redis-backed `sample-products` and
    `sample-greetings` caches are listed, inspect cache annotations, and clear a
    cache after confirming the action.
-11. **Dev Services** — verify the Postgres and Redis Docker Compose entries are
+13. **Dev Services** — verify the Postgres and Redis Docker Compose entries are
     present and their service-connection metadata matches the actual mapped
     ports.
-12. **Spring Security and Security Logs** — inspect filter chains, endpoint rule explanations, and recent masked audit
+14. **Spring Security and Security Logs** — inspect filter chains, endpoint rule explanations, and recent masked audit
     events.
-13. **Traces, Log Tail, HTTP Exchanges, Architecture, Pentesting, Vulnerabilities** — inspect local telemetry, logs,
+15. **Traces, Log Tail, HTTP Exchanges, Architecture, Pentesting, Vulnerabilities** — inspect local telemetry, logs,
     inbound requests, and run explicit local scans as development hygiene prompts.
-14. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
+16. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
     external host and confirm it is rejected as non-loopback.
-15. **AI Usage** — exercise the sample endpoints and local AI helper
+17. **AI Usage** — exercise the sample endpoints and local AI helper
     paths, then inspect the retained in-memory spans and token summaries.
-16. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
+18. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
     metadata/logs, and sanitized local agent activity.
 
 ## Stop it
