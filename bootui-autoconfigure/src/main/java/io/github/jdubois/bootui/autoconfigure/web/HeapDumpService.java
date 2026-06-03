@@ -1,10 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.HeapClassHistogramEntryDto;
-import io.github.jdubois.bootui.core.BootUiDtos.HeapDumpCaptureStatusDto;
-import io.github.jdubois.bootui.core.BootUiDtos.HeapDumpFileDto;
-import io.github.jdubois.bootui.core.BootUiDtos.HeapDumpReport;
+import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
+import io.github.jdubois.bootui.core.dto.HeapDumpCaptureStatusDto;
+import io.github.jdubois.bootui.core.dto.HeapDumpFileDto;
+import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;

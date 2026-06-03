@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.BootUiDtos.BeanList;
-import io.github.jdubois.bootui.core.BootUiDtos.BeanSummary;
+import io.github.jdubois.bootui.core.dto.BeanList;
+import io.github.jdubois.bootui.core.dto.BeanSummary;
 import java.util.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;

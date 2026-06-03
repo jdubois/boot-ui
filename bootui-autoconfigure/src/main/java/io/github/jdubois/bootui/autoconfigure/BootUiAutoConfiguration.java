@@ -63,6 +63,7 @@ import org.springframework.core.env.Environment;
     DevServicesController.class,
     DependenciesController.class,
     ScheduledController.class,
+    HttpProbeService.class,
     HttpProbeController.class,
     PentestController.class,
     HeapDumpController.class,

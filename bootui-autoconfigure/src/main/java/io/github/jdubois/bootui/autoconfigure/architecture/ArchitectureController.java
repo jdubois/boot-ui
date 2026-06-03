@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.architecture;
 
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureReport;
+import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;

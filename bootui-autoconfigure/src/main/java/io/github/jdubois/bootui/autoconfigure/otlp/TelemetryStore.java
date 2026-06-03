@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.otlp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import java.util.*;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Bounded in-memory store for telemetry spans captured by BootUI.
@@ -10,9 +11,9 @@ import java.util.*;
  * exceeded the oldest trace bucket is dropped. Each trace also caps its span
  * list to avoid unbounded growth from misbehaving exporters.</p>
  *
- * <p>The store is intentionally simple: a synchronized {@link LinkedHashMap}
- * ordered by last update time. BootUI is a developer-only console and is
- * never expected to ingest production trace volumes.</p>
+ * <p>The store is protected by a {@link ReentrantReadWriteLock} for better
+ * scalability on reads, while a {@link LinkedHashMap}
+ * ordered by last update time handles capacity bounding.</p>
  */
 public class TelemetryStore {
 
@@ -21,6 +22,7 @@ public class TelemetryStore {
     static final int HARD_MAX_SPANS_PER_TRACE = 1_000;
     private final BootUiProperties.Telemetry config;
     private final LinkedHashMap<String, TraceBucket> tracesById;
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public TelemetryStore(BootUiProperties.Telemetry config) {
         this.config = config;
@@ -42,48 +44,68 @@ public class TelemetryStore {
     /**
      * Append a span to its trace, evicting the eldest trace when capacity is reached.
      */
-    public synchronized void add(NormalizedSpan span) {
+    public void add(NormalizedSpan span) {
         if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
             return;
         }
-        TraceBucket bucket = tracesById.remove(span.traceId());
-        if (bucket == null) {
-            bucket = new TraceBucket(span.traceId());
-            while (tracesById.size() >= effectiveMaxTraces(config)) {
-                Iterator<Map.Entry<String, TraceBucket>> it =
-                        tracesById.entrySet().iterator();
-                if (!it.hasNext()) {
-                    break;
+        lock.writeLock().lock();
+        try {
+            TraceBucket bucket = tracesById.remove(span.traceId());
+            if (bucket == null) {
+                bucket = new TraceBucket(span.traceId());
+                while (tracesById.size() >= effectiveMaxTraces(config)) {
+                    Iterator<Map.Entry<String, TraceBucket>> it =
+                            tracesById.entrySet().iterator();
+                    if (!it.hasNext()) {
+                        break;
+                    }
+                    it.next();
+                    it.remove();
                 }
-                it.next();
-                it.remove();
             }
+            if (bucket.spans.size() < effectiveMaxSpansPerTrace(config)) {
+                bucket.spans.add(span);
+            }
+            bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
+            tracesById.put(span.traceId(), bucket);
+        } finally {
+            lock.writeLock().unlock();
         }
-        if (bucket.spans.size() < effectiveMaxSpansPerTrace(config)) {
-            bucket.spans.add(span);
-        }
-        bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
-        tracesById.put(span.traceId(), bucket);
     }
 
     /**
      * @return the most recently updated traces first.
      */
-    public synchronized List<TraceBucket> recentTraces(int limit) {
-        List<TraceBucket> ordered = new ArrayList<>(tracesById.values());
-        java.util.Collections.reverse(ordered);
-        if (limit > 0 && ordered.size() > limit) {
-            return new ArrayList<>(ordered.subList(0, limit));
+    public List<TraceBucket> recentTraces(int limit) {
+        lock.readLock().lock();
+        try {
+            List<TraceBucket> ordered = new ArrayList<>(tracesById.values());
+            Collections.reverse(ordered);
+            if (limit > 0 && ordered.size() > limit) {
+                return new ArrayList<>(ordered.subList(0, limit));
+            }
+            return ordered;
+        } finally {
+            lock.readLock().unlock();
         }
-        return ordered;
     }
 
-    public synchronized TraceBucket findTrace(String traceId) {
-        return tracesById.get(traceId);
+    public TraceBucket findTrace(String traceId) {
+        lock.readLock().lock();
+        try {
+            return tracesById.get(traceId);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public synchronized int retainedTraceCount() {
-        return tracesById.size();
+    public int retainedTraceCount() {
+        lock.readLock().lock();
+        try {
+            return tracesById.size();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     public int capacity() {
@@ -93,16 +115,26 @@ public class TelemetryStore {
     /**
      * Snapshot of all spans for read-only iteration.
      */
-    public synchronized List<NormalizedSpan> allSpansSnapshot() {
+    public List<NormalizedSpan> allSpansSnapshot() {
         List<NormalizedSpan> out = new ArrayList<>();
-        for (TraceBucket bucket : tracesById.values()) {
-            out.addAll(bucket.spans);
+        lock.readLock().lock();
+        try {
+            for (TraceBucket bucket : tracesById.values()) {
+                out.addAll(bucket.spans);
+            }
+        } finally {
+            lock.readLock().unlock();
         }
         return out;
     }
 
-    public synchronized void clear() {
-        tracesById.clear();
+    public void clear() {
+        lock.writeLock().lock();
+        try {
+            tracesById.clear();
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /**

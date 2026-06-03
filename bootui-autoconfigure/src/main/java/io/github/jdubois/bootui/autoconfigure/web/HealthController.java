@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.HealthNodeDto;
-import io.github.jdubois.bootui.core.BootUiDtos.HealthSetupStepDto;
+import io.github.jdubois.bootui.core.dto.HealthNodeDto;
+import io.github.jdubois.bootui.core.dto.HealthSetupStepDto;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;

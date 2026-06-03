@@ -5,15 +5,15 @@ import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotActivityBucket;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotActivityEvent;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotDashboardDto;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotInsightCounts;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotMetricCount;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionSummary;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotTurn;
+import io.github.jdubois.bootui.core.dto.CopilotActivityBucket;
+import io.github.jdubois.bootui.core.dto.CopilotActivityEvent;
+import io.github.jdubois.bootui.core.dto.CopilotDashboardDto;
+import io.github.jdubois.bootui.core.dto.CopilotInsightCounts;
+import io.github.jdubois.bootui.core.dto.CopilotMetricCount;
+import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
+import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
+import io.github.jdubois.bootui.core.dto.CopilotSessionSummary;
+import io.github.jdubois.bootui.core.dto.CopilotTurn;
 import jakarta.annotation.PreDestroy;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -39,6 +39,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -91,7 +93,7 @@ public abstract class AgentSessionStore {
     private final Path sessionStateDir;
     private final String sourceName;
 
-    private volatile Thread watcherThread;
+    private ExecutorService watcherExecutor;
     private volatile boolean stopped;
     private volatile CopilotDashboardDto dashboardCache;
     private volatile int availableSessionFileCount;
@@ -290,25 +292,26 @@ public abstract class AgentSessionStore {
      * Start the directory watcher in a daemon thread. Safe to call once at bean init.
      */
     public synchronized void start() {
-        if (watcherThread != null) {
+        if (watcherExecutor != null && !watcherExecutor.isShutdown()) {
             return;
         }
         stopped = false;
         refresh();
-        Thread t = new Thread(this::runWatcher, properties.getWatcherThreadName());
-        t.setDaemon(true);
-        t.start();
-        watcherThread = t;
+        watcherExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, properties.getWatcherThreadName());
+            t.setDaemon(true);
+            return t;
+        });
+        watcherExecutor.submit(this::runWatcher);
     }
 
     @PreDestroy
     public synchronized void stop() {
         stopped = true;
-        Thread t = watcherThread;
-        if (t != null) {
-            t.interrupt();
+        if (watcherExecutor != null) {
+            watcherExecutor.shutdownNow();
+            watcherExecutor = null;
         }
-        watcherThread = null;
     }
 
     private void runWatcher() {

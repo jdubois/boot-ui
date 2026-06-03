@@ -1,9 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.KubernetesMemoryRecommendationDto;
-import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
-import io.github.jdubois.bootui.core.BootUiDtos.MemoryPoolDto;
-import io.github.jdubois.bootui.core.BootUiDtos.MemoryReport;
+import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
+import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
+import io.github.jdubois.bootui.core.dto.MemoryPoolDto;
+import io.github.jdubois.bootui.core.dto.MemoryReport;
 import java.lang.management.*;
 import java.util.ArrayList;
 import java.util.List;

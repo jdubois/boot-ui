@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.HeapDumpReport;
+import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;

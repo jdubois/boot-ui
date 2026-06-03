@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <p>Covers the missing-actuator empty report, a null timeline (no buffered
  * startup data), and the happy path where buffered events are projected to
- * {@link io.github.jdubois.bootui.core.BootUiDtos.StartupStepDto} shape.
+ * {@link io.github.jdubois.bootui.core.StartupStepDto} shape.
  * {@link StartupDescriptor} is {@code final} and uses
  * {@link MockMakers#INLINE}; {@link StartupTimeline} and
  * {@link TimelineEvent} are non-final and use the default mock maker.</p>

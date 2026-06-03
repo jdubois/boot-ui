@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.safety;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.web.AbstractBootUiFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -10,7 +11,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Rejects any BootUI request that does not originate from a loopback address.
@@ -19,22 +19,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * BootUI is a developer tool, not a production endpoint, so we fail closed by
  * default.</p>
  */
-public class LocalhostOnlyFilter extends OncePerRequestFilter {
+public class LocalhostOnlyFilter extends AbstractBootUiFilter {
 
     private static final Logger log = LoggerFactory.getLogger(LocalhostOnlyFilter.class);
 
-    private final BootUiProperties properties;
-
     public LocalhostOnlyFilter(BootUiProperties properties) {
-        this.properties = properties;
+        super(properties);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        String basePath = properties.getPath();
-        String apiPath = properties.getApiPath();
-        return !(path.startsWith(basePath) || path.startsWith(apiPath));
+        return !isBootUiRequest(request);
     }
 
     @Override

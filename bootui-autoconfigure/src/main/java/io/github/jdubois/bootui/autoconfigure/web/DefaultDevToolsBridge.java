@@ -1,11 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.DevToolsActionResult;
-import io.github.jdubois.bootui.core.BootUiDtos.DevToolsStatus;
+import io.github.jdubois.bootui.core.DevToolsException;
+import io.github.jdubois.bootui.core.dto.DevToolsActionResult;
+import io.github.jdubois.bootui.core.dto.DevToolsStatus;
+import jakarta.annotation.PreDestroy;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +34,8 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
     private final ClassLoader classLoader;
 
     private final AtomicBoolean restartPending = new AtomicBoolean(false);
+    private final ScheduledExecutorService restartExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "bootui-devtools-restart"));
 
     public DefaultDevToolsBridge(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;
@@ -62,7 +69,7 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
             return new DevToolsActionResult(
                     "livereload", "triggered", "LiveReload notification sent to connected browsers.");
         } catch (ReflectiveOperationException ex) {
-            throw new IllegalStateException("Could not trigger Spring Boot DevTools LiveReload", unwrap(ex));
+            throw new DevToolsException("Could not trigger Spring Boot DevTools LiveReload", unwrap(ex));
         }
     }
 
@@ -77,27 +84,28 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
         }
 
         Object restarter = restarter();
-        Thread restartThread = new Thread(() -> restartAfterResponse(restarter), "bootui-devtools-restart");
-        restartThread.setDaemon(false);
-        restartThread.start();
+        restartExecutor.schedule(() -> restartAfterResponse(restarter), 250, TimeUnit.MILLISECONDS);
         return new DevToolsActionResult(
                 "restart",
                 "scheduled",
                 "Restart scheduled. BootUI will reconnect when the application is available again.");
     }
 
+    @PreDestroy
+    public void stop() {
+        restartExecutor.shutdownNow();
+    }
+
     private void restartAfterResponse(Object restarter) {
         try {
-            Thread.sleep(250);
             Method restart = restarter.getClass().getMethod("restart");
             restart.invoke(restarter);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            restartPending.set(false);
-            log.warn("Spring Boot DevTools restart was interrupted", ex);
         } catch (ReflectiveOperationException ex) {
             restartPending.set(false);
             log.warn("Spring Boot DevTools restart failed", unwrap(ex));
+        } catch (Exception ex) {
+            restartPending.set(false);
+            log.warn("Spring Boot DevTools restart failed", ex);
         }
     }
 
@@ -120,13 +128,13 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
             return getInstance.invoke(null);
         } catch (InvocationTargetException ex) {
             Throwable cause = ex.getTargetException();
-            throw new IllegalStateException(
+            throw new DevToolsException(
                     cause.getMessage() == null
                             ? "Spring Boot DevTools Restarter is not initialized."
                             : cause.getMessage(),
                     cause);
         } catch (ReflectiveOperationException | LinkageError ex) {
-            throw new IllegalStateException("Spring Boot DevTools Restarter is not available.", ex);
+            throw new DevToolsException("Spring Boot DevTools Restarter is not available.", ex);
         }
     }
 

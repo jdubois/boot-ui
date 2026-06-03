@@ -2,10 +2,10 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
-import io.github.jdubois.bootui.core.BootUiDtos.ConfigPropertyDto;
-import io.github.jdubois.bootui.core.BootUiDtos.ProfileSourceDto;
-import io.github.jdubois.bootui.core.BootUiDtos.ProfilesReport;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.dto.ConfigPropertyDto;
+import io.github.jdubois.bootui.core.dto.ProfileSourceDto;
+import io.github.jdubois.bootui.core.dto.ProfilesReport;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;

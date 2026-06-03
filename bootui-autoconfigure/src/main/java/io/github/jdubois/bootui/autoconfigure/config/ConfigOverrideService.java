@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.autoconfigure.config;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
-import io.github.jdubois.bootui.core.BootUiDtos.ConfigOverrideResult;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.dto.ConfigOverrideResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;

@@ -1,7 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.BootUiDtos.*;
+import io.github.jdubois.bootui.core.dto.MetricAvailableTagDto;
+import io.github.jdubois.bootui.core.dto.MetricDetailDto;
+import io.github.jdubois.bootui.core.dto.MetricMeasurementDto;
+import io.github.jdubois.bootui.core.dto.MetricMeterDto;
+import io.github.jdubois.bootui.core.dto.MetricSampleDto;
+import io.github.jdubois.bootui.core.dto.MetricTagDto;
+import io.github.jdubois.bootui.core.dto.MetricsReport;
 import io.micrometer.core.instrument.*;
 import java.util.*;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;

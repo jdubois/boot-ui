@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.LogLineDto;
+import io.github.jdubois.bootui.core.dto.LogLineDto;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;

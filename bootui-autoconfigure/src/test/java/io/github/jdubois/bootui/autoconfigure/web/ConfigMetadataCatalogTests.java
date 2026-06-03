@@ -2,7 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.core.BootUiDtos.ConfigPropertySuggestionDto;
+import io.github.jdubois.bootui.core.dto.ConfigPropertySuggestionDto;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;

@@ -20,7 +20,7 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.ProxyRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;

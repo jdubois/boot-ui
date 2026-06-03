@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.BootUiDtos.LoggerDto;
-import io.github.jdubois.bootui.core.BootUiDtos.LoggersReport;
+import io.github.jdubois.bootui.core.dto.LoggerDto;
+import io.github.jdubois.bootui.core.dto.LoggersReport;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;

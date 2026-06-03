@@ -7,9 +7,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotActivityEvent;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionDetail;
-import io.github.jdubois.bootui.core.BootUiDtos.CopilotSessionListDto;
+import io.github.jdubois.bootui.core.dto.CopilotActivityEvent;
+import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
+import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;

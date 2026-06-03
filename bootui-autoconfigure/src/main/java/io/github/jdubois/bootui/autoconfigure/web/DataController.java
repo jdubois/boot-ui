@@ -1,9 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.RepositoriesReport;
-import io.github.jdubois.bootui.core.BootUiDtos.RepositoryDetailDto;
-import io.github.jdubois.bootui.core.BootUiDtos.RepositoryDto;
-import io.github.jdubois.bootui.core.BootUiDtos.RepositoryMethodDto;
+import io.github.jdubois.bootui.core.dto.RepositoriesReport;
+import io.github.jdubois.bootui.core.dto.RepositoryDetailDto;
+import io.github.jdubois.bootui.core.dto.RepositoryDto;
+import io.github.jdubois.bootui.core.dto.RepositoryMethodDto;
 import jakarta.annotation.Nullable;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;

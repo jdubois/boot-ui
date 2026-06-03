@@ -2,7 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.architecture;
 
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
-import io.github.jdubois.bootui.core.BootUiDtos.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
 

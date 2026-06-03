@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.core.BootUiDtos.MemoryCalculationDto;
+import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import java.util.Locale;
 
 /**
