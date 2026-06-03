@@ -22,6 +22,7 @@ const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const Memory = () => import('./views/Memory.vue')
 const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
+const Threads = () => import('./views/Threads.vue')
 const Metrics = () => import('./views/Metrics.vue')
 const Vulnerabilities = () => import('./views/Dependencies.vue')
 const DevServices = () => import('./views/DevServices.vue')
@@ -77,6 +78,12 @@ export const routes = [
     name: 'heap-dump',
     component: HeapDump,
     meta: {group: groups.runtime, icon: 'bi-file-earmark-binary', title: 'Heap Dump'}
+  },
+  {
+    path: '/threads',
+    name: 'threads',
+    component: Threads,
+    meta: {group: groups.runtime, icon: 'bi-list-task', title: 'Threads'}
   },
   {
     path: '/startup',
