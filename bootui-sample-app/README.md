@@ -8,15 +8,15 @@ the Playwright suite under `e2e/` exercises.
 
 - The `bootui-spring-boot-starter` dependency on a real Spring Boot 4 app.
 - BootUI auto-activating when the `dev` profile is active.
-- A PostgreSQL-backed Spring Data repository so the Data panel has data to
+- A PostgreSQL-backed Spring Data repository so the Spring Data panel has data to
   show.
-- PostgreSQL and Redis Docker Compose services (`compose.yaml`) so the Data,
-  Database Connection Pools, Cache, and Dev Services panels have realistic infrastructure
+- PostgreSQL and Redis Docker Compose services (`compose.yaml`) so the Spring Data,
+  Database Connection Pools, Spring Cache, and Dev Services panels have realistic infrastructure
   to show.
 - Spring Security, scheduled tasks, custom metrics, and a small static welcome
   page so the corresponding BootUI panels are populated.
 - Local diagnostics for Architecture, Pentesting, Vulnerabilities, Traces,
-  AI Usage, Heap Dump, and other release-supported panels.
+  HTTP Exchanges, Security Logs, Threads, GraalVM, AI Usage, Heap Dump, and other release-supported panels.
 
 ## Prerequisites
 
@@ -64,29 +64,29 @@ Useful URLs:
    `.bootui/application-bootui.properties` under the repo's working directory.
 6. **Loggers** — set `io.github.jdubois.bootui.sample` to `TRACE`, exercise an
    endpoint, then clear the level and observe the inherited level reappear.
-7. **Health, Metrics, Memory, Heap Dump** — sanity-check the live values; the
-   Memory panel includes suggested JVM options computed from the current
-   container limits, and Heap Dump can analyze a value-free class histogram.
-8. **Data** — open `BootUiSampleRepository` to inspect its query methods and
+7. **Health, Metrics, Memory, Tuning Advisor, Heap Dump, Threads, Startup Timeline, GraalVM** — sanity-check the live
+   runtime values, inspect thread activity, calculate JVM/container sizing, run native-image readiness checks, and use
+   Heap Dump to analyze a value-free class histogram.
+8. **Spring Data** — open `BootUiSampleRepository` to inspect its query methods and
    domain type.
 9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
-10. **Cache** — verify the Redis-backed `sample-products` and
+10. **Spring Cache** — verify the Redis-backed `sample-products` and
    `sample-greetings` caches are listed, inspect cache annotations, and clear a
    cache after confirming the action.
 11. **Dev Services** — verify the Postgres and Redis Docker Compose entries are
     present and their service-connection metadata matches the actual mapped
     ports.
-12. **Architecture, Pentesting, Vulnerabilities** — run the explicit local scans
-    and review the findings as development hygiene prompts.
-13. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
+12. **Spring Security and Security Logs** — inspect filter chains, endpoint rule explanations, and recent masked audit
+    events.
+13. **Traces, Log Tail, HTTP Exchanges, Architecture, Pentesting, Vulnerabilities** — inspect local telemetry, logs,
+    inbound requests, and run explicit local scans as development hygiene prompts.
+14. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
     external host and confirm it is rejected as non-loopback.
-14. **Traces and AI Usage** — exercise the sample endpoints and local AI helper
+15. **AI Usage** — exercise the sample endpoints and local AI helper
     paths, then inspect the retained in-memory spans and token summaries.
-15. **Log Tail** — generate a few log lines from the sample endpoints and watch
-    them appear in the bounded tail buffer.
-16. **DevTools** — confirm the panel shows DevTools as available and that
-    restart controls require explicit confirmation.
+16. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
+    metadata/logs, and sanitized local agent activity.
 
 ## Stop it
 

@@ -68,7 +68,7 @@ public final class BootUiPanels {
             new Panel(PENTEST, "Pentesting", true, "/pentest"),
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
-            new Panel(DATA, "Data", false, "/data"),
+            new Panel(DATA, "Spring Data", false, "/data"),
             new Panel(SPRING_CACHE, "Spring Cache", true, "/spring-cache"),
             new Panel(AI, "AI Usage", false, "/ai"),
             new Panel(TRACES, "Traces", true, "/traces"),

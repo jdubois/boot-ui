@@ -25,24 +25,28 @@ const panelOrder = [
   ['memory', 'Memory'],
   ['tuning-advisor', 'Tuning Advisor'],
   ['heap-dump', 'Heap Dump'],
+  ['threads', 'Threads'],
   ['startup', 'Startup Timeline'],
+  ['graalvm', 'GraalVM'],
   ['config', 'Configuration'],
   ['profiles', 'Profile Diff'],
   ['loggers', 'Loggers'],
   ['beans', 'Beans'],
   ['conditions', 'Conditions'],
   ['mappings', 'Mappings'],
+  ['spring-security', 'Spring Security'],
+  ['security-logs', 'Security Logs'],
+  ['pentest', 'Pentesting'],
   ['scheduled', 'Scheduled Tasks'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['data', 'Spring Data'],
   ['spring-cache', 'Spring Cache'],
-  ['security', 'Security'],
   ['ai', 'AI Usage'],
   ['traces', 'Traces'],
   ['log-tail', 'Log Tail'],
+  ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
-  ['pentest', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
@@ -51,7 +55,7 @@ const panelOrder = [
 ]
 
 const overview = {
-  bootUiVersion: '0.3.0',
+  bootUiVersion: '0.4.0',
   applicationName: 'bootui-sample',
   springBootVersion: '4.0.6',
   javaVersion: '17',
@@ -768,6 +772,51 @@ const heapDump = {
   ]
 }
 
+const threads = {
+  available: true,
+  unavailableReason: null,
+  capturedAt: nowMillis - 1500,
+  total: 6,
+  daemonThreads: 4,
+  peakThreads: 42,
+  deadlockDetected: false,
+  deadlockedThreadIds: [],
+  virtualThreadsSupported: true,
+  stateCounts: [
+    {state: 'RUNNABLE', count: 2},
+    {state: 'WAITING', count: 2},
+    {state: 'TIMED_WAITING', count: 1},
+    {state: 'BLOCKED', count: 1}
+  ],
+  threads: [
+    thread(42, 'http-nio-8080-exec-1', 'RUNNABLE', false, 180, [
+      'org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1088)',
+      'io.github.jdubois.bootui.sample.SampleController.products(SampleController.java:82)'
+    ]),
+    thread(43, 'http-nio-8080-exec-2', 'WAITING', false, 92, [
+      'java.base/jdk.internal.misc.Unsafe.park(Native Method)',
+      'java.base/java.util.concurrent.locks.LockSupport.park(LockSupport.java:371)'
+    ]),
+    thread(21, 'boundedElastic-1', 'TIMED_WAITING', true, 43, [
+      'java.base/java.lang.Thread.sleep(Native Method)',
+      'io.github.jdubois.bootui.sample.AiUsageRollup.aggregateMinute(AiUsageRollup.java:47)'
+    ]),
+    thread(
+      55,
+      'VirtualThread[#55]/runnable@ForkJoinPool-1-worker-1',
+      'RUNNABLE',
+      true,
+      17,
+      ['io.github.jdubois.bootui.sample.ChatController.chat(ChatController.java:61)'],
+      true
+    ),
+    thread(14, 'DestroyJavaVM', 'WAITING', false, null, []),
+    thread(16, 'HikariPool-1 housekeeper', 'BLOCKED', true, 8, [
+      'com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:192)'
+    ])
+  ]
+}
+
 const dataDetail = {
   repositoryInterface: 'io.github.jdubois.bootui.sample.ProductRepository',
   domainType: 'io.github.jdubois.bootui.sample.Product',
@@ -1145,6 +1194,77 @@ const architecture = {
   ]
 }
 
+const graalVm = {
+  localOnly: true,
+  disclaimer:
+    'Heuristic native-image readiness checks run against the host application and generated metadata must be reviewed.',
+  basePackages: ['io.github.jdubois.bootui.sample'],
+  includeDependencies: true,
+  classesAnalyzed: 42,
+  checksRun: 9,
+  findingsFound: 3,
+  dependenciesAnalyzed: 17,
+  dependenciesWithoutMetadata: 12,
+  warnings: [],
+  scan: {
+    scanner: 'BootUI GraalVM readiness',
+    status: 'SCANNED',
+    message: 'Readiness checks completed against 42 application class(es).',
+    scannedAt: new Date(nowMillis - 55_000).toISOString()
+  },
+  severityCounts: [
+    {severity: 'HIGH', count: 0},
+    {severity: 'MEDIUM', count: 2},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 0}
+  ],
+  metadata: {
+    reflectionEntries: 4,
+    serializationEntries: 1,
+    resourceEntries: 3
+  },
+  dependencies: [
+    {name: 'org.springframework.boot:spring-boot-autoconfigure', shipsMetadata: true, note: 'Ships native hints.'},
+    {name: 'org.postgresql:postgresql', shipsMetadata: true, note: 'JDBC driver metadata detected.'},
+    {name: 'com.example:local-sdk', shipsMetadata: false, note: 'No META-INF/native-image metadata found.'}
+  ],
+  findings: [
+    graalVmFinding(
+      'GRAAL-REFLECTION-001',
+      'Reflective constructor access needs metadata',
+      'Reflection',
+      'MEDIUM',
+      'SampleService reflectively creates a plugin class.',
+      2,
+      [
+        'io.github.jdubois.bootui.sample.PluginLoader uses Class.forName("com.example.LocalPlugin")',
+        'io.github.jdubois.bootui.sample.PluginLoader calls getDeclaredConstructor()'
+      ],
+      'Review whether the target type needs reflection metadata or can be registered through Spring AOT.'
+    ),
+    graalVmFinding(
+      'GRAAL-SERIALIZATION-001',
+      'Serializable domain type may need registration',
+      'Serialization',
+      'MEDIUM',
+      'A Serializable type is visible in application code.',
+      1,
+      ['io.github.jdubois.bootui.sample.ChatAudit implements java.io.Serializable'],
+      'Register serialization metadata only if the type is serialized at runtime.'
+    ),
+    graalVmFinding(
+      'GRAAL-RESOURCE-001',
+      'Runtime resource lookup detected',
+      'Resources',
+      'LOW',
+      'Application code loads classpath resources dynamically.',
+      1,
+      ['io.github.jdubois.bootui.sample.SampleCatalog loads classpath:/sample-data/products.json'],
+      'Confirm the resource pattern is included in reachability-metadata.json.'
+    )
+  ]
+}
+
 const dependencies = {
   total: 6,
   vulnerable: 2,
@@ -1188,6 +1308,50 @@ const dependencies = {
     dependency('pkg:maven/org.testcontainers/testcontainers', '2.0.3', 'NONE', [])
   ]
 }
+
+const securityLogs = {
+  auditEventsPresent: true,
+  unavailableReason: null,
+  maxLogs: 500,
+  typeSummaries: [
+    {type: 'AUTHENTICATION_SUCCESS', count: 8},
+    {type: 'AUTHENTICATION_FAILURE', count: 2},
+    {type: 'AUTHORIZATION_DENIED', count: 1}
+  ],
+  events: [
+    securityEvent('alice', 'AUTHENTICATION_SUCCESS', nowMillis - 12_000, [
+      {name: 'remoteAddress', value: '127.0.0.1', masked: false, truncated: false},
+      {name: 'sessionId', value: '******', masked: true, truncated: false}
+    ]),
+    securityEvent('bob', 'AUTHENTICATION_FAILURE', nowMillis - 10_000, [
+      {name: 'reason', value: 'Bad credentials', masked: false, truncated: false},
+      {name: 'remoteAddress', value: '******', masked: true, truncated: false}
+    ]),
+    securityEvent('alice', 'AUTHORIZATION_DENIED', nowMillis - 7_000, [
+      {name: 'requestUrl', value: '/admin', masked: false, truncated: false},
+      {name: 'requiredRole', value: 'ROLE_ADMIN', masked: false, truncated: false}
+    ])
+  ],
+  page: {
+    total: 11,
+    matched: 3,
+    offset: 0,
+    limit: 50,
+    returned: 3,
+    hasMore: false
+  }
+}
+
+const httpExchanges = [
+  httpExchange('ex-1', 'GET', '/api/sample/products', 'category=tools', 200, 34, 1864, traceId, [
+    {name: 'accept', values: ['application/json'], masked: false}
+  ]),
+  httpExchange('ex-2', 'POST', '/api/chat', null, 200, 812, 452, traceId, [
+    {name: 'authorization', values: [], masked: true},
+    {name: 'content-type', values: ['application/json'], masked: false}
+  ]),
+  httpExchange('ex-3', 'GET', '/admin', null, 403, 12, 0, null, [{name: 'cookie', values: [], masked: true}])
+]
 
 const copilotSessionId = 'session-bootui-2026-001'
 const copilotSession2Id = 'session-bootui-2026-002'
@@ -1414,7 +1578,9 @@ const screenshots = [
       await page.getByText('java.lang.String').first().waitFor()
     }
   ],
+  ['threads', 'Threads', 'bootui-threads.png', waitForText('http-nio-8080-exec-1')],
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
+  ['graalvm', 'GraalVM', 'bootui-graalvm.png', waitForText('Reflective constructor access needs metadata')],
   ['config', 'Configuration', 'bootui-configuration.png', waitForText('sample.greeting')],
   ['profiles', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
   ['loggers', 'Loggers', 'bootui-loggers.png', waitForText('io.github.jdubois.bootui')],
@@ -1443,10 +1609,24 @@ const screenshots = [
     }
   ],
   ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
-  ['security', 'Security', 'bootui-security.png', waitForText('/api/sample/hello')],
+  ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
+  ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
   ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
+  [
+    'http-exchanges',
+    'HTTP Exchanges',
+    'bootui-http-exchanges.png',
+    async (page) => {
+      await page.getByText('/api/sample/products').waitFor()
+      await page
+        .getByRole('button', {name: /View details/})
+        .first()
+        .click()
+      await page.getByText('Request headers').waitFor()
+    }
+  ],
   [
     'http-probe',
     'HTTP Probe',
@@ -1875,6 +2055,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'config') return fulfillJson(route, configuration)
   if (endpoint === 'profiles') return fulfillJson(route, profileDiff)
   if (endpoint === 'loggers') return fulfillJson(route, loggers)
+  if (endpoint === 'threads') return fulfillJson(route, pagedReport('threads', threads.threads, url, threads))
+  if (endpoint === 'threads/download') return fulfillJson(route, {status: 'OK'})
   if (endpoint === 'traces') return fulfillJson(route, traceReport)
   if (endpoint === `traces/${traceId}`) return fulfillJson(route, traceDetail)
   if (endpoint === 'ai/overview') return fulfillJson(route, aiOverview)
@@ -1959,9 +2141,9 @@ async function handleApiRoute(route) {
   }
   if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
   if (endpoint === 'spring-cache') return fulfillJson(route, cache)
-  if (endpoint === 'security') return fulfillJson(route, security)
-  if (endpoint === 'security/endpoints') return fulfillJson(route, securityEndpoints)
-  if (endpoint === 'security/explain')
+  if (endpoint === 'spring-security') return fulfillJson(route, security)
+  if (endpoint === 'spring-security/endpoints') return fulfillJson(route, securityEndpoints)
+  if (endpoint === 'spring-security/explain')
     return fulfillJson(route, {
       matched: true,
       bestEffort: false,
@@ -1969,12 +2151,23 @@ async function handleApiRoute(route) {
       matcherDescription: 'any request',
       filters: security.chains[1].filters
     })
+  if (endpoint === 'security-logs') return fulfillJson(route, securityLogs)
+  if (endpoint === 'http-exchanges')
+    return fulfillJson(
+      route,
+      pagedReport('exchanges', httpExchanges, url, {
+        recorded: httpExchanges.length,
+        unavailableReason: null
+      })
+    )
   if (endpoint === 'dependencies') return fulfillJson(route, dependencies)
   if (endpoint === 'dependencies/scan') return fulfillJson(route, dependencies)
   if (endpoint === 'pentest') return fulfillJson(route, pentest)
   if (endpoint === 'pentest/scan') return fulfillJson(route, pentest)
   if (endpoint === 'architecture') return fulfillJson(route, architecture)
   if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
+  if (endpoint === 'graalvm') return fulfillJson(route, graalVm)
+  if (endpoint === 'graalvm/scan') return fulfillJson(route, graalVm)
 
   return fulfillJson(route, {error: `No screenshot fixture for ${endpoint}`}, 404)
 }
@@ -1983,11 +2176,12 @@ function waitForText(text) {
   return (page) => page.getByText(text).first().waitFor()
 }
 
-function pagedReport(itemsKey, items, url) {
+function pagedReport(itemsKey, items, url, extra = {}) {
   const offset = Number(url.searchParams.get('offset') || 0)
   const limit = Number(url.searchParams.get('limit') || items.length)
   const returnedItems = items.slice(offset, offset + limit)
   return {
+    ...extra,
     total: items.length,
     [itemsKey]: returnedItems,
     page: {
@@ -2116,6 +2310,71 @@ function architectureResult(
     violationCount,
     sampleViolations,
     recommendation
+  }
+}
+
+function graalVmFinding(id, name, category, severity, description, occurrenceCount, sampleOccurrences, recommendation) {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description,
+    status: 'REVIEW',
+    occurrenceCount,
+    sampleOccurrences,
+    recommendation
+  }
+}
+
+function thread(id, name, state, daemon, cpuTimeMillis, stackTrace, virtual = false) {
+  return {
+    id,
+    name,
+    state,
+    priority: 5,
+    daemon,
+    virtual,
+    cpuTimeMillis,
+    userTimeMillis: cpuTimeMillis == null ? null : Math.round(cpuTimeMillis * 0.8),
+    deadlocked: false,
+    lockName: null,
+    lockOwnerId: null,
+    lockOwnerName: null,
+    stackTrace
+  }
+}
+
+function securityEvent(principal, type, timestampMillis, data) {
+  return {
+    principal,
+    type,
+    timestamp: new Date(timestampMillis).toISOString(),
+    data
+  }
+}
+
+function httpExchange(id, method, path, query, status, durationMs, responseSizeBytes, exchangeTraceId, requestHeaders) {
+  return {
+    id,
+    timestamp: new Date(nowMillis - durationMs * 100).toISOString(),
+    method,
+    uri: query ? `http://localhost:8080${path}?${query}` : `http://localhost:8080${path}`,
+    path,
+    query,
+    status,
+    statusFamily: `${Math.floor(status / 100)}xx`,
+    durationMs,
+    responseSizeBytes,
+    traceId: exchangeTraceId,
+    remoteAddress: '127.0.0.1',
+    principal: method === 'POST' ? 'alice' : null,
+    sessionId: null,
+    requestHeaders,
+    responseHeaders: [
+      {name: 'content-type', values: ['application/json'], masked: false},
+      {name: 'x-content-type-options', values: ['nosniff'], masked: false}
+    ]
   }
 }
 

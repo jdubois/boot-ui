@@ -7,8 +7,8 @@ security fixes; older releases do not.
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x   | ✅         |
-| < 0.2   | ❌         |
+| 0.4.x   | ✅         |
+| < 0.4   | ❌         |
 
 ## Reporting a vulnerability
 
@@ -84,3 +84,5 @@ In-scope security issues include:
 - Sanitized agent session payloads leaking prompts, raw tool arguments,
   command output, or diffs that should only be reachable through the gated raw
   reveal endpoint.
+- Raw thread dumps or heap dumps bypassing their confirmation/read-only gates or
+  configured raw-download controls.
