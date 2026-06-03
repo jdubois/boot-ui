@@ -254,6 +254,19 @@ intended for quick local diagnosis without leaving the BootUI console.
 
 ![BootUI Log Tail panel](images/bootui-log-tail.png)
 
+### HTTP Exchanges
+
+The HTTP Exchanges panel records recent inbound requests handled by the running application. It lists timestamp, method,
+path, status, duration, response size when a `Content-Length` header is present, and trace identifiers from common
+propagation headers. Expanding a row shows request and response headers, with secret-like headers and query parameters
+masked unless `bootui.expose-values=FULL` is explicitly configured. BootUI self-requests are hidden from the panel by
+default through `bootui.monitoring.exclude-self`, though they still count against the bounded in-memory recorder.
+
+BootUI contributes an in-memory `HttpExchangeRepository` when the panel is enabled and no application repository already
+exists. The default buffer retains 200 exchanges and can be changed with `bootui.http-exchanges.max-exchanges`; changing
+that capacity requires an application restart. If the repository is unavailable, the panel shows a clear unavailable
+state instead of implying that no traffic has occurred.
+
 ### HTTP Probe
 
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers,

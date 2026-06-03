@@ -24,6 +24,7 @@ const allPanelLinks = [
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
   {id: 'traces', title: 'Traces', heading: /^Traces/},
   {id: 'log-tail', title: 'Log Tail', heading: /Log Tail/},
+  {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
   {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
@@ -91,7 +92,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Runtime', count: 7},
       {title: 'Configuration', count: 6},
       {title: 'Services', count: 6},
-      {title: 'Diagnostics', count: 6},
+      {title: 'Diagnostics', count: 7},
       {title: 'Developer tools', count: 4}
     ]
 

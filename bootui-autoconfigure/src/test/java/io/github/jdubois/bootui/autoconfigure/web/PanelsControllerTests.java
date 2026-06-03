@@ -55,14 +55,14 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[7].available").value(true))
                     .andExpect(jsonPath("$.panels[18].id").value("traces"))
                     .andExpect(jsonPath("$.panels[18].available").value(true))
-                    .andExpect(jsonPath("$.panels[20].id").value("http-probe"))
-                    .andExpect(jsonPath("$.panels[20].available").value(true))
-                    .andExpect(jsonPath("$.panels[21].id").value("pentest"))
+                    .andExpect(jsonPath("$.panels[21].id").value("http-probe"))
                     .andExpect(jsonPath("$.panels[21].available").value(true))
-                    .andExpect(jsonPath("$.panels[22].id").value("vulnerabilities"))
+                    .andExpect(jsonPath("$.panels[22].id").value("pentest"))
                     .andExpect(jsonPath("$.panels[22].available").value(true))
-                    .andExpect(jsonPath("$.panels[23].id").value("heap-dump"))
-                    .andExpect(jsonPath("$.panels[23].available").value(true));
+                    .andExpect(jsonPath("$.panels[23].id").value("vulnerabilities"))
+                    .andExpect(jsonPath("$.panels[23].available").value(true))
+                    .andExpect(jsonPath("$.panels[24].id").value("heap-dump"))
+                    .andExpect(jsonPath("$.panels[24].available").value(true));
         }
     }
 
@@ -93,7 +93,11 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[13].id").value("database-connection-pools"))
                     .andExpect(jsonPath("$.panels[13].available").value(false))
                     .andExpect(jsonPath("$.panels[13].unavailableReason")
-                            .value("No database connection pool beans are available"));
+                            .value("No database connection pool beans are available"))
+                    .andExpect(jsonPath("$.panels[20].id").value("http-exchanges"))
+                    .andExpect(jsonPath("$.panels[20].available").value(false))
+                    .andExpect(
+                            jsonPath("$.panels[20].unavailableReason").value("HTTP exchange repository not available"));
         }
     }
 
@@ -156,10 +160,10 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[9].readOnly").value(true))
                     .andExpect(jsonPath("$.panels[9].readOnlyReason")
                             .value("Panel is read-only via bootui.panels.loggers.read-only=true"))
-                    .andExpect(jsonPath("$.panels[21].id").value("pentest"))
-                    .andExpect(jsonPath("$.panels[21].enabled").value(true))
-                    .andExpect(jsonPath("$.panels[21].readOnly").value(true))
-                    .andExpect(jsonPath("$.panels[21].readOnlyReason")
+                    .andExpect(jsonPath("$.panels[22].id").value("pentest"))
+                    .andExpect(jsonPath("$.panels[22].enabled").value(true))
+                    .andExpect(jsonPath("$.panels[22].readOnly").value(true))
+                    .andExpect(jsonPath("$.panels[22].readOnlyReason")
                             .value("Panel is read-only via bootui.panels.pentest.read-only=true"));
         }
     }

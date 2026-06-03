@@ -10,6 +10,7 @@ import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReport
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.startup.StartupEndpoint;
+import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
@@ -113,6 +114,11 @@ public class PanelsController {
                 availability(properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled");
             case BootUiPanels.LOG_TAIL ->
                 availability(classPresent("ch.qos.logback.classic.Logger"), "Logback not on the classpath");
+            case BootUiPanels.HTTP_EXCHANGES ->
+                availability(
+                        classPresent("org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository")
+                                && beanPresent(HttpExchangeRepository.class),
+                        "HTTP exchange repository not available");
             case BootUiPanels.DEVTOOLS -> availability(devToolsPresent(), "Spring Boot DevTools not on the classpath");
             case BootUiPanels.DEV_SERVICES ->
                 availability(devServicesPresent(), "Docker Compose or Testcontainers not on the classpath");

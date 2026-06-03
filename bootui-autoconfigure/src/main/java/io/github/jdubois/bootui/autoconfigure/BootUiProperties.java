@@ -81,6 +81,10 @@ public class BootUiProperties {
      */
     private Dependencies dependencies = new Dependencies();
     /**
+     * HTTP Exchanges panel settings.
+     */
+    private HttpExchanges httpExchanges = new HttpExchanges();
+    /**
      * Heap Dump panel settings.
      */
     private HeapDump heapDump = new HeapDump();
@@ -252,6 +256,14 @@ public class BootUiProperties {
 
     public void setDependencies(Dependencies dependencies) {
         this.dependencies = dependencies;
+    }
+
+    public HttpExchanges getHttpExchanges() {
+        return httpExchanges;
+    }
+
+    public void setHttpExchanges(HttpExchanges httpExchanges) {
+        this.httpExchanges = httpExchanges == null ? new HttpExchanges() : httpExchanges;
     }
 
     public HeapDump getHeapDump() {
@@ -447,6 +459,22 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    public static class HttpExchanges {
+
+        /**
+         * Maximum number of HTTP exchanges retained in the in-memory repository.
+         */
+        private int maxExchanges = 200;
+
+        public int getMaxExchanges() {
+            return maxExchanges;
+        }
+
+        public void setMaxExchanges(int maxExchanges) {
+            this.maxExchanges = maxExchanges;
         }
     }
 

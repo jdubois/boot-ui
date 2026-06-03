@@ -58,6 +58,7 @@ Panel settings are consistent across the UI and API:
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
+| Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
 | Diagnostics     | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`         |
 | Diagnostics     | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only` |
@@ -113,6 +114,14 @@ Panel settings are consistent across the UI and API:
 | `bootui.telemetry.max-attribute-value-bytes` | `4096`    | Maximum attribute string length before truncation.                                                    |
 | `bootui.telemetry.exclude-self-spans`        | `true`    | Drop ingested spans whose route/path targets BootUI before they enter the local trace store.          |
 | `bootui.telemetry.max-request-bytes`         | `8388608` | Maximum accepted OTLP request body size.                                                              |
+
+### HTTP Exchanges
+
+| Property                                     | Default | Description                                                                                     |
+| -------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| `bootui.panels.http-exchanges.enabled`       | `true`  | Show recent inbound HTTP exchanges and create a bounded in-memory recorder when none exists.    |
+| `bootui.http-exchanges.max-exchanges`        | `200`   | Maximum recent HTTP exchanges retained in memory. Requires restart because it sizes the buffer. |
+| `management.httpexchanges.recording.enabled` | `true`  | Spring Boot recorder switch. Set to `false` to disable capture while leaving the panel visible. |
 
 ### HTTP Probe
 

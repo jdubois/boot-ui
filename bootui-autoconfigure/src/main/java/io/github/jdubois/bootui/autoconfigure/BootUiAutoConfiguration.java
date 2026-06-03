@@ -16,17 +16,25 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
+import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesProperties;
+import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
+import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.servlet.actuate.web.exchanges.HttpExchangesFilter;
+import org.springframework.boot.servlet.filter.OrderedFilter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.annotation.Lazy;
@@ -41,8 +49,11 @@ import org.springframework.core.env.Environment;
  */
 @AutoConfiguration
 @AutoConfigureBefore(
-        name =
-                "org.springframework.boot.micrometer.tracing.opentelemetry.autoconfigure.OpenTelemetryTracingAutoConfiguration")
+        name = {
+            "org.springframework.boot.micrometer.tracing.opentelemetry.autoconfigure.OpenTelemetryTracingAutoConfiguration",
+            "org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesEndpointAutoConfiguration",
+            "org.springframework.boot.servlet.autoconfigure.actuate.web.exchanges.ServletHttpExchangesAutoConfiguration"
+        })
 @Conditional(BootUiActivationCondition.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
@@ -63,6 +74,7 @@ import org.springframework.core.env.Environment;
     SpringCacheController.class,
     DevServicesController.class,
     DependenciesController.class,
+    BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration.class,
     ScheduledController.class,
     HttpProbeService.class,
     HttpProbeController.class,
@@ -70,6 +82,7 @@ import org.springframework.core.env.Environment;
     HeapDumpController.class,
     ArchitectureController.class,
     LogTailController.class,
+    HttpExchangesController.class,
     ProfileController.class,
     SecurityController.class,
     MemoryController.class,
@@ -104,6 +117,7 @@ public class BootUiAutoConfiguration {
             GraalVmController.class.getName(),
             HealthController.class.getName(),
             HikariController.class.getName(),
+            HttpExchangesController.class.getName(),
             HttpProbeController.class.getName(),
             HeapDumpController.class.getName(),
             LoggersController.class.getName(),
@@ -135,6 +149,39 @@ public class BootUiAutoConfiguration {
                 }
             }
         };
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository")
+    @ConditionalOnProperty(prefix = "bootui.panels.http-exchanges", name = "enabled", matchIfMissing = true)
+    @EnableConfigurationProperties(HttpExchangesProperties.class)
+    static class HttpExchangeRepositoryConfiguration {
+
+        private static final int HTTP_EXCHANGES_FILTER_ORDER = OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER - 101;
+
+        @Bean
+        @ConditionalOnMissingBean(HttpExchangeRepository.class)
+        HttpExchangeRepository bootUiHttpExchangeRepository(BootUiProperties properties) {
+            InMemoryHttpExchangeRepository repository = new InMemoryHttpExchangeRepository();
+            repository.setCapacity(Math.max(1, properties.getHttpExchanges().getMaxExchanges()));
+            repository.setReverse(true);
+            return repository;
+        }
+
+        @Bean
+        @ConditionalOnMissingBean(HttpExchangesFilter.class)
+        @ConditionalOnProperty(
+                prefix = "management.httpexchanges.recording",
+                name = "enabled",
+                havingValue = "true",
+                matchIfMissing = true)
+        HttpExchangesFilter bootUiHttpExchangesFilter(
+                HttpExchangeRepository repository, HttpExchangesProperties properties) {
+            HttpExchangesFilter filter = new HttpExchangesFilter(
+                    repository, properties.getRecording().getInclude());
+            filter.setOrder(HTTP_EXCHANGES_FILTER_ORDER);
+            return filter;
+        }
     }
 
     @Bean

@@ -14,6 +14,7 @@ const Pentesting = () => import('./views/Pentesting.vue')
 const Architecture = () => import('./views/Architecture.vue')
 const GraalVm = () => import('./views/GraalVm.vue')
 const LogTail = () => import('./views/LogTail.vue')
+const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
 const Security = () => import('./views/Security.vue')
@@ -165,6 +166,12 @@ export const routes = [
     name: 'log-tail',
     component: LogTail,
     meta: {group: groups.diagnostics, icon: 'bi-terminal', title: 'Log Tail'}
+  },
+  {
+    path: '/http-exchanges',
+    name: 'http-exchanges',
+    component: HttpExchanges,
+    meta: {group: groups.diagnostics, icon: 'bi-arrow-left-right', title: 'HTTP Exchanges'}
   },
   {
     path: '/http-probe',
