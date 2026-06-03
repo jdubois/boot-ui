@@ -1,6 +1,7 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import {SERVER_PAGE_SIZE} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -43,7 +44,7 @@ async function load(options = {}) {
   targetLoading.value = true
   error.value = null
   try {
-    const res = await fetch(buildUrl(append ? entries.value.length : 0))
+    const res = await apiFetch(buildUrl(append ? entries.value.length : 0))
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const next = await res.json()
     if (id !== requestId) return
@@ -55,7 +56,7 @@ async function load(options = {}) {
           }
         : next
   } catch (e) {
-    if (id === requestId) error.value = formatLoadError(e, 'Unable to load conditions')
+    if (id === requestId) error.value = describeLoadError(e, 'Unable to load conditions')
   } finally {
     if (id === requestId) targetLoading.value = false
   }
@@ -85,11 +86,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <PanelHeader
-      icon="bi-check2-circle"
-      title="Auto-configuration conditions"
-      :error="error ? `Could not load conditions: ${error}` : null"
-    />
+    <PanelHeader icon="bi-check2-circle" title="Auto-configuration conditions" :error="error" />
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item">
         <a :class="{active: tab === 'positive'}" class="nav-link" href="#" @click.prevent="tab = 'positive'">

@@ -1,8 +1,9 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatNumber} from '../utils/format.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -225,7 +226,7 @@ function bucketWindowLabel(bucket, granularity) {
 }
 
 async function loadDashboard() {
-  const res = await fetch(`${panelConfig.value.apiBase}/dashboard`)
+  const res = await apiFetch(`${panelConfig.value.apiBase}/dashboard`)
   if (!res.ok) throw new Error('HTTP ' + res.status)
   dashboard.value = await res.json()
 }
@@ -238,7 +239,7 @@ async function loadSessions(window = activeSessionWindow.value) {
     params.set('until', window.until)
     url += `?${params.toString()}`
   }
-  const res = await fetch(url)
+  const res = await apiFetch(url)
   if (!res.ok) throw new Error('HTTP ' + res.status)
   sessionList.value = await res.json()
 }
@@ -249,7 +250,7 @@ async function refreshSessions(window = activeSessionWindow.value) {
     lastFetched.value = Date.now()
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} sessions`)
+    error.value = describeLoadError(e, `Unable to load ${panelConfig.value.title} sessions`)
   }
 }
 
@@ -311,13 +312,13 @@ async function loadDetail(sessionId) {
   }
   detailLoading.value = true
   try {
-    const res = await fetch(`${panelConfig.value.apiBase}/sessions/${encodeURIComponent(sessionId)}`)
+    const res = await apiFetch(`${panelConfig.value.apiBase}/sessions/${encodeURIComponent(sessionId)}`)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
     rawById.value = {}
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, `Unable to load ${panelConfig.value.title} session details`)
+    error.value = describeLoadError(e, `Unable to load ${panelConfig.value.title} session details`)
     detail.value = null
   } finally {
     detailLoading.value = false
@@ -349,7 +350,7 @@ async function revealRaw(event) {
   }
   rawLoadingId.value = event.id
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${panelConfig.value.apiBase}/sessions/${encodeURIComponent(selectedSessionId.value)}/events/${encodeURIComponent(
         event.id
       )}/raw`

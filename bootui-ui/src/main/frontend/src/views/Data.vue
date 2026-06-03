@@ -1,6 +1,7 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref(null)
@@ -13,7 +14,7 @@ const springDataPresent = ref(true)
 
 async function load() {
   try {
-    const res = await fetch('api/data/repositories')
+    const res = await apiFetch('api/data/repositories')
     if (res.status === 404) {
       springDataPresent.value = false
       return
@@ -21,7 +22,7 @@ async function load() {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load Spring Data repositories')
+    error.value = describeLoadError(e, 'Unable to load Spring Data repositories')
   }
 }
 
@@ -29,7 +30,7 @@ async function open(repo) {
   selected.value = repo.repositoryInterface
   detail.value = null
   const key = encodeURIComponent(repo.repositoryInterface || repo.beanName)
-  const res = await fetch(`api/data/repositories/${key}`)
+  const res = await apiFetch(`api/data/repositories/${key}`)
   if (res.ok) {
     detail.value = await res.json()
   }
@@ -91,16 +92,11 @@ onMounted(load)
 
 <template>
   <div>
-    <PanelHeader icon="bi-database" title="Spring Data repositories" />
+    <PanelHeader icon="bi-database" title="Spring Data repositories" :error="error" />
 
     <div v-if="!springDataPresent" class="alert alert-info">
       Spring Data is not on the classpath of this application. Add a Spring Data starter (e.g.
       <code>spring-boot-starter-data-jpa</code>) to see repositories here.
-    </div>
-
-    <div v-else-if="error" class="alert alert-danger d-flex align-items-center gap-2">
-      <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
-      <span>{{ error }}</span>
     </div>
 
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">

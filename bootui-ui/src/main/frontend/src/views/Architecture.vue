@@ -1,7 +1,7 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {computed, onMounted, ref} from 'vue'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -92,12 +92,12 @@ function scanTime() {
 
 async function loadReport() {
   try {
-    const res = await fetch('api/architecture')
+    const res = await apiFetch('api/architecture')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load architecture report')
+    error.value = describeLoadError(e, 'Unable to load architecture report')
   }
 }
 
@@ -113,7 +113,7 @@ async function runScan() {
     report.value = await res.json()
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to run architecture checks')
+    error.value = describeLoadError(e, 'Unable to run architecture checks')
   } finally {
     loading.value = false
   }

@@ -53,7 +53,7 @@
                         </goals>
                         <phase>generate-resources</phase>
                         <configuration>
-                            <arguments>ci --include=optional --no-audit --no-fund</arguments>
+                            <arguments>ci --prefer-offline --include=optional --no-audit --no-fund</arguments>
                         </configuration>
                     </execution>
                     <execution>

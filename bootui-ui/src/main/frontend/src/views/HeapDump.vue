@@ -1,7 +1,7 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 
@@ -103,14 +103,14 @@ async function loadReport(options = {}) {
     if (smartFilter.value) params.set('smartFilter', smartFilter.value)
     const qs = params.toString()
     const url = qs ? 'api/heap-dump?' + qs : 'api/heap-dump'
-    const res = await fetch(url)
+    const res = await apiFetch(url)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const next = await res.json()
     if (requestId !== reportRequestId) return
     report.value = next
     error.value = null
   } catch (e) {
-    if (requestId === reportRequestId) error.value = formatLoadError(e, 'Unable to load heap dump report')
+    if (requestId === reportRequestId) error.value = describeLoadError(e, 'Unable to load heap dump report')
   }
 }
 
@@ -131,7 +131,7 @@ async function runAction(path, body) {
     await loadReport()
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to run heap dump action')
+    error.value = describeLoadError(e, 'Unable to run heap dump action')
   } finally {
     loading.value = false
   }

@@ -13,6 +13,9 @@ export default defineConfig({
     assetsDir: 'assets',
     sourcemap: false
   },
+  esbuild: {
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : []
+  },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.js'],

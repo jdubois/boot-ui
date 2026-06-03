@@ -1,6 +1,7 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -14,12 +15,12 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const res = await fetch('api/scheduled')
+    const res = await apiFetch('api/scheduled')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     lastFetched.value = Date.now()
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load scheduled tasks')
+    error.value = describeLoadError(e, 'Unable to load scheduled tasks')
   } finally {
     loading.value = false
   }

@@ -8,7 +8,7 @@ const props = defineProps({
   title: {type: String, required: true},
   subtitle: {type: String, default: null},
   loading: {type: Boolean, default: false},
-  error: {type: String, default: null},
+  error: {type: [String, Object], default: null},
   lastFetched: {type: Number, default: null},
   refreshable: {type: Boolean, default: true}
 })
@@ -41,7 +41,13 @@ const lastFetchedText = computed(() => {
   if (!props.lastFetched) return null
   return formatRelative(props.lastFetched, now.value)
 })
-const loadError = computed(() => (props.error ? describeLoadError(props.error) : null))
+const loadError = computed(() => {
+  if (!props.error) return null
+  if (typeof props.error === 'object' && props.error !== null && 'serverUnreachable' in props.error) {
+    return props.error
+  }
+  return describeLoadError(props.error)
+})
 const retryButtonClass = computed(() =>
   loadError.value?.serverUnreachable ? 'btn-outline-warning' : 'btn-outline-danger'
 )

@@ -20,12 +20,17 @@ const {
   scheduleReload,
   shownCount,
   totalCount
-} = useServerPagedList('api/beans', 'beans', () => {
-  return {
-    q: filter.value.trim(),
-    classification: classification.value
-  }
-})
+} = useServerPagedList(
+  'api/beans',
+  'beans',
+  () => {
+    return {
+      q: filter.value.trim(),
+      classification: classification.value
+    }
+  },
+  {errorContext: 'Could not load beans'}
+)
 
 onMounted(load)
 watch([filter, classification], scheduleReload)
@@ -37,7 +42,7 @@ watch([filter, classification], scheduleReload)
       icon="bi-diagram-3"
       title="Beans"
       :subtitle="`${totalCount} beans · ${matchedCount} matched`"
-      :error="error ? `Could not load beans: ${error}` : null"
+      :error="error"
     />
 
     <div class="row g-2 mb-3">

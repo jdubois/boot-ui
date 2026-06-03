@@ -1,6 +1,6 @@
 <script setup>
-import {onMounted, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
+import {onMounted, ref, watch} from 'vue'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -25,9 +25,14 @@ const {
   scheduleReload,
   shownCount,
   totalCount
-} = useServerPagedList('api/loggers', 'loggers', () => {
-  return {q: filter.value.trim()}
-})
+} = useServerPagedList(
+  'api/loggers',
+  'loggers',
+  () => {
+    return {q: filter.value.trim()}
+  },
+  {errorContext: 'Could not load loggers'}
+)
 
 async function changeLevel(logger, level) {
   if (readOnly.value) {
@@ -73,7 +78,7 @@ watch(filter, scheduleReload)
 
 <template>
   <div>
-    <PanelHeader icon="bi-journal-text" title="Loggers" :error="error ? `Could not load loggers: ${error}` : null" />
+    <PanelHeader icon="bi-journal-text" title="Loggers" :error="error" />
     <div v-if="readOnly" class="alert alert-warning small">
       <i class="bi bi-lock me-1"></i>
       Logger levels are read-only. {{ readOnlyReason }}

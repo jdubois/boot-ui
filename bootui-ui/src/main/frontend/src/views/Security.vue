@@ -1,6 +1,7 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 
 const report = ref(null)
@@ -19,7 +20,7 @@ const endpointFilter = ref('')
 
 async function load() {
   try {
-    const res = await fetch('api/security')
+    const res = await apiFetch('api/security')
     if (res.status === 404) {
       springSecurityPresent.value = false
       return
@@ -30,7 +31,7 @@ async function load() {
       springSecurityPresent.value = false
     }
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load Spring Security')
+    error.value = describeLoadError(e, 'Unable to load Spring Security')
   }
 }
 
@@ -38,7 +39,7 @@ async function loadEndpoints() {
   endpointsLoading.value = true
   endpointsError.value = null
   try {
-    const res = await fetch('api/security/endpoints')
+    const res = await apiFetch('api/security/endpoints')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     endpoints.value = await res.json()
   } catch (e) {
@@ -53,7 +54,7 @@ async function explain() {
   explainResult.value = null
   try {
     const params = new URLSearchParams({method: explainMethod.value, path: explainPath.value})
-    const res = await fetch('api/security/explain?' + params)
+    const res = await apiFetch('api/security/explain?' + params)
     if (res.ok) {
       explainResult.value = await res.json()
     } else {
@@ -151,16 +152,11 @@ onMounted(() => {
 
 <template>
   <div>
-    <PanelHeader icon="bi-person-lock" title="Spring Security" />
+    <PanelHeader icon="bi-person-lock" title="Spring Security" :error="error" />
 
     <div v-if="!springSecurityPresent" class="alert alert-info">
       Spring Security is not on the classpath of this application. Add
       <code>spring-boot-starter-security</code> to see security configuration here.
-    </div>
-
-    <div v-else-if="error" class="alert alert-danger d-flex align-items-center gap-2">
-      <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
-      <span>{{ error }}</span>
     </div>
 
     <template v-else-if="report">

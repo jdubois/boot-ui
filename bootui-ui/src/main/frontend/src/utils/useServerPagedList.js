@@ -1,5 +1,6 @@
 import {computed, onBeforeUnmount, ref} from 'vue'
-import {formatLoadError} from './loadError.js'
+import {apiFetch} from '../api.js'
+import {describeLoadError} from './loadError.js'
 
 export const SERVER_PAGE_SIZE = 200
 
@@ -42,7 +43,7 @@ export function useServerPagedList(endpoint, itemsKey, queryParams, options = {}
     targetLoading.value = true
     error.value = null
     try {
-      const res = await fetch(buildUrl(currentItems.length))
+      const res = await apiFetch(buildUrl(currentItems.length))
       if (!res.ok) throw new Error('HTTP ' + res.status)
       const next = await res.json()
       if (id !== requestId) return
@@ -54,7 +55,7 @@ export function useServerPagedList(endpoint, itemsKey, queryParams, options = {}
             }
           : next
     } catch (e) {
-      if (id === requestId) error.value = formatLoadError(e)
+      if (id === requestId) error.value = describeLoadError(e, options.errorContext || 'Unable to load data')
     } finally {
       if (id === requestId) targetLoading.value = false
     }

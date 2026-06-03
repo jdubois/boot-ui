@@ -1,8 +1,8 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {computed, onMounted, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -22,12 +22,12 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const res = await fetch('api/cache')
+    const res = await apiFetch('api/cache')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     lastFetched.value = Date.now()
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load cache report')
+    error.value = describeLoadError(e, 'Unable to load cache report')
   } finally {
     loading.value = false
   }

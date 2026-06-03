@@ -1,7 +1,8 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -79,7 +80,7 @@ async function fetchPools() {
   if (!endpointAvailable.value) return
   error.value = null
   try {
-    const res = await fetch('api/database-connection-pools/pools')
+    const res = await apiFetch('api/database-connection-pools/pools')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     lastUpdated.value = Date.now()
@@ -87,7 +88,7 @@ async function fetchPools() {
       selectPool(poolKey(pools.value[0]))
     }
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load database connection pools')
+    error.value = describeLoadError(e, 'Unable to load database connection pools')
   }
 }
 
@@ -102,7 +103,7 @@ async function pollSnapshot() {
   const pool = selectedPool.value
   if (!endpointAvailable.value || !pool || !pool.available || !pool.poolName) return
   try {
-    const res = await fetch(`api/database-connection-pools/pools/${encodeURIComponent(pool.poolName)}/snapshot`)
+    const res = await apiFetch(`api/database-connection-pools/pools/${encodeURIComponent(pool.poolName)}/snapshot`)
     if (!res.ok) return
     const snapshot = await res.json()
     history.value = [

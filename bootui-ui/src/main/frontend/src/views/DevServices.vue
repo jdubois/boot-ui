@@ -1,7 +1,7 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {computed, onMounted, ref} from 'vue'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -25,13 +25,13 @@ async function load(options = {}) {
     actionMessage.value = null
   }
   try {
-    const res = await fetch('api/dev-services')
+    const res = await apiFetch('api/dev-services')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     lastFetched.value = Date.now()
     syncSelectedService()
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load Dev Services')
+    error.value = describeLoadError(e, 'Unable to load Dev Services')
   } finally {
     loading.value = false
   }
@@ -143,7 +143,7 @@ async function openLogs(service) {
   actionMessage.value = null
   busyService.value = service.id
   try {
-    const res = await fetch(serviceActionUrl(service, 'logs'))
+    const res = await apiFetch(serviceActionUrl(service, 'logs'))
     if (!res.ok) throw new Error(await responseMessage(res))
     logs.value = await res.json()
   } catch (e) {

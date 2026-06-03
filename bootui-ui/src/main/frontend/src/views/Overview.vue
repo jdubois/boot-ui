@@ -1,11 +1,32 @@
 <script setup>
+import {apiFetch} from '../api.js'
 import {computed, inject, onMounted, ref} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import PanelSkeleton from './components/PanelSkeleton.vue'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 
 const injectedOverview = inject('overview', null)
 const data = ref(null)
-const loading = ref(true)
 const error = ref(null)
+
+async function fetchOverview() {
+  if (injectedOverview?.value && !data.value) {
+    error.value = null
+    data.value = injectedOverview.value
+    return
+  }
+  error.value = null
+  try {
+    const res = await apiFetch('api/overview')
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    data.value = await res.json()
+  } catch (e) {
+    error.value = describeLoadError(e, 'Unable to load overview')
+  }
+}
+
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchOverview)
 
 const activeProfiles = computed(() => data.value?.activeProfiles ?? [])
 const defaultProfiles = computed(() => data.value?.defaultProfiles ?? [])
@@ -72,31 +93,9 @@ const quickLinks = [
   }
 ]
 
-async function load(force = false) {
-  if (!force && injectedOverview?.value) {
-    error.value = null
-    data.value = injectedOverview.value
-    loading.value = false
-    return
-  }
-  loading.value = true
-  error.value = null
-  try {
-    const res = await fetch('api/overview')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
-  } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load overview')
-  } finally {
-    loading.value = false
-  }
-}
-
 function portText(port, fallback) {
   return port ?? fallback
 }
-
-onMounted(load)
 </script>
 
 <template>
@@ -123,17 +122,36 @@ onMounted(load)
           <i class="bi bi-github me-1"></i>
           BootUI GitHub project
         </a>
-        <button :disabled="loading" class="btn btn-light hero-refresh" @click="load(true)">
-          <i :class="{spin: loading}" class="bi bi-arrow-clockwise me-1"></i>
-          Refresh snapshot
-        </button>
+        <div class="d-flex align-items-center gap-3 ms-2">
+          <AutoRefreshToggle v-model="autoRefresh" />
+          <button :disabled="loading" class="btn btn-light hero-refresh" @click="load">
+            <i :class="{spin: loading}" class="bi bi-arrow-clockwise me-1"></i>
+            Refresh snapshot
+          </button>
+        </div>
       </div>
     </div>
 
-    <div v-if="loading && !data" class="overview-skeleton">
-      <div v-for="n in 4" :key="n" class="skeleton-card"></div>
+    <PanelSkeleton v-if="initialLoading" />
+    <div
+      v-else-if="error && !data"
+      :class="['alert', error.serverUnreachable ? 'alert-warning' : 'alert-danger']"
+      class="d-flex align-items-start gap-2 mb-3 shadow-sm"
+      role="alert"
+    >
+      <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1"></i>
+      <span class="flex-grow-1">
+        <strong class="d-block">{{ error.title }}</strong>
+        <span class="small">{{ error.message }}</span>
+      </span>
+      <button
+        :class="error.serverUnreachable ? 'btn-outline-warning' : 'btn-outline-danger'"
+        class="btn btn-sm flex-shrink-0"
+        @click="load"
+      >
+        <i class="bi bi-arrow-clockwise me-1"></i>Retry
+      </button>
     </div>
-    <div v-else-if="error && !data" class="alert alert-danger">{{ error }}</div>
     <template v-else-if="data">
       <div class="row g-3 mb-4">
         <div v-for="(stat, index) in stats" :key="stat.label" class="col-xl-3 col-md-6">
@@ -377,20 +395,6 @@ onMounted(load)
 
 .spin {
   animation: spin 900ms linear infinite;
-}
-
-.overview-skeleton {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.skeleton-card {
-  animation: pulse 1.1s ease-in-out infinite;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.72), rgba(226, 232, 240, 0.8), rgba(255, 255, 255, 0.72));
-  background-size: 200% 100%;
-  border-radius: 1.1rem;
-  min-height: 8rem;
 }
 
 .metric-card {
@@ -691,16 +695,11 @@ onMounted(load)
   .hero-actions {
     flex-wrap: wrap;
   }
-
-  .overview-skeleton {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 575.98px) {
   .runtime-grid,
-  .profile-panel,
-  .overview-skeleton {
+  .profile-panel {
     grid-template-columns: 1fr;
   }
 }
