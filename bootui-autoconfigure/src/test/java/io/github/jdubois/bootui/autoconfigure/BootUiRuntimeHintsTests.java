@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.core.BootUiDtos.PanelDto;
-import io.github.jdubois.bootui.core.BootUiDtos.StartupStepDto;
+import io.github.jdubois.bootui.core.dto.PanelDto;
+import io.github.jdubois.bootui.core.dto.StartupStepDto;
 import org.junit.jupiter.api.Test;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
