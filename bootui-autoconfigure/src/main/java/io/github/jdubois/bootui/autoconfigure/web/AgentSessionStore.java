@@ -23,6 +23,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.WatchKey;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Clock;
@@ -91,7 +95,7 @@ public abstract class AgentSessionStore {
     private final Path sessionStateDir;
     private final String sourceName;
 
-    private volatile Thread watcherThread;
+    private ExecutorService watcherExecutor;
     private volatile boolean stopped;
     private volatile CopilotDashboardDto dashboardCache;
     private volatile int availableSessionFileCount;
@@ -290,25 +294,26 @@ public abstract class AgentSessionStore {
      * Start the directory watcher in a daemon thread. Safe to call once at bean init.
      */
     public synchronized void start() {
-        if (watcherThread != null) {
+        if (watcherExecutor != null && !watcherExecutor.isShutdown()) {
             return;
         }
         stopped = false;
         refresh();
-        Thread t = new Thread(this::runWatcher, properties.getWatcherThreadName());
-        t.setDaemon(true);
-        t.start();
-        watcherThread = t;
+        watcherExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, properties.getWatcherThreadName());
+            t.setDaemon(true);
+            return t;
+        });
+        watcherExecutor.submit(this::runWatcher);
     }
 
     @PreDestroy
     public synchronized void stop() {
         stopped = true;
-        Thread t = watcherThread;
-        if (t != null) {
-            t.interrupt();
+        if (watcherExecutor != null) {
+            watcherExecutor.shutdownNow();
+            watcherExecutor = null;
         }
-        watcherThread = null;
     }
 
     private void runWatcher() {
