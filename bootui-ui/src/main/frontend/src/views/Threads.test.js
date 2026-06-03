@@ -2,6 +2,9 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import Threads from './Threads.vue'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
+
+let wrappers = []
 
 function thread(overrides = {}) {
   return {
@@ -60,12 +63,17 @@ async function mountWithReport(body, panel = {}) {
     vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), {status: 200})))
   )
   const wrapper = mount(Threads, {props: {panel}})
+  wrappers.push(wrapper)
   await flushPromises()
   return wrapper
 }
 
 describe('Threads', () => {
   afterEach(() => {
+    wrappers.forEach((wrapper) => wrapper.unmount())
+    wrappers = []
+    vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -75,20 +83,44 @@ describe('Threads', () => {
     expect(wrapper.text()).toContain('Threads')
     expect(wrapper.text()).toContain('RUNNABLE: 1')
     expect(wrapper.find('code').text()).toBe('main')
+    expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
   })
 
   it('expands and collapses the stack trace for a thread', async () => {
     const wrapper = await mountWithReport(report())
 
     expect(wrapper.text()).not.toContain('com.example.App.main(App.java:10)')
-    await wrapper.find('.btn-link').trigger('click')
+    const stackButton = wrapper.find('.threads-stack-toggle')
+    expect(stackButton.text()).toContain('View stack')
+    await stackButton.trigger('click')
     expect(wrapper.text()).toContain('com.example.App.main(App.java:10)')
+    expect(stackButton.text()).toContain('Hide stack')
   })
 
   it('omits the stack toggle for threads with no stack frames', async () => {
     const wrapper = await mountWithReport(report({threads: [thread({stackTrace: []})]}))
 
-    expect(wrapper.find('.btn-link').exists()).toBe(false)
+    expect(wrapper.find('.threads-stack-toggle').exists()).toBe(false)
+  })
+
+  it('refreshes automatically while enabled', async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(document, 'visibilityState', {configurable: true, value: 'visible'})
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(report()), {status: 200})))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(Threads, {props: {panel: {}}})
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Auto-refresh')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('flags deadlocks prominently', async () => {
@@ -132,6 +164,7 @@ describe('Threads', () => {
     URL.revokeObjectURL = vi.fn()
 
     const wrapper = mount(Threads, {props: {panel: {}}})
+    wrappers.push(wrapper)
     await flushPromises()
 
     await wrapper.find('button.btn-outline-primary').trigger('click')

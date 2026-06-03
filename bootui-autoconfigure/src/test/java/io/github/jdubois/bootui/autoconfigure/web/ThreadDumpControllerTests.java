@@ -18,8 +18,8 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class ThreadDumpControllerTests {
 
-    private final MockMvc mvc =
-            standaloneSetup(new ThreadDumpController(new ThreadDumpService(new BootUiProperties()))).build();
+    private final MockMvc mvc = standaloneSetup(new ThreadDumpController(new ThreadDumpService(new BootUiProperties())))
+            .build();
 
     @Test
     void threadsReturnsLiveSnapshot() throws Exception {

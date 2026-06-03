@@ -13,7 +13,7 @@ test.describe('Threads view', () => {
     await expect(page.locator('.badge', {hasText: /RUNNABLE:/}).first()).toBeVisible()
 
     // Expanding a stack trace reveals frames.
-    const stackButton = page.getByRole('button', {name: /Stack \(\d+\)/}).first()
+    const stackButton = page.getByRole('button', {name: /View stack \d+/}).first()
     await stackButton.click()
     await expect(page.locator('pre.threads-stack').first()).toBeVisible()
   })

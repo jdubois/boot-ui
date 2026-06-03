@@ -68,10 +68,7 @@ public class ThreadDumpService {
         String normalizedQuery = PagedList.normalize(query);
         String normalizedState = PagedList.normalize(state);
         PagedList.Result<ThreadInfoDto> page = PagedList.from(
-                rows,
-                row -> matchesState(row, normalizedState) && matchesQuery(row, normalizedQuery),
-                offset,
-                limit);
+                rows, row -> matchesState(row, normalizedState) && matchesQuery(row, normalizedQuery), offset, limit);
 
         return new ThreadDumpReport(
                 true,

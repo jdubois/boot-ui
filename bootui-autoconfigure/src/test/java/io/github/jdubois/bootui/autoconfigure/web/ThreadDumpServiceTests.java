@@ -28,8 +28,7 @@ class ThreadDumpServiceTests {
         assertThat(report.totalThreads()).isPositive();
         assertThat(report.threads()).isNotEmpty();
         assertThat(report.stateCounts()).isNotEmpty();
-        assertThat(report.stateCounts().stream().mapToInt(c -> c.count()).sum())
-                .isEqualTo(report.totalThreads());
+        assertThat(report.stateCounts().stream().mapToInt(c -> c.count()).sum()).isEqualTo(report.totalThreads());
         assertThat(report.page().total()).isEqualTo(report.totalThreads());
     }
 

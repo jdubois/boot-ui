@@ -1,9 +1,11 @@
 <script setup>
-import {computed, onMounted, ref, watch} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {apiFetch} from '../api.js'
 import {formatNumber} from '../utils/format.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 
@@ -20,9 +22,9 @@ const {
   data,
   error,
   items: threads,
-  load,
+  load: loadThreads,
   loadMore,
-  loading,
+  loading: listLoading,
   loadingMore,
   matchedCount,
   pageSize,
@@ -33,6 +35,8 @@ const {
   errorContext: 'Could not load threads'
 })
 
+const {autoRefresh, loading: refreshLoading} = useAutoRefresh(loadThreads)
+
 const available = computed(() => data.value?.available !== false)
 const unavailableReason = computed(() => data.value?.unavailableReason || 'Thread information is unavailable.')
 const stateCounts = computed(() => data.value?.stateCounts || [])
@@ -42,6 +46,7 @@ const deadlockDetected = computed(() => data.value?.deadlockDetected === true)
 const deadlockedThreadIds = computed(() => data.value?.deadlockedThreadIds || [])
 const virtualSupported = computed(() => data.value?.virtualThreadsSupported === true)
 const hasVirtualThreads = computed(() => threads.value.some((thread) => thread.virtual))
+const loading = computed(() => refreshLoading.value || listLoading.value)
 
 const subtitle = computed(() => {
   if (!available.value) return unavailableReason.value
@@ -109,14 +114,21 @@ async function downloadDump() {
   }
 }
 
-onMounted(load)
 watch([filter, state], scheduleReload)
 </script>
 
 <template>
   <div>
-    <PanelHeader icon="bi-list-task" title="Threads" :subtitle="subtitle" :error="error" @refresh="load">
+    <PanelHeader
+      icon="bi-list-task"
+      title="Threads"
+      :subtitle="subtitle"
+      :loading="loading"
+      :error="error"
+      :last-fetched="data?.capturedAt || null"
+    >
       <template #actions>
+        <AutoRefreshToggle v-model="autoRefresh" />
         <button
           :disabled="readOnly || downloading || !available"
           :title="readOnly ? readOnlyReason : 'Download a raw thread dump snapshot'"
@@ -200,11 +212,14 @@ watch([filter, state], scheduleReload)
                 <td class="text-end">
                   <button
                     v-if="thread.stackTrace.length"
-                    class="btn btn-link btn-sm p-0"
+                    :aria-expanded="isExpanded(thread.id)"
+                    class="btn btn-outline-secondary btn-sm rounded-pill threads-stack-toggle"
                     type="button"
                     @click="toggleStack(thread.id)"
                   >
-                    {{ isExpanded(thread.id) ? 'Hide' : 'Stack' }} ({{ thread.stackTrace.length }})
+                    <i :class="['bi', isExpanded(thread.id) ? 'bi-chevron-up' : 'bi-code-slash', 'me-1']"></i>
+                    {{ isExpanded(thread.id) ? 'Hide stack' : 'View stack' }}
+                    <span class="badge rounded-pill text-bg-light ms-1">{{ thread.stackTrace.length }}</span>
                   </button>
                 </td>
               </tr>
@@ -271,5 +286,13 @@ watch([filter, state], scheduleReload)
   font-size: 0.78rem;
   max-height: 18rem;
   overflow: auto;
+}
+
+.threads-stack-toggle {
+  white-space: nowrap;
+}
+
+.threads-stack-toggle .badge {
+  font-size: 0.68rem;
 }
 </style>
