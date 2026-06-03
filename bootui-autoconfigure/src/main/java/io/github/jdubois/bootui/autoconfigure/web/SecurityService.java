@@ -2,6 +2,12 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.dto.SecurityAuthDto;
+import io.github.jdubois.bootui.core.dto.SecurityEndpointDto;
+import io.github.jdubois.bootui.core.dto.SecurityEndpointsReport;
+import io.github.jdubois.bootui.core.dto.SecurityExplainDto;
+import io.github.jdubois.bootui.core.dto.SecurityFilterChainDto;
+import io.github.jdubois.bootui.core.dto.SecurityReport;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.BufferedReader;
@@ -12,8 +18,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -27,19 +31,9 @@ import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
-import io.github.jdubois.bootui.core.dto.SecurityAuthDto;
-import io.github.jdubois.bootui.core.dto.SecurityEndpointDto;
-import io.github.jdubois.bootui.core.dto.SecurityEndpointsReport;
-import io.github.jdubois.bootui.core.dto.SecurityExplainDto;
-import io.github.jdubois.bootui.core.dto.SecurityFilterChainDto;
-import io.github.jdubois.bootui.core.dto.SecurityReport;
 
 /**
  * Exposes Spring Security filter chain configuration for the BootUI developer console.
@@ -74,6 +68,7 @@ class SecurityService {
                 properties,
                 BootUiSelfDataFilter.defaults());
     }
+
     SecurityService(
             ObjectProvider<FilterChainProxy> filterChainProxyProvider,
             ObjectProvider<AuthenticationProvider> authenticationProviderProvider,
@@ -90,6 +85,7 @@ class SecurityService {
         this.properties = properties;
         this.selfDataFilter = selfDataFilter;
     }
+
     public SecurityReport security() {
         FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
         if (proxy == null) {
@@ -115,8 +111,7 @@ class SecurityService {
      * Header- or session-based matchers may not match correctly; {@code bestEffort} is
      * {@code true} when the stub detected that such matchers were consulted.</p>
      */
-    public SecurityExplainDto explain(
-            String method, String path) {
+    public SecurityExplainDto explain(String method, String path) {
         FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
         if (proxy == null) {
             return new SecurityExplainDto(false, false, null, null, List.of());

@@ -2,6 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.dto.CacheClearRequest;
+import io.github.jdubois.bootui.core.dto.CacheClearResult;
+import io.github.jdubois.bootui.core.dto.CacheReport;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -15,9 +18,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import io.github.jdubois.bootui.core.dto.CacheClearRequest;
-import io.github.jdubois.bootui.core.dto.CacheClearResult;
-import io.github.jdubois.bootui.core.dto.CacheReport;
 
 /**
  * Controller exposing Cache Manager introspection and cache eviction capabilities.
@@ -37,12 +37,7 @@ public class CacheController {
             ObjectProvider<CacheOperationSource> cacheOperationSources,
             ObjectProvider<MeterRegistry> meterRegistries,
             BootUiProperties properties) {
-        this(
-                beanFactoryProvider,
-                cacheOperationSources,
-                meterRegistries,
-                properties,
-                BootUiSelfDataFilter.defaults());
+        this(beanFactoryProvider, cacheOperationSources, meterRegistries, properties, BootUiSelfDataFilter.defaults());
     }
 
     @Autowired
@@ -52,7 +47,8 @@ public class CacheController {
             ObjectProvider<MeterRegistry> meterRegistries,
             BootUiProperties properties,
             BootUiSelfDataFilter selfDataFilter) {
-        this.service = new CacheService(beanFactoryProvider, cacheOperationSources, meterRegistries, properties, selfDataFilter);
+        this.service = new CacheService(
+                beanFactoryProvider, cacheOperationSources, meterRegistries, properties, selfDataFilter);
     }
 
     @GetMapping

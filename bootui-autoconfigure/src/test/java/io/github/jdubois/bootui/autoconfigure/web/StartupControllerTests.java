@@ -18,7 +18,6 @@ import org.springframework.boot.context.metrics.buffering.StartupTimeline.Timeli
 import org.springframework.core.metrics.StartupStep;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-import io.github.jdubois.bootui.core.dto.StartupStepDto;
 
 /**
  * Controller-level tests for {@link StartupController}.

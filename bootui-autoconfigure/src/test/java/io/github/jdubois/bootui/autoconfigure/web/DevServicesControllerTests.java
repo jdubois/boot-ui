@@ -295,8 +295,7 @@ class DevServicesControllerTests {
 
     @Test
     void dockerComposeDuplicateNamesReceiveUniqueIds() throws Exception {
-        DevServicesService service =
-                new DevServicesService(new GenericApplicationContext(), new BootUiProperties());
+        DevServicesService service = new DevServicesService(new GenericApplicationContext(), new BootUiProperties());
         Method method =
                 DevServicesService.class.getDeclaredMethod("dockerComposeDto", Object.class, Map.class, List.class);
         method.setAccessible(true);

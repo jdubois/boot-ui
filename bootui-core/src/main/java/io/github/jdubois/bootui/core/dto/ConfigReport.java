@@ -19,10 +19,7 @@ public record ConfigReport(
                 sources,
                 properties,
                 propertySuggestions,
-                new PageMetadata(
-                        properties.size(), properties.size(), 0, properties.size(), properties.size(), false),
-                (int) properties.stream()
-                        .filter(ConfigPropertyDto::override)
-                        .count());
+                new PageMetadata(properties.size(), properties.size(), 0, properties.size(), properties.size(), false),
+                (int) properties.stream().filter(ConfigPropertyDto::override).count());
     }
 }

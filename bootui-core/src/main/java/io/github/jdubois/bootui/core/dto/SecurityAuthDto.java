@@ -6,6 +6,4 @@ import java.util.List;
  * Authentication and user-details summary.
  */
 public record SecurityAuthDto(
-        List<String> authenticationProviderTypes,
-        List<String> userDetailsServiceTypes,
-        String configuredUsername) {}
+        List<String> authenticationProviderTypes, List<String> userDetailsServiceTypes, String configuredUsername) {}

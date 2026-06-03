@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
-import io.github.jdubois.bootui.core.dto.ConfigOverrideResult;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.dto.ConfigOverrideResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;

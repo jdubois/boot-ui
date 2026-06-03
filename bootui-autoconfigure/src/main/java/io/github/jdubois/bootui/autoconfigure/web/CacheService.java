@@ -2,6 +2,13 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.dto.CacheClearRequest;
+import io.github.jdubois.bootui.core.dto.CacheClearResult;
+import io.github.jdubois.bootui.core.dto.CacheDto;
+import io.github.jdubois.bootui.core.dto.CacheManagerDto;
+import io.github.jdubois.bootui.core.dto.CacheMetricsDto;
+import io.github.jdubois.bootui.core.dto.CacheOperationDto;
+import io.github.jdubois.bootui.core.dto.CacheReport;
 import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -15,7 +22,6 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.interceptor.*;
@@ -24,13 +30,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.*;
-import io.github.jdubois.bootui.core.dto.CacheClearRequest;
-import io.github.jdubois.bootui.core.dto.CacheClearResult;
-import io.github.jdubois.bootui.core.dto.CacheDto;
-import io.github.jdubois.bootui.core.dto.CacheManagerDto;
-import io.github.jdubois.bootui.core.dto.CacheMetricsDto;
-import io.github.jdubois.bootui.core.dto.CacheOperationDto;
-import io.github.jdubois.bootui.core.dto.CacheReport;
 
 class CacheService {
 
@@ -57,6 +56,7 @@ class CacheService {
             BootUiProperties properties) {
         this(beanFactoryProvider, cacheOperationSources, meterRegistries, properties, BootUiSelfDataFilter.defaults());
     }
+
     CacheService(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<CacheOperationSource> cacheOperationSources,
@@ -69,6 +69,7 @@ class CacheService {
         this.properties = properties;
         this.selfDataFilter = selfDataFilter;
     }
+
     public CacheReport cache() {
         ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
         OperationDiscovery operationDiscovery =
@@ -102,6 +103,7 @@ class CacheService {
                 operationDiscovery.operations(),
                 operationDiscovery.warnings());
     }
+
     public ResponseEntity<CacheClearResult> clear(CacheClearRequest request) {
         if (!clearEnabled()) {
             return result(

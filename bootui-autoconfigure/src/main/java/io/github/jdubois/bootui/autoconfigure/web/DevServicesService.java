@@ -3,6 +3,11 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.dto.DevServiceDto;
+import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
+import io.github.jdubois.bootui.core.dto.DevServicePortDto;
+import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
+import io.github.jdubois.bootui.core.dto.DevServicesReport;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -21,17 +26,11 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.container.ContainerImageMetadata;
 import org.springframework.boot.autoconfigure.service.connection.ConnectionDetails;
 import org.springframework.context.ApplicationEvent;
-import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-import io.github.jdubois.bootui.core.dto.DevServiceDto;
-import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
-import io.github.jdubois.bootui.core.dto.DevServicePortDto;
-import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
-import io.github.jdubois.bootui.core.dto.DevServicesReport;
 
 class DevServicesService {
 
@@ -68,6 +67,7 @@ class DevServicesService {
         this.applicationContext = applicationContext;
         this.properties = properties;
     }
+
     public void onApplicationEvent(ApplicationEvent event) {
         if (!DOCKER_COMPOSE_EVENT.equals(event.getClass().getName())) {
             return;
@@ -82,6 +82,7 @@ class DevServicesService {
         }
         this.dockerComposeSnapshot.set(new ComposeSnapshot(snapshot, warnings, System.currentTimeMillis()));
     }
+
     public DevServicesReport list() {
         ComposeSnapshot composeSnapshot = this.dockerComposeSnapshot.get();
         Map<String, DevServiceDto> services = new LinkedHashMap<>();
@@ -102,6 +103,7 @@ class DevServicesService {
                 sorted,
                 List.copyOf(warnings));
     }
+
     public DevServiceLogReport logs(String id) {
         Object bean = findBeanBackedService(id);
         if (bean == null) {
@@ -120,6 +122,7 @@ class DevServicesService {
         }
         return new DevServiceLogReport(id, text, truncated, maxBytes);
     }
+
     public DevServiceRestartResult restart(String id) {
         Object bean = findBeanBackedService(id);
         if (bean == null) {

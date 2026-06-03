@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
+import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
+import io.github.jdubois.bootui.core.dto.DevServicesReport;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -10,9 +12,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
-import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
-import io.github.jdubois.bootui.core.dto.DevServicesReport;
 
 /**
  * Controller exposing Docker Compose and Testcontainers dev services in the BootUI sidebar.

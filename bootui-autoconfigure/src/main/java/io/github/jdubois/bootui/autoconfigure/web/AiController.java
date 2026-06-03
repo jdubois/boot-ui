@@ -3,10 +3,6 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
-import java.util.*;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import io.github.jdubois.bootui.core.dto.AiChatDetailDto;
 import io.github.jdubois.bootui.core.dto.AiChatSummaryDto;
 import io.github.jdubois.bootui.core.dto.AiOverviewDto;
@@ -14,6 +10,10 @@ import io.github.jdubois.bootui.core.dto.AiTokenBucketDto;
 import io.github.jdubois.bootui.core.dto.AiTokenSeriesDto;
 import io.github.jdubois.bootui.core.dto.AiToolCallDto;
 import io.github.jdubois.bootui.core.dto.AiVectorOpDto;
+import java.util.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Read-only API for the BootUI AI Usage panel.

@@ -2,6 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.dto.SecurityEndpointsReport;
+import io.github.jdubois.bootui.core.dto.SecurityExplainDto;
+import io.github.jdubois.bootui.core.dto.SecurityReport;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -14,9 +17,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
-import io.github.jdubois.bootui.core.dto.SecurityEndpointsReport;
-import io.github.jdubois.bootui.core.dto.SecurityExplainDto;
-import io.github.jdubois.bootui.core.dto.SecurityReport;
 
 /**
  * Exposes Spring Security filter chain configuration for the BootUI developer console.
