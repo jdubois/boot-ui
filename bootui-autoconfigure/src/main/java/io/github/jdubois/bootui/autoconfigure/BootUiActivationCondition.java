@@ -32,8 +32,8 @@ public class BootUiActivationCondition implements Condition {
         Collection<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());
 
         List<String> disabledProfiles =
-                listProperty(environment, "bootui.disabled-profiles", List.of("prod", "production"));
-        List<String> enabledProfiles = listProperty(environment, "bootui.enabled-profiles", List.of("dev", "local"));
+                listProperty(environment, "bootui.disabled-profiles", BootUiDefaults.DISABLED_PROFILES);
+        List<String> enabledProfiles = listProperty(environment, "bootui.enabled-profiles", BootUiDefaults.ENABLED_PROFILES);
 
         if (!List.of("AUTO", "ON", "OFF").contains(mode)) {
             return new BootUiActivation(false, "Disabled: invalid bootui.enabled value '" + mode + "'", warnings);

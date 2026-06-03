@@ -51,11 +51,11 @@ public class BootUiProperties {
     /**
      * Profiles that trigger auto-activation.
      */
-    private String[] enabledProfiles = {"dev", "local"};
+    private String[] enabledProfiles = BootUiDefaults.ENABLED_PROFILES.toArray(new String[0]);
     /**
      * Profiles that force BootUI off, even when enabled by other rules.
      */
-    private String[] disabledProfiles = {"prod", "production"};
+    private String[] disabledProfiles = BootUiDefaults.DISABLED_PROFILES.toArray(new String[0]);
     /**
      * Where local runtime overrides are persisted.
      */
