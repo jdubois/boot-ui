@@ -5,6 +5,42 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-03
+
+Fourth BootUI release, focused on new local runtime/security diagnostics, native-image readiness tooling, and the
+current grouped sidebar surface.
+
+### Added
+
+- GraalVM native-image readiness panel with on-demand host-application checks for reflection, dynamic proxies, resources,
+  serialization, native access, dependency reachability metadata, and a reviewable `reachability-metadata.json` scaffold.
+- Threads panel backed by in-process `ThreadMXBean` snapshots, with state counts, deadlock detection, virtual-thread
+  context, server-side filtering/paging, stack expansion, and confirmation-gated raw dump download.
+- HTTP Exchanges panel for recent inbound application requests, including bounded recording, server-side filtering,
+  masked headers/query data, trace identifiers, and drawer-style request/response details.
+- Security Logs panel and Security navigation group for recent Spring Boot audit events, bounded retention, masking,
+  filters, and visibility-aware auto-refresh.
+- Weekly GraalVM native-image build workflow and native-image sample-app Docker assets/readiness documentation.
+
+### Changed
+
+- Renamed the Cache surface to Spring Cache across the route metadata, docs, and release-facing screenshots.
+- Updated HTTP Exchanges and Security Logs to use standard visibility-aware auto-refresh instead of manual refresh
+  buttons.
+- Updated the next-feature roadmap so already-shipped panels moved out of the plan and the next workstream is focused on
+  migrations, trace/log/request correlation, and bean graph visualization.
+- Bumped build and dependency plumbing, including Spring AI 2.0.0-M8, the GraalVM native build tools plugin, Sonatype
+  Central publishing plugin, Maven plugins, `actions/checkout`, and the frontend/API error-handling utilities.
+
+### Fixed
+
+- Added Spring AOT runtime hints and sample native-image wiring so BootUI resources, DTOs, heap-dump/security reflective
+  calls, and Maven metadata survive native-image builds.
+- Updated feature documentation, sample-app walkthroughs, security policy, Playwright docs, and screenshots for the
+  current sidebar grouping and full 0.4.0 panel surface.
+- Completed Java/frontend audit follow-ups around nullability, shared helpers, frontend API normalization, and duplicate
+  utility removal.
+
 ## [0.3.0] - 2026-06-02
 
 Third BootUI release, focused on the new JVM Tuning Advisor, Java 17 baseline, stronger AI telemetry guidance, and
@@ -218,7 +254,9 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.4.0...HEAD
+
+[0.4.0]: https://github.com/jdubois/boot-ui/compare/v0.3.0...v0.4.0
 
 [0.3.0]: https://github.com/jdubois/boot-ui/compare/v0.2.0...v0.3.0
 

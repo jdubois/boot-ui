@@ -97,6 +97,8 @@ metadata-only exposure. The raw text thread dump is offered as a confirmation-ga
 the panel is read-only. The panel stays loopback-only and fails closed, showing an explained unavailable state instead
 of disappearing when thread information cannot be read.
 
+![BootUI Threads panel](images/bootui-threads.png)
+
 ### Startup Timeline
 
 The Startup Timeline panel visualizes Spring Boot startup steps from Actuator startup data. It helps identify expensive
@@ -119,6 +121,8 @@ default), it also surveys the classpath to report which third-party libraries al
 standard configuration resource globs. The checks and generated metadata are heuristic review aids that complement, but
 do not replace, the GraalVM tracing agent and an actual native build. See
 [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one inspects.
+
+![BootUI GraalVM panel](images/bootui-graalvm.png)
 
 ## Configuration
 
@@ -192,6 +196,8 @@ host app. It supports filtering by principal, event type, and time window, summa
 the shared visibility-aware auto-refresh controls, and masks sensitive event data before rendering. Responses are bounded
 by `bootui.security-logs.max-logs`, which defaults to `500`; when no `AuditEventRepository` bean exists, the panel fails
 closed with a clear unavailable state.
+
+![BootUI Security Logs panel](images/bootui-security-logs.png)
 
 ### Pentesting
 
@@ -309,6 +315,8 @@ BootUI contributes an in-memory `HttpExchangeRepository` when the panel is enabl
 exists. The default buffer retains 200 exchanges and can be changed with `bootui.http-exchanges.max-exchanges`; changing
 that capacity requires an application restart. If the repository is unavailable, the panel shows a clear unavailable
 state instead of implying that no traffic has occurred.
+
+![BootUI HTTP Exchanges panel](images/bootui-http-exchanges.png)
 
 ### HTTP Probe
 

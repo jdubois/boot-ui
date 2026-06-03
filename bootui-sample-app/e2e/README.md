@@ -18,6 +18,8 @@ flow) exposed by the sample app:
 | `metrics.spec.js`         | Micrometer meter browser, live graph, measurements, and type filtering                                                |
 | `memory.spec.js`          | Heap / non-heap cards and memory pools render without tuning controls                                                 |
 | `tuning-advisor.spec.js`  | JVM options, Kubernetes calculator, copy feedback, and calculator updates                                             |
+| `heap-dump.spec.js`       | Heap dump capture/analyze/delete controls, class histogram, and raw-download gating                                   |
+| `threads.spec.js`         | Thread state summaries, filtering, stack expansion, and raw-dump controls                                             |
 | `startup.spec.js`         | Startup timeline displays step rows                                                                                   |
 | `config.spec.js`          | Property search, add an override (`sample.greeting`), confirm + delete it                                             |
 | `profile-diff.spec.js`    | Profile sources & properties render with filtering                                                                    |
@@ -27,12 +29,13 @@ flow) exposed by the sample app:
 | `mappings.spec.js`        | HTTP mappings include the sample app routes, filter narrows the list                                                  |
 | `scheduled.spec.js`       | Scheduled tasks view lists the sample echo scheduler                                                                  |
 | `data.spec.js`            | `ProductRepository` is listed, detail panel shows `searchByName`                                                      |
-| `cache.spec.js`           | Cache managers, cache details, annotations, metrics, and guarded clear actions                                        |
+| `spring-cache.spec.js`    | Cache managers, cache details, annotations, metrics, and guarded clear actions                                        |
 | `spring-security.spec.js` | Filter chains list `/api/secure`, explain endpoint returns a match                                                    |
 | `security-logs.spec.js`   | Security Logs list recent audit events with filters, auto-refresh, and masked sensitive event data                    |
 | `ai.spec.js`              | AI Usage summaries, token charts, content-capture guidance, and disabled states                                       |
 | `traces.spec.js`          | Local trace list, waterfall details, OTLP ingest behavior, and clear action                                           |
 | `log-tail.spec.js`        | Log Tail connects, streams new events, pause / resume / clear controls work                                           |
+| `http-exchanges.spec.js`  | Recent inbound requests, masked header details, paging, and security failures                                         |
 | `http-probe.spec.js`      | Probe `/api/hello` and assert the response body is shown                                                              |
 | `pentesting.spec.js`      | OWASP hygiene report rendering, check details, and explicit scan controls                                             |
 | `dependencies.spec.js`    | Vulnerability inventory, severity ordering, OSV scan states, and read-only behavior                                   |
