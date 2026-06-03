@@ -176,7 +176,7 @@ Design constraints:
 - Built entirely from existing Beans/Conditions DTOs; no new endpoint capture beyond what those panels already provide.
 - Bound the rendered graph (focus + neighborhood, not the full context at once) to keep the frontend bundle and runtime
   performance within the project's large-app budget.
-- Avoid heavy graph libraries where a lightweight approach is sufficient, in line with the bundle-size risk in §6.
+- Avoid heavy graph libraries where a lightweight approach is sufficient, in line with the bundle-size risk in §5.
 
 ## 4. Cross-cutting work for every new panel
 
@@ -192,18 +192,7 @@ For each feature above, the following must move together, consistent with the ex
 - Documentation updates in `README.md`, `docs/FEATURES.md`, `docs/SPECIFICATION.md`, and screenshots at the project's
   standard size.
 
-## 5. Explicitly out of scope
-
-These were considered and deliberately deferred or rejected because they conflict with BootUI's safety stance or its
-embedded single-app focus:
-
-- In-browser file editing or a workspace (Quarkus Dev UI) and an arbitrary SQL query console (Telescope): both violate the
-  read-mostly, no-SQL-execution, fail-closed model.
-- A continuous test runner (Quarkus): large, and better served by the IDE/CI than a runtime console.
-- Destructive migration, audit-store, or thread operations: not part of this iteration; only ever added later behind
-  explicit confirmation and disabled-by-default gating.
-
-## 6. Risks
+## 5. Risks
 
 | Risk                                                     | Impact | Mitigation                                                                                                                                 |
 | -------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -214,7 +203,7 @@ embedded single-app focus:
 | Duplicating Spring Boot Admin                            | Medium | Stay focused on the embedded local single-app developer experience; keep new panels read-mostly and dev-only.                              |
 | Scope creep beyond these six features                    | High   | Treat this list as the maximum near-term surface; move further ideas (messaging/queues, migrations actions, mail preview) to a later plan. |
 
-## 7. Validation checklist
+## 6. Validation checklist
 
 Run after each feature lands and before any release that includes it:
 
