@@ -21,10 +21,6 @@ import io.github.jdubois.bootui.core.dto.DevServicesReport;
  * launched by Spring Boot during startup.</p>
  */
 @RestController
-@ConditionalOnClass(name = {
-    "org.springframework.boot.docker.compose.core.DockerCompose",
-    "org.springframework.boot.testcontainers.lifecycle.TestcontainersLifecycleApplicationContextInitializer"
-})
 @RequestMapping("/bootui/api/dev-services")
 public class DevServicesController implements ApplicationListener<ApplicationEvent> {
 

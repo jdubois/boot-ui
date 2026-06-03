@@ -295,19 +295,19 @@ class DevServicesControllerTests {
 
     @Test
     void dockerComposeDuplicateNamesReceiveUniqueIds() throws Exception {
-        DevServicesController controller =
-                new DevServicesController(new GenericApplicationContext(), new BootUiProperties());
+        DevServicesService service =
+                new DevServicesService(new GenericApplicationContext(), new BootUiProperties());
         Method method =
-                DevServicesController.class.getDeclaredMethod("dockerComposeDto", Object.class, Map.class, List.class);
+                DevServicesService.class.getDeclaredMethod("dockerComposeDto", Object.class, Map.class, List.class);
         method.setAccessible(true);
         Map<String, Integer> ids = new HashMap<>();
         List<String> warnings = new ArrayList<>();
 
         DevServiceDto first = (DevServiceDto)
-                method.invoke(controller, new FakeComposeService("postgres", "postgres:16"), ids, warnings);
+                method.invoke(service, new FakeComposeService("postgres", "postgres:16"), ids, warnings);
         DevServiceDto second = (DevServiceDto)
-                method.invoke(controller, new FakeComposeService("postgres", "postgres:17"), ids, warnings);
-        DevServiceDto blank = (DevServiceDto) method.invoke(controller, new FakeComposeService("", ""), ids, warnings);
+                method.invoke(service, new FakeComposeService("postgres", "postgres:17"), ids, warnings);
+        DevServiceDto blank = (DevServiceDto) method.invoke(service, new FakeComposeService("", ""), ids, warnings);
 
         assertThat(first.id()).isEqualTo("compose:postgres");
         assertThat(second.id()).isEqualTo("compose:postgres-2");
