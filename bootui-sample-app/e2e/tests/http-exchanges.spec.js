@@ -11,6 +11,12 @@ test.describe('HTTP Exchanges view', () => {
     await expect(page.locator('table')).toContainText('/api/sample/hello', {timeout: 15_000})
     await expect(page.locator('table')).toContainText('GET')
     await expect(page.locator('table')).toContainText('200')
+
+    const sampleRow = page.locator('tbody tr', {hasText: '/api/sample/hello'}).first()
+    const detailsButton = sampleRow.locator('.http-exchanges-detail-toggle')
+    await expect(detailsButton).toBeVisible()
+    await detailsButton.click()
+    await expect(page.locator('.http-exchanges-detail').first()).toContainText('Request headers')
   })
 
   test('shows security failures recorded before Spring Security short-circuits', async ({openView, page}) => {

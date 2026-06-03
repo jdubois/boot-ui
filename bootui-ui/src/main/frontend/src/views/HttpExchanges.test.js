@@ -61,11 +61,23 @@ describe('HTTP Exchanges', () => {
     expect(wrapper.text()).toContain('37 ms')
     expect(wrapper.text()).toContain('42 B')
     expect(wrapper.text()).toContain('4bf92f3577b34da6a3ce929d0e0e4736')
-    expect(wrapper.text()).toContain('Authorization')
-    expect(wrapper.text()).toContain('******')
+    expect(wrapper.text()).not.toContain('Authorization')
     expect(wrapper.text()).not.toContain('BootUI self-request')
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
     expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+
+    const detailsButton = wrapper.find('.http-exchanges-detail-toggle')
+    expect(detailsButton.text()).toContain('View details')
+    expect(detailsButton.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('.http-exchanges-detail').exists()).toBe(false)
+
+    await detailsButton.trigger('click')
+
+    expect(wrapper.find('.http-exchanges-detail-toggle').text()).toContain('Hide details')
+    expect(wrapper.find('.http-exchanges-detail-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('.http-exchanges-detail').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Authorization')
+    expect(wrapper.text()).toContain('******')
   })
 
   it('sends method and status filters to the server', async () => {

@@ -10,6 +10,7 @@ import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 const filter = ref('')
 const method = ref('')
 const statusClass = ref('')
+const expanded = ref(new Set())
 
 const {
   data,
@@ -109,6 +110,24 @@ function hasMetadata(exchange) {
   return Boolean(exchange.traceId || exchange.remoteAddress || exchange.principal || exchange.sessionId)
 }
 
+function detailCount(exchange) {
+  return (exchange.requestHeaders?.length || 0) + (exchange.responseHeaders?.length || 0)
+}
+
+function toggleDetails(id) {
+  const next = new Set(expanded.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  expanded.value = next
+}
+
+function isExpanded(id) {
+  return expanded.value.has(id)
+}
+
 watch([filter, method, statusClass], scheduleReload)
 </script>
 
@@ -177,27 +196,40 @@ watch([filter, method, statusClass], scheduleReload)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="exchange in exchanges" :key="exchange.id">
-            <td class="text-nowrap small">{{ formatTimestamp(exchange.timestamp) }}</td>
-            <td>
-              <span :class="methodBadgeClass(exchange.method)" class="badge">{{ exchange.method || 'ANY' }}</span>
-            </td>
-            <td>
-              <code class="http-exchanges-path">{{ displayPath(exchange) }}</code>
-            </td>
-            <td>
-              <span :class="statusBadgeClass(exchange)" class="badge">{{ exchange.status }}</span>
-            </td>
-            <td class="text-nowrap">{{ formatDurationMs(exchange.durationMs) }}</td>
-            <td class="text-nowrap">{{ formatBytes(exchange.responseSizeBytes) }}</td>
-            <td>
-              <code v-if="exchange.traceId" class="small">{{ exchange.traceId }}</code>
-              <span v-else class="text-muted">—</span>
-            </td>
-            <td>
-              <details>
-                <summary class="btn btn-sm btn-outline-secondary">View</summary>
-                <div class="http-exchanges-detail mt-2">
+          <template v-for="exchange in exchanges" :key="exchange.id">
+            <tr>
+              <td class="text-nowrap small">{{ formatTimestamp(exchange.timestamp) }}</td>
+              <td>
+                <span :class="methodBadgeClass(exchange.method)" class="badge">{{ exchange.method || 'ANY' }}</span>
+              </td>
+              <td>
+                <code class="http-exchanges-path">{{ displayPath(exchange) }}</code>
+              </td>
+              <td>
+                <span :class="statusBadgeClass(exchange)" class="badge">{{ exchange.status }}</span>
+              </td>
+              <td class="text-nowrap">{{ formatDurationMs(exchange.durationMs) }}</td>
+              <td class="text-nowrap">{{ formatBytes(exchange.responseSizeBytes) }}</td>
+              <td>
+                <code v-if="exchange.traceId" class="small">{{ exchange.traceId }}</code>
+                <span v-else class="text-muted">—</span>
+              </td>
+              <td class="text-end">
+                <button
+                  :aria-expanded="isExpanded(exchange.id)"
+                  class="btn btn-outline-secondary btn-sm rounded-pill http-exchanges-detail-toggle"
+                  type="button"
+                  @click="toggleDetails(exchange.id)"
+                >
+                  <i :class="['bi', isExpanded(exchange.id) ? 'bi-chevron-up' : 'bi-card-text', 'me-1']"></i>
+                  {{ isExpanded(exchange.id) ? 'Hide details' : 'View details' }}
+                  <span class="badge rounded-pill text-bg-light ms-1">{{ detailCount(exchange) }}</span>
+                </button>
+              </td>
+            </tr>
+            <tr v-if="isExpanded(exchange.id)" :key="`${exchange.id}-details`" class="http-exchanges-detail-row">
+              <td colspan="8">
+                <div class="http-exchanges-detail">
                   <div v-if="hasMetadata(exchange)" class="mb-3">
                     <h3 class="h6">Metadata</h3>
                     <dl class="row small mb-0">
@@ -251,9 +283,9 @@ watch([filter, method, statusClass], scheduleReload)
                     </div>
                   </div>
                 </div>
-              </details>
-            </td>
-          </tr>
+              </td>
+            </tr>
+          </template>
           <tr v-if="!loading && !exchanges.length">
             <td class="text-center text-muted py-4" colspan="8">
               No HTTP exchanges match your filters. Send a request to the application and refresh this panel.
@@ -285,12 +317,24 @@ watch([filter, method, statusClass], scheduleReload)
   word-break: break-all;
 }
 
+.http-exchanges-detail-toggle {
+  white-space: nowrap;
+}
+
+.http-exchanges-detail-toggle .badge {
+  font-size: 0.68rem;
+}
+
+.http-exchanges-detail-row > td {
+  padding-top: 0;
+}
+
 .http-exchanges-detail {
   background: var(--bs-tertiary-bg);
   border: 1px solid var(--bs-border-color);
   border-radius: 0.5rem;
   padding: 1rem;
-  min-width: 36rem;
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.04);
 }
 
 .headers-list {
