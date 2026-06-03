@@ -79,6 +79,10 @@ public class PanelsController {
                 availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
             case BootUiPanels.GRAALVM -> availability(graalvmAvailable(), graalvmUnavailableReason());
+            case BootUiPanels.THREADS ->
+                availability(
+                        java.lang.management.ManagementFactory.getThreadMXBean() != null,
+                        "ThreadMXBean is not available on this JVM");
             case BootUiPanels.HEALTH ->
                 availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");
             case BootUiPanels.METRICS ->

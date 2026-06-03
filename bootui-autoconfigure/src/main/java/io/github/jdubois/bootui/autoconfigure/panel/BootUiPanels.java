@@ -18,7 +18,10 @@ public final class BootUiPanels {
     public static final String METRICS = "metrics";
     public static final String MEMORY = "memory";
     public static final String TUNING_ADVISOR = "tuning-advisor";
+    public static final String HEAP_DUMP = "heap-dump";
+    public static final String THREADS = "threads";
     public static final String STARTUP = "startup";
+    public static final String GRAALVM = "graalvm";
     public static final String SCHEDULED = "scheduled";
     public static final String CONFIG = "config";
     public static final String PROFILES = "profiles";
@@ -36,15 +39,13 @@ public final class BootUiPanels {
     public static final String LOG_TAIL = "log-tail";
     public static final String HTTP_EXCHANGES = "http-exchanges";
     public static final String HTTP_PROBE = "http-probe";
+    public static final String ARCHITECTURE = "architecture";
     public static final String PENTEST = "pentest";
     public static final String VULNERABILITIES = "vulnerabilities";
-    public static final String HEAP_DUMP = "heap-dump";
-    public static final String ARCHITECTURE = "architecture";
     public static final String DEVTOOLS = "devtools";
     public static final String DEV_SERVICES = "dev-services";
     public static final String COPILOT = "copilot";
     public static final String CLAUDE_CODE = "claude-code";
-    public static final String GRAALVM = "graalvm";
 
     private static final List<Panel> PANELS = List.of(
             new Panel(OVERVIEW, "Overview", false, "/overview"),
@@ -53,6 +54,7 @@ public final class BootUiPanels {
             new Panel(MEMORY, "Memory", false, "/memory"),
             new Panel(TUNING_ADVISOR, "Tuning Advisor", false, "/tuning-advisor"),
             new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
+            new Panel(THREADS, "Threads", true, "/threads"),
             new Panel(STARTUP, "Startup Timeline", false, "/startup"),
             new Panel(GRAALVM, "GraalVM", true, "/graalvm"),
             new Panel(CONFIG, "Configuration", true, "/config"),
