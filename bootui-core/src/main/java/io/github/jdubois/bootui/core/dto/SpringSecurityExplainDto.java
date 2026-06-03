@@ -9,5 +9,5 @@ import java.util.List;
  * with limited request state and may be inaccurate for header- or
  * session-based matchers.</p>
  */
-public record SecurityExplainDto(
+public record SpringSecurityExplainDto(
         boolean matched, boolean bestEffort, Integer chainIndex, String matcherDescription, List<String> filters) {}

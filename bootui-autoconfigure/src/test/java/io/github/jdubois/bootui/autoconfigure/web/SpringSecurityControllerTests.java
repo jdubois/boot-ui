@@ -25,7 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
 /**
- * Standalone MockMvc tests for {@link SecurityController}.
+ * Standalone MockMvc tests for {@link SpringSecurityController}.
  *
  * <p>Exercises:</p>
  * <ul>
@@ -36,7 +36,7 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMappi
  *   <li>No raw credentials appear in the response when {@code UserDetailsService} beans are present.</li>
  * </ul>
  */
-class SecurityControllerTests {
+class SpringSecurityControllerTests {
 
     // ── chain listing ─────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ class SecurityControllerTests {
         ObjectProvider<RequestMappingInfoHandlerMapping> mappingProvider = mock(ObjectProvider.class);
         when(mappingProvider.stream()).thenReturn(Stream.empty());
 
-        SecurityController controller = new SecurityController(
+        SpringSecurityController controller = new SpringSecurityController(
                 proxyProvider, authProviderProvider, udsProvider, mappingProvider, env, properties);
 
         return standaloneSetup(controller).build();
@@ -79,7 +79,7 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.springSecurityPresent").value(true))
                 .andExpect(jsonPath("$.chains.length()").value(2))
@@ -99,7 +99,7 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.chains[0].filters[0]").value("NamedFilter"));
     }
@@ -115,7 +115,7 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.chains.length()").value(1))
                 .andExpect(jsonPath("$.chains[0].order").value(1))
@@ -126,7 +126,7 @@ class SecurityControllerTests {
     void absentFilterChainProxyReturnsDisabledReport() throws Exception {
         MockMvc mvc = buildMvc(null, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.springSecurityPresent").value(false))
                 .andExpect(jsonPath("$.chains").isEmpty());
@@ -138,7 +138,9 @@ class SecurityControllerTests {
     void explainEndpointWithAbsentProxyReturnsUnmatchedResult() throws Exception {
         MockMvc mvc = buildMvc(null, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security/explain").param("method", "GET").param("path", "/some/path"))
+        mvc.perform(get("/bootui/api/spring-security/explain")
+                        .param("method", "GET")
+                        .param("path", "/some/path"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.matched").value(false));
     }
@@ -154,7 +156,7 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, null, null, env, new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 // username is exposed for developer convenience
                 .andExpect(jsonPath("$.auth.configuredUsername").value("admin"))
@@ -177,7 +179,7 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, null, null, env, properties);
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.auth.configuredUsername").isEmpty());
     }
@@ -190,7 +192,7 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, provider, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(
                         jsonPath("$.auth.authenticationProviderTypes.length()").value(1));
@@ -205,7 +207,7 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security"))
+        mvc.perform(get("/bootui/api/spring-security"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.auth.authenticationProviderTypes").isEmpty())
                 .andExpect(jsonPath("$.auth.userDetailsServiceTypes").isEmpty());
@@ -221,7 +223,9 @@ class SecurityControllerTests {
 
         MockMvc mvc = buildMvc(proxy, null, null, new MockEnvironment(), new BootUiProperties());
 
-        mvc.perform(get("/bootui/api/security/explain").param("method", "GET").param("path", "/api/test"))
+        mvc.perform(get("/bootui/api/spring-security/explain")
+                        .param("method", "GET")
+                        .param("path", "/api/test"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.matched").value(true))
                 .andExpect(jsonPath("$.chainIndex").value(0));

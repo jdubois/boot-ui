@@ -20,12 +20,13 @@ const allPanelLinks = [
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
   {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
-  {id: 'security', title: 'Security', heading: /Spring Security/},
+  {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
   {id: 'traces', title: 'Traces', heading: /^Traces/},
   {id: 'log-tail', title: 'Log Tail', heading: /Log Tail/},
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
+  {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
   {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
@@ -108,8 +109,19 @@ test.describe('BootUI app shell', () => {
       'Database Connection Pools',
       'Spring Data',
       'Spring Cache',
-      'Security',
+      'Spring Security',
       'AI Usage'
+    ])
+
+    await page.getByRole('button', {name: /Diagnostics\s+7/}).click()
+    await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Traces',
+      'Log Tail',
+      'HTTP Probe',
+      'Security Logs',
+      'Architecture',
+      'Pentesting',
+      'Vulnerabilities'
     ])
   })
 

@@ -1,9 +1,9 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 
-test.describe('Security view', () => {
+test.describe('Spring Security view', () => {
   test('lists filter chains including the ADMIN-only chain', async ({openView, page}) => {
-    await openView('security', 'Spring Security')
+    await openView('spring-security', 'Spring Security')
 
     const chains = page.locator('.accordion-item')
     await expect.poll(async () => chains.count()).toBeGreaterThan(0)
@@ -17,7 +17,7 @@ test.describe('Security view', () => {
   })
 
   test('explain endpoint matches GET /api/secure against the ADMIN-only chain', async ({openView, page}) => {
-    await openView('security', 'Spring Security')
+    await openView('spring-security', 'Spring Security')
 
     await page.locator('select.form-select').selectOption('GET')
     await page.getByPlaceholder('/api/example').fill('/api/secure')

@@ -84,7 +84,8 @@ import org.springframework.core.env.Environment;
     LogTailController.class,
     HttpExchangesController.class,
     ProfileController.class,
-    SecurityController.class,
+    SpringSecurityController.class,
+    SecurityLogsController.class,
     MemoryController.class,
     MetricsController.class,
     DevToolsController.class,
@@ -130,7 +131,8 @@ public class BootUiAutoConfiguration {
             PentestController.class.getName(),
             ProfileController.class.getName(),
             ScheduledController.class.getName(),
-            SecurityController.class.getName(),
+            SecurityLogsController.class.getName(),
+            SpringSecurityController.class.getName(),
             StartupController.class.getName(),
             TracesController.class.getName());
 

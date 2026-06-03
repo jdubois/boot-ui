@@ -7,6 +7,10 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Instant;
+import java.util.Map;
+import org.springframework.boot.actuate.audit.AuditEvent;
+import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -71,6 +75,27 @@ class SecurityConfiguration {
     @Bean
     PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    @Bean
+    InMemoryAuditEventRepository auditEventRepository() {
+        InMemoryAuditEventRepository repository = new InMemoryAuditEventRepository();
+        repository.add(new AuditEvent(
+                Instant.now().minusSeconds(300),
+                "developer",
+                "AUTHENTICATION_SUCCESS",
+                Map.of("path", "/api/public", "remoteAddress", "127.0.0.1")));
+        repository.add(new AuditEvent(
+                Instant.now().minusSeconds(120),
+                "anonymousUser",
+                "AUTHORIZATION_DENIED",
+                Map.of("path", "/api/secure", "sessionId", "sample-session")));
+        repository.add(new AuditEvent(
+                Instant.now().minusSeconds(60),
+                "admin",
+                "AUTHENTICATION_SUCCESS",
+                Map.of("path", "/api/secure", "details", "HTTP Basic login accepted")));
+        return repository;
     }
 
     private static CsrfTokenRequestAttributeHandler csrfTokenRequestHandler() {

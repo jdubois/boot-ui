@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import java.util.regex.Pattern;
+import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
@@ -105,10 +106,12 @@ public class PanelsController {
             case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
             case BootUiPanels.SPRING_CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
-            case BootUiPanels.SECURITY ->
+            case BootUiPanels.SPRING_SECURITY ->
                 availability(
                         classPresent("org.springframework.security.web.SecurityFilterChain"),
                         "Spring Security not on the classpath");
+            case BootUiPanels.SECURITY_LOGS ->
+                availability(beanPresent(AuditEventRepository.class), "No AuditEventRepository bean is available");
             case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
             case BootUiPanels.TRACES ->
                 availability(properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled");

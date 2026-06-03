@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
  *   <li>MappingsController ({@code MappingsEndpoint} absent)</li>
  *   <li>StartupController ({@code StartupEndpoint} absent)</li>
  *   <li>ScheduledController ({@code ScheduledTaskHolder} absent)</li>
- *   <li>SecurityController ({@code FilterChainProxy} absent)</li>
+ *   <li>SpringSecurityController ({@code FilterChainProxy} absent)</li>
  * </ul>
  *
  * <h2>Skipped (no optional-dependency branch)</h2>

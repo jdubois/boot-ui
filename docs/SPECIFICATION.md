@@ -913,9 +913,10 @@ Initial endpoints:
 | `/bootui/api/data/repositories/{name}`  | GET    | Spring Data repository detail with query methods                          |
 | `/bootui/api/spring-cache`              | GET    | Spring Cache managers, caches, metrics, and annotation operations         |
 | `/bootui/api/spring-cache/clear`        | POST   | Clear one or all known caches only when explicitly enabled and confirmed  |
-| `/bootui/api/security`                  | GET    | Spring Security filter chain report                                       |
-| `/bootui/api/security/explain`          | GET    | Best-effort chain match for a method/path                                 |
-| `/bootui/api/security/endpoints`        | GET    | Best-effort per-endpoint authorization report                             |
+| `/bootui/api/spring-security`           | GET    | Spring Security filter chain report                                       |
+| `/bootui/api/spring-security/explain`   | GET    | Best-effort chain match for a method/path                                 |
+| `/bootui/api/spring-security/endpoints` | GET    | Best-effort per-endpoint authorization report                             |
+| `/bootui/api/security-logs`             | GET    | Recent Spring Boot audit/security events                                  |
 | `/bootui/api/pentest`                   | GET    | Latest local OWASP hygiene report                                         |
 | `/bootui/api/pentest/scan`              | POST   | Run explicit bounded localhost OWASP hygiene checks                       |
 | `/bootui/api/copilot/**`                | GET    | Sanitized GitHub Copilot CLI session dashboard, explorer, raw reveal, SSE |
@@ -1142,9 +1143,10 @@ BootUI's current pre-1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Services, Diagnostics, Developer tools, and Disabled / unavailable
-  navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Startup Timeline, Scheduled Tasks, Database Connection
-  Pools, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Data, Spring Cache, Security, AI Usage,
-  Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture, Pentesting, Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
+  navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Startup Timeline, Scheduled Tasks,
+  Database Connection Pools, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Data, Spring Cache,
+  Spring Security, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Security Logs, Architecture, Pentesting,
+  Vulnerabilities, DevTools, Dev Services, Copilot, and Claude Code.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

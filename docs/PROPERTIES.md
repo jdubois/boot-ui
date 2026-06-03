@@ -54,12 +54,13 @@ Panel settings are consistent across the UI and API:
 | Services        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
 | Services        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                |
 | Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`    |
-| Services        | Security                  | `security`                  | `bootui.panels.security.enabled`                  | Not applicable; view-only.                |
+| Services        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
+| Diagnostics     | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
 | Diagnostics     | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`         |
 | Diagnostics     | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only` |
 | Diagnostics     | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
@@ -102,6 +103,12 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.spring-cache.read-only` | `false` | Disable cache clear actions.                                                                      |
 | `bootui.cache.clear-enabled`           | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing. |
 
+### Spring Security
+
+| Property                                  | Default | Description                                                                  |
+| ----------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `bootui.panels.spring-security.enabled`   | `true`  | Show Spring Security filter chains and best-effort endpoint rule explanations. |
+
 ### Traces
 
 | Property                                     | Default   | Description                                                                                           |
@@ -129,6 +136,13 @@ Panel settings are consistent across the UI and API:
 | ------------------------------------ | ------- | ---------------------------------------------- |
 | `bootui.panels.http-probe.enabled`   | `true`  | Show the HTTP Probe panel.                     |
 | `bootui.panels.http-probe.read-only` | `false` | Disable sending probe requests through BootUI. |
+
+### Security Logs
+
+| Property                              | Default | Description                                                                 |
+| ------------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events from an `AuditEventRepository` bean. |
+| `bootui.security-logs.max-logs`       | `500`   | Maximum recent audit events returned in one Security Logs response.         |
 
 ### Pentesting
 

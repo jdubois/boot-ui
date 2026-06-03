@@ -57,12 +57,12 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[18].available").value(true))
                     .andExpect(jsonPath("$.panels[21].id").value("http-probe"))
                     .andExpect(jsonPath("$.panels[21].available").value(true))
-                    .andExpect(jsonPath("$.panels[22].id").value("pentest"))
-                    .andExpect(jsonPath("$.panels[22].available").value(true))
-                    .andExpect(jsonPath("$.panels[23].id").value("vulnerabilities"))
+                    .andExpect(jsonPath("$.panels[23].id").value("pentest"))
                     .andExpect(jsonPath("$.panels[23].available").value(true))
-                    .andExpect(jsonPath("$.panels[24].id").value("heap-dump"))
-                    .andExpect(jsonPath("$.panels[24].available").value(true));
+                    .andExpect(jsonPath("$.panels[24].id").value("vulnerabilities"))
+                    .andExpect(jsonPath("$.panels[24].available").value(true))
+                    .andExpect(jsonPath("$.panels[25].id").value("heap-dump"))
+                    .andExpect(jsonPath("$.panels[25].available").value(true));
         }
     }
 
@@ -97,7 +97,11 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[20].id").value("http-exchanges"))
                     .andExpect(jsonPath("$.panels[20].available").value(false))
                     .andExpect(
-                            jsonPath("$.panels[20].unavailableReason").value("HTTP exchange repository not available"));
+                            jsonPath("$.panels[20].unavailableReason").value("HTTP exchange repository not available"))
+                    .andExpect(jsonPath("$.panels[22].id").value("security-logs"))
+                    .andExpect(jsonPath("$.panels[22].available").value(false))
+                    .andExpect(jsonPath("$.panels[22].unavailableReason")
+                            .value("No AuditEventRepository bean is available"));
         }
     }
 
@@ -160,10 +164,10 @@ class PanelsControllerTests {
                     .andExpect(jsonPath("$.panels[9].readOnly").value(true))
                     .andExpect(jsonPath("$.panels[9].readOnlyReason")
                             .value("Panel is read-only via bootui.panels.loggers.read-only=true"))
-                    .andExpect(jsonPath("$.panels[22].id").value("pentest"))
-                    .andExpect(jsonPath("$.panels[22].enabled").value(true))
-                    .andExpect(jsonPath("$.panels[22].readOnly").value(true))
-                    .andExpect(jsonPath("$.panels[22].readOnlyReason")
+                    .andExpect(jsonPath("$.panels[23].id").value("pentest"))
+                    .andExpect(jsonPath("$.panels[23].enabled").value(true))
+                    .andExpect(jsonPath("$.panels[23].readOnly").value(true))
+                    .andExpect(jsonPath("$.panels[23].readOnlyReason")
                             .value("Panel is read-only via bootui.panels.pentest.read-only=true"));
         }
     }

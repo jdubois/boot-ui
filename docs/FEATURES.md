@@ -10,7 +10,8 @@ also support `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=tr
 read-only. The complete list is in the [property reference](PROPERTIES.md).
 
 Monitoring-oriented panels hide BootUI's own runtime data by default so Beans, Conditions, Mappings, Loggers, Metrics,
-Startup Timeline, Scheduled Tasks, Spring Cache, Security, and Traces stay focused on the host application. Set
+Startup Timeline, Scheduled Tasks, Spring Cache, Spring Security, Security Logs, and Traces stay focused on the host
+application. Set
 `bootui.monitoring.exclude-self=false` to include BootUI internals while debugging the console itself.
 
 ## Overview
@@ -196,12 +197,12 @@ confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
 ![BootUI Spring Cache panel](images/bootui-spring-cache.png)
 
-### Security
+### Spring Security
 
-The Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
+The Spring Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
 meant to explain local security wiring without exposing credentials or replacing a full security audit.
 
-![BootUI Security panel](images/bootui-security.png)
+![BootUI Spring Security panel](images/bootui-security.png)
 
 ### AI Usage
 
@@ -273,6 +274,15 @@ The HTTP Probe panel sends local-only requests to the running application and di
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
 
 ![BootUI HTTP Probe panel](images/bootui-http-probe.png)
+
+### Security Logs
+
+The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
+authentication successes/failures and authorization denials when Spring Security audit listeners are configured by the
+host app. It supports filtering by principal, event type, and time window, summarizes retained event counts by type, uses
+the shared visibility-aware auto-refresh controls, and masks sensitive event data before rendering. Responses are bounded
+by `bootui.security-logs.max-logs`, which defaults to `500`; when no `AuditEventRepository` bean exists, the panel fails
+closed with a clear unavailable state.
 
 ### Architecture
 

@@ -544,8 +544,8 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
-    void securityEndpointFindsSampleFilterChains() {
-        ResponseEntity<Map> response = getMap("/bootui/api/security");
+    void springSecurityEndpointFindsSampleFilterChains() {
+        ResponseEntity<Map> response = getMap("/bootui/api/spring-security");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
@@ -565,8 +565,8 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
-    void securityExplainMatchesSecureApiRequest() {
-        ResponseEntity<Map> response = getMap("/bootui/api/security/explain?method=GET&path=/api/secure");
+    void springSecurityExplainMatchesSecureApiRequest() {
+        ResponseEntity<Map> response = getMap("/bootui/api/spring-security/explain?method=GET&path=/api/secure");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
@@ -578,8 +578,8 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
-    void securityEndpointsListsControllerMappingsWithRules() {
-        ResponseEntity<Map> response = getMap("/bootui/api/security/endpoints");
+    void springSecurityEndpointsListsControllerMappingsWithRules() {
+        ResponseEntity<Map> response = getMap("/bootui/api/spring-security/endpoints");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
@@ -592,12 +592,36 @@ class BootUiSampleApplicationIntegrationTests {
         // BootUI's own API endpoints should resolve as permitAll on the /bootui/** chain.
         assertThat(endpoints).anySatisfy(item -> {
             Map<?, ?> dto = (Map<?, ?>) item;
-            if (!"/bootui/api/security".equals(dto.get("pattern"))) {
+            if (!"/bootui/api/spring-security".equals(dto.get("pattern"))) {
                 return;
             }
             assertThat(dto.get("secured")).isEqualTo(true);
             assertThat(dto.get("rule")).isEqualTo("permitAll");
             assertThat(dto.get("chainIndex")).isEqualTo(0);
+        });
+    }
+
+    @Test
+    void securityLogsEndpointListsMaskedAuditEvents() {
+        ResponseEntity<Map> response = getMap("/bootui/api/security-logs");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("auditEventsPresent")).isEqualTo(true);
+        assertThat(body.get("maxLogs")).isEqualTo(500);
+        Iterable<?> events = (Iterable<?>) body.get("events");
+        assertThat(events).anySatisfy(item -> {
+            Map<?, ?> dto = (Map<?, ?>) item;
+            assertThat(dto.get("type")).isEqualTo("AUTHORIZATION_DENIED");
+            assertThat((Iterable<?>) dto.get("data")).anySatisfy(data -> {
+                Map<?, ?> dataDto = (Map<?, ?>) data;
+                if (!"sessionId".equals(dataDto.get("name"))) {
+                    return;
+                }
+                assertThat(dataDto.get("value")).isEqualTo("******");
+                assertThat(dataDto.get("masked")).isEqualTo(true);
+            });
         });
     }
 

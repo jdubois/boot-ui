@@ -20,7 +20,7 @@ import java.util.List;
  * <p>{@code bestEffort} is {@code true} when the resolution relied on a stubbed request
  * that did not include headers/session state.</p>
  */
-public record SecurityEndpointDto(
+public record SpringSecurityEndpointDto(
         String method,
         String pattern,
         String handler,

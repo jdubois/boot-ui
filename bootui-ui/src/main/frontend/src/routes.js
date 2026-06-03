@@ -17,7 +17,8 @@ const LogTail = () => import('./views/LogTail.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
-const Security = () => import('./views/Security.vue')
+const SpringSecurity = () => import('./views/SpringSecurity.vue')
+const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const Memory = () => import('./views/Memory.vue')
 const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
@@ -149,12 +150,17 @@ export const routes = [
     meta: {group: groups.services, icon: 'bi-hdd-stack', title: 'Spring Cache'}
   },
   {
-    path: '/security',
-    name: 'security',
-    component: Security,
-    meta: {group: groups.services, icon: 'bi-person-lock', title: 'Security'}
+    path: '/spring-security',
+    name: 'spring-security',
+    component: SpringSecurity,
+    meta: {group: groups.services, icon: 'bi-person-lock', title: 'Spring Security'}
   },
-  {path: '/ai', name: 'ai', component: Ai, meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage'}},
+  {
+    path: '/ai',
+    name: 'ai',
+    component: Ai,
+    meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage'}
+  },
   {
     path: '/traces',
     name: 'traces',
@@ -178,6 +184,12 @@ export const routes = [
     name: 'http-probe',
     component: HttpProbe,
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe'}
+  },
+  {
+    path: '/security-logs',
+    name: 'security-logs',
+    component: SecurityLogs,
+    meta: {group: groups.diagnostics, icon: 'bi-shield-lock', title: 'Security Logs'}
   },
   {
     path: '/architecture',

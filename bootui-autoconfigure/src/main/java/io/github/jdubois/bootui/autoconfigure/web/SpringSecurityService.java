@@ -2,12 +2,12 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
-import io.github.jdubois.bootui.core.dto.SecurityAuthDto;
-import io.github.jdubois.bootui.core.dto.SecurityEndpointDto;
-import io.github.jdubois.bootui.core.dto.SecurityEndpointsReport;
-import io.github.jdubois.bootui.core.dto.SecurityExplainDto;
-import io.github.jdubois.bootui.core.dto.SecurityFilterChainDto;
-import io.github.jdubois.bootui.core.dto.SecurityReport;
+import io.github.jdubois.bootui.core.dto.SpringSecurityAuthDto;
+import io.github.jdubois.bootui.core.dto.SpringSecurityEndpointDto;
+import io.github.jdubois.bootui.core.dto.SpringSecurityEndpointsReport;
+import io.github.jdubois.bootui.core.dto.SpringSecurityExplainDto;
+import io.github.jdubois.bootui.core.dto.SpringSecurityFilterChainDto;
+import io.github.jdubois.bootui.core.dto.SpringSecurityReport;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.BufferedReader;
@@ -41,7 +41,7 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMappi
  * <p>Read-only. Never surfaces credentials, signing keys, or session identifiers.
  * Activated only when {@code spring-security-web} is on the classpath.</p>
  */
-class SecurityService {
+class SpringSecurityService {
 
     private static final Pattern AUTHORITIES_LIST = Pattern.compile("authorities=\\[([^\\]]*)\\]");
     private final ObjectProvider<FilterChainProxy> filterChainProxyProvider;
@@ -52,7 +52,7 @@ class SecurityService {
     private final BootUiProperties properties;
     private final BootUiSelfDataFilter selfDataFilter;
 
-    SecurityService(
+    SpringSecurityService(
             ObjectProvider<FilterChainProxy> filterChainProxyProvider,
             ObjectProvider<AuthenticationProvider> authenticationProviderProvider,
             ObjectProvider<UserDetailsService> userDetailsServiceProvider,
@@ -69,7 +69,7 @@ class SecurityService {
                 BootUiSelfDataFilter.defaults());
     }
 
-    SecurityService(
+    SpringSecurityService(
             ObjectProvider<FilterChainProxy> filterChainProxyProvider,
             ObjectProvider<AuthenticationProvider> authenticationProviderProvider,
             ObjectProvider<UserDetailsService> userDetailsServiceProvider,
@@ -86,13 +86,13 @@ class SecurityService {
         this.selfDataFilter = selfDataFilter;
     }
 
-    public SecurityReport security() {
+    public SpringSecurityReport security() {
         FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
         if (proxy == null) {
-            return new SecurityReport(false, List.of(), null);
+            return new SpringSecurityReport(false, List.of(), null);
         }
         List<SecurityFilterChain> chains = proxy.getFilterChains();
-        List<SecurityFilterChainDto> chainDtos = new ArrayList<>(chains.size());
+        List<SpringSecurityFilterChainDto> chainDtos = new ArrayList<>(chains.size());
         for (int i = 0; i < chains.size(); i++) {
             SecurityFilterChain chain = chains.get(i);
             if (!selfDataFilter.shouldIncludeSecurityChain(matcherDescription(chain))) {
@@ -100,7 +100,7 @@ class SecurityService {
             }
             chainDtos.add(toChainDto(i, chain));
         }
-        return new SecurityReport(true, chainDtos, buildAuth());
+        return new SpringSecurityReport(true, chainDtos, buildAuth());
     }
 
     /**
@@ -111,13 +111,13 @@ class SecurityService {
      * Header- or session-based matchers may not match correctly; {@code bestEffort} is
      * {@code true} when the stub detected that such matchers were consulted.</p>
      */
-    public SecurityExplainDto explain(String method, String path) {
+    public SpringSecurityExplainDto explain(String method, String path) {
         FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
         if (proxy == null) {
-            return new SecurityExplainDto(false, false, null, null, List.of());
+            return new SpringSecurityExplainDto(false, false, null, null, List.of());
         }
         if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(path), null)) {
-            return new SecurityExplainDto(
+            return new SpringSecurityExplainDto(
                     false, false, null, "BootUI endpoints are hidden from this report", List.of());
         }
         ExplainRequest request = new ExplainRequest(method, path);
@@ -128,7 +128,7 @@ class SecurityService {
             try {
                 matches = chain.matches(request);
             } catch (Exception ex) {
-                return new SecurityExplainDto(
+                return new SpringSecurityExplainDto(
                         false,
                         true,
                         null,
@@ -137,11 +137,11 @@ class SecurityService {
                         List.of());
             }
             if (matches) {
-                return new SecurityExplainDto(
+                return new SpringSecurityExplainDto(
                         true, request.isBestEffort(), i, matcherDescription(chain), filterNames(chain.getFilters()));
             }
         }
-        return new SecurityExplainDto(false, request.isBestEffort(), null, "No chain matched", List.of());
+        return new SpringSecurityExplainDto(false, request.isBestEffort(), null, "No chain matched", List.of());
     }
 
     /**
@@ -156,17 +156,17 @@ class SecurityService {
      * session state may not be evaluated accurately, in which case
      * {@code bestEffort} is set on the endpoint entry.</p>
      */
-    public SecurityEndpointsReport endpoints() {
+    public SpringSecurityEndpointsReport endpoints() {
         FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
         boolean springSecurityPresent = proxy != null;
         List<RequestMappingInfoHandlerMapping> handlerMappings =
                 handlerMappingProvider.stream().collect(Collectors.toList());
         if (handlerMappings.isEmpty()) {
-            return new SecurityEndpointsReport(springSecurityPresent, false, 0, List.of());
+            return new SpringSecurityEndpointsReport(springSecurityPresent, false, 0, List.of());
         }
 
         List<SecurityFilterChain> chains = springSecurityPresent ? proxy.getFilterChains() : List.of();
-        List<SecurityEndpointDto> endpoints = new ArrayList<>();
+        List<SpringSecurityEndpointDto> endpoints = new ArrayList<>();
         for (RequestMappingInfoHandlerMapping mapping : handlerMappings) {
             Map<RequestMappingInfo, HandlerMethod> methods;
             try {
@@ -179,11 +179,12 @@ class SecurityService {
             }
         }
 
-        endpoints.sort(Comparator.comparing(SecurityEndpointDto::pattern).thenComparing(SecurityEndpointDto::method));
-        return new SecurityEndpointsReport(springSecurityPresent, true, endpoints.size(), endpoints);
+        endpoints.sort(Comparator.comparing(SpringSecurityEndpointDto::pattern)
+                .thenComparing(SpringSecurityEndpointDto::method));
+        return new SpringSecurityEndpointsReport(springSecurityPresent, true, endpoints.size(), endpoints);
     }
 
-    private List<SecurityEndpointDto> describeEndpoint(
+    private List<SpringSecurityEndpointDto> describeEndpoint(
             RequestMappingInfo info, HandlerMethod handlerMethod, List<SecurityFilterChain> chains) {
         Set<String> patterns = extractPatterns(info);
         Set<String> methods = info.getMethodsCondition().getMethods().stream()
@@ -195,7 +196,7 @@ class SecurityService {
         String handler = handlerMethod.getBeanType().getSimpleName() + "#"
                 + handlerMethod.getMethod().getName();
 
-        List<SecurityEndpointDto> result = new ArrayList<>();
+        List<SpringSecurityEndpointDto> result = new ArrayList<>();
         for (String pattern : patterns) {
             for (String method : methods) {
                 if (!selfDataFilter.shouldIncludeSecurityEndpoint(List.of(pattern), handler)) {
@@ -218,10 +219,10 @@ class SecurityService {
         return patterns;
     }
 
-    private SecurityEndpointDto resolveEndpoint(
+    private SpringSecurityEndpointDto resolveEndpoint(
             String method, String pattern, String handler, List<SecurityFilterChain> chains) {
         if (chains.isEmpty()) {
-            return new SecurityEndpointDto(
+            return new SpringSecurityEndpointDto(
                     method,
                     pattern,
                     handler,
@@ -240,7 +241,7 @@ class SecurityService {
             try {
                 matches = chain.matches(request);
             } catch (Exception ex) {
-                return new SecurityEndpointDto(
+                return new SpringSecurityEndpointDto(
                         method,
                         pattern,
                         handler,
@@ -255,7 +256,7 @@ class SecurityService {
             if (matches) {
                 AuthorizationFilter authFilter = findAuthorizationFilter(chain);
                 if (authFilter == null) {
-                    return new SecurityEndpointDto(
+                    return new SpringSecurityEndpointDto(
                             method,
                             pattern,
                             handler,
@@ -270,7 +271,7 @@ class SecurityService {
                 return classifyRule(method, pattern, handler, i, chain, authFilter, request);
             }
         }
-        return new SecurityEndpointDto(
+        return new SpringSecurityEndpointDto(
                 method,
                 pattern,
                 handler,
@@ -300,7 +301,7 @@ class SecurityService {
      * and authority names can be reported.
      */
     @SuppressWarnings("unchecked")
-    private SecurityEndpointDto classifyRule(
+    private SpringSecurityEndpointDto classifyRule(
             String method,
             String pattern,
             String handler,
@@ -313,7 +314,7 @@ class SecurityService {
 
         boolean anonymousGranted = simulate(manager, anonymousAuth(), request);
         if (anonymousGranted) {
-            return new SecurityEndpointDto(
+            return new SpringSecurityEndpointDto(
                     method,
                     pattern,
                     handler,
@@ -328,7 +329,7 @@ class SecurityService {
 
         boolean authenticatedGranted = simulate(manager, authenticatedAuth(List.of()), request);
         if (authenticatedGranted) {
-            return new SecurityEndpointDto(
+            return new SpringSecurityEndpointDto(
                     method,
                     pattern,
                     handler,
@@ -356,7 +357,7 @@ class SecurityService {
                                     ? authority.substring("ROLE_".length())
                                     : authority);
                 }
-                return new SecurityEndpointDto(
+                return new SpringSecurityEndpointDto(
                         method,
                         pattern,
                         handler,
@@ -374,7 +375,7 @@ class SecurityService {
         boolean superGranted =
                 simulate(manager, authenticatedAuth(List.of("ROLE_ADMIN", "ROLE_USER", "SCOPE_ADMIN")), request);
         String rule = superGranted ? "custom" : "denyAll";
-        return new SecurityEndpointDto(
+        return new SpringSecurityEndpointDto(
                 method,
                 pattern,
                 handler,
@@ -469,8 +470,8 @@ class SecurityService {
         return names;
     }
 
-    private SecurityFilterChainDto toChainDto(int order, SecurityFilterChain chain) {
-        return new SecurityFilterChainDto(
+    private SpringSecurityFilterChainDto toChainDto(int order, SecurityFilterChain chain) {
+        return new SpringSecurityFilterChainDto(
                 order,
                 matcherDescription(chain),
                 matcherTypeName(chain),
@@ -503,7 +504,7 @@ class SecurityService {
                 .anyMatch(f -> f.getClass().getSimpleName().equals(simpleClassName));
     }
 
-    private SecurityAuthDto buildAuth() {
+    private SpringSecurityAuthDto buildAuth() {
         List<String> providerTypes = authenticationProviderProvider.stream()
                 .map(p -> p.getClass().getName())
                 .sorted()
@@ -519,7 +520,7 @@ class SecurityService {
         if (properties.getExposeValues() != BootUiProperties.ValueExposure.METADATA_ONLY) {
             configuredUsername = environment.getProperty("spring.security.user.name");
         }
-        return new SecurityAuthDto(providerTypes, udsTypes, configuredUsername);
+        return new SpringSecurityAuthDto(providerTypes, udsTypes, configuredUsername);
     }
 
     private record AuthoritySpec(List<String> authorities, boolean allRolePrefixed) {}
