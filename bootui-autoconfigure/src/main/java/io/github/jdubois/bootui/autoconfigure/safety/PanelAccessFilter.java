@@ -3,30 +3,28 @@ package io.github.jdubois.bootui.autoconfigure.safety;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.Panel;
+import io.github.jdubois.bootui.autoconfigure.web.AbstractBootUiFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Set;
-import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Applies per-panel enabled and read-only settings to BootUI API routes.
  */
-public class PanelAccessFilter extends OncePerRequestFilter {
+public class PanelAccessFilter extends AbstractBootUiFilter {
 
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
-    private final BootUiProperties properties;
-
     public PanelAccessFilter(BootUiProperties properties) {
-        this.properties = properties;
+        super(properties);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return apiRelativePath(request) == null;
+        return !isBootUiApiRequest(request);
     }
 
     @Override
@@ -40,14 +38,16 @@ public class PanelAccessFilter extends OncePerRequestFilter {
         }
 
         if (!properties.isPanelEnabled(panel.id())) {
-            writeBlockedResponse(response, panel, properties.panelDisabledReason(panel.id()));
+            writeBlockedResponse(
+                    response, "BootUI panel access denied", panel.id(), properties.panelDisabledReason(panel.id()));
             return;
         }
 
         if (panel.actionCapable()
                 && !SAFE_METHODS.contains(request.getMethod())
                 && properties.isPanelReadOnly(panel.id())) {
-            writeBlockedResponse(response, panel, properties.panelReadOnlyReason(panel.id()));
+            writeBlockedResponse(
+                    response, "BootUI panel access denied", panel.id(), properties.panelReadOnlyReason(panel.id()));
             return;
         }
 
@@ -71,18 +71,12 @@ public class PanelAccessFilter extends OncePerRequestFilter {
         return path.substring(apiPath.length());
     }
 
-    private void writeBlockedResponse(HttpServletResponse response, Panel panel, String reason) throws IOException {
+    protected void writeBlockedResponse(HttpServletResponse response, String error, String panel, String reason)
+            throws IOException {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
         response.getWriter()
-                .write("{\"error\":\"BootUI panel access denied\",\"panel\":\""
-                        + escape(panel.id())
-                        + "\",\"reason\":\""
-                        + escape(reason)
-                        + "\"}");
-    }
-
-    private String escape(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+                .write("{\"error\":\"" + escape(error) + "\",\"panel\":\"" + escape(panel) + "\",\"reason\":\""
+                        + escape(reason) + "\"}");
     }
 }
