@@ -1,8 +1,14 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import java.io.IOException;
+import java.lang.reflect.Array;
+import java.util.Arrays;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.util.ClassUtils;
 
 /**
  * Registers the GraalVM reachability metadata that BootUI itself needs so that applications using
@@ -19,6 +25,9 @@ import org.springframework.aot.hint.RuntimeHintsRegistrar;
  *       the BootUI version reported as {@code unknown}.
  *   <li><b>Reflective method invocations</b> on well-known JDK and Spring Security types that BootUI
  *       discovers at runtime and calls reflectively.
+ *   <li><b>DTO binding types</b> under {@code io.github.jdubois.bootui.core.dto} that Jackson can
+ *       synthesize while serializing BootUI records, including array types derived from
+ *       {@code List<...>} record components.
  * </ul>
  *
  * <p>The reflective sites in BootUI that operate on arbitrary user- or library-supplied types (for
@@ -36,6 +45,10 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
 
     /** Version file read by {@code BootUiInfo} (lives in bootui-core). */
     private static final String BOOTUI_VERSION_RESOURCE = "bootui-version.properties";
+
+    private static final String DTO_PACKAGE = "io.github.jdubois.bootui.core.dto";
+
+    private static final String DTO_RESOURCE_PATTERN = "classpath*:io/github/jdubois/bootui/core/dto/*.class";
 
     /** JDK MXBean invoked reflectively by {@code HeapDumpService} for heap dumps. */
     private static final String HOTSPOT_DIAGNOSTIC_MXBEAN = "com.sun.management.HotSpotDiagnosticMXBean";
@@ -56,6 +69,8 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
                 .registerPattern(CONFIGURATION_METADATA_RESOURCE)
                 .registerPattern(BOOTUI_VERSION_RESOURCE);
 
+        registerDtoBindingHints(hints, classLoader);
+
         // Heap Dump panel: HeapDumpService reflectively calls HotSpotDiagnosticMXBean#dumpHeap.
         hints.reflection()
                 .registerTypeIfPresent(classLoader, HOTSPOT_DIAGNOSTIC_MXBEAN, MemberCategory.INVOKE_PUBLIC_METHODS);
@@ -67,5 +82,39 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         hints.reflection().registerTypeIfPresent(classLoader, GRANTED_AUTHORITY, MemberCategory.INVOKE_PUBLIC_METHODS);
         hints.reflection()
                 .registerTypeIfPresent(classLoader, SIMPLE_GRANTED_AUTHORITY, MemberCategory.INVOKE_PUBLIC_METHODS);
+    }
+
+    private void registerDtoBindingHints(RuntimeHints hints, ClassLoader classLoader) {
+        for (Class<?> dtoType : findDtoTypes(classLoader)) {
+            hints.reflection()
+                    .registerType(
+                            dtoType, MemberCategory.INVOKE_DECLARED_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            hints.reflection().registerType(Array.newInstance(dtoType, 0).getClass());
+        }
+    }
+
+    private Class<?>[] findDtoTypes(ClassLoader classLoader) {
+        ClassLoader resourceClassLoader = classLoader != null ? classLoader : BootUiRuntimeHints.class.getClassLoader();
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver(resourceClassLoader);
+        try {
+            Resource[] resources = resolver.getResources(DTO_RESOURCE_PATTERN);
+            return Arrays.stream(resources)
+                    .map(Resource::getFilename)
+                    .filter(BootUiRuntimeHints::isTopLevelClassFile)
+                    .map(BootUiRuntimeHints::classNameFromResource)
+                    .map(className -> ClassUtils.resolveClassName(className, resourceClassLoader))
+                    .filter(Class::isRecord)
+                    .toArray(Class<?>[]::new);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to resolve BootUI DTO types for native-image hints", ex);
+        }
+    }
+
+    private static boolean isTopLevelClassFile(String filename) {
+        return filename != null && filename.endsWith(".class") && !filename.contains("$");
+    }
+
+    private static String classNameFromResource(String filename) {
+        return DTO_PACKAGE + '.' + filename.substring(0, filename.length() - ".class".length());
     }
 }
