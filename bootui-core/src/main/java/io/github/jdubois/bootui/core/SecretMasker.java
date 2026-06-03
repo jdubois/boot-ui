@@ -1,8 +1,5 @@
 package io.github.jdubois.bootui.core;
 
-import java.util.LinkedHashSet;
-import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -12,65 +9,38 @@ import java.util.Set;
  * <p>BootUI uses this helper everywhere configuration values are exposed to the
  * browser to avoid leaking credentials during local development.</p>
  */
-public final class SecretMasker {
+public final class SecretMasker implements MaskingStrategy {
 
     public static final String MASKED_VALUE = "******";
-    private static final Set<String> DEFAULT_KEY_PATTERNS = Set.of(
-            "password",
-            "passwd",
-            "passphrase",
-            "pwd",
-            "secret",
-            "token",
-            "key",
-            "credential",
-            "credentials",
-            "private",
-            "apikey",
-            "api-key",
-            "client-secret",
-            "client_secret",
-            "auth",
-            "authorization",
-            "session-id",
-            "session_id");
-    private final Set<String> keyPatterns;
+    
+    private final MaskingStrategy strategy;
 
     public SecretMasker() {
-        this(DEFAULT_KEY_PATTERNS);
+        this.strategy = new KeywordPatternMasker();
     }
 
     public SecretMasker(Set<String> keyPatterns) {
-        this.keyPatterns = new LinkedHashSet<>(Objects.requireNonNull(keyPatterns, "keyPatterns"));
+        this.strategy = new KeywordPatternMasker(keyPatterns);
+    }
+    
+    public SecretMasker(MaskingStrategy strategy) {
+        this.strategy = strategy;
     }
 
     /**
      * Returns true when the property name suggests a sensitive value.
      */
+    @Override
     public boolean isSecret(String propertyName) {
-        if (propertyName == null || propertyName.isBlank()) {
-            return false;
-        }
-        String normalized = propertyName.toLowerCase(Locale.ROOT);
-        for (String pattern : keyPatterns) {
-            if (normalized.contains(pattern)) {
-                return true;
-            }
-        }
-        return false;
+        return strategy.isSecret(propertyName);
     }
 
     /**
      * Returns the original value or {@link #MASKED_VALUE} when the property is
      * detected as sensitive.
      */
+    @Override
     public Object mask(String propertyName, Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (isSecret(propertyName)) {
-            return MASKED_VALUE;
-        }
-        return value;
+        return strategy.mask(propertyName, value);
     }
 }
