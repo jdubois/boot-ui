@@ -1,7 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -80,12 +80,12 @@ function scanTime() {
 
 async function loadReport() {
   try {
-    const res = await fetch('api/graalvm')
+    const res = await apiFetch('api/graalvm')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to load GraalVM readiness report')
+    error.value = describeLoadError(e, 'Unable to load GraalVM readiness report')
   }
 }
 
@@ -101,7 +101,7 @@ async function runScan() {
     report.value = await res.json()
     error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to run GraalVM readiness checks')
+    error.value = describeLoadError(e, 'Unable to run GraalVM readiness checks')
   } finally {
     loading.value = false
   }
@@ -150,6 +150,12 @@ onMounted(loadReport)
         <strong>Heuristic readiness checks.</strong>
         {{ report.disclaimer }}
         <span v-if="readOnly">Scanning is read-only. {{ readOnlyReason }}</span>
+      </div>
+      <div v-if="report.warnings && report.warnings.length" class="alert alert-warning">
+        <strong>Scan warnings.</strong>
+        <ul class="mb-0">
+          <li v-for="warning in report.warnings" :key="warning">{{ warning }}</li>
+        </ul>
       </div>
 
       <div class="row g-3 mb-3">
@@ -323,7 +329,10 @@ onMounted(loadReport)
             <div class="small text-muted mb-2">{{ finding.description }}</div>
             <div class="small mb-2">
               <strong>What happened:</strong>
-              {{ occurrenceCountLabel(finding.occurrenceCount) }} for this check.
+              <template v-if="finding.status === 'ERROR'">
+                {{ finding.sampleOccurrences?.[0] || 'Check could not be evaluated.' }}
+              </template>
+              <template v-else>{{ occurrenceCountLabel(finding.occurrenceCount) }} for this check.</template>
             </div>
             <div v-if="finding.sampleOccurrences && finding.sampleOccurrences.length" class="mb-2">
               <div class="small fw-semibold">

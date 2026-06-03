@@ -3,14 +3,14 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import GraalVm from './GraalVm.vue'
 
-function finding(id, name, severity, occurrenceCount = 1) {
+function finding(id, name, severity, occurrenceCount = 1, status = 'REVIEW') {
   return {
     id,
     name,
     category: 'Reflection',
     severity,
     description: `${name} description.`,
-    status: 'REVIEW',
+    status,
     occurrenceCount,
     sampleOccurrences: occurrenceCount > 0 ? [`${id} detail`] : [],
     recommendation: `${name} recommendation.`
@@ -45,6 +45,7 @@ function graalvmReport(findings, {includeDependencies = true, dependencies = []}
     dependenciesAnalyzed: dependencies.length,
     dependenciesWithoutMetadata: dependencies.filter((dep) => !dep.shipsMetadata).length,
     dependencies,
+    warnings: [],
     metadata: {reflectionEntries: 2, serializationEntries: 1, resourceEntries: 3}
   }
 }
@@ -96,6 +97,17 @@ describe('GraalVm', () => {
     expect(wrapper.text()).toContain('No native-image readiness concerns found')
   })
 
+  it('shows check evaluation errors instead of dropping them', async () => {
+    const errorFinding = finding('GRAAL-ERROR-001', 'Broken readiness check', 'HIGH', 0, 'ERROR')
+    errorFinding.sampleOccurrences = ['Check could not be evaluated: missing bytecode.']
+
+    const wrapper = await mountWithReport(graalvmReport([errorFinding]))
+
+    expect(wrapper.text()).toContain('Broken readiness check')
+    expect(wrapper.text()).toContain('ERROR')
+    expect(wrapper.text()).toContain('Check could not be evaluated: missing bytecode.')
+  })
+
   it('lists surveyed dependencies and their metadata signal', async () => {
     const wrapper = await mountWithReport(
       graalvmReport([], {
@@ -115,5 +127,15 @@ describe('GraalVm', () => {
     const wrapper = await mountWithReport(graalvmReport([], {includeDependencies: false}))
 
     expect(wrapper.text()).not.toContain('Dependency reachability metadata')
+  })
+
+  it('shows scan warnings surfaced by the backend', async () => {
+    const report = graalvmReport([])
+    report.warnings = ['Dependency metadata survey could not be completed.']
+
+    const wrapper = await mountWithReport(report)
+
+    expect(wrapper.text()).toContain('Scan warnings.')
+    expect(wrapper.text()).toContain('Dependency metadata survey could not be completed.')
   })
 })
