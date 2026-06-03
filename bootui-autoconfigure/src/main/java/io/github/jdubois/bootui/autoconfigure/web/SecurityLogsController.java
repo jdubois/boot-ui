@@ -32,8 +32,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/bootui/api/security-logs")
 public class SecurityLogsController {
 
-    private static final int DEFAULT_MAX_LOGS = 500;
-
     private static final int MAX_MAX_LOGS = 10_000;
 
     private static final int MAX_DATA_ENTRIES = 20;
