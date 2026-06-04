@@ -9,6 +9,11 @@ the security configuration.
 The checks are heuristic review prompts. They highlight common Spring Security hardening gaps, but the right remediation
 still depends on the application's threat model and deployment topology.
 
+Actuator exposure checks ignore BootUI's own low-priority local actuator defaults
+(`bootUiActuatorEndpointDefaults`). Those defaults are contributed only while BootUI is active so local panels can read
+Actuator data, and host `management.*` settings still win. If the host application explicitly configures actuator exposure
+or health detail properties, the checks continue to evaluate those values.
+
 ## Availability and bounds
 
 The panel is available only when Spring Security is on the classpath and at least one `SecurityFilterChain` bean exists.
@@ -58,12 +63,12 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Replace the single property-based user with a real UserDetailsService or identity provider for anything beyond local demos.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/spring-security.html>
 
-### SEC-AUTH-005 - Remember-me must use a stable, secret key
+### SEC-AUTH-005 - Avoid the auto-generated login page in production
 
-- **Severity**: HIGH
-- **Detects**: Detects an active remember-me filter; a missing or hard-coded key lets attackers forge remember-me tokens.
-- **Recommendation**: Configure remember-me with a long, random key sourced from secure configuration, not a literal or the framework default.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/rememberme.html>
+- **Severity**: LOW
+- **Detects**: Detects the framework's DefaultLoginPageGeneratingFilter while a production profile is active.
+- **Recommendation**: Provide a custom login page via formLogin().loginPage(...) for production so the unstyled default page (which advertises the Spring Security stack) is not served.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/form.html>
 
 ## Authorization
 
@@ -148,6 +153,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Set server.servlet.session.timeout to a bounded value appropriate for the application's risk profile.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
+### SEC-SESSION-006 - Bearer token authentication chains should be stateless
+
+- **Severity**: HIGH
+- **Detects**: Detects a chain with both a Bearer token filter (stateless) and session management filters (stateful).
+- **Recommendation**: Configure sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS) to avoid creating HTTP sessions for REST API calls.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-stateless>
+
 ## Transport & security headers
 
 ### SEC-HEAD-001 - HTTP Strict Transport Security should be emitted
@@ -178,13 +190,6 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Keep the default XContentTypeOptionsHeaderWriter so browsers do not MIME-sniff responses.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-content-type-options>
 
-### SEC-HEAD-005 - HTTP Basic should be confined to HTTPS
-
-- **Severity**: MEDIUM
-- **Detects**: Detects HTTP Basic chains with no channel security (requiresSecure) to force TLS.
-- **Recommendation**: Terminate TLS in front of the app and/or add requiresChannel().anyRequest().requiresSecure() so Basic credentials never travel over plaintext HTTP.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/basic.html>
-
 ## CORS
 
 ### SEC-CORS-001 - CORS should not allow all origins
@@ -208,6 +213,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Enable .cors(...) on the HttpSecurity so preflight handling is consistent with the security chain rather than MVC-only.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
 
+### SEC-CORS-004 - CORS should not allow all methods or headers with credentials
+
+- **Severity**: MEDIUM
+- **Detects**: Detects a CorsConfiguration that allows the * wildcard for methods or headers together with allowCredentials=true.
+- **Recommendation**: Enumerate the exact methods and headers the API needs instead of "*" when credentials are allowed, so cross-site callers cannot send arbitrary authenticated requests.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
+
 ## Method security
 
 ### SEC-METHOD-001 - Method security annotations require method security to be enabled
@@ -217,14 +229,7 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Add @EnableMethodSecurity to a configuration class so the security annotations are actually enforced.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html>
 
-### SEC-METHOD-002 - Consider service-layer (method) security
-
-- **Severity**: INFO
-- **Detects**: Notes when only web-layer authorization is configured and method security is not enabled.
-- **Recommendation**: Enable @EnableMethodSecurity and annotate sensitive service methods so business logic is protected independently of URL mapping.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html>
-
-### SEC-METHOD-003 - Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity
+### SEC-METHOD-002 - Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity
 
 - **Severity**: LOW
 - **Detects**: Detects the legacy @EnableGlobalMethodSecurity configuration removed/deprecated in Spring Security 6+.
@@ -253,6 +258,27 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects web-exposed actuator endpoints (beyond health/info) when no filter chain references /actuator.
 - **Recommendation**: Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication/authorization.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.security>
+
+### SEC-ACT-004 - Actuator health details should not be exposed unconditionally
+
+- **Severity**: HIGH
+- **Detects**: Detects management.endpoint.health.show-details=always, which leaks infrastructure details to anonymous callers.
+- **Recommendation**: Change management.endpoint.health.show-details to 'when-authorized' (the default) or ensure the /health endpoint is strictly authenticated.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details>
+
+### SEC-ACT-005 - The actuator shutdown endpoint should not be enabled
+
+- **Severity**: HIGH
+- **Detects**: Detects management.endpoint.shutdown.enabled=true, which lets a caller stop the application (denial of service) if reachable.
+- **Recommendation**: Keep the shutdown endpoint disabled (the default); if you truly need it, restrict it to a secured management port behind strict authentication.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.enabling>
+
+### SEC-ACT-006 - Sensitive actuator endpoints should use an isolated management port
+
+- **Severity**: INFO
+- **Detects**: Notes that sensitive actuator endpoints are exposed on the main application port because management.server.port is unset.
+- **Recommendation**: Set management.server.port to a separate, network-restricted port so actuator endpoints are not reachable on the public application port.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/monitoring.html#actuator.monitoring.customizing-management-server-port>
 
 ## OAuth2 / JWT resource server
 
@@ -307,3 +333,9 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Prefer permitAll() inside authorizeHttpRequests for non-static paths so security headers and context still apply; reserve web.ignoring() for truly static resources.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#jc-httpsecurity>
 
+### SEC-CONFIG-005 - Error responses should not leak stack traces or internal messages
+
+- **Severity**: MEDIUM
+- **Detects**: Detects server.error.include-stacktrace / include-message / include-binding-errors set to 'always', which exposes internal details in error responses.
+- **Recommendation**: Use 'never' (or 'on_param') for include-stacktrace and keep include-message / include-binding-errors at 'never' in production to avoid information disclosure.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling>

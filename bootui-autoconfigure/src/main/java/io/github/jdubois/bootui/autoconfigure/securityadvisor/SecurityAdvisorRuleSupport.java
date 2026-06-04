@@ -33,7 +33,10 @@ final class SecurityAdvisorRuleSupport {
     }
 
     static SecurityAdvisorRuleResultDto result(
-            SecurityAdvisorRuleDefinition definition, String status, int violationCount, List<String> sampleViolations) {
+            SecurityAdvisorRuleDefinition definition,
+            String status,
+            int violationCount,
+            List<String> sampleViolations) {
         return new SecurityAdvisorRuleResultDto(
                 definition.id(),
                 definition.name(),

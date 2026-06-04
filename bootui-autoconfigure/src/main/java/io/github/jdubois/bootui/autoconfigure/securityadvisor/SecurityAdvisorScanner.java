@@ -76,7 +76,8 @@ final class SecurityAdvisorScanner {
         this(() -> new SecurityDiscovery(context, List.of()), context.environment(), clock);
     }
 
-    private SecurityAdvisorScanner(Supplier<SecurityDiscovery> discoverySupplier, Environment environment, Clock clock) {
+    private SecurityAdvisorScanner(
+            Supplier<SecurityDiscovery> discoverySupplier, Environment environment, Clock clock) {
         this.discoverySupplier = discoverySupplier;
         this.environment = environment;
         this.clock = clock;
@@ -192,7 +193,8 @@ final class SecurityAdvisorScanner {
         }
 
         ListableBeanFactory beanFactory = beanFactories.getIfAvailable();
-        List<String> passwordEncoderTypes = beanTypeNames(beanFactory, "org.springframework.security.crypto.password.PasswordEncoder");
+        List<String> passwordEncoderTypes =
+                beanTypeNames(beanFactory, "org.springframework.security.crypto.password.PasswordEncoder");
         List<String> jwtDecoderTypes = beanTypeNames(beanFactory, "org.springframework.security.oauth2.jwt.JwtDecoder");
         List<CorsConfigModel> corsConfigs = new ArrayList<>();
         boolean corsSourcePresent = discoverCors(beanFactory, corsConfigs, errors);
@@ -230,7 +232,8 @@ final class SecurityAdvisorScanner {
 
     private static FilterChainModel toChainModel(int index, SecurityFilterChain chain) {
         List<Filter> filters = chain.getFilters();
-        List<String> filterNames = filters.stream().map(f -> f.getClass().getSimpleName()).toList();
+        List<String> filterNames =
+                filters.stream().map(f -> f.getClass().getSimpleName()).toList();
         String matcher = matcherDescription(chain);
         Boolean permitsAllAnonymous = simulateAnonymous(filters);
         Boolean sessionFixationDisabled = detectSessionFixationDisabled(filters);
@@ -257,9 +260,7 @@ final class SecurityAdvisorScanner {
         }
         try {
             Authentication anonymous = new AnonymousAuthenticationToken(
-                    "bootui-advisor",
-                    "anonymousUser",
-                    AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
+                    "bootui-advisor", "anonymousUser", AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS"));
             HttpServletRequest request = simulatedRequest();
             AuthorizationResult result = manager.authorize(() -> anonymous, request);
             return result != null && result.isGranted();
@@ -296,8 +297,8 @@ final class SecurityAdvisorScanner {
             boolean hasFixationProtection = strategyNames.stream()
                     .anyMatch(name -> name.contains("SessionFixationProtectionStrategy")
                             || name.contains("ChangeSessionIdAuthenticationStrategy"));
-            boolean hasNullStrategy = strategyNames.stream()
-                    .anyMatch(name -> name.contains("NullAuthenticatedSessionStrategy"));
+            boolean hasNullStrategy =
+                    strategyNames.stream().anyMatch(name -> name.contains("NullAuthenticatedSessionStrategy"));
             if (hasFixationProtection) {
                 return false;
             }
@@ -369,6 +370,8 @@ final class SecurityAdvisorScanner {
                                 entry.getKey(),
                                 config.getAllowedOrigins(),
                                 config.getAllowedOriginPatterns(),
+                                config.getAllowedMethods(),
+                                config.getAllowedHeaders(),
                                 config.getAllowCredentials()));
                     }
                 } catch (RuntimeException | LinkageError ex) {
@@ -414,7 +417,8 @@ final class SecurityAdvisorScanner {
                     continue;
                 }
                 String packageName = type.getPackageName();
-                if (packageName.startsWith("org.springframework") || packageName.startsWith("io.github.jdubois.bootui")) {
+                if (packageName.startsWith("org.springframework")
+                        || packageName.startsWith("io.github.jdubois.bootui")) {
                     continue;
                 }
                 if (typeUsesAnnotation(type, annotations)) {
@@ -487,11 +491,8 @@ final class SecurityAdvisorScanner {
                 default -> defaultValue(method);
             };
         };
-        return (HttpServletRequest)
-                Proxy.newProxyInstance(
-                        SecurityAdvisorScanner.class.getClassLoader(),
-                        new Class<?>[] {HttpServletRequest.class},
-                        handler);
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                SecurityAdvisorScanner.class.getClassLoader(), new Class<?>[] {HttpServletRequest.class}, handler);
     }
 
     private static Object defaultValue(Method method) {

@@ -189,22 +189,28 @@ export const routes = [
     meta: {group: groups.security, icon: 'bi-person-lock', title: 'Spring Security'}
   },
   {
-    path: '/security-advisor',
-    name: 'security-advisor',
-    component: SecurityAdvisor,
-    meta: {group: groups.security, icon: 'bi-shield-check', title: 'Security Advisor'}
-  },
-  {
     path: '/security-logs',
     name: 'security-logs',
     component: SecurityLogs,
     meta: {group: groups.security, icon: 'bi-shield-lock', title: 'Security Logs'}
   },
   {
+    path: '/security-advisor',
+    name: 'security-advisor',
+    component: SecurityAdvisor,
+    meta: {group: groups.security, icon: 'bi-shield-check', title: 'Security Advisor'}
+  },
+  {
     path: '/pentest',
     name: 'pentest',
     component: Pentesting,
     meta: {group: groups.security, icon: 'bi-shield-exclamation', title: 'Pentesting'}
+  },
+  {
+    path: '/vulnerabilities',
+    name: 'vulnerabilities',
+    component: Vulnerabilities,
+    meta: {group: groups.security, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
     path: '/scheduled',
@@ -253,12 +259,6 @@ export const routes = [
     name: 'architecture',
     component: Architecture,
     meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
-  },
-  {
-    path: '/vulnerabilities',
-    name: 'vulnerabilities',
-    component: Vulnerabilities,
-    meta: {group: groups.diagnostics, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
     path: '/devtools',

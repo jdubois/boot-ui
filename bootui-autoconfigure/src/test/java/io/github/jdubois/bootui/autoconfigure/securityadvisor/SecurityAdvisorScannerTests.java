@@ -10,15 +10,18 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.web.FilterChainProxy;
 
 class SecurityAdvisorScannerTests {
 
-    private static final int RULE_COUNT = 37;
+    private static final int RULE_COUNT = 41;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -43,7 +46,7 @@ class SecurityAdvisorScannerTests {
         SecurityAdvisorContext context = new SecurityAdvisorContext(
                 List.of(chain),
                 List.of(),
-                List.of(new CorsConfigModel("/**", List.of("*"), List.of(), Boolean.TRUE)),
+                List.of(new CorsConfigModel("/**", List.of("*"), List.of(), List.of(), List.of(), Boolean.TRUE)),
                 true,
                 List.of(),
                 false,
@@ -69,7 +72,6 @@ class SecurityAdvisorScannerTests {
                         "SEC-CSRF-001",
                         "SEC-SESSION-001",
                         "SEC-HEAD-002",
-                        "SEC-HEAD-005",
                         "SEC-CORS-002",
                         "SEC-CORS-003",
                         "SEC-ACT-001",
@@ -121,6 +123,95 @@ class SecurityAdvisorScannerTests {
     }
 
     @Test
+    void scanDoesNotReportBootUiActuatorDefaultsAsHostApplicationFindings() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextHolderFilter",
+                        "CsrfFilter",
+                        "HeaderWriterFilter",
+                        "BearerTokenAuthenticationFilter",
+                        "AuthorizationFilter"),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                List.of(
+                        "HstsHeaderWriter",
+                        "XFrameOptionsHeaderWriter",
+                        "XContentTypeOptionsHeaderWriter",
+                        "ContentSecurityPolicyHeaderWriter"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
+                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
+        environment.getPropertySources().addLast(bootUiActuatorDefaultsPropertySource());
+        ConfigurationPropertySources.attach(environment);
+        SecurityAdvisorContext context = new SecurityAdvisorContext(
+                List.of(chain),
+                List.of("org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder"),
+                List.of(),
+                false,
+                List.of(),
+                true,
+                false,
+                false,
+                false,
+                environment);
+        SecurityAdvisorScanner scanner = new SecurityAdvisorScanner(context, CLOCK);
+
+        SecurityAdvisorReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.violationsFound()).isZero();
+        assertThat(report.results()).isEmpty();
+    }
+
+    @Test
+    void scanReportsExplicitHostActuatorSettingsWhenBootUiDefaultsArePresent() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextHolderFilter",
+                        "CsrfFilter",
+                        "HeaderWriterFilter",
+                        "BearerTokenAuthenticationFilter",
+                        "AuthorizationFilter"),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                List.of(
+                        "HstsHeaderWriter",
+                        "XFrameOptionsHeaderWriter",
+                        "XContentTypeOptionsHeaderWriter",
+                        "ContentSecurityPolicyHeaderWriter"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
+                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui")
+                .withProperty("management.endpoints.web.exposure.include", "env,beans")
+                .withProperty("management.endpoint.health.show-details", "always");
+        environment.getPropertySources().addLast(bootUiActuatorDefaultsPropertySource());
+        ConfigurationPropertySources.attach(environment);
+        SecurityAdvisorContext context = new SecurityAdvisorContext(
+                List.of(chain),
+                List.of("org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder"),
+                List.of(),
+                false,
+                List.of(),
+                true,
+                false,
+                false,
+                false,
+                environment);
+        SecurityAdvisorScanner scanner = new SecurityAdvisorScanner(context, CLOCK);
+
+        SecurityAdvisorReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("SCANNED");
+        assertThat(report.results())
+                .extracting(SecurityAdvisorRuleResultDto::id)
+                .contains("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-004", "SEC-ACT-006");
+    }
+
+    @Test
     void scanReturnsStableDisabledReportWhenNoFilterChainProxyIsAvailable() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
         SecurityAdvisorScanner scanner = new SecurityAdvisorScanner(
@@ -138,9 +229,19 @@ class SecurityAdvisorScannerTests {
 
     @Test
     void initialReportDoesNotInspectConfigurationBeforeExplicitScan() {
-        FilterChainModel chain = new FilterChainModel(0, "any request", List.of("AuthorizationFilter"), null, null, List.of());
+        FilterChainModel chain =
+                new FilterChainModel(0, "any request", List.of("AuthorizationFilter"), null, null, List.of());
         SecurityAdvisorContext context = new SecurityAdvisorContext(
-                List.of(chain), List.of(), List.of(), false, List.of(), false, false, false, false, new MockEnvironment());
+                List.of(chain),
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                false,
+                false,
+                false,
+                new MockEnvironment());
         SecurityAdvisorScanner scanner = new SecurityAdvisorScanner(context, CLOCK);
 
         SecurityAdvisorReport report = scanner.initialReport();
@@ -156,5 +257,15 @@ class SecurityAdvisorScannerTests {
         assertThat(SecurityAdvisorRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
                 .doesNotHaveDuplicates();
+    }
+
+    private static MapPropertySource bootUiActuatorDefaultsPropertySource() {
+        return new MapPropertySource(
+                "bootUiActuatorEndpointDefaults",
+                Map.of(
+                        "management.endpoints.web.exposure.include",
+                        "health,info,beans,conditions,configprops,env,loggers,mappings,metrics,startup,scheduledtasks",
+                        "management.endpoint.health.show-details",
+                        "always"));
     }
 }

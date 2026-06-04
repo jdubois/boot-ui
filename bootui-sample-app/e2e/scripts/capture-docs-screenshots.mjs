@@ -43,7 +43,9 @@ const panelOrder = [
   ['liquibase', 'Liquibase'],
   ['spring-security', 'Spring Security'],
   ['security-logs', 'Security Logs'],
+  ['security-advisor', 'Security Advisor'],
   ['pentest', 'Pentesting'],
+  ['vulnerabilities', 'Vulnerabilities'],
   ['scheduled', 'Scheduled Tasks'],
   ['spring-cache', 'Spring Cache'],
   ['ai', 'AI Usage'],
@@ -52,7 +54,6 @@ const panelOrder = [
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
-  ['vulnerabilities', 'Vulnerabilities'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['copilot', 'Copilot'],
@@ -1536,6 +1537,92 @@ const hibernateAdvisor = {
   ]
 }
 
+const securityAdvisor = {
+  localOnly: true,
+  disclaimer:
+    "Heuristic Spring Security rules run against the host application's registered filter chains and security beans only. " +
+    "These checks are review prompts, not verdicts, and should be validated against the application's threat model.",
+  filterChains: [
+    'Or [PathPattern [/bootui], PathPattern [/bootui/**], PathPattern [/bootui/api], PathPattern [/bootui/api/**]]',
+    'Or [PathPattern [/admin/**], PathPattern [/api/secure]]',
+    'any request'
+  ],
+  filterChainsAnalyzed: 3,
+  rulesEvaluated: 41,
+  violationsFound: 5,
+  severityCounts: [
+    {severity: 'HIGH', count: 2},
+    {severity: 'MEDIUM', count: 1},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 1}
+  ],
+  scan: {
+    analyzer: 'BootUI Spring Security Advisor',
+    status: 'SCANNED',
+    message: 'Security Advisor completed against 3 filter chains.',
+    scannedAt: nowMillis - 36_000,
+    rulesEvaluated: 41,
+    filterChainsAnalyzed: 3,
+    violationsFound: 5
+  },
+  results: [
+    securityAdvisorResult(
+      'SEC-ACT-002',
+      'Sensitive actuator endpoints should not be exposed',
+      'Actuator exposure',
+      'HIGH',
+      'Detects high-value actuator endpoints (env, beans, configprops, heapdump, threaddump, shutdown) in the web exposure list.',
+      3,
+      [
+        "Actuator endpoint 'env' is web-exposed.",
+        "Actuator endpoint 'configprops' is web-exposed.",
+        "Actuator endpoint 'mappings' is web-exposed."
+      ],
+      'Remove sensitive endpoints from management.endpoints.web.exposure.include or protect them with authentication.'
+    ),
+    securityAdvisorResult(
+      'SEC-AUTHZ-002',
+      'Avoid blanket permitAll authorization',
+      'Authorization',
+      'HIGH',
+      'Detects a chain whose authorization grants every request to anonymous callers.',
+      1,
+      ['Chain #2 (any request) permits every request anonymously even though it configures authentication.'],
+      'Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for public endpoints.'
+    ),
+    securityAdvisorResult(
+      'SEC-ACT-003',
+      'Exposed actuator endpoints should be protected by a security chain',
+      'Actuator exposure',
+      'MEDIUM',
+      'Detects web-exposed actuator endpoints when no filter chain references /actuator.',
+      1,
+      ['Actuator endpoints are exposed at /actuator but no security filter chain matches that path.'],
+      'Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication.'
+    ),
+    securityAdvisorResult(
+      'SEC-AUTH-005',
+      'Avoid the auto-generated login page in production',
+      'Authentication',
+      'LOW',
+      "Detects the framework's DefaultLoginPageGeneratingFilter while a production profile is active.",
+      1,
+      ['Chain #2 (any request) serves the auto-generated Spring Security login page in production.'],
+      'Provide a custom login page via formLogin().loginPage(...) for production.'
+    ),
+    securityAdvisorResult(
+      'SEC-ACT-006',
+      'Sensitive actuator endpoints should use an isolated management port',
+      'Actuator exposure',
+      'INFO',
+      'Notes that sensitive actuator endpoints are exposed on the main application port.',
+      1,
+      ['Sensitive actuator endpoints are exposed but management.server.port is unset.'],
+      'Set management.server.port to a separate, network-restricted port.'
+    )
+  ]
+}
+
 const graalVm = {
   localOnly: true,
   disclaimer:
@@ -1968,7 +2055,9 @@ const screenshots = [
   ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
   ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
+  ['security-advisor', 'Security Advisor', 'bootui-security-advisor.png', waitForText('SEC-ACT-002')],
   ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
+  ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
@@ -1998,7 +2087,6 @@ const screenshots = [
     }
   ],
   ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
-  ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [
@@ -2526,6 +2614,8 @@ async function handleApiRoute(route) {
       filters: security.chains[1].filters
     })
   if (endpoint === 'security-logs') return fulfillJson(route, securityLogs)
+  if (endpoint === 'security-advisor') return fulfillJson(route, securityAdvisor)
+  if (endpoint === 'security-advisor/scan') return fulfillJson(route, securityAdvisor)
   if (endpoint === 'http-exchanges')
     return fulfillJson(
       route,
@@ -2708,6 +2798,30 @@ function hibernateAdvisorResult(
     sampleViolations,
     recommendation,
     learnMoreUrl: 'https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html'
+  }
+}
+
+function securityAdvisorResult(
+  id,
+  name,
+  category,
+  severity,
+  description,
+  violationCount,
+  sampleViolations,
+  recommendation
+) {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description,
+    status: 'VIOLATION',
+    violationCount,
+    sampleViolations,
+    recommendation,
+    learnMoreUrl: 'https://docs.spring.io/spring-security/reference/index.html'
   }
 }
 

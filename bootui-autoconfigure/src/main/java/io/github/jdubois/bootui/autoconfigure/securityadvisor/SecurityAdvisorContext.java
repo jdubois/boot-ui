@@ -4,7 +4,10 @@ import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorMod
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.FilterChainModel;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.PropertySource;
 
 /**
  * Read-only inputs handed to every Spring Security Advisor rule: the introspected filter chains and
@@ -21,6 +24,7 @@ record SecurityAdvisorContext(
         boolean methodSecurityAnnotationsPresent,
         boolean webSecurityConfigurerAdapterPresent,
         Environment environment) {
+    private static final String BOOTUI_ACTUATOR_DEFAULTS_PROPERTY_SOURCE = "bootUiActuatorEndpointDefaults";
 
     SecurityAdvisorContext {
         chains = List.copyOf(chains);
@@ -65,6 +69,40 @@ record SecurityAdvisorContext(
     boolean isPropertyFalse(String... keys) {
         String value = firstProperty(keys);
         return value != null && "false".equalsIgnoreCase(value);
+    }
+
+    String firstHostProperty(String... keys) {
+        if (!(environment instanceof ConfigurableEnvironment configurableEnvironment)) {
+            return firstProperty(keys);
+        }
+        for (String key : keys) {
+            String value = hostProperty(configurableEnvironment, key);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String hostProperty(ConfigurableEnvironment configurableEnvironment, String key) {
+        for (PropertySource<?> propertySource : configurableEnvironment.getPropertySources()) {
+            if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(propertySource)) {
+                continue;
+            }
+            Object value = propertySource.getProperty(key);
+            if (value == null) {
+                continue;
+            }
+            String text = value.toString().trim();
+            if (text.isBlank()) {
+                continue;
+            }
+            if (BOOTUI_ACTUATOR_DEFAULTS_PROPERTY_SOURCE.equals(propertySource.getName())) {
+                return null;
+            }
+            return text;
+        }
+        return null;
     }
 
     String[] activeProfiles() {

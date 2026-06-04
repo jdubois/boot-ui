@@ -287,17 +287,6 @@ meant to explain local security wiring without exposing credentials or replacing
 
 ![BootUI Spring Security panel](images/bootui-security.png)
 
-### Security Advisor
-
-The Security Advisor panel runs an explicit, read-only scan of the host application's registered Spring Security
-`SecurityFilterChain` beans and related security beans when Spring Security is on the classpath. It introspects the filter
-lists, simulates an anonymous authorization decision, and inspects security-relevant beans (`PasswordEncoder`,
-`CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties to flag common hardening gaps across authentication,
-authorization, CSRF, session management, transport/security headers, CORS, method security, actuator exposure, OAuth2
-resource-server validation, and configuration hygiene. The report is framed as a review prompt, not a verdict: it never
-intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
-[SECURITY-ADVISOR-CHECKS.md](SECURITY-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
-
 ### Security Logs
 
 The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
@@ -309,6 +298,19 @@ data before rendering. Responses are bounded by `bootui.security-logs.max-logs`,
 is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
 ![BootUI Security Logs panel](images/bootui-security-logs.png)
+
+### Security Advisor
+
+The Security Advisor panel runs an explicit, read-only scan of the host application's registered Spring Security
+`SecurityFilterChain` beans and related security beans when Spring Security is on the classpath. It introspects the filter
+lists, simulates an anonymous authorization decision, and inspects security-relevant beans (`PasswordEncoder`,
+`CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties to flag common hardening gaps across authentication,
+authorization, CSRF, session management, transport/security headers, CORS, method security, actuator exposure, OAuth2
+resource-server validation, and configuration hygiene. The report is framed as a review prompt, not a verdict: it never
+intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
+[SECURITY-ADVISOR-CHECKS.md](SECURITY-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
+
+![BootUI Security Advisor panel](images/bootui-security-advisor.png)
 
 ### Pentesting
 
@@ -326,6 +328,14 @@ new checks can be added without expanding the scanner's HTTP surface. See [PENTE
 full catalogue of checks and what each one inspects.
 
 ![BootUI Pentesting panel](images/bootui-pentesting.png)
+
+### Vulnerabilities
+
+The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
+vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
+ordered by severity first, with dependencies and advisories alphabetized within the same severity.
+
+![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
 
 ## Services
 
@@ -441,14 +451,6 @@ violating rules, sorted by severity and violation count. See
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
 
 ![BootUI Architecture panel](images/bootui-architecture.png)
-
-### Vulnerabilities
-
-The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
-vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
-ordered by severity first, with dependencies and advisories alphabetized within the same severity.
-
-![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
 
 ## Developer tools
 

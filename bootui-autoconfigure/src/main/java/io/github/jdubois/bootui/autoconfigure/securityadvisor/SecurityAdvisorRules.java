@@ -133,8 +133,8 @@ final class MissingPasswordEncoderRule extends AbstractSecurityAdvisorRule {
         if (!context.passwordEncoderTypes().isEmpty()) {
             return pass();
         }
-        return violation(List.of(
-                "A form-login or HTTP Basic chain is configured but no PasswordEncoder bean was found."));
+        return violation(
+                List.of("A form-login or HTTP Basic chain is configured but no PasswordEncoder bean was found."));
     }
 }
 
@@ -158,31 +158,34 @@ final class DefaultInMemoryUserRule extends AbstractSecurityAdvisorRule {
         if (name == null && password == null) {
             return pass();
         }
-        return violation(List.of(
-                "spring.security.user.* defines a static in-memory account; not suitable for shared or production use."));
+        return violation(
+                List.of(
+                        "spring.security.user.* defines a static in-memory account; not suitable for shared or production use."));
     }
 }
 
-final class RememberMeKeyRule extends AbstractSecurityAdvisorRule {
+final class DefaultLoginPageProductionRule extends AbstractSecurityAdvisorRule {
 
-    RememberMeKeyRule() {
+    DefaultLoginPageProductionRule() {
         super(new SecurityAdvisorRuleDefinition(
                 "SEC-AUTH-005",
-                "Remember-me must use a stable, secret key",
+                "Avoid the auto-generated login page in production",
                 SecurityAdvisorCategory.AUTHENTICATION,
-                "HIGH",
-                "Detects an active remember-me filter; a missing or hard-coded key lets attackers forge remember-me tokens.",
-                "Configure remember-me with a long, random key sourced from secure configuration, not a literal or the framework default.",
-                "https://docs.spring.io/spring-security/reference/servlet/authentication/rememberme.html"));
+                "LOW",
+                "Detects the framework's DefaultLoginPageGeneratingFilter while a production profile is active.",
+                "Provide a custom login page via formLogin().loginPage(...) for production so the unstyled default page (which advertises the Spring Security stack) is not served.",
+                "https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/form.html"));
     }
 
     @Override
     SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (chain.hasFilter("RememberMeAuthenticationFilter")) {
-                details.add(chain.describe()
-                        + " enables remember-me; verify a stable secret key is configured (the default key is regenerated on restart).");
+            if (chain.hasFilter("DefaultLoginPageGeneratingFilter")) {
+                details.add(chain.describe() + " serves the auto-generated Spring Security login page in production.");
             }
         }
         return violation(details);
@@ -267,12 +270,11 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityAdvisorRule 
         if (!anyDeterminable) {
             return skipped("Authorization decisions could not be simulated for any chain.");
         }
-        boolean allOpen = chains.stream()
-                .allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
+        boolean allOpen = chains.stream().allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
         boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasAuthenticationFilter);
         if (allOpen && !anyAuthentication) {
-            return violation(List.of(
-                    "All " + chains.size() + " security filter chains permit every request anonymously with no authentication mechanism."));
+            return violation(List.of("All " + chains.size()
+                    + " security filter chains permit every request anonymously with no authentication mechanism."));
         }
         return pass();
     }
@@ -281,14 +283,15 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityAdvisorRule 
 final class CatchAllChainOrderingRule extends AbstractSecurityAdvisorRule {
 
     CatchAllChainOrderingRule() {
-        super(new SecurityAdvisorRuleDefinition(
-                "SEC-AUTHZ-004",
-                "Catch-all filter chains should be ordered last",
-                SecurityAdvisorCategory.AUTHORIZATION,
-                "INFO",
-                "Detects a chain that matches any request placed before more specific chains, which then never run.",
-                "Give earlier chains an explicit securityMatcher and keep the catch-all (any request) chain last by @Order.",
-                "https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#_multiple_httpsecurity_instances"));
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-AUTHZ-004",
+                        "Catch-all filter chains should be ordered last",
+                        SecurityAdvisorCategory.AUTHORIZATION,
+                        "INFO",
+                        "Detects a chain that matches any request placed before more specific chains, which then never run.",
+                        "Give earlier chains an explicit securityMatcher and keep the catch-all (any request) chain last by @Order.",
+                        "https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#_multiple_httpsecurity_instances"));
     }
 
     @Override
@@ -301,7 +304,8 @@ final class CatchAllChainOrderingRule extends AbstractSecurityAdvisorRule {
         for (int i = 0; i < chains.size() - 1; i++) {
             FilterChainModel chain = chains.get(i);
             if (chain.matchesAnyRequest()) {
-                details.add(chain.describe() + " matches any request but is not the last chain; later chains are unreachable.");
+                details.add(chain.describe()
+                        + " matches any request but is not the last chain; later chains are unreachable.");
             }
         }
         return violation(details);
@@ -422,8 +426,8 @@ final class SessionCookieSecureRule extends AbstractSecurityAdvisorRule {
             return violation(List.of("server.servlet.session.cookie.secure is explicitly false."));
         }
         if (value == null && context.isProductionProfileActive()) {
-            return violation(List.of(
-                    "server.servlet.session.cookie.secure is not set while a production profile is active."));
+            return violation(
+                    List.of("server.servlet.session.cookie.secure is not set while a production profile is active."));
         }
         return pass();
     }
@@ -503,6 +507,32 @@ final class SessionTimeoutRule extends AbstractSecurityAdvisorRule {
     }
 }
 
+final class BearerTokenStatefulRule extends AbstractSecurityAdvisorRule {
+
+    BearerTokenStatefulRule() {
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-SESSION-006",
+                        "Bearer token authentication chains should be stateless",
+                        SecurityAdvisorCategory.SESSION,
+                        "HIGH",
+                        "Detects a chain with both a Bearer token filter (stateless) and session management filters (stateful).",
+                        "Configure sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS) to avoid creating HTTP sessions for REST API calls.",
+                        "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-stateless"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.hasFilterContaining("BearerTokenAuthenticationFilter") && chain.isStateful()) {
+                details.add(chain.describe() + " accepts Bearer tokens but also maintains stateful sessions.");
+            }
+        }
+        return violation(details);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Transport & security headers
 // ---------------------------------------------------------------------------
@@ -535,14 +565,15 @@ final class HstsHeaderRule extends AbstractSecurityAdvisorRule {
 final class FrameOptionsRule extends AbstractSecurityAdvisorRule {
 
     FrameOptionsRule() {
-        super(new SecurityAdvisorRuleDefinition(
-                "SEC-HEAD-002",
-                "X-Frame-Options (clickjacking protection) should stay enabled",
-                SecurityAdvisorCategory.HEADERS,
-                "HIGH",
-                "Detects chains whose header writers omit X-Frame-Options / frame-ancestors protection.",
-                "Keep the default XFrameOptionsHeaderWriter (DENY/SAMEORIGIN) or a frame-ancestors CSP instead of disabling frame options globally.",
-                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-frame-options"));
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-HEAD-002",
+                        "X-Frame-Options (clickjacking protection) should stay enabled",
+                        SecurityAdvisorCategory.HEADERS,
+                        "HIGH",
+                        "Detects chains whose header writers omit X-Frame-Options / frame-ancestors protection.",
+                        "Keep the default XFrameOptionsHeaderWriter (DENY/SAMEORIGIN) or a frame-ancestors CSP instead of disabling frame options globally.",
+                        "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-frame-options"));
     }
 
     @Override
@@ -587,14 +618,15 @@ final class ContentSecurityPolicyRule extends AbstractSecurityAdvisorRule {
 final class ContentTypeOptionsRule extends AbstractSecurityAdvisorRule {
 
     ContentTypeOptionsRule() {
-        super(new SecurityAdvisorRuleDefinition(
-                "SEC-HEAD-004",
-                "X-Content-Type-Options should stay enabled",
-                SecurityAdvisorCategory.HEADERS,
-                "LOW",
-                "Detects chains whose header writers omit X-Content-Type-Options: nosniff.",
-                "Keep the default XContentTypeOptionsHeaderWriter so browsers do not MIME-sniff responses.",
-                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-content-type-options"));
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-HEAD-004",
+                        "X-Content-Type-Options should stay enabled",
+                        SecurityAdvisorCategory.HEADERS,
+                        "LOW",
+                        "Detects chains whose header writers omit X-Content-Type-Options: nosniff.",
+                        "Keep the default XContentTypeOptionsHeaderWriter so browsers do not MIME-sniff responses.",
+                        "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-content-type-options"));
     }
 
     @Override
@@ -603,31 +635,6 @@ final class ContentTypeOptionsRule extends AbstractSecurityAdvisorRule {
         for (FilterChainModel chain : context.chains()) {
             if (chain.headerWriterFilterPresent() && !chain.hasHeaderWriterContaining("XContentTypeOptions")) {
                 details.add(chain.describe() + " does not emit X-Content-Type-Options: nosniff.");
-            }
-        }
-        return violation(details);
-    }
-}
-
-final class HttpBasicChannelSecurityRule extends AbstractSecurityAdvisorRule {
-
-    HttpBasicChannelSecurityRule() {
-        super(new SecurityAdvisorRuleDefinition(
-                "SEC-HEAD-005",
-                "HTTP Basic should be confined to HTTPS",
-                SecurityAdvisorCategory.HEADERS,
-                "MEDIUM",
-                "Detects HTTP Basic chains with no channel security (requiresSecure) to force TLS.",
-                "Terminate TLS in front of the app and/or add requiresChannel().anyRequest().requiresSecure() so Basic credentials never travel over plaintext HTTP.",
-                "https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/basic.html"));
-    }
-
-    @Override
-    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            if (chain.hasFilter("BasicAuthenticationFilter") && !chain.hasFilter("ChannelProcessingFilter")) {
-                details.add(chain.describe() + " offers HTTP Basic without channel security to enforce HTTPS.");
             }
         }
         return violation(details);
@@ -715,6 +722,37 @@ final class CorsNotInSecurityChainRule extends AbstractSecurityAdvisorRule {
     }
 }
 
+final class CorsWildcardMethodsHeadersRule extends AbstractSecurityAdvisorRule {
+
+    CorsWildcardMethodsHeadersRule() {
+        super(new SecurityAdvisorRuleDefinition(
+                "SEC-CORS-004",
+                "CORS should not allow all methods or headers with credentials",
+                SecurityAdvisorCategory.CORS,
+                "MEDIUM",
+                "Detects a CorsConfiguration that allows the * wildcard for methods or headers together with allowCredentials=true.",
+                "Enumerate the exact methods and headers the API needs instead of \"*\" when credentials are allowed, so cross-site callers cannot send arbitrary authenticated requests.",
+                "https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (CorsConfigModel cors : context.corsConfigs()) {
+            if (!cors.allowsCredentials()) {
+                continue;
+            }
+            if (cors.allowsWildcardMethod()) {
+                details.add(cors.describe() + " allows all HTTP methods (*) with allowCredentials=true.");
+            }
+            if (cors.allowsWildcardHeader()) {
+                details.add(cors.describe() + " allows all request headers (*) with allowCredentials=true.");
+            }
+        }
+        return violation(details);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Method security
 // ---------------------------------------------------------------------------
@@ -735,32 +773,11 @@ final class MethodSecurityAnnotationsIgnoredRule extends AbstractSecurityAdvisor
     @Override
     SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
         if (context.methodSecurityAnnotationsPresent() && !context.methodSecurityEnabled()) {
-            return violation(List.of(
-                    "Security method annotations were found but method security is not enabled; the annotations are silently ignored."));
+            return violation(
+                    List.of(
+                            "Security method annotations were found but method security is not enabled; the annotations are silently ignored."));
         }
         return pass();
-    }
-}
-
-final class NoMethodSecurityRule extends AbstractSecurityAdvisorRule {
-
-    NoMethodSecurityRule() {
-        super(new SecurityAdvisorRuleDefinition(
-                "SEC-METHOD-002",
-                "Consider service-layer (method) security",
-                SecurityAdvisorCategory.METHOD_SECURITY,
-                "INFO",
-                "Notes when only web-layer authorization is configured and method security is not enabled.",
-                "Enable @EnableMethodSecurity and annotate sensitive service methods so business logic is protected independently of URL mapping.",
-                "https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html"));
-    }
-
-    @Override
-    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
-        if (context.methodSecurityEnabled() || context.methodSecurityAnnotationsPresent()) {
-            return pass();
-        }
-        return violation(List.of("Method security is not enabled; authorization relies solely on the web layer."));
     }
 }
 
@@ -768,7 +785,7 @@ final class LegacyGlobalMethodSecurityRule extends AbstractSecurityAdvisorRule {
 
     LegacyGlobalMethodSecurityRule() {
         super(new SecurityAdvisorRuleDefinition(
-                "SEC-METHOD-003",
+                "SEC-METHOD-002",
                 "Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity",
                 SecurityAdvisorCategory.METHOD_SECURITY,
                 "LOW",
@@ -805,7 +822,7 @@ final class ActuatorWildcardExposureRule extends AbstractSecurityAdvisorRule {
 
     @Override
     SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
-        String include = context.firstProperty("management.endpoints.web.exposure.include");
+        String include = context.firstHostProperty("management.endpoints.web.exposure.include");
         if (include != null && include.trim().equals("*")) {
             return violation(List.of("management.endpoints.web.exposure.include=* exposes all actuator endpoints."));
         }
@@ -831,7 +848,7 @@ final class ActuatorSensitiveExposureRule extends AbstractSecurityAdvisorRule {
 
     @Override
     SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
-        String include = context.firstProperty("management.endpoints.web.exposure.include");
+        String include = context.firstHostProperty("management.endpoints.web.exposure.include");
         if (include == null) {
             return pass();
         }
@@ -866,7 +883,7 @@ final class ActuatorUnprotectedRule extends AbstractSecurityAdvisorRule {
 
     @Override
     SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
-        String include = context.firstProperty("management.endpoints.web.exposure.include");
+        String include = context.firstHostProperty("management.endpoints.web.exposure.include");
         if (include == null) {
             return pass();
         }
@@ -888,6 +905,89 @@ final class ActuatorUnprotectedRule extends AbstractSecurityAdvisorRule {
         }
         return violation(List.of(
                 "Actuator endpoints are exposed at " + basePath + " but no security filter chain matches that path."));
+    }
+}
+
+final class HealthDetailsExposureRule extends AbstractSecurityAdvisorRule {
+
+    HealthDetailsExposureRule() {
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-ACT-004",
+                        "Actuator health details should not be exposed unconditionally",
+                        SecurityAdvisorCategory.ACTUATOR,
+                        "HIGH",
+                        "Detects management.endpoint.health.show-details=always, which leaks infrastructure details to anonymous callers.",
+                        "Change management.endpoint.health.show-details to 'when-authorized' (the default) or ensure the /health endpoint is strictly authenticated.",
+                        "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.health.show-details"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        String showDetails = context.firstHostProperty("management.endpoint.health.show-details");
+        if ("always".equalsIgnoreCase(showDetails)) {
+            return violation(List.of("management.endpoint.health.show-details is set to 'always'."));
+        }
+        return pass();
+    }
+}
+
+final class ShutdownEndpointEnabledRule extends AbstractSecurityAdvisorRule {
+
+    ShutdownEndpointEnabledRule() {
+        super(new SecurityAdvisorRuleDefinition(
+                "SEC-ACT-005",
+                "The actuator shutdown endpoint should not be enabled",
+                SecurityAdvisorCategory.ACTUATOR,
+                "HIGH",
+                "Detects management.endpoint.shutdown.enabled=true, which lets a caller stop the application (denial of service) if reachable.",
+                "Keep the shutdown endpoint disabled (the default); if you truly need it, restrict it to a secured management port behind strict authentication.",
+                "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.enabling"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        if (context.isPropertyTrue("management.endpoint.shutdown.enabled")) {
+            return violation(List.of("management.endpoint.shutdown.enabled=true exposes application shutdown."));
+        }
+        return pass();
+    }
+}
+
+final class ManagementPortIsolationRule extends AbstractSecurityAdvisorRule {
+
+    ManagementPortIsolationRule() {
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-ACT-006",
+                        "Sensitive actuator endpoints should use an isolated management port",
+                        SecurityAdvisorCategory.ACTUATOR,
+                        "INFO",
+                        "Notes that sensitive actuator endpoints are exposed on the main application port because management.server.port is unset.",
+                        "Set management.server.port to a separate, network-restricted port so actuator endpoints are not reachable on the public application port.",
+                        "https://docs.spring.io/spring-boot/reference/actuator/monitoring.html#actuator.monitoring.customizing-management-server-port"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        String include = context.firstHostProperty("management.endpoints.web.exposure.include");
+        if (include == null) {
+            return pass();
+        }
+        String normalized = include.toLowerCase(Locale.ROOT).trim();
+        boolean exposesBeyondBasics = normalized.equals("*")
+                || List.of(normalized.split(",")).stream()
+                        .map(String::trim)
+                        .anyMatch(token -> !token.isEmpty() && !token.equals("health") && !token.equals("info"));
+        if (!exposesBeyondBasics) {
+            return pass();
+        }
+        if (context.firstProperty("management.server.port") != null) {
+            return pass();
+        }
+        return violation(
+                List.of(
+                        "Sensitive actuator endpoints are exposed but management.server.port is unset, so they share the application port."));
     }
 }
 
@@ -932,14 +1032,15 @@ final class ResourceServerValidationRule extends AbstractSecurityAdvisorRule {
 final class JwtAudienceValidationRule extends AbstractSecurityAdvisorRule {
 
     JwtAudienceValidationRule() {
-        super(new SecurityAdvisorRuleDefinition(
-                "SEC-OAUTH-002",
-                "Validate the JWT audience claim",
-                SecurityAdvisorCategory.OAUTH2,
-                "MEDIUM",
-                "Notes that issuer-based resource servers do not validate the aud claim unless a custom validator is added.",
-                "Add an audience OAuth2TokenValidator to the JwtDecoder so tokens minted for other resource servers are rejected.",
-                "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-validation"));
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-OAUTH-002",
+                        "Validate the JWT audience claim",
+                        SecurityAdvisorCategory.OAUTH2,
+                        "MEDIUM",
+                        "Notes that issuer-based resource servers do not validate the aud claim unless a custom validator is added.",
+                        "Add an audience OAuth2TokenValidator to the JwtDecoder so tokens minted for other resource servers are rejected.",
+                        "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-validation"));
     }
 
     @Override
@@ -955,8 +1056,9 @@ final class JwtAudienceValidationRule extends AbstractSecurityAdvisorRule {
         if (audiences != null) {
             return pass();
         }
-        return violation(List.of(
-                "Resource server uses issuer/JWK validation; confirm a custom audience (aud) validator is registered."));
+        return violation(
+                List.of(
+                        "Resource server uses issuer/JWK validation; confirm a custom audience (aud) validator is registered."));
     }
 }
 
@@ -1080,5 +1182,35 @@ final class WebIgnoringRule extends AbstractSecurityAdvisorRule {
     SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
         return skipped(
                 "web.ignoring() paths bypass the filter chain and are not visible to the advisor; review them manually.");
+    }
+}
+
+final class ErrorResponseDisclosureRule extends AbstractSecurityAdvisorRule {
+
+    ErrorResponseDisclosureRule() {
+        super(new SecurityAdvisorRuleDefinition(
+                "SEC-CONFIG-005",
+                "Error responses should not leak stack traces or internal messages",
+                SecurityAdvisorCategory.CONFIGURATION,
+                "MEDIUM",
+                "Detects server.error.include-stacktrace / include-message / include-binding-errors set to 'always', which exposes internal details in error responses.",
+                "Use 'never' (or 'on_param') for include-stacktrace and keep include-message / include-binding-errors at 'never' in production to avoid information disclosure.",
+                "https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        if ("always".equalsIgnoreCase(context.firstProperty("server.error.include-stacktrace"))) {
+            details.add("server.error.include-stacktrace=always exposes stack traces in error responses.");
+        }
+        if ("always".equalsIgnoreCase(context.firstProperty("server.error.include-message"))) {
+            details.add("server.error.include-message=always exposes exception messages in error responses.");
+        }
+        if ("always".equalsIgnoreCase(context.firstProperty("server.error.include-binding-errors"))) {
+            details.add(
+                    "server.error.include-binding-errors=always exposes binding/validation details in error responses.");
+        }
+        return violation(details);
     }
 }

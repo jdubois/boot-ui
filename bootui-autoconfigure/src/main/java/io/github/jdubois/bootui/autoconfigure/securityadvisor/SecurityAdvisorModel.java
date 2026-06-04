@@ -101,15 +101,27 @@ final class SecurityAdvisorModel {
             String pattern,
             List<String> allowedOrigins,
             List<String> allowedOriginPatterns,
+            List<String> allowedMethods,
+            List<String> allowedHeaders,
             Boolean allowCredentials) {
 
         CorsConfigModel {
             allowedOrigins = allowedOrigins == null ? List.of() : List.copyOf(allowedOrigins);
             allowedOriginPatterns = allowedOriginPatterns == null ? List.of() : List.copyOf(allowedOriginPatterns);
+            allowedMethods = allowedMethods == null ? List.of() : List.copyOf(allowedMethods);
+            allowedHeaders = allowedHeaders == null ? List.of() : List.copyOf(allowedHeaders);
         }
 
         boolean allowsWildcardOrigin() {
             return allowedOrigins.contains("*") || allowedOriginPatterns.contains("*");
+        }
+
+        boolean allowsWildcardMethod() {
+            return allowedMethods.contains("*");
+        }
+
+        boolean allowsWildcardHeader() {
+            return allowedHeaders.contains("*");
         }
 
         boolean allowsCredentials() {
