@@ -71,7 +71,6 @@ Require-Command docker
 
 $hash = Get-StableHash -Value $RootDirectory
 $AppPort = Resolve-Port -Name "BOOTUI_PORT" -Value $env:BOOTUI_PORT -Default (10000 + ($hash % 10000))
-$OllamaPort = Resolve-Port -Name "BOOTUI_OLLAMA_PORT" -Value $env:BOOTUI_OLLAMA_PORT -Default (30000 + ($hash % 10000))
 $ComposeProjectName = if ($env:BOOTUI_COMPOSE_PROJECT_NAME) {
     $env:BOOTUI_COMPOSE_PROJECT_NAME
 } elseif ($env:COMPOSE_PROJECT_NAME) {
@@ -80,14 +79,12 @@ $ComposeProjectName = if ($env:BOOTUI_COMPOSE_PROJECT_NAME) {
     "bootui-$hash"
 }
 
-$env:BOOTUI_OLLAMA_PORT = [string] $OllamaPort
 $env:COMPOSE_PROJECT_NAME = $ComposeProjectName
 
 Set-Location -LiteralPath $RootDirectory
 
 Write-Host "Using Maven repository: $MavenRepository"
 Write-Host "Using Docker Compose project: $ComposeProjectName"
-Write-Host "Using Ollama port: $OllamaPort"
 Write-Host "Building BootUI with tests skipped..."
 
 Invoke-Native -FilePath $MavenWrapper -Arguments @(
@@ -108,5 +105,5 @@ Invoke-Native -FilePath $MavenWrapper -Arguments @(
     "bootui-sample-app",
     "spring-boot:run",
     "-Dspring-boot.run.profiles=dev",
-    "-Dspring-boot.run.arguments=--server.port=$AppPort --spring.ai.ollama.base-url=http://localhost:$OllamaPort"
+    "-Dspring-boot.run.arguments=--server.port=$AppPort"
 )
