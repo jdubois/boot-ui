@@ -525,7 +525,7 @@ class BootUiSampleApplicationIntegrationTests {
             assertThat(dto.get("currentVersion")).isEqualTo("2");
             assertThat(((Number) dto.get("applied")).intValue()).isGreaterThanOrEqualTo(2);
             assertThat(((Number) dto.get("pending")).intValue()).isGreaterThanOrEqualTo(2);
-            assertThat(dto.get("cleanEnabled")).isEqualTo(true);
+            assertThat(dto.get("cleanEnabled")).isEqualTo(false);
             assertThat((Iterable<?>) dto.get("migrations")).anySatisfy(migration -> {
                 Map<?, ?> entry = (Map<?, ?>) migration;
                 assertThat(entry.get("version")).isEqualTo("3");
@@ -536,21 +536,28 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
-    void liquibaseEndpointListsExecutedInventoryBaseChangeSets() {
+    void liquibaseEndpointListsAppliedAndPendingInventoryChangeSets() {
         ResponseEntity<Map> response = getMap("/bootui/api/liquibase/changesets");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
         assertThat(body).isNotNull();
         assertThat(body.get("liquibasePresent")).isEqualTo(true);
-        assertThat(((Number) body.get("total")).intValue()).isEqualTo(2);
+        assertThat(((Number) body.get("total")).intValue()).isEqualTo(4);
         assertThat((Iterable<?>) body.get("databases")).anySatisfy(database -> {
             Map<?, ?> dto = (Map<?, ?>) database;
+            assertThat(((Number) dto.get("applied")).intValue()).isEqualTo(2);
+            assertThat(((Number) dto.get("pending")).intValue()).isEqualTo(2);
             assertThat(dto.get("updateEnabled")).isEqualTo(true);
             assertThat((Iterable<?>) dto.get("changeSets")).anySatisfy(changeSet -> {
                 Map<?, ?> entry = (Map<?, ?>) changeSet;
                 assertThat(entry.get("author")).isEqualTo("bootui");
                 assertThat(entry.get("execType")).isEqualTo("EXECUTED");
+            });
+            assertThat((Iterable<?>) dto.get("changeSets")).anySatisfy(changeSet -> {
+                Map<?, ?> entry = (Map<?, ?>) changeSet;
+                assertThat(entry.get("id")).isEqualTo("3");
+                assertThat(entry.get("execType")).isEqualTo("PENDING");
             });
         });
     }

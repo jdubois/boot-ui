@@ -22,6 +22,7 @@ import liquibase.LabelExpression;
 import liquibase.Liquibase;
 import liquibase.Scope;
 import liquibase.analytics.configuration.AnalyticsArgs;
+import liquibase.changelog.ChangeSet;
 import liquibase.changelog.RanChangeSet;
 import liquibase.changelog.StandardChangeLogHistoryService;
 import liquibase.database.Database;
@@ -32,6 +33,8 @@ import liquibase.exception.LiquibaseException;
 import liquibase.integration.IntegrationDetails;
 import liquibase.integration.spring.SpringLiquibase;
 import liquibase.ui.UIServiceEnum;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +62,7 @@ public class LiquibaseController {
 
     private static final String CONFIRMATION_REQUIRED =
             "Action requires confirm=true because it mutates the application database.";
+    private static final Logger log = LoggerFactory.getLogger(LiquibaseController.class);
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
     private final LiquibaseActionExecutor actionExecutor;
@@ -79,10 +83,17 @@ public class LiquibaseController {
         DatabaseFactory factory = DatabaseFactory.getInstance();
         List<LiquibaseDatabaseDto> databases = new ArrayList<>();
         for (LiquibaseEntry entry : discover()) {
-            List<LiquibaseChangeSetDto> changeSets = readChangeSets(entry.liquibase(), factory);
+            List<LiquibaseChangeSetDto> appliedChangeSets = readAppliedChangeSets(entry.liquibase(), factory);
+            List<LiquibaseChangeSetDto> pendingChangeSets = readPendingChangeSets(entry.beanName(), entry.liquibase());
+            List<LiquibaseChangeSetDto> changeSets =
+                    new ArrayList<>(appliedChangeSets.size() + pendingChangeSets.size());
+            changeSets.addAll(appliedChangeSets);
+            changeSets.addAll(pendingChangeSets);
             String updateDisabledReason = updateDisabledReason(entry.liquibase());
             databases.add(new LiquibaseDatabaseDto(
                     entry.beanName(),
+                    appliedChangeSets.size(),
+                    pendingChangeSets.size(),
                     changeSets.size(),
                     changeSets,
                     updateDisabledReason == null,
@@ -133,7 +144,7 @@ public class LiquibaseController {
         return entries;
     }
 
-    private List<LiquibaseChangeSetDto> readChangeSets(SpringLiquibase liquibase, DatabaseFactory factory) {
+    private List<LiquibaseChangeSetDto> readAppliedChangeSets(SpringLiquibase liquibase, DatabaseFactory factory) {
         try {
             DataSource dataSource = liquibase.getDataSource();
             if (dataSource == null) {
@@ -168,6 +179,56 @@ public class LiquibaseController {
         } catch (Exception ex) {
             // Fail closed for this bean: an inaccessible history table yields an empty list.
             return List.of();
+        }
+    }
+
+    private List<LiquibaseChangeSetDto> readPendingChangeSets(String beanName, SpringLiquibase source) {
+        if (updateDisabledReason(source) != null) {
+            return List.of();
+        }
+        try {
+            return Scope.child(
+                    DefaultLiquibaseActionExecutor.scopeVars(source),
+                    () -> readPendingChangeSetsInScope(beanName, source));
+        } catch (Exception ex) {
+            log.debug("Could not read pending Liquibase change sets for bean '{}'.", beanName, ex);
+            return List.of();
+        }
+    }
+
+    private List<LiquibaseChangeSetDto> readPendingChangeSetsInScope(String beanName, SpringLiquibase source)
+            throws Exception {
+        Connection connection = null;
+        Liquibase liquibase = null;
+        try {
+            connection = source.getDataSource().getConnection();
+            BootUiSpringLiquibase runner =
+                    BootUiSpringLiquibase.from(source, DefaultLiquibaseActionExecutor.changeLogParameters(source));
+            liquibase = runner.create(connection);
+            Contexts contexts = new Contexts(source.getContexts());
+            LabelExpression labelExpression = new LabelExpression(source.getLabelFilter());
+            List<LiquibaseChangeSetDto> changeSets = new ArrayList<>();
+            for (ChangeSet changeSet : liquibase.listUnrunChangeSets(contexts, labelExpression)) {
+                changeSets.add(toPendingChangeSetDto(changeSet));
+            }
+            return changeSets;
+        } finally {
+            if (liquibase != null) {
+                try {
+                    liquibase.close();
+                } catch (LiquibaseException ex) {
+                    log.debug("Could not close Liquibase after reading pending change sets.", ex);
+                }
+            } else if (connection != null) {
+                try {
+                    connection.close();
+                } catch (SQLException ex) {
+                    log.debug(
+                            "Could not close JDBC connection after reading pending Liquibase change sets for bean '{}'.",
+                            beanName,
+                            ex);
+                }
+            }
         }
     }
 
@@ -226,6 +287,27 @@ public class LiquibaseController {
                         : List.copyOf(changeSet.getLabels().getLabels()));
     }
 
+    private LiquibaseChangeSetDto toPendingChangeSetDto(ChangeSet changeSet) {
+        return new LiquibaseChangeSetDto(
+                changeSet.getId(),
+                changeSet.getAuthor(),
+                changeSet.getFilePath(),
+                changeSet.getDescription(),
+                changeSet.getComments(),
+                "PENDING",
+                null,
+                null,
+                null,
+                null,
+                null,
+                changeSet.getContextFilter() == null
+                        ? List.of()
+                        : List.copyOf(changeSet.getContextFilter().getContexts()),
+                changeSet.getLabels() == null
+                        ? List.of()
+                        : List.copyOf(changeSet.getLabels().getLabels()));
+    }
+
     @Nullable
     private String nullSafeToInstant(@Nullable java.util.Date date) {
         return date == null ? null : Instant.ofEpochMilli(date.getTime()).toString();
@@ -277,7 +359,7 @@ public class LiquibaseController {
             }
         }
 
-        private Map<String, Object> scopeVars(SpringLiquibase source) throws Exception {
+        private static Map<String, Object> scopeVars(SpringLiquibase source) throws Exception {
             Map<String, Object> scopeVars = new HashMap<>();
             UIServiceEnum uiService = source.getUiService() == null ? UIServiceEnum.LOGGER : source.getUiService();
             scopeVars.put(
@@ -294,7 +376,7 @@ public class LiquibaseController {
             return scopeVars;
         }
 
-        private Map<String, String> changeLogParameters(SpringLiquibase source) throws LiquibaseException {
+        private static Map<String, String> changeLogParameters(SpringLiquibase source) throws LiquibaseException {
             try {
                 Field field = SpringLiquibase.class.getDeclaredField("parameters");
                 field.setAccessible(true);

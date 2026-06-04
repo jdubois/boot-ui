@@ -212,10 +212,10 @@ or no `Flyway` beans are present.
 
 ### Liquibase
 
-The Liquibase panel shows change sets for each `SpringLiquibase` bean in the context. It reads the change-log history that
-Liquibase recorded and lists, per database, the executed change sets (id, author, change-log, description, comments,
-execution type, date executed, order executed, checksum, tag, deployment id, contexts, and labels). Multiple or named
-datasources appear independently.
+The Liquibase panel shows change sets for each `SpringLiquibase` bean in the context. It reads the change-log history and
+configured changelog, then lists applied and pending change sets per database (id, author, change-log, description,
+comments, execution type, date executed, order executed, checksum, tag, deployment id, contexts, and labels). Multiple or
+named datasources appear independently.
 
 The panel also exposes a confirmation-gated `update` action that applies pending change sets. It is available by default
 for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`. The panel

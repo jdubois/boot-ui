@@ -7,6 +7,8 @@ import java.util.List;
  */
 public record LiquibaseDatabaseDto(
         String name,
+        int applied,
+        int pending,
         int total,
         List<LiquibaseChangeSetDto> changeSets,
         boolean updateEnabled,

@@ -697,18 +697,18 @@ Acceptance criteria:
 
 ### 5.17.2 Liquibase Panel
 
-Purpose: answer "Which Liquibase-managed databases exist, which change sets have been executed, and can I explicitly
-apply pending change sets?"
+Purpose: answer "Which Liquibase-managed databases exist, which change sets have been applied or are pending, and can I
+explicitly apply pending change sets?"
 
 Data sources:
 
 - `SpringLiquibase` beans discovered in the application context.
-- Each bean's Liquibase change-log history (id, author, change-log, description, comments, execution type, date executed,
-  order executed, checksum, tag, deployment id, contexts, labels).
+- Each bean's configured Liquibase changelog and recorded change-log history (id, author, change-log, description,
+  comments, execution type, date executed, order executed, checksum, tag, deployment id, contexts, labels).
 
 Features:
 
-- List each `SpringLiquibase` bean as a database, with its executed change sets.
+- List each `SpringLiquibase` bean as a database, with applied and pending change-set counts.
 - For each change set, show id, author, change-log, description, comments, execution type, date executed, order executed,
   checksum, tag, deployment id, contexts, and labels.
 - Allow a confirmed `update` action unless the app or Liquibase panel is read-only.
@@ -721,7 +721,7 @@ Acceptance criteria:
 
 - When Liquibase is not on the classpath, the API endpoint is not registered.
 - When Liquibase is present but no `SpringLiquibase` beans exist, the panel shows a clear empty state.
-- Opening the panel only reads already-recorded change-set history; no Liquibase command is executed as a side effect.
+- Opening the panel only reads changelog and history metadata; no Liquibase update command is executed as a side effect.
 - Mutating Liquibase actions require browser confirmation and a non-read-only app and panel.
 
 ### 5.18 Spring Cache Panel
@@ -1006,7 +1006,7 @@ Initial endpoints:
 | `/bootui/api/flyway/migrations`         | GET    | Flyway migration state and action availability per database                |
 | `/bootui/api/flyway/migrate`            | POST   | Run pending Flyway migrations only when confirmed and not read-only        |
 | `/bootui/api/flyway/clean`              | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, and not read-only |
-| `/bootui/api/liquibase/changesets`      | GET    | Executed Liquibase change sets and action availability per database        |
+| `/bootui/api/liquibase/changesets`      | GET    | Applied/pending Liquibase change sets and action availability per database |
 | `/bootui/api/liquibase/update`          | POST   | Apply pending Liquibase change sets only when confirmed and not read-only  |
 | `/bootui/api/spring-cache`              | GET    | Spring Cache managers, caches, metrics, and annotation operations         |
 | `/bootui/api/spring-cache/clear`        | POST   | Clear one or all known caches only when explicitly enabled and confirmed  |

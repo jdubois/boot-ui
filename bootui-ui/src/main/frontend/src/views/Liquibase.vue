@@ -90,6 +90,7 @@ const databases = computed(() => {
 const execClass = (execType) => {
   const s = (execType || '').toUpperCase()
   if (s === 'EXECUTED' || s === 'RERAN') return 'bg-success'
+  if (s === 'PENDING') return 'bg-warning text-dark'
   if (s === 'FAILED') return 'bg-danger'
   if (s === 'SKIPPED') return 'bg-secondary'
   if (s === 'MARK_RAN') return 'bg-info text-dark'
@@ -141,7 +142,10 @@ onMounted(load)
           <span>
             <i class="bi bi-database me-1"></i><code>{{ db.name }}</code>
           </span>
-          <span class="badge bg-success">{{ db.total }} executed</span>
+          <span>
+            <span class="badge bg-success me-1">{{ db.applied }} applied</span>
+            <span v-if="db.pending > 0" class="badge bg-warning text-dark">{{ db.pending }} pending</span>
+          </span>
         </div>
         <div class="card-body border-bottom">
           <div class="d-flex flex-wrap gap-2">
@@ -173,7 +177,7 @@ onMounted(load)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in db.changeSets" :key="c.deploymentId + '-' + c.id + '-' + c.author">
+              <tr v-for="c in db.changeSets" :key="c.changeLog + '-' + c.id + '-' + c.author + '-' + c.execType">
                 <td class="small text-muted">{{ c.orderExecuted != null ? c.orderExecuted : '—' }}</td>
                 <td>
                   <code>{{ c.id }}</code>
