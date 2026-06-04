@@ -5,6 +5,13 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Auto-configured an in-memory Spring Boot `AuditEventRepository` for Security Logs when BootUI is active, audit events are
+  enabled, and the host app has not provided its own repository.
+
 ## [0.4.0] - 2026-06-03
 
 Fourth BootUI release, focused on new local runtime/security diagnostics, native-image readiness tooling, and the

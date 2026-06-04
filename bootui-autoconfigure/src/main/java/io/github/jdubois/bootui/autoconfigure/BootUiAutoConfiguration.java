@@ -16,6 +16,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
+import org.springframework.boot.actuate.audit.AuditEventRepository;
+import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesProperties;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
@@ -51,6 +53,7 @@ import org.springframework.core.env.Environment;
 @AutoConfigureBefore(
         name = {
             "org.springframework.boot.micrometer.tracing.opentelemetry.autoconfigure.OpenTelemetryTracingAutoConfiguration",
+            "org.springframework.boot.actuate.autoconfigure.audit.AuditAutoConfiguration",
             "org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesEndpointAutoConfiguration",
             "org.springframework.boot.servlet.autoconfigure.actuate.web.exchanges.ServletHttpExchangesAutoConfiguration"
         })
@@ -77,6 +80,7 @@ import org.springframework.core.env.Environment;
     DevServicesController.class,
     DependenciesController.class,
     BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration.class,
+    BootUiAutoConfiguration.SecurityAuditRepositoryConfiguration.class,
     ScheduledController.class,
     HttpProbeService.class,
     HttpProbeController.class,
@@ -189,6 +193,19 @@ public class BootUiAutoConfiguration {
                     repository, properties.getRecording().getInclude());
             filter.setOrder(HTTP_EXCHANGES_FILTER_ORDER);
             return filter;
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.audit.AuditEventRepository")
+    @ConditionalOnProperty(name = "management.auditevents.enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "bootui.panels.security-logs", name = "enabled", matchIfMissing = true)
+    static class SecurityAuditRepositoryConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(AuditEventRepository.class)
+        AuditEventRepository bootUiAuditEventRepository() {
+            return new InMemoryAuditEventRepository();
         }
     }
 

@@ -19,6 +19,12 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.boot.actuate.audit.AuditEventRepository;
+import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
+import org.springframework.boot.actuate.audit.listener.AuditListener;
+import org.springframework.boot.actuate.autoconfigure.audit.AuditAutoConfiguration;
+import org.springframework.boot.actuate.security.AuthenticationAuditListener;
+import org.springframework.boot.actuate.security.AuthorizationAuditListener;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -56,6 +62,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(DevServicesController.class)
                         .hasSingleBean(DependenciesController.class)
                         .hasSingleBean(PentestController.class)
+                        .hasSingleBean(AuditEventRepository.class)
                         .hasSingleBean(HttpExchangeRepository.class)
                         .hasSingleBean(HttpExchangesController.class)
                         .hasSingleBean(BootUiSpanExporter.class)
@@ -281,6 +288,50 @@ class BootUiAutoConfigurationTests {
                     assertThat(beanFactory.containsSingleton("bootUiClaudeCodeSessionStore"))
                             .isTrue();
                 });
+    }
+
+    @Test
+    void auditAutoConfigurationCreatesListenersFromBootUiRepository() {
+        new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(BootUiAutoConfiguration.class, AuditAutoConfiguration.class))
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> assertThat(context)
+                        .hasSingleBean(AuditEventRepository.class)
+                        .hasSingleBean(AuditListener.class)
+                        .hasSingleBean(AuthenticationAuditListener.class)
+                        .hasSingleBean(AuthorizationAuditListener.class));
+    }
+
+    @Test
+    void auditEventRepositoryBacksOffWhenHostProvidesOne() {
+        InMemoryAuditEventRepository hostRepository = new InMemoryAuditEventRepository();
+
+        runner.withBean(AuditEventRepository.class, () -> hostRepository)
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(AuditEventRepository.class);
+                    assertThat(context.getBean(AuditEventRepository.class)).isSameAs(hostRepository);
+                    assertThat(context.getBeanNamesForType(AuditEventRepository.class))
+                            .doesNotContain("bootUiAuditEventRepository");
+                });
+    }
+
+    @Test
+    void disabledSecurityLogsPanelDoesNotCreateAuditEventRepository() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.panels.security-logs.enabled=false")
+                .run(context -> assertThat(context).doesNotHaveBean(AuditEventRepository.class));
+    }
+
+    @Test
+    void disabledSpringBootAuditEventsDoesNotCreateAuditEventRepository() {
+        new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(BootUiAutoConfiguration.class, AuditAutoConfiguration.class))
+                .withPropertyValues("bootui.enabled=ON", "management.auditevents.enabled=false")
+                .run(context -> assertThat(context)
+                        .doesNotHaveBean(AuditEventRepository.class)
+                        .doesNotHaveBean(AuditListener.class)
+                        .doesNotHaveBean(AuthenticationAuditListener.class)
+                        .doesNotHaveBean(AuthorizationAuditListener.class));
     }
 
     @Test
