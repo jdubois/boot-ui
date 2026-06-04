@@ -8,6 +8,7 @@ import {useTraceCorrelation} from '../utils/correlation.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import CorrelationBanner from './components/CorrelationBanner.vue'
+import TraceIdTag from './components/TraceIdTag.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -136,11 +137,6 @@ function spanColor(span) {
   return 'bg-secondary'
 }
 
-function shortId(id) {
-  if (!id) return '—'
-  return id.length > 8 ? id.substring(0, 8) : id
-}
-
 onMounted(load)
 </script>
 
@@ -223,16 +219,13 @@ onMounted(load)
                 <tr :class="{'table-active': t.traceId === selectedTraceId}">
                   <td class="text-muted small">{{ formatTime(t.startEpochNanos) }}</td>
                   <td>
-                    <button
-                      type="button"
-                      class="btn btn-link p-0 me-2 font-monospace correlation-id-btn"
-                      :title="`Correlate by trace ${t.traceId}`"
-                      @click="focusTrace(t.traceId)"
-                    >
-                      {{ shortId(t.traceId) }}
-                    </button>
-                    <span class="fw-semibold">{{ t.rootSpanName || '—' }}</span>
-                    <span v-if="t.hasAi" class="badge text-bg-info ms-1"><i class="bi bi-stars"></i> AI</span>
+                    <div class="d-flex flex-column align-items-start gap-1">
+                      <span>
+                        <span class="fw-semibold">{{ t.rootSpanName || '—' }}</span>
+                        <span v-if="t.hasAi" class="badge text-bg-info ms-1"><i class="bi bi-stars"></i> AI</span>
+                      </span>
+                      <TraceIdTag :trace-id="t.traceId" @correlate="focusTrace" />
+                    </div>
                   </td>
                   <td>
                     <span v-for="s in t.services" :key="s" class="badge text-bg-secondary me-1">{{ s }}</span>

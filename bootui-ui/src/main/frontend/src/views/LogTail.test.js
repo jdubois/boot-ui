@@ -56,7 +56,7 @@ describe('Log Tail', () => {
     push.mockReset()
   })
 
-  it('renders a per-line trace link and focuses the trace on click', async () => {
+  it('renders a per-line trace tag and focuses the trace on click', async () => {
     vi.stubGlobal('EventSource', FakeEventSource)
     const wrapper = mount(LogTail)
     const source = FakeEventSource.instances[0]
@@ -64,9 +64,10 @@ describe('Log Tail', () => {
     source.emitLog(line({message: 'traced', traceId: '4bf92f3577b34da6a3ce929d0e0e4736'}))
     await flushPromises()
 
-    const traceLink = wrapper.find('.log-trace-link')
-    expect(traceLink.exists()).toBe(true)
-    await traceLink.trigger('click')
+    const traceTag = wrapper.find('.log-trace-tag')
+    expect(traceTag.exists()).toBe(true)
+    expect(traceTag.text()).toContain('id: 4bf92f3577b3…')
+    await traceTag.trigger('click')
     expect(push).toHaveBeenCalledWith({
       name: 'log-tail',
       query: {trace: '4bf92f3577b34da6a3ce929d0e0e4736'}

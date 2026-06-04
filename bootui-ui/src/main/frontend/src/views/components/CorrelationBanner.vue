@@ -1,5 +1,5 @@
 <script setup>
-import {shortTraceId} from '../../utils/correlation.js'
+import TraceIdTag from './TraceIdTag.vue'
 
 defineProps({
   traceId: {type: String, default: null},
@@ -12,7 +12,7 @@ defineEmits(['pivot', 'clear'])
 <template>
   <div v-if="traceId" class="alert alert-info d-flex flex-wrap align-items-center gap-2 correlation-banner">
     <span class="me-1"><i class="bi bi-link-45deg me-1"></i>Correlated with trace</span>
-    <code class="correlation-trace">{{ shortTraceId(traceId) }}</code>
+    <TraceIdTag :trace-id="traceId" :clickable="false" />
     <span v-if="targets.length" class="text-muted small ms-1">View related:</span>
     <button
       v-for="target in targets"
@@ -29,9 +29,3 @@ defineEmits(['pivot', 'clear'])
     </button>
   </div>
 </template>
-
-<style scoped>
-.correlation-trace {
-  word-break: break-all;
-}
-</style>

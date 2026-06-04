@@ -8,6 +8,7 @@ import {useServerPagedList} from '../utils/useServerPagedList.js'
 import {useTraceCorrelation} from '../utils/correlation.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import CorrelationBanner from './components/CorrelationBanner.vue'
+import TraceIdTag from './components/TraceIdTag.vue'
 
 const filter = ref('')
 const method = ref('')
@@ -197,7 +198,6 @@ watch([filter, method, statusClass, traceFilter], scheduleReload)
             <th>Status</th>
             <th>Duration</th>
             <th>Size</th>
-            <th>Trace</th>
             <th>Details</th>
           </tr>
         </thead>
@@ -209,25 +209,16 @@ watch([filter, method, statusClass, traceFilter], scheduleReload)
                 <span :class="methodBadgeClass(exchange.method)" class="badge">{{ exchange.method || 'ANY' }}</span>
               </td>
               <td>
-                <code class="http-exchanges-path">{{ displayPath(exchange) }}</code>
+                <div>
+                  <code class="http-exchanges-path">{{ displayPath(exchange) }}</code>
+                </div>
+                <TraceIdTag v-if="exchange.traceId" :trace-id="exchange.traceId" class="mt-1" @correlate="focusTrace" />
               </td>
               <td>
                 <span :class="statusBadgeClass(exchange)" class="badge">{{ exchange.status }}</span>
               </td>
               <td class="text-nowrap">{{ formatDurationMs(exchange.durationMs) }}</td>
               <td class="text-nowrap">{{ formatBytes(exchange.responseSizeBytes) }}</td>
-              <td>
-                <button
-                  v-if="exchange.traceId"
-                  type="button"
-                  class="btn btn-link p-0 small font-monospace correlation-id-btn"
-                  :title="`Correlate by trace ${exchange.traceId}`"
-                  @click="focusTrace(exchange.traceId)"
-                >
-                  {{ exchange.traceId }}
-                </button>
-                <span v-else class="text-muted">—</span>
-              </td>
               <td class="text-end">
                 <button
                   :aria-expanded="isExpanded(exchange.id)"
@@ -242,7 +233,7 @@ watch([filter, method, statusClass, traceFilter], scheduleReload)
               </td>
             </tr>
             <tr v-if="isExpanded(exchange.id)" :key="`${exchange.id}-details`" class="http-exchanges-detail-row">
-              <td colspan="8">
+              <td colspan="7">
                 <div class="http-exchanges-detail">
                   <div v-if="hasMetadata(exchange)" class="mb-3">
                     <h3 class="h6">Metadata</h3>
@@ -255,7 +246,7 @@ watch([filter, method, statusClass, traceFilter], scheduleReload)
                       <dd v-if="exchange.sessionId" class="col-sm-9">{{ exchange.sessionId }}</dd>
                       <dt v-if="exchange.traceId" class="col-sm-3">Trace id</dt>
                       <dd v-if="exchange.traceId" class="col-sm-9">
-                        <code>{{ exchange.traceId }}</code>
+                        <TraceIdTag :trace-id="exchange.traceId" :clickable="false" :short="false" />
                       </dd>
                     </dl>
                   </div>
@@ -301,7 +292,7 @@ watch([filter, method, statusClass, traceFilter], scheduleReload)
             </tr>
           </template>
           <tr v-if="!loading && !exchanges.length">
-            <td class="text-center text-muted py-4" colspan="8">
+            <td class="text-center text-muted py-4" colspan="7">
               No HTTP exchanges match your filters. Send a request to the application and refresh this panel.
             </td>
           </tr>

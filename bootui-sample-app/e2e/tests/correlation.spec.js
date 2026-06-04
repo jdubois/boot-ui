@@ -44,6 +44,7 @@ test.describe('Trace correlation', () => {
     await expect(sampleRow).toBeVisible({timeout: 15_000})
     const traceButton = sampleRow.locator('.correlation-id-btn')
     await expect(traceButton).toBeVisible()
+    await expect(traceButton).toContainText('id: 4bf92f3577b3…')
     await traceButton.click()
 
     await expect(page.locator('.correlation-banner')).toBeVisible()

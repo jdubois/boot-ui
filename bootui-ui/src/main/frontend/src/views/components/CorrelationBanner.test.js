@@ -21,7 +21,7 @@ describe('CorrelationBanner', () => {
 
     expect(wrapper.find('.correlation-banner').exists()).toBe(true)
     // Long trace ids are shortened for display.
-    expect(wrapper.text()).toContain('4bf92f3577b3…')
+    expect(wrapper.text()).toContain('id: 4bf92f3577b3…')
 
     const pivots = wrapper.findAll('.correlation-pivot')
     expect(pivots).toHaveLength(2)

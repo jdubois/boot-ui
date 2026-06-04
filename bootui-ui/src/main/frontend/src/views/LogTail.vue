@@ -1,7 +1,8 @@
 <script setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
-import {useTraceCorrelation, shortTraceId} from '../utils/correlation.js'
+import {useTraceCorrelation} from '../utils/correlation.js'
 import CorrelationBanner from './components/CorrelationBanner.vue'
+import TraceIdTag from './components/TraceIdTag.vue'
 
 const MAX_LINES = 2000
 
@@ -182,10 +183,9 @@ onBeforeUnmount(() => disconnect(false))
       class="d-block"
     ><span class="text-secondary">[{{ formatTime(line.timestamp) }}]</span> <span
       :class="levelClass(line.level)">{{ line.level }}</span> <span class="text-info-emphasis">{{ line.logger }}</span> <span
-      class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span><button
-      v-if="line.traceId" type="button" class="btn btn-link p-0 ms-2 align-baseline log-trace-link"
-      :title="`Correlate by trace ${line.traceId}`"
-      @click="focusTrace(line.traceId)"><i class="bi bi-link-45deg"></i>{{ shortTraceId(line.traceId) }}</button></span></code><span v-else
+      class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span><TraceIdTag
+      v-if="line.traceId" class="ms-2 align-baseline log-trace-tag" :trace-id="line.traceId"
+      @correlate="focusTrace" /></span></code><span v-else
                                                                                                             class="text-secondary">No log lines to display.</span></pre>
   </div>
 </template>
@@ -200,11 +200,5 @@ onBeforeUnmount(() => disconnect(false))
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.log-trace-link {
-  font-family: var(--bs-font-monospace);
-  font-size: 0.8rem;
-  text-decoration: none;
 }
 </style>

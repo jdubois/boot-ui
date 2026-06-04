@@ -70,7 +70,7 @@ describe('HTTP Exchanges', () => {
     expect(wrapper.text()).toContain('201')
     expect(wrapper.text()).toContain('37 ms')
     expect(wrapper.text()).toContain('42 B')
-    expect(wrapper.text()).toContain('4bf92f3577b34da6a3ce929d0e0e4736')
+    expect(wrapper.find('.correlation-id-tag').text()).toContain('id: 4bf92f3577b3…')
     expect(wrapper.text()).not.toContain('Authorization')
     expect(wrapper.text()).not.toContain('BootUI self-request')
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
@@ -86,6 +86,9 @@ describe('HTTP Exchanges', () => {
     expect(wrapper.find('.http-exchanges-detail-toggle').text()).toContain('Hide details')
     expect(wrapper.find('.http-exchanges-detail-toggle').attributes('aria-expanded')).toBe('true')
     expect(wrapper.find('.http-exchanges-detail').exists()).toBe(true)
+    expect(wrapper.find('.http-exchanges-detail .correlation-id-tag').text()).toContain(
+      'id: 4bf92f3577b34da6a3ce929d0e0e4736'
+    )
     expect(wrapper.text()).toContain('Authorization')
     expect(wrapper.text()).toContain('******')
   })
