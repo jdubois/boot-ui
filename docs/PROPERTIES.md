@@ -60,7 +60,9 @@ Panel settings are consistent across the UI and API:
 | Database        | Liquibase                 | `liquibase`                 | `bootui.panels.liquibase.enabled`                 | `bootui.panels.liquibase.read-only`         |
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                  |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                  |
+| Security        | Security Advisor          | `security-advisor`          | `bootui.panels.security-advisor.enabled`          | `bootui.panels.security-advisor.read-only`  |
 | Security        | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`           |
+| Security        | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only`   |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                  |
 | Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`      |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                  |
@@ -69,7 +71,6 @@ Panel settings are consistent across the UI and API:
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                  |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`        |
 | Diagnostics     | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`      |
-| Diagnostics     | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only`   |
 | Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`          |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`      |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                  |
@@ -136,6 +137,13 @@ Panel settings are consistent across the UI and API:
 | ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events and auto-contribute an in-memory `AuditEventRepository` when the host has none. |
 | `bootui.security-logs.max-logs`       | `500`   | Maximum recent audit events returned in one Security Logs response.                                                    |
+
+### Security Advisor
+
+| Property                                  | Default | Description                                                        |
+| ----------------------------------------- | ------- | ------------------------------------------------------------------ |
+| `bootui.panels.security-advisor.enabled`  | `true`  | Show read-only Spring Security hardening checks.                   |
+| `bootui.panels.security-advisor.read-only` | `false` | Disable the explicit Spring Security Advisor scan action.          |
 
 ### Pentesting
 

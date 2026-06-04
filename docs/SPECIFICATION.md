@@ -1249,7 +1249,9 @@ Top-level navigation:
 - Security:
   - Spring Security.
   - Security Logs.
+  - Security Advisor.
   - Pentesting.
+  - Vulnerabilities.
 - Services:
   - Scheduled Tasks.
   - Spring Cache.
@@ -1260,7 +1262,6 @@ Top-level navigation:
   - HTTP Exchanges.
   - HTTP Probe.
   - Architecture.
-  - Vulnerabilities.
 - Developer tools:
   - DevTools.
   - Dev Services.
@@ -1356,9 +1357,10 @@ BootUI's current pre-1.0 release surface is complete when:
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
   unavailable navigation groups covering Health, HTTP Sessions, Metrics, Memory, Tuning Advisor, Heap Dump, Threads,
-  Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security,
-  Security Logs, Pentesting, Database Connection Pools, Spring Data, Hibernate Advisor, Flyway, Liquibase, Scheduled
-  Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture, Vulnerabilities, DevTools,
+  Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database Connection
+  Pools, Spring Data, Hibernate Advisor, Flyway, Liquibase, Spring Security, Security Logs, Security Advisor, Pentesting,
+  Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
+  DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
