@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, onBeforeUnmount, ref, watch} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
@@ -17,7 +17,6 @@ const error = ref(null)
 const selectedName = ref('')
 const history = ref([])
 const lastUpdated = ref(null)
-let timer = null
 
 const SERIES = [
   {key: 'active', label: 'Active', color: '#dc3545'},
@@ -84,22 +83,32 @@ async function fetchPools() {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     report.value = await res.json()
     lastUpdated.value = Date.now()
-    if (!selectedPool.value && pools.value.length) {
-      selectPool(poolKey(pools.value[0]))
+    if (!pools.value.length) {
+      selectedName.value = ''
+      history.value = []
+      return
     }
+    if (!selectedPool.value) {
+      resetSelectedPool(poolKey(pools.value[0]))
+    }
+    await loadSnapshot()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load database connection pools')
   }
 }
 
-function selectPool(name) {
-  if (selectedName.value === name) return
+function resetSelectedPool(name) {
   selectedName.value = name
   history.value = []
-  pollSnapshot()
 }
 
-async function pollSnapshot() {
+function selectPool(name) {
+  if (selectedName.value === name) return
+  resetSelectedPool(name)
+  loadSnapshot()
+}
+
+async function loadSnapshot() {
   const pool = selectedPool.value
   if (!endpointAvailable.value || !pool || !pool.available || !pool.poolName) return
   try {
@@ -121,24 +130,6 @@ async function pollSnapshot() {
   }
 }
 
-function stopSnapshotPoll() {
-  if (timer) {
-    clearTimeout(timer)
-    timer = null
-  }
-}
-
-function scheduleNextPoll() {
-  stopSnapshotPoll()
-  if (!endpointAvailable.value) return
-  timer = setTimeout(async () => {
-    if (endpointAvailable.value && autoRefresh.value && document.visibilityState === 'visible') {
-      await pollSnapshot()
-    }
-    scheduleNextPoll()
-  }, 2000)
-}
-
 function formatMillis(value) {
   if (value === null || value === undefined || value < 0) return '—'
   if (value === 0) return 'disabled'
@@ -157,11 +148,9 @@ watch(
   endpointAvailable,
   (available) => {
     if (available) {
-      scheduleNextPoll()
       return
     }
     stopAutoRefresh()
-    stopSnapshotPoll()
     error.value = null
     report.value = null
     selectedName.value = ''
@@ -170,10 +159,6 @@ watch(
   },
   {immediate: true}
 )
-
-onBeforeUnmount(() => {
-  stopSnapshotPoll()
-})
 </script>
 
 <template>
@@ -271,7 +256,7 @@ onBeforeUnmount(() => {
                       {{ series.label }}: {{ formatNumber(currentSnapshot?.[series.key]) }}
                     </span>
                   </div>
-                  <div class="small text-muted mt-2">Sampled every 2 seconds (last 60 points).</div>
+                  <div class="small text-muted mt-2">Sampled on each auto-refresh (last 60 points).</div>
                 </div>
                 <div class="col-md-8">
                   <div class="chart-box">
