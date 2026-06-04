@@ -2,17 +2,17 @@
 import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const report = ref(null)
-const loading = ref(true)
 const error = ref(null)
 const filter = ref('')
 const lastFetched = ref(null)
 
-async function load() {
-  loading.value = true
+async function fetchReport() {
   error.value = null
   try {
     const res = await apiFetch('api/scheduled')
@@ -21,10 +21,10 @@ async function load() {
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load scheduled tasks')
-  } finally {
-    loading.value = false
   }
 }
+
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
 
 const filtered = computed(() => {
   if (!report.value) return []
@@ -58,8 +58,6 @@ function formatExpression(task) {
   if (task.timeUnit === 's') return `${numericValue / 1000} s`
   return `${numericValue} ms`
 }
-
-onMounted(load)
 </script>
 
 <template>
@@ -71,9 +69,13 @@ onMounted(load)
       :error="error"
       :last-fetched="lastFetched"
       @refresh="load"
-    />
+    >
+      <template #actions>
+        <AutoRefreshToggle v-model="autoRefresh" />
+      </template>
+    </PanelHeader>
 
-    <PanelSkeleton v-if="loading && !report" />
+    <PanelSkeleton v-if="initialLoading && !report" />
     <div v-else-if="report && !report.schedulingPresent" class="alert alert-info">
       No Spring Scheduling detected on the classpath.
     </div>
