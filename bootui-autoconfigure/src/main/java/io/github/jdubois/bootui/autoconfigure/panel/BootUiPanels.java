@@ -83,7 +83,7 @@ public final class BootUiPanels {
             new Panel(DEV_SERVICES, "Dev Services", true, "/dev-services"),
             new Panel(COPILOT, "Copilot", false, "/copilot"),
             new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"),
-            new Panel(FLYWAY, "Flyway", false, "/flyway"),
+            new Panel(FLYWAY, "Flyway", true, "/flyway"),
             new Panel(LIQUIBASE, "Liquibase", false, "/liquibase"));
 
     private static final Map<String, Panel> BY_ID =

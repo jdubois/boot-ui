@@ -69,8 +69,8 @@ Scope:
 
 Design constraints:
 
-- Read-only at first. No migrate, repair, clean, baseline, or rollback actions in this iteration; if added later they must
-  be confirmation-gated and disabled by default.
+- Flyway `migrate` and `clean` actions are confirmation-gated and disabled by default; clean also honors Flyway's own
+  `clean-disabled` setting. No repair, baseline, rollback, or Liquibase mutating action is exposed yet.
 - Bridge directly from the `Flyway` / `SpringLiquibase` beans in the context (equivalent to the Actuator `flyway` /
   `liquibase` endpoint data) without depending on the Actuator endpoints being exposed.
 - Mask any sensitive datasource metadata (URLs, credentials) through the existing model.

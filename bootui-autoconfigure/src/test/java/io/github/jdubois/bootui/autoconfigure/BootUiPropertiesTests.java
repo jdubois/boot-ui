@@ -115,6 +115,13 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultFlywayActionsAreDisabled() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getFlyway().isMigrateEnabled()).isFalse();
+        assertThat(props.getFlyway().isCleanEnabled()).isFalse();
+    }
+
+    @Test
     void defaultMonitoringExcludeSelfIsTrue() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getMonitoring().isExcludeSelf()).isTrue();
@@ -322,6 +329,18 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getCache().isClearEnabled()).isFalse();
+    }
+
+    @Test
+    void bindsFlywayActionSettings() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.flyway.migrate-enabled", "true");
+        env.setProperty("bootui.flyway.clean-enabled", "true");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getFlyway().isMigrateEnabled()).isTrue();
+        assertThat(props.getFlyway().isCleanEnabled()).isTrue();
     }
 
     @Test

@@ -53,7 +53,7 @@ Panel settings are consistent across the UI and API:
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
 | Database        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                |
-| Database        | Flyway                    | `flyway`                    | `bootui.panels.flyway.enabled`                    | Not applicable; view-only.                |
+| Database        | Flyway                    | `flyway`                    | `bootui.panels.flyway.enabled`                    | `bootui.panels.flyway.read-only`          |
 | Database        | Liquibase                 | `liquibase`                 | `bootui.panels.liquibase.enabled`                 | Not applicable; view-only.                |
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
@@ -125,6 +125,15 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.spring-cache.enabled`   | `true`  | Show Spring Cache managers, caches, metrics, and cache annotations.                               |
 | `bootui.panels.spring-cache.read-only` | `false` | Disable cache clear actions.                                                                      |
 | `bootui.cache.clear-enabled`           | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing. |
+
+### Flyway
+
+| Property                            | Default | Description                                                                                                               |
+| ----------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.flyway.enabled`      | `true`  | Show Flyway migration state and allow its read APIs.                                                                      |
+| `bootui.panels.flyway.read-only`    | `false` | Disable Flyway actions while keeping migration state visible.                                                             |
+| `bootui.flyway.migrate-enabled`     | `false` | Allow confirmation-gated `migrate` actions from the Flyway panel. Disabled by default because it mutates the database.    |
+| `bootui.flyway.clean-enabled`       | `false` | Allow confirmation-gated `clean` actions from the Flyway panel. Flyway `clean-disabled` must also be `false` to run clean. |
 
 ### Traces
 

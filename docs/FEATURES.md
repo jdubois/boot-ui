@@ -201,11 +201,16 @@ methods, and degrades to a clear empty state when Spring Data is not present or 
 
 ### Flyway
 
-The Flyway panel provides read-only visibility into Flyway schema migrations. It reads the migration state that Flyway has
-already computed for each `Flyway` bean in the context and lists, per database, the current schema version together with
-applied and pending migrations (version, description, type, script, state, installed-by, installed-on, execution time, and
-checksum). It never runs `migrate`, `repair`, `clean`, `baseline`, or any other mutating Flyway command, and degrades to a
-clear empty state when Flyway is not on the classpath or no `Flyway` beans are present.
+The Flyway panel shows schema migrations for each `Flyway` bean in the context and lists, per database, the current schema
+version together with applied and pending migrations (version, description, type, script, state, installed-by,
+installed-on, execution time, and checksum). Multiple or named datasources appear independently.
+
+The panel also exposes confirmation-gated `migrate` and `clean` actions. BootUI keeps both disabled by default:
+`migrate` requires `bootui.flyway.migrate-enabled=true`, while `clean` requires both `bootui.flyway.clean-enabled=true`
+and Flyway's own `clean-disabled=false` setting. The actions are also blocked by `bootui.read-only=true` or
+`bootui.panels.flyway.read-only=true`. Hibernate-backed migration file generation is shown as unavailable until BootUI can
+generate reviewable scripts safely. The panel degrades to a clear empty state when Flyway is not on the classpath or no
+`Flyway` beans are present.
 
 ### Liquibase
 

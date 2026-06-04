@@ -666,8 +666,8 @@ Acceptance criteria:
 
 ### 5.17.1 Flyway Panel
 
-Purpose: answer "Which Flyway-managed databases exist, what schema version is applied, and which migrations are applied or
-pending?"
+Purpose: answer "Which Flyway-managed databases exist, what schema version is applied, which migrations are applied or
+pending, and can I explicitly run safe local Flyway actions?"
 
 Data sources:
 
@@ -680,16 +680,21 @@ Features:
 - List each `Flyway` bean as a database, with its current applied version plus applied and pending counts.
 - For each migration, show version, description, type, script, state, installed-by, installed-on, execution time, and
   checksum.
+- Allow a confirmed `migrate` action only when `bootui.flyway.migrate-enabled=true`.
+- Allow a confirmed `clean` action only when `bootui.flyway.clean-enabled=true` and Flyway's own `clean-disabled=false`.
+- Show migration-file generation controls as unavailable until BootUI can generate reviewable Hibernate-backed scripts
+  safely.
 
 Out of scope for the current release surface:
 
-- Running `migrate`, `repair`, `clean`, `baseline`, `validate`, or any other mutating Flyway command from the UI.
+- Running `repair`, `baseline`, `validate`, rollback, or any Liquibase mutating command from the UI.
 
 Acceptance criteria:
 
 - When Flyway is not on the classpath, the API endpoint is not registered.
 - When Flyway is present but no `Flyway` beans exist, the panel shows a clear empty state.
 - Opening the panel only reads already-computed migration metadata; no Flyway command is executed as a side effect.
+- Mutating Flyway actions require explicit BootUI opt-in, browser confirmation, and a non-read-only panel.
 
 ### 5.17.2 Liquibase Panel
 
@@ -996,7 +1001,9 @@ Initial endpoints:
 | `/bootui/api/dev-services/{id}/restart` | POST   | Restart a bean-backed service only when explicitly enabled                |
 | `/bootui/api/data/repositories`         | GET    | Detected Spring Data repositories (summary)                               |
 | `/bootui/api/data/repositories/{name}`  | GET    | Spring Data repository detail with query methods                          |
-| `/bootui/api/flyway/migrations`         | GET    | Flyway migration state per database (read-only)                           |
+| `/bootui/api/flyway/migrations`         | GET    | Flyway migration state and action availability per database                |
+| `/bootui/api/flyway/migrate`            | POST   | Run pending Flyway migrations only when explicitly enabled and confirmed   |
+| `/bootui/api/flyway/clean`              | POST   | Clean Flyway-managed schemas only when explicitly enabled and confirmed    |
 | `/bootui/api/liquibase/changesets`      | GET    | Executed Liquibase change sets per database (read-only)                   |
 | `/bootui/api/spring-cache`              | GET    | Spring Cache managers, caches, metrics, and annotation operations         |
 | `/bootui/api/spring-cache/clear`        | POST   | Clear one or all known caches only when explicitly enabled and confirmed  |
@@ -1036,6 +1043,8 @@ Initial properties:
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
 | `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
+| `bootui.flyway.migrate-enabled`              | `false`                                 | Enable confirmation-gated Flyway migrate actions. Disabled by default.                            |
+| `bootui.flyway.clean-enabled`                | `false`                                 | Enable confirmation-gated Flyway clean actions when Flyway also allows clean.                     |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |

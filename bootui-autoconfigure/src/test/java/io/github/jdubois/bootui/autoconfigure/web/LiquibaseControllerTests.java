@@ -54,7 +54,8 @@ class LiquibaseControllerTests {
         ListableBeanFactory factory = mock(ListableBeanFactory.class);
         when(factory.getBeanNamesForType(SpringLiquibase.class)).thenReturn(new String[0]);
 
-        MockMvc mvc = standaloneSetup(new LiquibaseController(providerOf(factory))).build();
+        MockMvc mvc =
+                standaloneSetup(new LiquibaseController(providerOf(factory))).build();
 
         mvc.perform(get("/bootui/api/liquibase/changesets"))
                 .andExpect(status().isOk())
@@ -73,7 +74,8 @@ class LiquibaseControllerTests {
         when(factory.getBeanNamesForType(SpringLiquibase.class)).thenReturn(new String[] {"liquibase"});
         when(factory.getBean(eq("liquibase"), eq(SpringLiquibase.class))).thenReturn(liquibase);
 
-        MockMvc mvc = standaloneSetup(new LiquibaseController(providerOf(factory))).build();
+        MockMvc mvc =
+                standaloneSetup(new LiquibaseController(providerOf(factory))).build();
 
         mvc.perform(get("/bootui/api/liquibase/changesets"))
                 .andExpect(status().isOk())

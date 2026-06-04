@@ -37,7 +37,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | Configuration   | [Mappings](docs/FEATURES.md#mappings)                                   | Review HTTP routes, handlers, methods, patterns, and produces/consumes metadata.                                                        |
 | Database        | [Database Connection Pools](docs/FEATURES.md#database-connection-pools) | Watch database pool sizing, masked JDBC metadata, and live active/idle/total/pending saturation.                                        |
 | Database        | [Spring Data](docs/FEATURES.md#spring-data)                             | Explore Spring Data repositories, domain types, IDs, and query methods.                                                                 |
-| Database        | [Flyway](docs/FEATURES.md#flyway)                                       | Inspect Flyway schema migrations, current version, and applied/pending migrations (read-only).                                          |
+| Database        | [Flyway](docs/FEATURES.md#flyway)                                       | Inspect Flyway schema migrations, current version, and applied/pending migrations; optionally migrate or clean when explicitly enabled. |
 | Database        | [Liquibase](docs/FEATURES.md#liquibase)                                 | Inspect executed Liquibase change sets and their change-log history (read-only).                                                        |
 | Security        | [Spring Security](docs/FEATURES.md#spring-security)                     | Inspect Spring Security filter chains and best-effort endpoint rule explanations.                                                       |
 | Security        | [Security Logs](docs/FEATURES.md#security-logs)                         | Review recent Spring Boot audit/security events with masking, filtering, auto-refresh, and bounded retention.                          |
@@ -158,6 +158,8 @@ Common properties:
 | `bootui.startup.enabled`                 | `true`                                  | Auto-install startup buffering for the Startup Timeline panel while BootUI is active.    |
 | `bootui.startup.capacity`                | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                |
 | `bootui.cache.clear-enabled`             | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
+| `bootui.flyway.migrate-enabled`          | `false`                                 | Enables confirmation-gated Flyway migrate actions. Disabled by default.                  |
+| `bootui.flyway.clean-enabled`            | `false`                                 | Enables confirmation-gated Flyway clean actions when Flyway also allows clean.           |
 | `bootui.http-exchanges.max-exchanges`    | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.           |
 | `bootui.security-logs.max-logs`          | `500`                                   | Maximum recent audit events returned by the Security Logs panel.                         |
 | `bootui.dev-services.restart-enabled`    | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |

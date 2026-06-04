@@ -77,6 +77,10 @@ public class BootUiProperties {
      */
     private Cache cache = new Cache();
     /**
+     * Flyway panel settings.
+     */
+    private Flyway flyway = new Flyway();
+    /**
      * Security Logs panel settings.
      */
     private SecurityLogs securityLogs = new SecurityLogs();
@@ -251,7 +255,15 @@ public class BootUiProperties {
     }
 
     public void setCache(Cache cache) {
-        this.cache = cache;
+        this.cache = cache == null ? new Cache() : cache;
+    }
+
+    public Flyway getFlyway() {
+        return flyway;
+    }
+
+    public void setFlyway(Flyway flyway) {
+        this.flyway = flyway == null ? new Flyway() : flyway;
     }
 
     public SecurityLogs getSecurityLogs() {
@@ -416,6 +428,37 @@ public class BootUiProperties {
 
         public void setClearEnabled(boolean clearEnabled) {
             this.clearEnabled = clearEnabled;
+        }
+    }
+
+    public static class Flyway {
+
+        /**
+         * Allow BootUI to run pending Flyway migrations. Disabled by default because it
+         * mutates the application database.
+         */
+        private boolean migrateEnabled = false;
+
+        /**
+         * Allow BootUI to clean Flyway-managed schemas. Flyway's own
+         * {@code clean-disabled} setting must also allow clean.
+         */
+        private boolean cleanEnabled = false;
+
+        public boolean isMigrateEnabled() {
+            return migrateEnabled;
+        }
+
+        public void setMigrateEnabled(boolean migrateEnabled) {
+            this.migrateEnabled = migrateEnabled;
+        }
+
+        public boolean isCleanEnabled() {
+            return cleanEnabled;
+        }
+
+        public void setCleanEnabled(boolean cleanEnabled) {
+            this.cleanEnabled = cleanEnabled;
         }
     }
 

@@ -74,7 +74,8 @@ Useful URLs:
 9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
 10. **Flyway** — inspect the applied `catalog_*` migrations (versions, descriptions,
-    state) tracked in `flyway_schema_history`, all read-only.
+    state) tracked in `flyway_schema_history`; migrate/clean controls stay disabled
+    unless the trusted local BootUI action flags are enabled.
 11. **Liquibase** — inspect the executed `inventory_*` change sets recorded in
     `DATABASECHANGELOG`, on a table set fully separate from Flyway's, all read-only.
 12. **Spring Cache** — verify the Redis-backed `sample-products` and
