@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [0.5.1] - 2026-06-04
+
+Patch release focused on preserving BootUI startup in applications that do not include Spring Security Core while
+keeping Security Logs support available when Spring Security authentication events are present.
+
+### Fixed
+
+- Guarded BootUI's auto-configured Spring Security audit event repository behind Spring Security authentication event
+  classes so applications without `spring-security-core` no longer fail at startup.
+
 ## [0.5.0] - 2026-06-04
 
 Fifth BootUI release, focused on repository context, servlet session inspection, database migration/advisor tooling, and
@@ -293,7 +303,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/jdubois/boot-ui/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jdubois/boot-ui/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jdubois/boot-ui/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jdubois/boot-ui/compare/v0.2.0...v0.3.0
