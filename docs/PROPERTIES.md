@@ -39,6 +39,7 @@ Panel settings are consistent across the UI and API:
 | Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
 | Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
 | Runtime         | Health                    | `health`                    | `bootui.panels.health.enabled`                    | Not applicable; view-only.                |
+| Runtime         | HTTP Sessions             | `http-sessions`             | `bootui.panels.http-sessions.enabled`             | `bootui.panels.http-sessions.read-only`   |
 | Runtime         | Metrics                   | `metrics`                   | `bootui.panels.metrics.enabled`                   | Not applicable; view-only.                |
 | Runtime         | Memory                    | `memory`                    | `bootui.panels.memory.enabled`                    | Not applicable; view-only.                |
 | Runtime         | Tuning Advisor            | `tuning-advisor`            | `bootui.panels.tuning-advisor.enabled`            | Not applicable; view-only.                |
@@ -82,6 +83,14 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.startup.enabled` | `true`  | Show the Startup Timeline panel.                                              |
 | `bootui.startup.enabled`        | `true`  | Install a `BufferingApplicationStartup` automatically while BootUI is active. |
 | `bootui.startup.capacity`       | `4096`  | Maximum startup steps retained by the auto-installed startup buffer.          |
+
+### HTTP Sessions
+
+| Property                                  | Default | Description                                                                 |
+| ----------------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `bootui.panels.http-sessions.enabled`     | `true`  | Show local embedded Tomcat HTTP sessions when a live session manager exists. |
+| `bootui.panels.http-sessions.read-only`   | `false` | Disable HTTP session clear and destroy actions.                             |
+| `bootui.http-sessions.max-sessions`       | `50`    | Maximum HTTP sessions returned in one panel response.                       |
 
 ### GitHub
 

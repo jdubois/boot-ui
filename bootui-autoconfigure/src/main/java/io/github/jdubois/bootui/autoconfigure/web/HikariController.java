@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.HikariPoolDto;
 import io.github.jdubois.bootui.core.dto.HikariPoolSnapshotDto;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,11 +45,19 @@ public class HikariController {
             Pattern.compile("([?&](?:user|username|password|passwd|pwd)=)([^&\\s]*)", Pattern.CASE_INSENSITIVE);
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
-    private final BootUiProperties properties;
+    private final BootUiExposure exposure;
 
-    public HikariController(ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiProperties properties) {
+    @Autowired
+    public HikariController(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+            BootUiProperties properties,
+            BootUiExposure exposure) {
         this.beanFactoryProvider = beanFactoryProvider;
-        this.properties = properties;
+        this.exposure = exposure;
+    }
+
+    HikariController(ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiProperties properties) {
+        this(beanFactoryProvider, properties, new BootUiExposure(properties));
     }
 
     @GetMapping("/pools")
@@ -186,10 +196,11 @@ public class HikariController {
         if (url == null) {
             return null;
         }
-        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (properties.getExposeValues() == ValueExposure.FULL || !properties.isMaskSecrets()) {
+        if (valueExposure == ValueExposure.FULL || !exposure.maskSecrets()) {
             return url;
         }
         String masked = URL_CREDENTIALS.matcher(url).replaceAll("$1******@");
@@ -202,10 +213,11 @@ public class HikariController {
         if (username == null) {
             return null;
         }
-        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (properties.getExposeValues() == ValueExposure.FULL || !properties.isMaskSecrets()) {
+        if (valueExposure == ValueExposure.FULL || !exposure.maskSecrets()) {
             return username;
         }
         return SecretMasker.MASKED_VALUE;

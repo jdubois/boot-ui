@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.ConfigPropertyDto;
 import io.github.jdubois.bootui.core.dto.ProfileSourceDto;
@@ -33,12 +34,12 @@ public class ProfileController {
             "(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
 
     private final ConfigurableEnvironment environment;
-    private final BootUiProperties properties;
+    private final BootUiExposure exposure;
     private final SecretMasker masker = new SecretMasker();
 
     public ProfileController(ConfigurableEnvironment environment, BootUiProperties properties) {
         this.environment = environment;
-        this.properties = properties;
+        this.exposure = new BootUiExposure(environment, properties);
     }
 
     @GetMapping
@@ -55,11 +56,13 @@ public class ProfileController {
                 continue;
             }
             List<ConfigPropertyDto> props = new ArrayList<>();
+            ValueExposure valueExposure = exposure.valueExposure();
+            boolean maskSecrets = exposure.maskSecrets();
             for (String key : enumerable.getPropertyNames()) {
                 Object rawValue = enumerable.getProperty(key);
                 String strValue = rawValue == null ? null : rawValue.toString();
-                boolean masked = shouldMask(key);
-                String displayValue = displayValue(key, strValue);
+                boolean masked = shouldMask(key, valueExposure, maskSecrets);
+                String displayValue = displayValue(key, strValue, valueExposure, maskSecrets);
                 props.add(new ConfigPropertyDto(key, displayValue, source.getName(), null, masked, false, null, null));
             }
             props.sort(Comparator.comparing(ConfigPropertyDto::name, Comparator.nullsLast(String::compareTo)));
@@ -79,20 +82,18 @@ public class ProfileController {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private boolean shouldMask(String key) {
-        return properties.getExposeValues() == ValueExposure.MASKED
-                && properties.isMaskSecrets()
-                && masker.isSecret(key);
+    private boolean shouldMask(String key, ValueExposure valueExposure, boolean maskSecrets) {
+        return valueExposure == ValueExposure.MASKED && maskSecrets && masker.isSecret(key);
     }
 
-    private String displayValue(String key, String value) {
+    private String displayValue(String key, String value, ValueExposure valueExposure, boolean maskSecrets) {
         if (value == null) {
             return null;
         }
-        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (shouldMask(key)) {
+        if (shouldMask(key, valueExposure, maskSecrets)) {
             return SecretMasker.MASKED_VALUE;
         }
         return value;

@@ -331,6 +331,31 @@ Acceptance criteria:
 - Failing health contributors are easy to identify.
 - The UI does not require production-style health exposure.
 
+### 5.6.1 HTTP Sessions Panel
+
+Purpose: inspect and act on local servlet HTTP sessions without exposing bearer session identifiers by default.
+
+Data sources:
+
+- Embedded Tomcat `Manager` instances discovered from the live `TomcatWebServer`.
+
+Features:
+
+- List at most `bootui.http-sessions.max-sessions` sessions, defaulting to 50, with creation time, last access time,
+  idle duration, validity, current-session marker, and attribute count.
+- Use an opaque server-derived session key for actions and a masked display id unless `bootui.expose-values=FULL`.
+- Show attribute names, types, and masked values by default; `METADATA_ONLY` hides values, and `FULL` reveals stringified
+  local values with bounded length.
+- Clear all attributes from a selected session after explicit confirmation.
+- Destroy a selected session after explicit confirmation.
+- Report a stable unavailable state when the app is not running on embedded Tomcat or no live session manager exists.
+
+Acceptance criteria:
+
+- Session ids are not returned to the browser unless full value exposure is explicitly enabled.
+- Actions are blocked by global read-only mode and `bootui.panels.http-sessions.read-only`.
+- The session list is bounded by default and reports when more sessions exist than are returned.
+
 ### 5.7 Logger Controls
 
 Purpose: answer "Can I inspect and change log levels without restart?"
@@ -1010,6 +1035,9 @@ Initial endpoints:
 | `/bootui/api/mappings`                  | GET    | HTTP mappings                                                             |
 | `/bootui/api/mappings/flat`             | GET    | Stable, paged HTTP mapping summaries                                      |
 | `/bootui/api/health`                    | GET    | Health tree                                                               |
+| `/bootui/api/http-sessions`             | GET    | Bounded local embedded-Tomcat HTTP session report                         |
+| `/bootui/api/http-sessions/{key}/clear` | POST   | Clear attributes from a selected HTTP session after explicit confirmation |
+| `/bootui/api/http-sessions/{key}/invalidate` | POST   | Invalidate a selected HTTP session after explicit confirmation            |
 | `/bootui/api/loggers`                   | GET    | Logger levels                                                             |
 | `/bootui/api/loggers/{name}`            | POST   | Change logger level                                                       |
 | `/bootui/api/startup`                   | GET    | Startup timeline                                                          |
@@ -1077,6 +1105,7 @@ Initial properties:
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
 | `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
+| `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
@@ -1163,6 +1192,7 @@ Top-level navigation:
   - GitHub.
 - Runtime:
   - Health.
+  - HTTP Sessions.
   - Metrics.
   - Memory.
   - Tuning Advisor.
@@ -1291,10 +1321,11 @@ BootUI's current pre-1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
-  unavailable navigation groups covering Health, Metrics, Memory, Tuning Advisor, Heap Dump, Threads, Startup Timeline,
-  GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security, Security Logs, Pentesting,
-  Database Connection Pools, Spring Data, Flyway, Liquibase, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail,
-  HTTP Exchanges, HTTP Probe, Architecture, Vulnerabilities, DevTools, Dev Services, Copilot, Claude Code, and GitHub.
+  unavailable navigation groups covering Health, HTTP Sessions, Metrics, Memory, Tuning Advisor, Heap Dump, Threads,
+  Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security,
+  Security Logs, Pentesting, Database Connection Pools, Spring Data, Flyway, Liquibase, Scheduled Tasks, Spring Cache,
+  AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture, Vulnerabilities, DevTools, Dev Services, Copilot,
+  Claude Code, and GitHub.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

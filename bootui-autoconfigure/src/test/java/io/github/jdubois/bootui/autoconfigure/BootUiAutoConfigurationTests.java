@@ -66,6 +66,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(AuditEventRepository.class)
                         .hasSingleBean(HttpExchangeRepository.class)
                         .hasSingleBean(HttpExchangesController.class)
+                        .hasSingleBean(HttpSessionsController.class)
                         .hasSingleBean(BootUiSpanExporter.class)
                         .hasSingleBean(BootUiActivation.class));
     }
@@ -122,6 +123,7 @@ class BootUiAutoConfigurationTests {
             assertThat(properties.getDevServices().isRestartEnabled()).isFalse();
             assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(64 * 1024);
             assertThat(properties.getCache().isClearEnabled()).isTrue();
+            assertThat(properties.getHttpSessions().getMaxSessions()).isEqualTo(50);
             assertThat(properties.getCopilot().getMaxParsedSessions()).isEqualTo(100);
             assertThat(properties.getClaudeCode().getMaxParsedSessions()).isEqualTo(100);
         });
@@ -143,6 +145,7 @@ class BootUiAutoConfigurationTests {
                         "bootui.dev-services.log-tail-bytes=2048",
                         "bootui.cache.clear-enabled=false",
                         "bootui.http-exchanges.max-exchanges=2",
+                        "bootui.http-sessions.max-sessions=12",
                         "bootui.dependencies.osv-enabled=false",
                         "bootui.dependencies.max-packages=42",
                         "bootui.dependencies.max-advisories=24",
@@ -162,6 +165,7 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
                     assertThat(properties.getCache().isClearEnabled()).isFalse();
                     assertThat(properties.getHttpExchanges().getMaxExchanges()).isEqualTo(2);
+                    assertThat(properties.getHttpSessions().getMaxSessions()).isEqualTo(12);
                     assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
                     assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
                     assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
@@ -198,6 +202,7 @@ class BootUiAutoConfigurationTests {
                             HealthController.class,
                             HikariController.class,
                             HttpExchangesController.class,
+                            HttpSessionsController.class,
                             HttpProbeController.class,
                             HeapDumpController.class,
                             LoggersController.class,
@@ -388,6 +393,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(SpringCacheController.class)
                         .hasSingleBean(DataController.class)
                         .hasSingleBean(HikariController.class)
+                        .hasSingleBean(HttpSessionsController.class)
                         .hasSingleBean(LogTailController.class)
                         .hasSingleBean(ScheduledController.class)
                         .hasSingleBean(SecurityLogsController.class)
@@ -406,6 +412,13 @@ class BootUiAutoConfigurationTests {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("com.zaxxer.hikari.HikariDataSource"))
                 .run(context -> assertThat(context).doesNotHaveBean(HikariController.class));
+    }
+
+    @Test
+    void skipsHttpSessionsPanelWhenTomcatIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("org.springframework.boot.tomcat.TomcatWebServer"))
+                .run(context -> assertThat(context).doesNotHaveBean(HttpSessionsController.class));
     }
 
     @Test

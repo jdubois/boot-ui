@@ -95,6 +95,32 @@ class ConfigOverrideServiceTests {
     }
 
     @Test
+    void putUsesRuntimeExposureOverride() {
+        environment.setProperty("bootui.expose-values", "FULL");
+
+        ConfigOverrideResult result = service.put("api.token", "abc");
+
+        assertThat(result.value()).isEqualTo("abc");
+    }
+
+    @Test
+    void putUsesRuntimeMaskSecretsOverride() {
+        environment.setProperty("bootui.mask-secrets", "false");
+
+        ConfigOverrideResult result = service.put("api.token", "abc");
+
+        assertThat(result.value()).isEqualTo("abc");
+    }
+
+    @Test
+    void putDisplaysExposureOverrideUsingPreviousExposureMode() {
+        ConfigOverrideResult result = service.put("bootui.expose-values", "METADATA_ONLY");
+
+        assertThat(result.value()).isEqualTo("METADATA_ONLY");
+        assertThat(environment.getProperty("bootui.expose-values")).isEqualTo("METADATA_ONLY");
+    }
+
+    @Test
     void putBlankNameThrows() {
         assertThatThrownBy(() -> service.put("  ", "x")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.put(null, "x")).isInstanceOf(IllegalArgumentException.class);

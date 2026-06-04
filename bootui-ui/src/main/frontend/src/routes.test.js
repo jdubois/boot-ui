@@ -9,6 +9,7 @@ describe('routes', () => {
       'Overview',
       'GitHub',
       'Health',
+      'HTTP Sessions',
       'Metrics',
       'Memory',
       'Tuning Advisor',
@@ -78,6 +79,7 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
       groups.overview,
       groups.overview,
+      groups.runtime,
       groups.runtime,
       groups.runtime,
       groups.runtime,

@@ -93,6 +93,10 @@ public class BootUiProperties {
      */
     private HttpExchanges httpExchanges = new HttpExchanges();
     /**
+     * HTTP Sessions panel settings.
+     */
+    private HttpSessions httpSessions = new HttpSessions();
+    /**
      * Heap Dump panel settings.
      */
     private HeapDump heapDump = new HeapDump();
@@ -288,6 +292,14 @@ public class BootUiProperties {
 
     public void setHttpExchanges(HttpExchanges httpExchanges) {
         this.httpExchanges = httpExchanges == null ? new HttpExchanges() : httpExchanges;
+    }
+
+    public HttpSessions getHttpSessions() {
+        return httpSessions;
+    }
+
+    public void setHttpSessions(HttpSessions httpSessions) {
+        this.httpSessions = httpSessions == null ? new HttpSessions() : httpSessions;
     }
 
     public HeapDump getHeapDump() {
@@ -622,6 +634,22 @@ public class BootUiProperties {
 
         public void setMaxExchanges(int maxExchanges) {
             this.maxExchanges = maxExchanges;
+        }
+    }
+
+    public static class HttpSessions {
+
+        /**
+         * Maximum number of active HTTP sessions returned by the HTTP Sessions panel.
+         */
+        private int maxSessions = 50;
+
+        public int getMaxSessions() {
+            return maxSessions;
+        }
+
+        public void setMaxSessions(int maxSessions) {
+            this.maxSessions = maxSessions;
         }
     }
 

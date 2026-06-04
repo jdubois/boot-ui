@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
@@ -39,22 +40,26 @@ public class HttpExchangesController {
 
     private final BootUiProperties properties;
 
+    private final BootUiExposure exposure;
+
     private final BootUiSelfDataFilter selfDataFilter;
 
     private final SecretMasker masker = new SecretMasker();
 
     public HttpExchangesController(ObjectProvider<HttpExchangeRepository> repository, BootUiProperties properties) {
-        this(repository, properties, BootUiSelfDataFilter.defaults());
+        this(repository, properties, BootUiSelfDataFilter.defaults(), new BootUiExposure(properties));
     }
 
     @Autowired
     public HttpExchangesController(
             ObjectProvider<HttpExchangeRepository> repository,
             BootUiProperties properties,
-            BootUiSelfDataFilter selfDataFilter) {
+            BootUiSelfDataFilter selfDataFilter,
+            BootUiExposure exposure) {
         this.repository = repository;
         this.properties = properties;
         this.selfDataFilter = selfDataFilter;
+        this.exposure = exposure;
     }
 
     @GetMapping
@@ -158,11 +163,12 @@ public class HttpExchangesController {
         if (values == null || values.isEmpty()) {
             return List.of();
         }
-        if (properties.getExposeValues() == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        BootUiProperties.ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == BootUiProperties.ValueExposure.METADATA_ONLY) {
             return List.of();
         }
         if (shouldMask(name)) {
-            if (properties.getExposeValues() == BootUiProperties.ValueExposure.FULL) {
+            if (valueExposure == BootUiProperties.ValueExposure.FULL) {
                 return List.copyOf(values);
             }
             return values.stream().map(ignored -> SecretMasker.MASKED_VALUE).toList();
@@ -174,10 +180,11 @@ public class HttpExchangesController {
         if (value == null) {
             return null;
         }
-        if (properties.getExposeValues() == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        BootUiProperties.ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == BootUiProperties.ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (shouldMask(name) && properties.getExposeValues() != BootUiProperties.ValueExposure.FULL) {
+        if (shouldMask(name) && valueExposure != BootUiProperties.ValueExposure.FULL) {
             return SecretMasker.MASKED_VALUE;
         }
         return value;
@@ -187,7 +194,7 @@ public class HttpExchangesController {
         if (name == null) {
             return false;
         }
-        return properties.isMaskSecrets()
+        return exposure.maskSecrets()
                 && (masker.isSecret(name) || SENSITIVE_HEADER_NAMES.contains(name.toLowerCase(Locale.ROOT)));
     }
 
@@ -220,7 +227,7 @@ public class HttpExchangesController {
         if (rawQuery == null) {
             return null;
         }
-        if (properties.getExposeValues() == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        if (exposure.valueExposure() == BootUiProperties.ValueExposure.METADATA_ONLY) {
             return null;
         }
         String[] parts = rawQuery.split("&", -1);
@@ -233,7 +240,7 @@ public class HttpExchangesController {
     private String displayQueryPart(String part) {
         int equalsIndex = part.indexOf('=');
         String name = equalsIndex >= 0 ? part.substring(0, equalsIndex) : part;
-        if (!shouldMask(name) || properties.getExposeValues() == BootUiProperties.ValueExposure.FULL) {
+        if (!shouldMask(name) || exposure.valueExposure() == BootUiProperties.ValueExposure.FULL) {
             return part;
         }
         return equalsIndex >= 0 ? name + "=" + SecretMasker.MASKED_VALUE : name + "=" + SecretMasker.MASKED_VALUE;

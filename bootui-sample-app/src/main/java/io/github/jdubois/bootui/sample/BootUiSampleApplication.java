@@ -1,8 +1,11 @@
 package io.github.jdubois.bootui.sample;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -136,6 +139,27 @@ public class BootUiSampleApplication {
         @GetMapping("/products")
         public List<ProductSummary> products() {
             return catalog.activeProducts();
+        }
+
+        @GetMapping("/session")
+        public Map<String, Object> session(HttpServletRequest request) {
+            HttpSession session = request.getSession(true);
+            Object previousClickCount = session.getAttribute("sampleClickCount");
+            int sampleClickCount = previousClickCount instanceof Number number ? number.intValue() + 1 : 1;
+            session.setAttribute("sampleMessage", "Hello from the sample session");
+            session.setAttribute("sampleCount", 42);
+            session.setAttribute("sampleClickCount", sampleClickCount);
+            session.setAttribute("sampleGeneratedAt", Instant.now().toString());
+            session.setAttribute("apiToken", "sample-secret-token");
+            return Map.of(
+                    "sessionId",
+                    session.getId(),
+                    "attributeCount",
+                    5,
+                    "sampleClickCount",
+                    sampleClickCount,
+                    "attributes",
+                    List.of("sampleMessage", "sampleCount", "sampleClickCount", "sampleGeneratedAt", "apiToken"));
         }
     }
 

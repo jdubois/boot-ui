@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.CopilotDashboardDto;
 import io.github.jdubois.bootui.core.dto.CopilotEventListDto;
 import io.github.jdubois.bootui.core.dto.CopilotRawEventDto;
@@ -37,7 +38,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class CopilotController {
 
     private final Supplier<CopilotSessionStore> store;
-    private final BootUiProperties properties;
+    private final BootUiExposure exposure;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
     /** Upper bound on simultaneous activity streams; this is a local dev tool, not a fan-out hub. */
@@ -46,17 +47,19 @@ public class CopilotController {
     @Autowired
     public CopilotController(
             @Qualifier("bootUiCopilotSessionStore") ObjectProvider<CopilotSessionStore> storeProvider,
-            BootUiProperties properties) {
-        this(storeProvider::getObject, properties);
+            BootUiProperties properties,
+            BootUiExposure exposure) {
+        this(storeProvider::getObject, properties, exposure);
     }
 
     CopilotController(CopilotSessionStore store, BootUiProperties properties) {
-        this(() -> store, properties);
+        this(() -> store, properties, new BootUiExposure(properties));
     }
 
-    private CopilotController(Supplier<CopilotSessionStore> store, BootUiProperties properties) {
+    private CopilotController(
+            Supplier<CopilotSessionStore> store, BootUiProperties properties, BootUiExposure exposure) {
         this.store = store;
-        this.properties = properties;
+        this.exposure = exposure;
     }
 
     @GetMapping("/sessions")
@@ -101,7 +104,7 @@ public class CopilotController {
         if (!store.isRawRevealAllowed()) {
             return ResponseEntity.notFound().build();
         }
-        if (properties.getExposeValues() == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        if (exposure.valueExposure() == BootUiProperties.ValueExposure.METADATA_ONLY) {
             return ResponseEntity.notFound().build();
         }
         String json = store.getRawEventJson(id, eventId);

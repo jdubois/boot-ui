@@ -17,6 +17,7 @@ import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.micrometer.metrics.actuate.endpoint.MetricsEndpoint;
+import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.ConfigurableEnvironment;
@@ -87,6 +88,7 @@ public class PanelsController {
                         "ThreadMXBean is not available on this JVM");
             case BootUiPanels.HEALTH ->
                 availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");
+            case BootUiPanels.HTTP_SESSIONS -> availability(httpSessionsAvailable(), httpSessionsUnavailableReason());
             case BootUiPanels.METRICS ->
                 availability(
                         classPresent("io.micrometer.core.instrument.MeterRegistry")
@@ -203,6 +205,29 @@ public class PanelsController {
 
     private boolean aiAvailable() {
         return properties.getTelemetry().isEnabled() && AiFrameworkDetector.isAnyPresent();
+    }
+
+    private boolean httpSessionsAvailable() {
+        return classPresent("org.springframework.boot.tomcat.TomcatWebServer")
+                && classPresent("org.apache.catalina.Manager")
+                && applicationContext instanceof WebServerApplicationContext webServerApplicationContext
+                && webServerApplicationContext.getWebServer() != null
+                && "org.springframework.boot.tomcat.TomcatWebServer"
+                        .equals(webServerApplicationContext
+                                .getWebServer()
+                                .getClass()
+                                .getName());
+    }
+
+    private String httpSessionsUnavailableReason() {
+        if (!classPresent("org.springframework.boot.tomcat.TomcatWebServer")
+                || !classPresent("org.apache.catalina.Manager")) {
+            return "HTTP Sessions require embedded Tomcat";
+        }
+        if (!(applicationContext instanceof WebServerApplicationContext)) {
+            return "HTTP Sessions require an embedded servlet web server";
+        }
+        return "HTTP Sessions require embedded Tomcat";
     }
 
     private boolean hikariAvailable() {

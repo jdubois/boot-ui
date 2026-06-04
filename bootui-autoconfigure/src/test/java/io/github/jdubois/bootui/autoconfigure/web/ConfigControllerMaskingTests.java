@@ -36,11 +36,12 @@ class ConfigControllerMaskingTests {
     Path tmp;
 
     private BootUiProperties properties;
+    private MockEnvironment environment;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        MockEnvironment environment = new MockEnvironment();
+        environment = new MockEnvironment();
         environment.setProperty(SECRET_KEY, SECRET_VALUE);
         environment.setProperty(PLAIN_KEY, PLAIN_VALUE);
 
@@ -68,6 +69,18 @@ class ConfigControllerMaskingTests {
                         .value(true))
                 .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value")
                         .value("******"));
+    }
+
+    @Test
+    void masked_runtimeMaskSecretsOverrideRevealsSecretProperty() throws Exception {
+        environment.setProperty("bootui.mask-secrets", "false");
+
+        mvc.perform(get("/bootui/api/config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].masked")
+                        .value(false))
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value")
+                        .value(SECRET_VALUE));
     }
 
     @Test
@@ -109,6 +122,18 @@ class ConfigControllerMaskingTests {
     @Test
     void full_secretPropertyIsReturnedUnmasked() throws Exception {
         properties.setExposeValues(ValueExposure.FULL);
+
+        mvc.perform(get("/bootui/api/config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].masked")
+                        .value(false))
+                .andExpect(jsonPath("$.properties[?(@.name=='" + SECRET_KEY + "')].value")
+                        .value(SECRET_VALUE));
+    }
+
+    @Test
+    void full_runtimeExposureOverrideRevealsSecretProperty() throws Exception {
+        environment.setProperty("bootui.expose-values", "FULL");
 
         mvc.perform(get("/bootui/api/config"))
                 .andExpect(status().isOk())
