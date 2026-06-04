@@ -42,15 +42,18 @@ read those before changing public behavior or visible panel behavior.
 ./mvnw -B -ntp -Prelease clean deploy
 ```
 
-CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17, which includes the frontend Vitest
-suite through Maven, installs Playwright Chromium, and runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers
-Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow (`.github/workflows/release.yml`)
-publishes `v*` tags to Maven Central through the `release` Maven profile and the Sonatype Central Publishing plugin.
+CI (`.github/workflows/build.yml`) first runs `./mvnw -B -ntp spotless:check`, then runs
+`./mvnw -B -ntp clean install` on Java 17, checks frontend and Playwright formatting, installs Playwright Chromium, and
+runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers Java/Kotlin and JavaScript/TypeScript when code scanning is
+enabled. The release workflow (`.github/workflows/release.yml`) publishes `v*` tags to Maven Central through the
+`release` Maven profile and the Sonatype Central Publishing plugin.
 
 ## Formatting before PRs
 
 - Before marking a PR ready or creating one, run the formatters for the areas touched by the change; after broad
   AI-generated edits, run all of them:
+- For any Java, XML, Markdown, POM, or test-source edit, run `./mvnw -B -ntp spotless:apply` before committing. Do not
+  rely on `./mvnw -B -ntp clean install` to catch this locally — CI runs `spotless:check` as a separate earlier step.
 
 ```bash
 ./mvnw -B -ntp spotless:apply
