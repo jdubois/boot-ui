@@ -1,11 +1,14 @@
 <script setup>
 import {computed, onMounted} from 'vue'
 import {useMemoryReport, formatBytes} from '../../utils/memoryReport.js'
+import {useAutoRefresh} from '../../utils/useAutoRefresh.js'
 
 const {data, error, loading, initialLoading, load} = useMemoryReport({
   endpoint: 'api/tuning-advisor',
   tuningInputs: true
 })
+
+const {autoRefresh} = useAutoRefresh(load)
 
 const breakdown = computed(() => {
   const c = data.value?.calculation

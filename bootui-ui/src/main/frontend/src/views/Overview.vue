@@ -43,6 +43,14 @@ const scannerDefs = [
     endpoint: 'api/hibernate-advisor/scan'
   },
   {
+    id: 'security-advisor',
+    title: 'Security Advisor',
+    icon: 'bi-shield-check',
+    tone: 'success',
+    to: '/security-advisor',
+    endpoint: 'api/security-advisor/scan'
+  },
+  {
     id: 'vulnerabilities',
     title: 'Vulnerabilities',
     icon: 'bi-bug',
