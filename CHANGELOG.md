@@ -12,6 +12,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Auto-configured an in-memory Spring Boot `AuditEventRepository` for Security Logs when BootUI is active, audit events are
   enabled, and the host app has not provided its own repository.
 
+### Fixed
+
+- Matched the exact BootUI root paths in BootUI's highest-priority Spring Security chain so host SPA fallback filters do
+  not intercept `/bootui` before BootUI can redirect to its console.
+
 ## [0.4.0] - 2026-06-03
 
 Fourth BootUI release, focused on new local runtime/security diagnostics, native-image readiness tooling, and the
