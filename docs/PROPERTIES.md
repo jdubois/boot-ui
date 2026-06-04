@@ -102,7 +102,7 @@ Panel settings are consistent across the UI and API:
 | `bootui.github.request-timeout`         | `5s`             | Timeout for each GitHub API request and local `gh auth token` lookup.                       |
 | `bootui.github.max-pull-requests`       | `10`             | Maximum open pull requests returned in one refresh.                                         |
 | `bootui.github.max-issues`              | `25`             | Maximum open issues fetched for issue buckets in one refresh.                               |
-| `bootui.github.max-workflow-runs`       | `10`             | Maximum recent workflow runs returned in one refresh.                                       |
+| `bootui.github.max-workflow-runs`       | `20`             | Maximum recent workflow runs returned in one refresh.                                       |
 | `bootui.github.quota-safety-threshold`  | `10`             | Skip optional API calls when remaining core quota is at or below this value.                 |
 | `bootui.github.max-api-calls`           | `17`             | Maximum GitHub API requests issued by one refresh.                                          |
 | `bootui.github.allowed-api-hosts`        | `api.github.com` | Allowed GitHub API hosts. Add a GitHub Enterprise host to enable enterprise remotes.         |

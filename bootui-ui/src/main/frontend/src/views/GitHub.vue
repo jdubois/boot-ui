@@ -302,7 +302,7 @@ function workflowBadgeClass(run) {
 }
 
 function workflowStatus(run) {
-  if (!run) return 'No recent run'
+  if (!run) return 'unknown'
   return run.conclusion || run.status || 'unknown'
 }
 
@@ -315,39 +315,44 @@ function workflowEventClass(event) {
   return 'workflow-event-badge--default'
 }
 
-const workflowFailures = computed(() => workflowRuns.value.filter(workflowProblem))
-
-const visibleWorkflowRuns = computed(() =>
-  [...workflowRuns.value].sort((a, b) => (b.createdAt ?? b.updatedAt ?? 0) - (a.createdAt ?? a.updatedAt ?? 0))
-)
-
 function workflowRunTime(run) {
   return run?.createdAt ?? run?.updatedAt ?? 0
 }
 
-const visibleWorkflowRows = computed(() => {
-  if (!workflows.value.length) {
-    return visibleWorkflowRuns.value.map((run) => ({
-      key: `run:${run.id}`,
-      name: run.name || 'Workflow run',
-      path: null,
-      state: null,
-      htmlUrl: null,
-      latestRun: run
-    }))
+const visibleWorkflowRuns = computed(() =>
+  [...workflowRuns.value].sort((a, b) => workflowRunTime(b) - workflowRunTime(a))
+)
+
+const latestWorkflowRuns = computed(() => {
+  const latestRuns = new Map()
+  for (const run of workflowRuns.value) {
+    const key = run.workflowId == null ? `run:${run.id}` : `workflow:${run.workflowId}`
+    const current = latestRuns.get(key)
+    if (!current || workflowRunTime(run) > workflowRunTime(current)) {
+      latestRuns.set(key, run)
+    }
   }
-  return workflows.value
-    .map((workflow) => ({
-      key: `workflow:${workflow.id}`,
-      ...workflow,
-      latestRun: workflow.latestRun ?? null
-    }))
-    .sort((a, b) => {
-      const timeDiff = workflowRunTime(b.latestRun) - workflowRunTime(a.latestRun)
-      if (timeDiff !== 0) return timeDiff
-      return (a.name || '').localeCompare(b.name || '')
-    })
+  return [...latestRuns.values()]
 })
+
+const workflowFailures = computed(() => latestWorkflowRuns.value.filter(workflowProblem))
+
+const workflowsById = computed(() => new Map(workflows.value.map((workflow) => [workflow.id, workflow])))
+
+function workflowRunTitle(run) {
+  return run.displayTitle || run.name || 'Workflow run'
+}
+
+function workflowRunSubtitle(run) {
+  const parts = []
+  if (run.runNumber != null) parts.push(`#${run.runNumber}`)
+  if (run.actor) parts.push(`by ${run.actor}`)
+  return parts.join(' · ')
+}
+
+function workflowForRun(run) {
+  return workflowsById.value.get(run.workflowId) ?? null
+}
 
 const activeSecuritySignal = computed(() => {
   if (!activeDrawer.value?.startsWith('security:')) return null
@@ -362,7 +367,7 @@ const drawerTitle = computed(() => {
     {
       pullRequests: 'Open pull requests',
       issues: 'Open issues',
-      workflows: 'Workflows',
+      workflows: 'GitHub Actions executions',
       quotas: 'Quotas and rate limits',
       copilot: 'Copilot usage'
     }[activeDrawer.value] || 'GitHub details'
@@ -376,11 +381,9 @@ const drawerSubtitle = computed(() => {
     {
       pullRequests: `${pullRequests.value.length} pull request${pullRequests.value.length === 1 ? '' : 's'} returned by this refresh`,
       issues: 'Issue buckets from the bounded live refresh',
-      workflows: workflows.value.length
-        ? `${workflows.value.length} workflows configured; latest run details use the bounded recent-run window`
-        : workflowFailures.value.length
-          ? `${workflowFailures.value.length} run${workflowFailures.value.length === 1 ? '' : 's'} need attention`
-          : 'Recent workflow runs are passing or neutral',
+      workflows: visibleWorkflowRuns.value.length
+        ? `Latest ${visibleWorkflowRuns.value.length} GitHub Actions execution${visibleWorkflowRuns.value.length === 1 ? '' : 's'} returned by this refresh`
+        : 'No GitHub Actions executions were returned by this refresh',
       quotas: quotaIssueSummary.value,
       copilot: copilotUsage.value?.summary || 'Copilot usage report availability'
     }[activeDrawer.value] || ''
@@ -611,82 +614,79 @@ function securitySignalUrl(signal) {
             <i class="bi bi-exclamation-octagon-fill flex-shrink-0 mt-1"></i>
             <div>
               <strong>
-                {{ workflowFailures.length }} workflow run{{ workflowFailures.length === 1 ? '' : 's' }}
+                {{ workflowFailures.length }} workflow{{ workflowFailures.length === 1 ? '' : 's' }}
                 {{ workflowFailures.length === 1 ? 'needs' : 'need' }} attention.
               </strong>
-              Failed, cancelled, timed out, and action-required runs are marked with the status icon.
+              Only the latest execution for each workflow is counted; older failed executions remain visible in the
+              history.
             </div>
           </div>
-          <div v-if="visibleWorkflowRows.length" class="table-responsive">
+          <div v-if="visibleWorkflowRuns.length" class="table-responsive">
             <table class="table table-sm align-middle mb-0">
               <thead>
                 <tr>
-                  <th>Workflow</th>
-                  <th>Type</th>
                   <th>Status</th>
+                  <th>Execution</th>
+                  <th>Workflow</th>
+                  <th>Branch</th>
+                  <th>Event</th>
                   <th>Event date</th>
                   <th class="text-end">Duration</th>
-                  <th class="text-end">Build</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="workflow in visibleWorkflowRows" :key="workflow.key">
+                <tr v-for="run in visibleWorkflowRuns" :key="run.id">
+                  <td>
+                    <span :class="workflowBadgeClass(run)" class="badge">
+                      <i v-if="workflowProblem(run)" class="bi bi-exclamation-octagon-fill me-1"></i>
+                      {{ workflowStatus(run) }}
+                    </span>
+                  </td>
                   <td>
                     <a
-                      v-if="workflow.htmlUrl"
-                      :href="workflow.htmlUrl"
+                      v-if="run.htmlUrl"
+                      :href="run.htmlUrl"
                       class="github-link-chip"
                       rel="noopener noreferrer"
                       target="_blank"
                     >
-                      {{ workflow.name || 'Workflow' }}
+                      {{ workflowRunTitle(run) }}
                       <i class="bi bi-box-arrow-up-right"></i>
                     </a>
-                    <span v-else class="fw-semibold">{{ workflow.name || 'Workflow' }}</span>
-                    <span
-                      v-if="workflow.state && workflow.state !== 'active'"
-                      class="badge text-bg-secondary ms-2 text-capitalize"
-                    >
-                      {{ workflow.state.replace(/_/g, ' ') }}
-                    </span>
-                    <div v-if="workflow.path" class="small text-muted mt-1">{{ workflow.path }}</div>
+                    <span v-else class="fw-semibold">{{ workflowRunTitle(run) }}</span>
+                    <div v-if="workflowRunSubtitle(run)" class="small text-muted mt-1">
+                      {{ workflowRunSubtitle(run) }}
+                    </div>
                   </td>
                   <td>
-                    <span
-                      v-if="workflow.latestRun"
-                      :class="workflowEventClass(workflow.latestRun.event)"
-                      class="workflow-event-badge"
-                    >
-                      {{ workflow.latestRun.event || 'unknown' }}
-                    </span>
-                    <span v-else class="text-muted small">—</span>
-                  </td>
-                  <td>
-                    <span :class="workflowBadgeClass(workflow.latestRun)" class="badge">
-                      <i v-if="workflowProblem(workflow.latestRun)" class="bi bi-exclamation-octagon-fill me-1"></i>
-                      {{ workflowStatus(workflow.latestRun) }}
-                    </span>
-                  </td>
-                  <td>{{ formatDateTime(workflow.latestRun?.createdAt || workflow.latestRun?.updatedAt) }}</td>
-                  <td class="text-end">{{ duration(workflow.latestRun?.durationMillis) }}</td>
-                  <td class="text-end">
                     <a
-                      v-if="workflow.latestRun?.htmlUrl"
-                      :href="workflow.latestRun.htmlUrl"
+                      v-if="workflowForRun(run)?.htmlUrl"
+                      :href="workflowForRun(run).htmlUrl"
                       class="github-link-chip"
                       rel="noopener noreferrer"
                       target="_blank"
                     >
-                      Open build
+                      {{ run.name || workflowForRun(run).name || 'Workflow' }}
                       <i class="bi bi-box-arrow-up-right"></i>
                     </a>
+                    <span v-else>{{ run.name || workflowForRun(run)?.name || 'Workflow' }}</span>
+                  </td>
+                  <td>
+                    <span v-if="run.branch" class="font-monospace small">{{ run.branch }}</span>
                     <span v-else class="text-muted small">—</span>
                   </td>
+                  <td>
+                    <span :class="workflowEventClass(run.event)" class="workflow-event-badge">
+                      {{ run.event || 'unknown' }}
+                    </span>
+                  </td>
+                  <td>{{ formatDateTime(run.createdAt || run.updatedAt) }}</td>
+                  <td class="text-end">{{ duration(run.durationMillis) }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div v-else class="card-body text-muted">No workflows or workflow runs were returned by this refresh.</div>
+          <div v-else class="card-body text-muted">No GitHub Actions executions were returned by this refresh.</div>
         </template>
 
         <template v-else-if="activeDrawer === 'quotas'">

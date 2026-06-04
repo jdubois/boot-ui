@@ -74,7 +74,7 @@ function connectedReport() {
     metrics: [
       {label: 'Open pull requests', value: '1', detail: 'Bounded live queue', tone: 'primary'},
       {label: 'Open issues', value: '2', detail: 'Issues returned by this refresh', tone: 'info'},
-      {label: 'Workflow failures', value: '1', detail: 'Recent workflow runs', tone: 'danger'},
+      {label: 'Workflow failures', value: '1', detail: 'Latest run per workflow', tone: 'danger'},
       {label: 'Core quota remaining', value: '500', detail: 'GitHub REST core resource', tone: 'success'},
       {label: 'Copilot usage', value: 'Available', detail: '2026-05-07 to 2026-06-03', tone: 'info'}
     ],
@@ -137,10 +137,13 @@ function connectedReport() {
         id: 10,
         workflowId: 100,
         name: 'Build',
+        displayTitle: 'Run tests on pull request',
+        runNumber: 42,
         event: 'pull_request',
         status: 'completed',
         conclusion: 'timed_out',
         branch: 'main',
+        actor: 'alice',
         htmlUrl: 'https://github.com/jdubois/boot-ui/actions/runs/10',
         createdAt: 1780560000000,
         updatedAt: 1780560300000,
@@ -150,10 +153,13 @@ function connectedReport() {
         id: 11,
         workflowId: 200,
         name: 'Release',
+        displayTitle: 'Release v0.1.0',
+        runNumber: 17,
         event: 'workflow_dispatch',
         status: 'completed',
         conclusion: 'success',
         branch: 'main',
+        actor: 'bob',
         htmlUrl: 'https://github.com/jdubois/boot-ui/actions/runs/11',
         createdAt: 1780560600000,
         updatedAt: 1780560900000,
@@ -171,10 +177,13 @@ function connectedReport() {
           id: 10,
           workflowId: 100,
           name: 'Build',
+          displayTitle: 'Run tests on pull request',
+          runNumber: 42,
           event: 'pull_request',
           status: 'completed',
           conclusion: 'timed_out',
           branch: 'main',
+          actor: 'alice',
           htmlUrl: 'https://github.com/jdubois/boot-ui/actions/runs/10',
           createdAt: 1780560000000,
           updatedAt: 1780560300000,
@@ -191,10 +200,13 @@ function connectedReport() {
           id: 11,
           workflowId: 200,
           name: 'Release',
+          displayTitle: 'Release v0.1.0',
+          runNumber: 17,
           event: 'workflow_dispatch',
           status: 'completed',
           conclusion: 'success',
           branch: 'main',
+          actor: 'bob',
           htmlUrl: 'https://github.com/jdubois/boot-ui/actions/runs/11',
           createdAt: 1780560600000,
           updatedAt: 1780560900000,
@@ -227,6 +239,31 @@ function connectedReport() {
       unavailableReason: null
     }
   })
+}
+
+function fixedWorkflowReport() {
+  const report = connectedReport()
+  const fixedRun = {
+    ...report.workflowRuns[0],
+    id: 12,
+    displayTitle: 'Fix tests after failure',
+    runNumber: 43,
+    conclusion: 'success',
+    actor: 'carol',
+    htmlUrl: 'https://github.com/jdubois/boot-ui/actions/runs/12',
+    createdAt: 1780561200000,
+    updatedAt: 1780561440000,
+    durationMillis: 240000
+  }
+
+  return {
+    ...report,
+    metrics: report.metrics.map((metric) =>
+      metric.label === 'Workflow failures' ? {...metric, value: '0', tone: 'success'} : metric
+    ),
+    workflowRuns: [report.workflowRuns[0], fixedRun],
+    workflows: [{...report.workflows[0], latestRun: fixedRun}]
+  }
 }
 
 function metricButton(wrapper, label) {
@@ -300,7 +337,8 @@ describe('GitHub', () => {
     await metricButton(wrapper, 'Workflow failures').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.details-drawer').text()).toContain('1 workflow run needs attention')
+    expect(wrapper.find('.details-drawer').text()).toContain('1 workflow needs attention')
+    expect(wrapper.find('.details-drawer').text()).toContain('Latest 2 GitHub Actions executions')
     expect(wrapper.find('.details-drawer').text()).toContain('Build')
     expect(wrapper.find('.details-drawer').text()).not.toContain('#42 Add dashboard')
 
@@ -410,29 +448,53 @@ describe('GitHub', () => {
     await metricButton(wrapper, 'Workflow failures').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('1 workflow run needs attention')
-    expect(wrapper.text()).toContain('3 workflows configured')
+    expect(wrapper.text()).toContain('1 workflow needs attention')
+    expect(wrapper.text()).toContain('Latest 2 GitHub Actions executions')
     expect(wrapper.text()).toContain('Build')
-    expect(wrapper.text()).toContain('Native image')
+    expect(wrapper.text()).toContain('Run tests on pull request')
+    expect(wrapper.text()).toContain('#42')
+    expect(wrapper.text()).toContain('by alice')
+    expect(wrapper.text()).not.toContain('Native image')
     expect(wrapper.text()).toContain('pull_request')
-    expect(wrapper.text()).toContain('Open build')
     expect(wrapper.text()).toContain('timed_out')
-    expect(wrapper.text()).toContain('No recent run')
     expect(wrapper.find('.details-drawer tbody tr').classes()).not.toContain('table-danger')
     expect(wrapper.find('.workflow-event-badge--pull-request').exists()).toBe(true)
     const headerLabels = wrapper.findAll('.details-drawer thead th').map((cell) => cell.text())
-    expect(headerLabels.at(-1)).toBe('Build')
+    expect(headerLabels).toEqual(['Status', 'Execution', 'Workflow', 'Branch', 'Event', 'Event date', 'Duration'])
     const rows = wrapper.findAll('.details-drawer tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('Release v0.1.0')
     expect(rows[0].text()).toContain('Release')
+    expect(rows[1].text()).toContain('Run tests on pull request')
     expect(rows[1].text()).toContain('Build')
-    expect(rows[2].text()).toContain('Native image')
-    expect(rows[2].text()).toContain('No recent run')
+    expect(rows[1].text()).toContain('main')
     expect(
       wrapper
         .findAll('.details-drawer tbody a.github-link-chip')
-        .some((link) => link.attributes('href')?.endsWith('/actions/workflows/native.yml'))
+        .some((link) => link.attributes('href')?.endsWith('/actions/runs/10'))
     ).toBe(true)
     expect(wrapper.text()).toContain('Dependabot alerts')
+  })
+
+  it('does not count an older failed execution after a later run fixes the workflow', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(fixedWorkflowReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    const workflowCard = metricButton(wrapper, 'Workflow failures')
+    expect(workflowCard.text()).toContain('0')
+
+    await workflowCard.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.details-drawer').text()).toContain('Latest 2 GitHub Actions executions')
+    expect(wrapper.find('.details-drawer').text()).toContain('Fix tests after failure')
+    expect(wrapper.find('.details-drawer').text()).toContain('Run tests on pull request')
+    expect(wrapper.find('.details-drawer').text()).toContain('timed_out')
+    expect(wrapper.find('.details-drawer .alert-danger').exists()).toBe(false)
+    expect(wrapper.find('.details-drawer').text()).not.toContain('needs attention')
   })
 
   it('shows Copilot usage report metadata without exposing signed download URLs', async () => {

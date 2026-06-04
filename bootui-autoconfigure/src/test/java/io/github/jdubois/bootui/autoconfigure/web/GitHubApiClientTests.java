@@ -40,10 +40,8 @@ class GitHubApiClientTests {
         json("/repos/jdubois/boot-ui/issues", """
                 [{"number":7,"title":"Bug","updated_at":"2026-04-01T08:30:00Z","labels":[]},{"number":8,"pull_request":{},"labels":[]}]
                 """);
-        jsonByQuery("/repos/jdubois/boot-ui/actions/runs", """
-                {"workflow_runs":[{"id":10,"workflow_id":100,"name":"Build","event":"push","status":"completed","conclusion":"success","head_branch":"main","html_url":"https://github.com/jdubois/boot-ui/actions/runs/10","created_at":"2026-06-04T08:00:00Z","run_started_at":"2026-06-04T08:01:00Z","updated_at":"2026-06-04T08:05:00Z"}]}
-                """, """
-                {"workflow_runs":[{"id":11,"workflow_id":200,"name":"Build","event":"workflow_dispatch","status":"completed","conclusion":"timed_out","head_branch":"main","html_url":"https://github.com/jdubois/boot-ui/actions/runs/11","created_at":"2026-06-03T08:00:00Z","run_started_at":"2026-06-03T08:01:00Z","updated_at":"2026-06-03T08:20:00Z"}]}
+        json("/repos/jdubois/boot-ui/actions/runs", """
+                {"workflow_runs":[{"id":9,"workflow_id":100,"name":"Build","display_title":"Run tests","run_number":41,"event":"push","status":"completed","conclusion":"failure","head_branch":"main","triggering_actor":{"login":"alice"},"html_url":"https://github.com/jdubois/boot-ui/actions/runs/9","created_at":"2026-06-04T07:00:00Z","run_started_at":"2026-06-04T07:01:00Z","updated_at":"2026-06-04T07:05:00Z"},{"id":10,"workflow_id":100,"name":"Build","display_title":"Run tests","run_number":42,"event":"push","status":"completed","conclusion":"success","head_branch":"main","triggering_actor":{"login":"alice"},"html_url":"https://github.com/jdubois/boot-ui/actions/runs/10","created_at":"2026-06-04T08:00:00Z","run_started_at":"2026-06-04T08:01:00Z","updated_at":"2026-06-04T08:05:00Z"},{"id":11,"workflow_id":200,"name":"Build","display_title":"Manual release","run_number":9,"event":"workflow_dispatch","status":"completed","conclusion":"timed_out","head_branch":"main","actor":{"login":"bob"},"html_url":"https://github.com/jdubois/boot-ui/actions/runs/11","created_at":"2026-06-03T08:00:00Z","run_started_at":"2026-06-03T08:01:00Z","updated_at":"2026-06-03T08:20:00Z"}]}
                 """);
         json("/repos/jdubois/boot-ui/actions/workflows", """
                 {"workflows":[{"id":100,"name":"Build","path":".github/workflows/build.yml","state":"active","html_url":"https://github.com/jdubois/boot-ui/blob/main/.github/workflows/build.yml"},{"id":200,"name":"CodeQL","path":"dynamic/github-code-scanning/codeql","state":"active","html_url":"https://github.com/jdubois/boot-ui/actions/workflows/github-code-scanning/codeql"},{"id":300,"name":"Native image","path":".github/workflows/native.yml","state":"active","html_url":"https://github.com/jdubois/boot-ui/blob/main/.github/workflows/native.yml"}]}
@@ -76,8 +74,12 @@ class GitHubApiClientTests {
         assertThat(report.workflowRuns())
                 .filteredOn(run -> run.id() == 10)
                 .singleElement()
-                .extracting("workflowId")
-                .isEqualTo(100L);
+                .satisfies(run -> {
+                    assertThat(run.workflowId()).isEqualTo(100L);
+                    assertThat(run.displayTitle()).isEqualTo("Run tests");
+                    assertThat(run.runNumber()).isEqualTo(42L);
+                    assertThat(run.actor()).isEqualTo("alice");
+                });
         assertThat(report.workflows()).extracting("name").containsExactly("Build", "CodeQL", "Native image");
         assertThat(report.workflows())
                 .filteredOn(workflow -> workflow.id() == 100)
@@ -125,8 +127,10 @@ class GitHubApiClientTests {
         assertThat(report.metrics())
                 .filteredOn(metric -> metric.label().equals("Workflow failures"))
                 .singleElement()
-                .extracting("value")
-                .isEqualTo("1");
+                .satisfies(metric -> {
+                    assertThat(metric.value()).isEqualTo("1");
+                    assertThat(metric.detail()).isEqualTo("Latest run per workflow");
+                });
         assertThat(report.metrics())
                 .filteredOn(metric -> metric.label().equals("Copilot usage"))
                 .singleElement()
@@ -209,19 +213,6 @@ class GitHubApiClientTests {
             return "[]";
         }
         return "[" + "{},".repeat(count - 1) + "{}]";
-    }
-
-    private void jsonByQuery(String path, String defaultBody, String failureBody) {
-        server.createContext(path, exchange -> {
-            String query = exchange.getRequestURI().getRawQuery();
-            String body = query != null && query.contains("status=failure") ? failureBody : defaultBody;
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.getResponseHeaders().add("X-OAuth-Scopes", "repo, workflow");
-            exchange.sendResponseHeaders(200, bytes.length);
-            exchange.getResponseBody().write(bytes);
-            exchange.close();
-        });
     }
 
     private void jsonWithApiVersion(String path, String expectedApiVersion, String body) {

@@ -163,7 +163,7 @@ final class GitHubApiClient implements GitHubClient {
 
             ApiResponse runsResponse = get(
                     repository,
-                    repoPath + "/actions/runs?per_page=" + positive(properties.getMaxWorkflowRuns(), 10),
+                    repoPath + "/actions/runs?per_page=" + positive(properties.getMaxWorkflowRuns(), 20),
                     token,
                     budget,
                     "workflow runs");
@@ -171,17 +171,6 @@ final class GitHubApiClient implements GitHubClient {
                 workflowRuns.addAll(workflowRuns(runsResponse.json()));
             } else {
                 warnings.add(runsResponse.safeMessage());
-            }
-            ApiResponse failedRunsResponse = get(
-                    repository,
-                    repoPath + "/actions/runs?status=failure&per_page=" + positive(properties.getMaxWorkflowRuns(), 10),
-                    token,
-                    budget,
-                    "failed workflow runs");
-            if (failedRunsResponse.success()) {
-                workflowRuns = mergeWorkflowRuns(workflowRuns, workflowRuns(failedRunsResponse.json()));
-            } else {
-                warnings.add(failedRunsResponse.safeMessage());
             }
             ApiResponse workflowsResponse =
                     get(repository, repoPath + "/actions/workflows?per_page=100", token, budget, "workflows");
@@ -397,10 +386,13 @@ final class GitHubApiClient implements GitHubClient {
                     item.path("id").asLong(),
                     nullable(item.path("workflow_id").asLong(-1)),
                     text(item, "name"),
+                    text(item, "display_title"),
+                    nullable(item.path("run_number").asLong(-1)),
                     text(item, "event"),
                     text(item, "status"),
                     text(item, "conclusion"),
                     text(item, "head_branch"),
+                    actor(item),
                     text(item, "html_url"),
                     created,
                     updated,
@@ -467,18 +459,6 @@ final class GitHubApiClient implements GitHubClient {
             return badgeUrl.substring(0, badgeUrl.length() - "/badge.svg".length());
         }
         return trimTrailingSlash(repository.htmlUrl()) + "/actions";
-    }
-
-    private List<GitHubWorkflowRunDto> mergeWorkflowRuns(
-            List<GitHubWorkflowRunDto> recentRuns, List<GitHubWorkflowRunDto> failedRuns) {
-        Map<Long, GitHubWorkflowRunDto> merged = new LinkedHashMap<>();
-        for (GitHubWorkflowRunDto run : failedRuns) {
-            merged.put(run.id(), run);
-        }
-        for (GitHubWorkflowRunDto run : recentRuns) {
-            merged.putIfAbsent(run.id(), run);
-        }
-        return List.copyOf(merged.values());
     }
 
     private List<GitHubIssueBucketDto> issueBuckets(JsonNode root) {
@@ -721,7 +701,7 @@ final class GitHubApiClient implements GitHubClient {
             List<GitHubQuotaDto> quotas,
             Long coreRemaining,
             GitHubCopilotUsageDto copilotUsage) {
-        long failures = workflowRuns.stream().filter(this::workflowFailure).count();
+        long failures = currentWorkflowFailures(workflowRuns);
         String openIssues = issueBuckets.stream()
                 .filter(bucket -> "Open issues".equals(bucket.label()))
                 .findFirst()
@@ -738,7 +718,7 @@ final class GitHubApiClient implements GitHubClient {
                 new GitHubMetricDto(
                         "Workflow failures",
                         Long.toString(failures),
-                        "Recent workflow runs",
+                        "Latest run per workflow",
                         failures > 0 ? "danger" : "success"),
                 new GitHubMetricDto(
                         "Core quota remaining",
@@ -787,6 +767,19 @@ final class GitHubApiClient implements GitHubClient {
         }
         return !Set.of("success", "neutral", "skipped")
                 .contains(run.conclusion().toLowerCase(Locale.ROOT));
+    }
+
+    private long currentWorkflowFailures(List<GitHubWorkflowRunDto> workflowRuns) {
+        Map<String, GitHubWorkflowRunDto> latestRuns = new HashMap<>();
+        for (GitHubWorkflowRunDto run : workflowRuns) {
+            String key = run.workflowId() == null ? "run:" + run.id() : "workflow:" + run.workflowId();
+            latestRuns.merge(
+                    key,
+                    run,
+                    (current, candidate) ->
+                            workflowRunTime(candidate) > workflowRunTime(current) ? candidate : current);
+        }
+        return latestRuns.values().stream().filter(this::workflowFailure).count();
     }
 
     private GitHubDashboardReport report(
@@ -939,6 +932,11 @@ final class GitHubApiClient implements GitHubClient {
             }
         }
         return labels;
+    }
+
+    private static String actor(JsonNode workflowRun) {
+        String triggeringActor = text(workflowRun.path("triggering_actor"), "login");
+        return triggeringActor == null ? text(workflowRun.path("actor"), "login") : triggeringActor;
     }
 
     private static String label(String key) {
