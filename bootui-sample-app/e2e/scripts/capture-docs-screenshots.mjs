@@ -114,20 +114,20 @@ const github = {
     {label: 'Open pull requests', value: '3', detail: 'Bounded live queue', tone: 'primary'},
     {label: 'Open issues', value: '9', detail: 'Grouped by label and age', tone: 'info'},
     {label: 'Workflow failures', value: '1', detail: 'Latest run per workflow', tone: 'danger'},
-    {label: 'Core quota remaining', value: '420', detail: 'GitHub REST core resource', tone: 'success'},
-    {label: 'Copilot usage', value: 'Available', detail: '2026-05-07 to 2026-06-03', tone: 'info'}
+    {label: 'Core quota remaining', value: '90%', detail: 'GitHub REST core resource', tone: 'success'},
+    {label: 'Copilot usage', value: '2,523,456', detail: 'tokens in the latest 28-day report', tone: 'info'}
   ],
   quotas: [
-    githubQuota('core', 'Core', 'Rate limit', 5000, 4580, 420, 92, 'OK'),
-    githubQuota('search', 'Search', 'Rate limit', 30, 27, 3, 90, 'LOW'),
+    githubQuota('core', 'Core', 'Rate limit', 5000, 500, 4500, 10, 'OK'),
+    githubQuota('search', 'Search', 'Rate limit', 30, 3, 27, 10, 'OK'),
     githubQuota(
       'actions_cache',
       'Actions cache',
       'Repository quota',
       10_737_418_240,
-      3_221_225_472,
-      7_516_192_768,
-      30,
+      1_073_741_824,
+      9_663_676_416,
+      10,
       'OK'
     )
   ],
@@ -204,12 +204,12 @@ const github = {
   securitySignals: [
     {label: 'Dependabot alerts', status: 'AVAILABLE', count: 0, unavailableReason: null},
     {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null},
-    {label: 'Secret scanning alerts', status: 'UNAVAILABLE', count: null, unavailableReason: 'Requires admin access'}
+    {label: 'Secret scanning alerts', status: 'AVAILABLE', count: 0, unavailableReason: null}
   ],
   copilotUsage: {
     status: 'AVAILABLE',
     scope: 'organization',
-    summary: 'Latest 28-day Copilot usage report is available.',
+    summary: '2,523,456 tokens used in the latest 28-day report.',
     reportStartDay: '2026-05-07',
     reportEndDay: '2026-06-03',
     downloadLinkCount: 1,
