@@ -77,14 +77,6 @@ public class BootUiProperties {
      */
     private Cache cache = new Cache();
     /**
-     * Flyway panel settings.
-     */
-    private Flyway flyway = new Flyway();
-    /**
-     * Liquibase panel settings.
-     */
-    private Liquibase liquibase = new Liquibase();
-    /**
      * Security Logs panel settings.
      */
     private SecurityLogs securityLogs = new SecurityLogs();
@@ -262,22 +254,6 @@ public class BootUiProperties {
         this.cache = cache == null ? new Cache() : cache;
     }
 
-    public Flyway getFlyway() {
-        return flyway;
-    }
-
-    public void setFlyway(Flyway flyway) {
-        this.flyway = flyway == null ? new Flyway() : flyway;
-    }
-
-    public Liquibase getLiquibase() {
-        return liquibase;
-    }
-
-    public void setLiquibase(Liquibase liquibase) {
-        this.liquibase = liquibase == null ? new Liquibase() : liquibase;
-    }
-
     public SecurityLogs getSecurityLogs() {
         return securityLogs;
     }
@@ -440,54 +416,6 @@ public class BootUiProperties {
 
         public void setClearEnabled(boolean clearEnabled) {
             this.clearEnabled = clearEnabled;
-        }
-    }
-
-    public static class Flyway {
-
-        /**
-         * Allow BootUI to run pending Flyway migrations. Disabled by default because it
-         * mutates the application database.
-         */
-        private boolean migrateEnabled = false;
-
-        /**
-         * Allow BootUI to clean Flyway-managed schemas. Flyway's own
-         * {@code clean-disabled} setting must also allow clean.
-         */
-        private boolean cleanEnabled = false;
-
-        public boolean isMigrateEnabled() {
-            return migrateEnabled;
-        }
-
-        public void setMigrateEnabled(boolean migrateEnabled) {
-            this.migrateEnabled = migrateEnabled;
-        }
-
-        public boolean isCleanEnabled() {
-            return cleanEnabled;
-        }
-
-        public void setCleanEnabled(boolean cleanEnabled) {
-            this.cleanEnabled = cleanEnabled;
-        }
-    }
-
-    public static class Liquibase {
-
-        /**
-         * Allow BootUI to apply pending Liquibase change sets. Disabled by default
-         * because it mutates the application database.
-         */
-        private boolean updateEnabled = false;
-
-        public boolean isUpdateEnabled() {
-            return updateEnabled;
-        }
-
-        public void setUpdateEnabled(boolean updateEnabled) {
-            this.updateEnabled = updateEnabled;
         }
     }
 

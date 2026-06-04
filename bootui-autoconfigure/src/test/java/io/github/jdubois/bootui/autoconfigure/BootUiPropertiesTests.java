@@ -115,19 +115,6 @@ class BootUiPropertiesTests {
     }
 
     @Test
-    void defaultFlywayActionsAreDisabled() {
-        BootUiProperties props = new BootUiProperties();
-        assertThat(props.getFlyway().isMigrateEnabled()).isFalse();
-        assertThat(props.getFlyway().isCleanEnabled()).isFalse();
-    }
-
-    @Test
-    void defaultLiquibaseActionsAreDisabled() {
-        BootUiProperties props = new BootUiProperties();
-        assertThat(props.getLiquibase().isUpdateEnabled()).isFalse();
-    }
-
-    @Test
     void defaultMonitoringExcludeSelfIsTrue() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getMonitoring().isExcludeSelf()).isTrue();
@@ -335,28 +322,6 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getCache().isClearEnabled()).isFalse();
-    }
-
-    @Test
-    void bindsFlywayActionSettings() {
-        MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.flyway.migrate-enabled", "true");
-        env.setProperty("bootui.flyway.clean-enabled", "true");
-
-        BootUiProperties props = bind(env);
-
-        assertThat(props.getFlyway().isMigrateEnabled()).isTrue();
-        assertThat(props.getFlyway().isCleanEnabled()).isTrue();
-    }
-
-    @Test
-    void bindsLiquibaseActionSettings() {
-        MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.liquibase.update-enabled", "true");
-
-        BootUiProperties props = bind(env);
-
-        assertThat(props.getLiquibase().isUpdateEnabled()).isTrue();
     }
 
     @Test

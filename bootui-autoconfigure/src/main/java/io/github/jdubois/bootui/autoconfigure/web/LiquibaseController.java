@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.LiquibaseActionRequest;
 import io.github.jdubois.bootui.core.dto.LiquibaseActionResult;
 import io.github.jdubois.bootui.core.dto.LiquibaseChangeSetDto;
@@ -25,14 +24,12 @@ import liquibase.Scope;
 import liquibase.analytics.configuration.AnalyticsArgs;
 import liquibase.changelog.RanChangeSet;
 import liquibase.changelog.StandardChangeLogHistoryService;
-import liquibase.configuration.ConfiguredValue;
 import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.exception.DatabaseException;
 import liquibase.exception.LiquibaseException;
 import liquibase.integration.IntegrationDetails;
-import liquibase.integration.commandline.LiquibaseCommandLineConfiguration;
 import liquibase.integration.spring.SpringLiquibase;
 import liquibase.ui.UIServiceEnum;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -49,41 +46,31 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Exposes Liquibase change-log history and explicitly gated update actions for the
+ * Exposes Liquibase change-log history and update actions for the
  * {@link SpringLiquibase} beans declared in the current application context.
  *
- * <p>Mutating commands are disabled by default, require an explicit confirmation
- * payload, and remain subject to BootUI's global/per-panel read-only filter.</p>
+ * <p>Mutating commands require an explicit confirmation payload and remain
+ * subject to BootUI's global/per-panel read-only filter.</p>
  */
 @RestController
 @ConditionalOnClass(SpringLiquibase.class)
 @RequestMapping("/bootui/api/liquibase")
 public class LiquibaseController {
 
-    private static final String UPDATE_DISABLED =
-            "Liquibase update is disabled by default. Set bootui.liquibase.update-enabled=true in a trusted local profile.";
     private static final String CONFIRMATION_REQUIRED =
             "Action requires confirm=true because it mutates the application database.";
-    private static final String DROP_ALL_UNAVAILABLE =
-            "Liquibase dropAll is not available yet in BootUI. Use the Liquibase CLI after reviewing the schema impact.";
-    private static final String GENERATE_CHANGELOG_UNAVAILABLE =
-            "Liquibase changelog generation is not available yet in BootUI.";
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
-    private final BootUiProperties properties;
     private final LiquibaseActionExecutor actionExecutor;
 
     @Autowired
-    public LiquibaseController(ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiProperties properties) {
-        this(beanFactoryProvider, properties, new DefaultLiquibaseActionExecutor());
+    public LiquibaseController(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
+        this(beanFactoryProvider, new DefaultLiquibaseActionExecutor());
     }
 
     LiquibaseController(
-            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
-            BootUiProperties properties,
-            LiquibaseActionExecutor actionExecutor) {
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider, LiquibaseActionExecutor actionExecutor) {
         this.beanFactoryProvider = beanFactoryProvider;
-        this.properties = properties;
         this.actionExecutor = actionExecutor;
     }
 
@@ -99,11 +86,7 @@ public class LiquibaseController {
                     changeSets.size(),
                     changeSets,
                     updateDisabledReason == null,
-                    updateDisabledReason,
-                    false,
-                    DROP_ALL_UNAVAILABLE,
-                    false,
-                    GENERATE_CHANGELOG_UNAVAILABLE));
+                    updateDisabledReason));
         }
         databases.sort(Comparator.comparing(LiquibaseDatabaseDto::name, Comparator.nullsLast(String::compareTo)));
         int total = databases.stream().mapToInt(LiquibaseDatabaseDto::total).sum();
@@ -201,21 +184,6 @@ public class LiquibaseController {
 
     @Nullable
     private String updateDisabledReason(SpringLiquibase liquibase) {
-        if (!properties.getLiquibase().isUpdateEnabled()) {
-            return UPDATE_DISABLED;
-        }
-        ConfiguredValue<Boolean> shouldRunProperty =
-                LiquibaseCommandLineConfiguration.SHOULD_RUN.getCurrentConfiguredValue();
-        if (!Boolean.TRUE.equals(shouldRunProperty.getValue())) {
-            return "Liquibase update is disabled by Liquibase's global should-run setting.";
-        }
-        Boolean shouldRun = readShouldRun(liquibase);
-        if (shouldRun == null) {
-            return "Liquibase update cannot run because BootUI could not verify the SpringLiquibase shouldRun flag.";
-        }
-        if (!shouldRun) {
-            return "Liquibase update is disabled because this SpringLiquibase bean has shouldRun=false.";
-        }
         if (liquibase.getDataSource() == null) {
             return "Liquibase update cannot run because this bean has no DataSource.";
         }
@@ -223,17 +191,6 @@ public class LiquibaseController {
             return "Liquibase update cannot run because this bean has no change log.";
         }
         return null;
-    }
-
-    @Nullable
-    private Boolean readShouldRun(SpringLiquibase liquibase) {
-        try {
-            Field field = SpringLiquibase.class.getDeclaredField("shouldRun");
-            field.setAccessible(true);
-            return field.getBoolean(liquibase);
-        } catch (ReflectiveOperationException | RuntimeException ex) {
-            return null;
-        }
     }
 
     private boolean confirmed(@Nullable LiquibaseActionRequest request) {

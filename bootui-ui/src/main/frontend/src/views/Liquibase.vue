@@ -155,25 +155,9 @@ onMounted(load)
               <i v-else class="bi bi-play-circle me-1"></i>
               Update
             </button>
-            <button :disabled="true" :title="db.dropAllDisabledReason" class="btn btn-sm btn-outline-danger">
-              <i class="bi bi-trash me-1"></i>
-              Drop all
-            </button>
-            <button
-              :disabled="true"
-              :title="db.generateChangeLogDisabledReason"
-              class="btn btn-sm btn-outline-secondary"
-            >
-              <i class="bi bi-file-earmark-diff me-1"></i>
-              Generate changelog
-            </button>
           </div>
           <div class="small text-muted mt-2">
             <div v-if="db.updateDisabledReason"><strong>Update:</strong> {{ db.updateDisabledReason }}</div>
-            <div v-if="db.dropAllDisabledReason"><strong>Drop all:</strong> {{ db.dropAllDisabledReason }}</div>
-            <div v-if="db.generateChangeLogDisabledReason">
-              <strong>Generate changelog:</strong> {{ db.generateChangeLogDisabledReason }}
-            </div>
           </div>
         </div>
         <div class="card-body p-0">

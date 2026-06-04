@@ -158,9 +158,6 @@ Common properties:
 | `bootui.startup.enabled`                 | `true`                                  | Auto-install startup buffering for the Startup Timeline panel while BootUI is active.    |
 | `bootui.startup.capacity`                | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                |
 | `bootui.cache.clear-enabled`             | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
-| `bootui.flyway.migrate-enabled`          | `false`                                 | Enables confirmation-gated Flyway migrate actions. Disabled by default.                  |
-| `bootui.flyway.clean-enabled`            | `false`                                 | Enables confirmation-gated Flyway clean actions when Flyway also allows clean.           |
-| `bootui.liquibase.update-enabled`        | `false`                                 | Enables confirmation-gated Liquibase update actions. Disabled by default.                |
 | `bootui.http-exchanges.max-exchanges`    | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.           |
 | `bootui.security-logs.max-logs`          | `500`                                   | Maximum recent audit events returned by the Security Logs panel.                         |
 | `bootui.dev-services.restart-enabled`    | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |

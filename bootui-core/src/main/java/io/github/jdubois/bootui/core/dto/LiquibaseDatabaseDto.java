@@ -10,8 +10,4 @@ public record LiquibaseDatabaseDto(
         int total,
         List<LiquibaseChangeSetDto> changeSets,
         boolean updateEnabled,
-        String updateDisabledReason,
-        boolean dropAllEnabled,
-        String dropAllDisabledReason,
-        boolean generateChangeLogEnabled,
-        String generateChangeLogDisabledReason) {}
+        String updateDisabledReason) {}

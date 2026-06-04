@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.FlywayActionRequest;
 import io.github.jdubois.bootui.core.dto.FlywayActionResult;
 import io.github.jdubois.bootui.core.dto.FlywayDatabaseDto;
@@ -31,34 +30,26 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Exposes Flyway schema-migration state and explicitly gated Flyway actions for
- * the {@link Flyway} beans declared in the current application context.
+ * Exposes Flyway schema-migration state and Flyway actions for the {@link Flyway}
+ * beans declared in the current application context.
  *
- * <p>Mutating commands are disabled by default, require an explicit confirmation
- * payload, and remain subject to BootUI's global/per-panel read-only filter.</p>
+ * <p>Mutating commands require an explicit confirmation payload and remain
+ * subject to BootUI's global/per-panel read-only filter.</p>
  */
 @RestController
 @ConditionalOnClass(Flyway.class)
 @RequestMapping("/bootui/api/flyway")
 public class FlywayController {
 
-    private static final String MIGRATE_DISABLED =
-            "Flyway migrate is disabled by default. Set bootui.flyway.migrate-enabled=true in a trusted local profile.";
-    private static final String CLEAN_DISABLED =
-            "Flyway clean is disabled by default. Set bootui.flyway.clean-enabled=true in a trusted local profile.";
     private static final String CLEAN_DISABLED_BY_FLYWAY =
             "Flyway clean is disabled by Flyway configuration. Set spring.flyway.clean-disabled=false to allow it.";
     private static final String CONFIRMATION_REQUIRED =
             "Action requires confirm=true because it mutates the application database.";
-    private static final String GENERATION_UNAVAILABLE =
-            "Hibernate-backed migration file generation is not available yet in BootUI.";
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
-    private final BootUiProperties properties;
 
-    public FlywayController(ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiProperties properties) {
+    public FlywayController(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
         this.beanFactoryProvider = beanFactoryProvider;
-        this.properties = properties;
     }
 
     @GetMapping("/migrations")
@@ -77,10 +68,6 @@ public class FlywayController {
         if (entry == null) {
             return action(
                     HttpStatus.NOT_FOUND, "unavailable", "No Flyway bean matched the requested datasource.", null);
-        }
-        String disabledReason = migrateDisabledReason();
-        if (disabledReason != null) {
-            return action(HttpStatus.FORBIDDEN, "blocked", disabledReason, entry.beanName());
         }
         if (!confirmed(request)) {
             return action(HttpStatus.BAD_REQUEST, "blocked", CONFIRMATION_REQUIRED, entry.beanName());
@@ -177,7 +164,6 @@ public class FlywayController {
             }
             migrations.add(toMigrationDto(info));
         }
-        String migrateDisabledReason = migrateDisabledReason();
         String cleanDisabledReason = cleanDisabledReason(entry.flyway());
         return new FlywayDatabaseDto(
                 entry.beanName(),
@@ -186,14 +172,10 @@ public class FlywayController {
                 pending,
                 migrations.size(),
                 migrations,
-                migrateDisabledReason == null,
-                migrateDisabledReason,
+                true,
+                null,
                 cleanDisabledReason == null,
-                cleanDisabledReason,
-                false,
-                GENERATION_UNAVAILABLE,
-                false,
-                GENERATION_UNAVAILABLE);
+                cleanDisabledReason);
     }
 
     private FlywayMigrationDto toMigrationDto(MigrationInfo info) {
@@ -237,15 +219,7 @@ public class FlywayController {
     }
 
     @Nullable
-    private String migrateDisabledReason() {
-        return properties.getFlyway().isMigrateEnabled() ? null : MIGRATE_DISABLED;
-    }
-
-    @Nullable
     private String cleanDisabledReason(Flyway flyway) {
-        if (!properties.getFlyway().isCleanEnabled()) {
-            return CLEAN_DISABLED;
-        }
         Configuration configuration = flyway.getConfiguration();
         if (configuration != null && configuration.isCleanDisabled()) {
             return CLEAN_DISABLED_BY_FLYWAY;

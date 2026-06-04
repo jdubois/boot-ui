@@ -205,12 +205,10 @@ The Flyway panel shows schema migrations for each `Flyway` bean in the context a
 version together with applied and pending migrations (version, description, type, script, state, installed-by,
 installed-on, execution time, and checksum). Multiple or named datasources appear independently.
 
-The panel also exposes confirmation-gated `migrate` and `clean` actions. BootUI keeps both disabled by default:
-`migrate` requires `bootui.flyway.migrate-enabled=true`, while `clean` requires both `bootui.flyway.clean-enabled=true`
-and Flyway's own `clean-disabled=false` setting. The actions are also blocked by `bootui.read-only=true` or
-`bootui.panels.flyway.read-only=true`. Hibernate-backed migration file generation is shown as unavailable until BootUI can
-generate reviewable scripts safely. The panel degrades to a clear empty state when Flyway is not on the classpath or no
-`Flyway` beans are present.
+The panel also exposes confirmation-gated `migrate` and `clean` actions. They are available by default for trusted local
+sessions and are blocked by `bootui.read-only=true` or `bootui.panels.flyway.read-only=true`; `clean` also requires
+Flyway's own `clean-disabled=false` setting. The panel degrades to a clear empty state when Flyway is not on the classpath
+or no `Flyway` beans are present.
 
 ### Liquibase
 
@@ -219,11 +217,10 @@ Liquibase recorded and lists, per database, the executed change sets (id, author
 execution type, date executed, order executed, checksum, tag, deployment id, contexts, and labels). Multiple or named
 datasources appear independently.
 
-The panel also exposes a confirmation-gated `update` action that applies pending change sets. BootUI keeps it disabled by
-default; it requires `bootui.liquibase.update-enabled=true` and is also blocked by `bootui.read-only=true` or
-`bootui.panels.liquibase.read-only=true`. Destructive `dropAll` and changelog generation controls are shown as unavailable
-until BootUI can expose them with the right safety guarantees. The panel fails closed per bean when its history cannot be
-read and degrades to a clear empty state when Liquibase is not on the classpath or no `SpringLiquibase` beans are present.
+The panel also exposes a confirmation-gated `update` action that applies pending change sets. It is available by default
+for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`. The panel
+fails closed per bean when its history cannot be read and degrades to a clear empty state when Liquibase is not on the
+classpath or no `SpringLiquibase` beans are present.
 
 ## Security
 

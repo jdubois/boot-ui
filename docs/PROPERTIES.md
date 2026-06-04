@@ -128,20 +128,17 @@ Panel settings are consistent across the UI and API:
 
 ### Flyway
 
-| Property                            | Default | Description                                                                                                               |
-| ----------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `bootui.panels.flyway.enabled`      | `true`  | Show Flyway migration state and allow its read APIs.                                                                      |
-| `bootui.panels.flyway.read-only`    | `false` | Disable Flyway actions while keeping migration state visible.                                                             |
-| `bootui.flyway.migrate-enabled`     | `false` | Allow confirmation-gated `migrate` actions from the Flyway panel. Disabled by default because it mutates the database.    |
-| `bootui.flyway.clean-enabled`       | `false` | Allow confirmation-gated `clean` actions from the Flyway panel. Flyway `clean-disabled` must also be `false` to run clean. |
+| Property                         | Default | Description                                                                                                 |
+| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.flyway.enabled`   | `true`  | Show Flyway migration state and allow its read APIs.                                                        |
+| `bootui.panels.flyway.read-only` | `false` | Disable Flyway `migrate` and `clean` actions while keeping migration state visible.                         |
 
 ### Liquibase
 
-| Property                              | Default | Description                                                                                                         |
-| ------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| `bootui.panels.liquibase.enabled`     | `true`  | Show Liquibase change-set history and allow its read APIs.                                                          |
-| `bootui.panels.liquibase.read-only`   | `false` | Disable Liquibase actions while keeping change-set history visible.                                                 |
-| `bootui.liquibase.update-enabled`     | `false` | Allow confirmation-gated `update` actions from the Liquibase panel. Disabled by default because it mutates the database. |
+| Property                            | Default | Description                                                                            |
+| ----------------------------------- | ------- | -------------------------------------------------------------------------------------- |
+| `bootui.panels.liquibase.enabled`   | `true`  | Show Liquibase change-set history and allow its read APIs.                             |
+| `bootui.panels.liquibase.read-only` | `false` | Disable Liquibase `update` actions while keeping change-set history visible.           |
 
 ### Traces
 

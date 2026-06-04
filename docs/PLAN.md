@@ -69,9 +69,9 @@ Scope:
 
 Design constraints:
 
-- Flyway `migrate`/`clean` and Liquibase `update` actions are confirmation-gated and disabled by default; Flyway clean
-  also honors Flyway's own `clean-disabled` setting. No repair, baseline, rollback, Liquibase `dropAll`, or migration
-  generation action is exposed yet.
+- Flyway `migrate`/`clean` and Liquibase `update` actions are confirmation-gated and blocked by the global/per-panel
+  read-only state; Flyway clean also honors Flyway's own `clean-disabled` setting. No repair, baseline, rollback,
+  Liquibase `dropAll`, or migration generation action is exposed yet.
 - Bridge directly from the `Flyway` / `SpringLiquibase` beans in the context (equivalent to the Actuator `flyway` /
   `liquibase` endpoint data) without depending on the Actuator endpoints being exposed.
 - Mask any sensitive datasource metadata (URLs, credentials) through the existing model.

@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -46,9 +45,8 @@ class FlywayControllerTests {
         return provider;
     }
 
-    private static MockMvc mvc(ListableBeanFactory factory, BootUiProperties properties) {
-        return standaloneSetup(new FlywayController(providerOf(factory), properties))
-                .build();
+    private static MockMvc mvc(ListableBeanFactory factory) {
+        return standaloneSetup(new FlywayController(providerOf(factory))).build();
     }
 
     private static ListableBeanFactory factoryWithFlyway(String beanName, Flyway flyway) {
@@ -84,8 +82,7 @@ class FlywayControllerTests {
 
     @Test
     void migrationsReturnsEmptyReportWhenNoBeanFactory() throws Exception {
-        MockMvc mvc = standaloneSetup(new FlywayController(emptyProvider(), new BootUiProperties()))
-                .build();
+        MockMvc mvc = standaloneSetup(new FlywayController(emptyProvider())).build();
 
         mvc.perform(get("/bootui/api/flyway/migrations"))
                 .andExpect(status().isOk())
@@ -99,7 +96,7 @@ class FlywayControllerTests {
         ListableBeanFactory factory = mock(ListableBeanFactory.class);
         when(factory.getBeanNamesForType(Flyway.class)).thenReturn(new String[0]);
 
-        MockMvc mvc = mvc(factory, new BootUiProperties());
+        MockMvc mvc = mvc(factory);
 
         mvc.perform(get("/bootui/api/flyway/migrations"))
                 .andExpect(status().isOk())
@@ -118,7 +115,7 @@ class FlywayControllerTests {
         when(flyway.info()).thenReturn(infoService);
         when(infoService.all()).thenReturn(all);
 
-        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway), new BootUiProperties());
+        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway));
 
         mvc.perform(get("/bootui/api/flyway/migrations"))
                 .andExpect(status().isOk())
@@ -127,45 +124,17 @@ class FlywayControllerTests {
                 .andExpect(jsonPath("$.databases[0].currentVersion").value("1"))
                 .andExpect(jsonPath("$.databases[0].applied").value(1))
                 .andExpect(jsonPath("$.databases[0].pending").value(1))
-                .andExpect(jsonPath("$.databases[0].migrateEnabled").value(false))
-                .andExpect(
-                        jsonPath("$.databases[0].migrateDisabledReason")
-                                .value(
-                                        "Flyway migrate is disabled by default. Set bootui.flyway.migrate-enabled=true in a trusted local profile."))
-                .andExpect(jsonPath("$.databases[0].cleanEnabled").value(false))
-                .andExpect(
-                        jsonPath("$.databases[0].createInitialMigrationEnabled").value(false))
-                .andExpect(jsonPath("$.databases[0].generateMigrationEnabled").value(false))
+                .andExpect(jsonPath("$.databases[0].migrateEnabled").value(true))
+                .andExpect(jsonPath("$.databases[0].cleanEnabled").value(true))
                 .andExpect(jsonPath("$.databases[0].migrations[0].version").value("1"))
                 .andExpect(jsonPath("$.databases[0].migrations[0].state").value("Success"))
                 .andExpect(jsonPath("$.databases[0].migrations[1].state").value("Pending"));
     }
 
     @Test
-    void migrateIsBlockedUntilExplicitlyEnabled() throws Exception {
+    void migrateRequiresConfirmation() throws Exception {
         Flyway flyway = mock(Flyway.class);
-        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway), new BootUiProperties());
-
-        mvc.perform(post("/bootui/api/flyway/migrate")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"beanName\":\"flyway\",\"confirm\":true}"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.status").value("blocked"))
-                .andExpect(jsonPath("$.beanName").value("flyway"))
-                .andExpect(
-                        jsonPath("$.message")
-                                .value(
-                                        "Flyway migrate is disabled by default. Set bootui.flyway.migrate-enabled=true in a trusted local profile."));
-
-        verify(flyway, never()).migrate();
-    }
-
-    @Test
-    void migrateRequiresConfirmationAfterItIsEnabled() throws Exception {
-        BootUiProperties properties = new BootUiProperties();
-        properties.getFlyway().setMigrateEnabled(true);
-        Flyway flyway = mock(Flyway.class);
-        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway), properties);
+        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway));
 
         mvc.perform(post("/bootui/api/flyway/migrate")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -180,15 +149,13 @@ class FlywayControllerTests {
 
     @Test
     void migrateRunsTheSelectedFlywayBean() throws Exception {
-        BootUiProperties properties = new BootUiProperties();
-        properties.getFlyway().setMigrateEnabled(true);
         Flyway flyway = mock(Flyway.class);
         MigrateResult result = new MigrateResult();
         result.success = true;
         result.migrationsExecuted = 2;
         result.warnings = List.of("Review generated callbacks");
         when(flyway.migrate()).thenReturn(result);
-        MockMvc mvc = mvc(factoryWithFlyway("ordersFlyway", flyway), properties);
+        MockMvc mvc = mvc(factoryWithFlyway("ordersFlyway", flyway));
 
         mvc.perform(post("/bootui/api/flyway/migrate")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -203,14 +170,12 @@ class FlywayControllerTests {
     }
 
     @Test
-    void cleanRequiresBootUiAndFlywayToAllowClean() throws Exception {
-        BootUiProperties properties = new BootUiProperties();
-        properties.getFlyway().setCleanEnabled(true);
+    void cleanRequiresFlywayToAllowClean() throws Exception {
         Flyway flyway = mock(Flyway.class);
         Configuration configuration = mock(Configuration.class);
         when(configuration.isCleanDisabled()).thenReturn(true);
         when(flyway.getConfiguration()).thenReturn(configuration);
-        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway), properties);
+        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway));
 
         mvc.perform(post("/bootui/api/flyway/clean")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -226,9 +191,7 @@ class FlywayControllerTests {
     }
 
     @Test
-    void cleanRunsWhenBothGatesAllowItAndRequestIsConfirmed() throws Exception {
-        BootUiProperties properties = new BootUiProperties();
-        properties.getFlyway().setCleanEnabled(true);
+    void cleanRunsWhenFlywayAllowsItAndRequestIsConfirmed() throws Exception {
         Flyway flyway = mock(Flyway.class);
         Configuration configuration = mock(Configuration.class);
         when(configuration.isCleanDisabled()).thenReturn(false);
@@ -238,7 +201,7 @@ class FlywayControllerTests {
         result.schemasDropped = new ArrayList<>(List.of("archive"));
         result.warnings = List.of();
         when(flyway.clean()).thenReturn(result);
-        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway), properties);
+        MockMvc mvc = mvc(factoryWithFlyway("flyway", flyway));
 
         mvc.perform(post("/bootui/api/flyway/clean")
                         .contentType(MediaType.APPLICATION_JSON)

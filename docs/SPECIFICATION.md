@@ -680,21 +680,20 @@ Features:
 - List each `Flyway` bean as a database, with its current applied version plus applied and pending counts.
 - For each migration, show version, description, type, script, state, installed-by, installed-on, execution time, and
   checksum.
-- Allow a confirmed `migrate` action only when `bootui.flyway.migrate-enabled=true`.
-- Allow a confirmed `clean` action only when `bootui.flyway.clean-enabled=true` and Flyway's own `clean-disabled=false`.
-- Show migration-file generation controls as unavailable until BootUI can generate reviewable Hibernate-backed scripts
-  safely.
+- Allow a confirmed `migrate` action unless the app or Flyway panel is read-only.
+- Allow a confirmed `clean` action unless the app or Flyway panel is read-only, and only when Flyway's own
+  `clean-disabled=false`.
 
 Out of scope for the current release surface:
 
-- Running `repair`, `baseline`, `validate`, rollback, or Liquibase mutating commands beyond gated `update` from the UI.
+- Running `repair`, `baseline`, `validate`, rollback, or migration-file generation from the UI.
 
 Acceptance criteria:
 
 - When Flyway is not on the classpath, the API endpoint is not registered.
 - When Flyway is present but no `Flyway` beans exist, the panel shows a clear empty state.
 - Opening the panel only reads already-computed migration metadata; no Flyway command is executed as a side effect.
-- Mutating Flyway actions require explicit BootUI opt-in, browser confirmation, and a non-read-only panel.
+- Mutating Flyway actions require browser confirmation and a non-read-only app and panel.
 
 ### 5.17.2 Liquibase Panel
 
@@ -712,13 +711,11 @@ Features:
 - List each `SpringLiquibase` bean as a database, with its executed change sets.
 - For each change set, show id, author, change-log, description, comments, execution type, date executed, order executed,
   checksum, tag, deployment id, contexts, and labels.
-- Allow a confirmed `update` action only when `bootui.liquibase.update-enabled=true`.
-- Show `dropAll` and changelog generation controls as unavailable until BootUI can expose them with the right safety
-  guarantees.
+- Allow a confirmed `update` action unless the app or Liquibase panel is read-only.
 
 Out of scope for the current release surface:
 
-- Running `rollback`, `dropAll`, changelog generation, or any other Liquibase mutating command beyond gated `update`.
+- Running `rollback`, `dropAll`, changelog generation, or any other Liquibase mutating command beyond confirmed `update`.
 
 Acceptance criteria:
 
@@ -1049,9 +1046,6 @@ Initial properties:
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
 | `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
-| `bootui.flyway.migrate-enabled`              | `false`                                 | Enable confirmation-gated Flyway migrate actions. Disabled by default.                            |
-| `bootui.flyway.clean-enabled`                | `false`                                 | Enable confirmation-gated Flyway clean actions when Flyway also allows clean.                     |
-| `bootui.liquibase.update-enabled`            | `false`                                 | Enable confirmation-gated Liquibase update actions. Disabled by default.                         |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |

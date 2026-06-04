@@ -15,8 +15,4 @@ public record FlywayDatabaseDto(
         boolean migrateEnabled,
         String migrateDisabledReason,
         boolean cleanEnabled,
-        String cleanDisabledReason,
-        boolean createInitialMigrationEnabled,
-        String createInitialMigrationDisabledReason,
-        boolean generateMigrationEnabled,
-        String generateMigrationDisabledReason) {}
+        String cleanDisabledReason) {}

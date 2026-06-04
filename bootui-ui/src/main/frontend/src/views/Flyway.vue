@@ -170,32 +170,10 @@ onMounted(load)
               <i v-else class="bi bi-trash me-1"></i>
               Clean
             </button>
-            <button
-              :disabled="true"
-              :title="db.createInitialMigrationDisabledReason"
-              class="btn btn-sm btn-outline-secondary"
-            >
-              <i class="bi bi-file-earmark-plus me-1"></i>
-              Create initial migration
-            </button>
-            <button
-              :disabled="true"
-              :title="db.generateMigrationDisabledReason"
-              class="btn btn-sm btn-outline-secondary"
-            >
-              <i class="bi bi-file-earmark-diff me-1"></i>
-              Generate migration
-            </button>
           </div>
           <div class="small text-muted mt-2">
             <div v-if="db.migrateDisabledReason"><strong>Migrate:</strong> {{ db.migrateDisabledReason }}</div>
             <div v-if="db.cleanDisabledReason"><strong>Clean:</strong> {{ db.cleanDisabledReason }}</div>
-            <div v-if="db.createInitialMigrationDisabledReason">
-              <strong>Create initial migration:</strong> {{ db.createInitialMigrationDisabledReason }}
-            </div>
-            <div v-if="db.generateMigrationDisabledReason">
-              <strong>Generate migration:</strong> {{ db.generateMigrationDisabledReason }}
-            </div>
           </div>
         </div>
         <div class="card-body p-0">
