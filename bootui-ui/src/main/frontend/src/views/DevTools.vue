@@ -1,14 +1,15 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, onMounted, onUnmounted, ref} from 'vue'
+import {computed, onUnmounted, ref} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const status = ref(null)
-const loading = ref(true)
 const actionLoading = ref(null)
 const banner = ref(null)
 const restarting = ref(false)
@@ -17,9 +18,9 @@ let reconnectTimer = null
 
 const restartReady = computed(() => status.value?.restartAvailable && !status.value?.restartPending)
 const liveReloadReady = computed(() => status.value?.liveReloadAvailable)
+const autoRefreshEnabled = computed(() => !restarting.value)
 
-async function load() {
-  loading.value = true
+async function fetchStatus() {
   try {
     const res = await apiFetch('api/devtools')
     if (!res.ok) throw new Error('HTTP ' + res.status)
@@ -27,8 +28,6 @@ async function load() {
     lastFetched.value = Date.now()
   } catch (e) {
     flash(formatLoadError(e, 'Could not load DevTools status'), 'danger')
-  } finally {
-    loading.value = false
   }
 }
 
@@ -93,6 +92,7 @@ function pollUntilOnline() {
       const res = await apiFetch('api/devtools', {cache: 'no-store'})
       if (res.ok) {
         status.value = await res.json()
+        lastFetched.value = Date.now()
         restarting.value = false
         flash('Application is available again.', 'success')
         return
@@ -122,7 +122,8 @@ function showReadOnlyMessage() {
   flash(readOnlyReason.value, 'warning')
 }
 
-onMounted(load)
+const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: autoRefreshEnabled})
+
 onUnmounted(clearReconnectTimer)
 </script>
 
@@ -135,7 +136,11 @@ onUnmounted(clearReconnectTimer)
       :loading="loading || restarting"
       :last-fetched="lastFetched"
       @refresh="load"
-    />
+    >
+      <template #actions>
+        <AutoRefreshToggle v-model="autoRefresh" />
+      </template>
+    </PanelHeader>
 
     <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
       <div>
