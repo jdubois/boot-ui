@@ -4,13 +4,14 @@ import {computed, onMounted, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const report = ref(null)
-const loading = ref(true)
 const error = ref(null)
 const banner = ref(null)
 const cacheFilter = ref('')
@@ -18,8 +19,7 @@ const operationFilter = ref('')
 const busy = ref(null)
 const lastFetched = ref(null)
 
-async function load() {
-  loading.value = true
+async function fetchReport() {
   error.value = null
   try {
     const res = await apiFetch('api/spring-cache')
@@ -28,10 +28,10 @@ async function load() {
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load cache report')
-  } finally {
-    loading.value = false
   }
 }
+
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
 
 const caches = computed(() => {
   if (!report.value) return []
@@ -160,7 +160,7 @@ function showReadOnlyMessage() {
   flash(readOnlyReason.value, 'warning')
 }
 
-onMounted(load)
+// useAutoRefresh automatically loads on mount unless configured otherwise
 </script>
 
 <template>
@@ -179,9 +179,10 @@ onMounted(load)
       @refresh="load"
     >
       <template #actions>
+        <AutoRefreshToggle v-model="autoRefresh" />
         <button
           :disabled="!report || readOnly || !report.clearEnabled || report.cacheCount === 0 || busy"
-          class="btn btn-sm btn-outline-danger"
+          class="btn btn-sm btn-outline-danger ms-2"
           @click="clearAll"
         >
           <span v-if="busy === '__all__'" class="spinner-border spinner-border-sm me-1"></span>
@@ -196,7 +197,7 @@ onMounted(load)
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
-    <PanelSkeleton v-if="loading && !report" />
+    <PanelSkeleton v-if="initialLoading && !report" />
 
     <template v-else-if="report">
       <div v-for="warning in report.warnings" :key="warning" class="alert alert-warning small">
