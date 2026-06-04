@@ -30,6 +30,7 @@ const themeToggleLabel = computed(() => `Switch to ${darkTheme.value ? 'light' :
 const themeToggleText = computed(() => `${darkTheme.value ? 'Light' : 'Dark'} mode`)
 
 provide('overview', overview)
+provide('panels', panels)
 
 function openCommandPalette() {
   commandPaletteOpen.value = true
