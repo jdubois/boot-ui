@@ -66,6 +66,15 @@ onBeforeUnmount(stopRelativeTimer)
     <div class="panel-header__actions">
       <span v-if="lastFetchedText" class="last-fetched-text">{{ lastFetchedText }}</span>
       <slot name="actions"></slot>
+      <button
+        v-if="hasRefresh"
+        :disabled="loading"
+        class="btn btn-outline-secondary btn-sm"
+        title="Refresh"
+        @click="emit('refresh')"
+      >
+        <i :class="['bi bi-arrow-clockwise', {spin: loading}]"></i>
+      </button>
     </div>
   </div>
   <div
