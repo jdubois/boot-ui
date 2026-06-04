@@ -37,12 +37,18 @@ final class HibernateAdvisorRuleRegistry {
             new LegacyDateTimeRule(),
             new ManyToOneOptionalRule(),
             new LazyOneToOneEnhancementRule(),
+            new NonOwningOneToOneEnhancementRule(),
+            new MissingForeignKeyIndexRule(),
+
             // Entity design
             new EqualsHashCodePairRule(),
             new OptimisticLockingDynamicUpdateRule(),
             new EqualsHashCodeAssociationsRule(),
             new ToStringAssociationsRule(),
             new PublicPersistentFieldRule(),
+            new PrimitiveIdentifierOrVersionRule(),
+            new AssignedIdPersistableRule(),
+
             // Query
             new ModifyingClearAutomaticallyRule(),
             new StreamReturningMethodRule(),
@@ -64,6 +70,9 @@ final class HibernateAdvisorRuleRegistry {
             new JdbcTimeZoneRule(),
             new HibernateBuiltinPoolRule(),
             new DeferDatasourceInitializationRule(),
+            new FailOnPaginationOverCollectionFetchRule(),
+            new FormatSqlInProductionRule(),
+
             // Caching
             new CacheAssociationCoverageRule(),
             new ReadOnlyCacheOnWritableEntityRule());

@@ -15,6 +15,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Inheritance;
 import jakarta.persistence.InheritanceType;
 import jakarta.persistence.JoinColumn;
@@ -25,6 +26,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.SequenceGenerator;
+import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -50,7 +52,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class HibernateAdvisorScannerTests {
 
-    private static final int RULE_COUNT = 55;
+    private static final int RULE_COUNT = 61;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -76,8 +78,9 @@ class HibernateAdvisorScannerTests {
                         "HIB-MAP-003",
                         "HIB-FETCH-002",
                         "HIB-CONFIG-002");
-        assertThat(report.results().get(0).sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("customer is mapped as FetchType.EAGER."));
+        assertThat(report.results())
+                .anySatisfy(result -> assertThat(result.sampleViolations())
+                        .anySatisfy(sample -> assertThat(sample).contains("customer is mapped as FetchType.EAGER.")));
     }
 
     @Test
@@ -259,7 +262,9 @@ class HibernateAdvisorScannerTests {
                 .withProperty("hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS", "25")
                 .withProperty("hibernate.generate_statistics", "true")
                 .withProperty("hibernate.connection.provider_disables_autocommit", "true")
-                .withProperty("hibernate.query.in_clause_parameter_padding", "true");
+                .withProperty("hibernate.query.in_clause_parameter_padding", "true")
+                .withProperty("hibernate.query.fail_on_pagination_over_collection_fetch", "true");
+
         environment.setActiveProfiles("test");
         HibernateAdvisorScanner scanner = scanner(environment, SafeOrder.class);
 
@@ -490,6 +495,7 @@ class HibernateAdvisorScannerTests {
     }
 
     @Entity
+    @Table(indexes = @Index(name = "idx_customer", columnList = "customer_id"))
     @DiscriminatorColumn
     static class SafeOrder {
 

@@ -30,6 +30,7 @@ public class SampleOrder {
 
     // Intentionally uses eager fetch, remove cascade, and @NotFound(IGNORE) to trigger
     // HIB-FETCH-001, HIB-MAP-005, and HIB-MAP-008.
+    // Intentionally omits an @Index on the table for this ManyToOne to trigger HIB-MAP-018.
     @ManyToOne(fetch = FetchType.EAGER, cascade = CascadeType.REMOVE)
     @NotFound(action = NotFoundAction.IGNORE)
     private SampleCustomer customer;

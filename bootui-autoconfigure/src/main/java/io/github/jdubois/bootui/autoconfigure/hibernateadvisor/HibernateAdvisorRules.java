@@ -1876,3 +1876,231 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateAdvisorRu
         return violation(details);
     }
 }
+
+final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateAdvisorRule {
+
+    FailOnPaginationOverCollectionFetchRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-CONFIG-016",
+                        "Fail on pagination over collection fetch",
+                        HibernateAdvisorCategory.CONFIGURATION,
+                        "HIGH",
+                        "Detects deployments where pagination over collection fetch joins is allowed to silently fetch the entire table into memory.",
+                        "Enable hibernate.query.fail_on_pagination_over_collection_fetch=true to throw an exception instead of risking an OutOfMemoryError.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#collections-fetching"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (!context.isPropertyTrue(
+                "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch",
+                "hibernate.query.fail_on_pagination_over_collection_fetch")) {
+            return violation(List.of("hibernate.query.fail_on_pagination_over_collection_fetch is not enabled."));
+        }
+        return pass();
+    }
+}
+
+final class FormatSqlInProductionRule extends AbstractHibernateAdvisorRule {
+
+    FormatSqlInProductionRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-CONFIG-017",
+                        "Disable SQL formatting in production",
+                        HibernateAdvisorCategory.CONFIGURATION,
+                        "LOW",
+                        "Detects hibernate.format_sql=true while a production profile is active.",
+                        "Disable hibernate.format_sql in production profiles to save CPU and memory, as formatting occurs even when SQL logging is off.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#configurations-logging"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
+        if (context.isPropertyTrue("spring.jpa.properties.hibernate.format_sql", "hibernate.format_sql")) {
+            return violation(List.of("hibernate.format_sql is enabled while a production profile is active."));
+        }
+        return pass();
+    }
+}
+
+final class NonOwningOneToOneEnhancementRule extends AbstractHibernateAdvisorRule {
+
+    NonOwningOneToOneEnhancementRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-MAP-018",
+                        "Non-owning @OneToOne triggers N+1 queries",
+                        HibernateAdvisorCategory.MAPPING,
+                        "HIGH",
+                        "Detects non-owning (mappedBy) @OneToOne associations. Without bytecode enhancement, Hibernate cannot proxy these and fetches them eagerly.",
+                        "Enable bytecode enhancement, or replace the bidirectional @OneToOne with a shared primary key (@MapsId) and a unidirectional mapping.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.isHibernateEnhancementEnabled()) {
+            return pass();
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                java.lang.annotation.Annotation oneToOne = attribute.oneToOneAnnotation();
+                if (oneToOne == null) {
+                    continue;
+                }
+                String mappedBy = attribute.annotationStringValue(oneToOne, "mappedBy");
+                if (mappedBy != null && !mappedBy.isBlank()) {
+                    details.add(attribute.description()
+                            + " is a non-owning @OneToOne but bytecode enhancement is disabled.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class MissingForeignKeyIndexRule extends AbstractHibernateAdvisorRule {
+
+    MissingForeignKeyIndexRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-MAP-019",
+                "Missing foreign key indexes",
+                HibernateAdvisorCategory.MAPPING,
+                "INFO",
+                "Detects foreign key associations without a corresponding @Index on the entity's @Table mapping.",
+                "Declare @Index in @Table so schema generators create indexes; if you use Flyway/Liquibase, ensure the index exists in your migrations.",
+                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a11145"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            List<String> indexedColumns = new ArrayList<>();
+            for (java.lang.annotation.Annotation ann : entity.javaType().getAnnotations()) {
+                if ("jakarta.persistence.Table".equals(ann.annotationType().getName())) {
+                    try {
+                        java.lang.annotation.Annotation[] indexes = (java.lang.annotation.Annotation[])
+                                ann.annotationType().getMethod("indexes").invoke(ann);
+                        for (java.lang.annotation.Annotation index : indexes) {
+                            String columnList = (String) index.annotationType()
+                                    .getMethod("columnList")
+                                    .invoke(index);
+                            for (String col : columnList.split(",")) {
+                                indexedColumns.add(col.trim().toLowerCase());
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    break;
+                }
+            }
+
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.manyToOneAnnotation() != null
+                        || (attribute.oneToOneAnnotation() != null
+                                && (attribute.annotationStringValue(attribute.oneToOneAnnotation(), "mappedBy") == null
+                                        || attribute
+                                                .annotationStringValue(attribute.oneToOneAnnotation(), "mappedBy")
+                                                .isBlank()))) {
+                    String name;
+                    java.lang.annotation.Annotation joinColumn = attribute.joinColumnAnnotation();
+                    if (joinColumn != null) {
+                        name = attribute.annotationStringValue(joinColumn, "name");
+                    } else {
+                        name = attribute.name() + "_id";
+                    }
+                    if (name != null && !name.isBlank() && !indexedColumns.contains(name.toLowerCase())) {
+                        details.add(attribute.description() + " is a foreign key (" + name
+                                + ") but no @Index is declared on the @Table.");
+                    }
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateAdvisorRule {
+
+    PrimitiveIdentifierOrVersionRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-ENTITY-006",
+                "Avoid primitive @Id or @Version types",
+                HibernateAdvisorCategory.ENTITY_DESIGN,
+                "HIGH",
+                "Detects primitive types (int, long) used for identifiers or versions. The default value is 0, which breaks Spring Data's isNew() detection.",
+                "Use wrapper classes (Long, Integer) so the default value is null, preventing unnecessary SELECT statements before inserts.",
+                "https://docs.spring.io/spring-data/jpa/reference/repositories/entity-state-detection.html"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                boolean hasEmbeddedId = attribute.annotations().stream()
+                        .anyMatch(a -> a.annotationType().getName().equals("jakarta.persistence.EmbeddedId"));
+                if ((attribute.hasId() || hasEmbeddedId || attribute.hasVersion())
+                        && attribute.rawType().isPrimitive()) {
+                    details.add(attribute.description() + " uses primitive "
+                            + attribute.rawType().getName() + " which breaks Spring Data isNew() checks.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class AssignedIdPersistableRule extends AbstractHibernateAdvisorRule {
+
+    AssignedIdPersistableRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-ENTITY-007",
+                "Assigned IDs should implement Persistable",
+                HibernateAdvisorCategory.ENTITY_DESIGN,
+                "MEDIUM",
+                "Detects entities with assigned identifiers and no @Version that do not implement org.springframework.data.domain.Persistable.",
+                "Implement Persistable<ID> and manage the isNew() flag manually so Spring Data avoids a SELECT before every insert.",
+                "https://docs.spring.io/spring-data/jpa/reference/repositories/entity-state-detection.html"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            boolean hasGeneratedId = entity.attributes().stream().anyMatch(a -> a.generatedValueAnnotation() != null);
+            boolean hasVersion = entity.hasVersionAttribute();
+            if (hasGeneratedId || hasVersion) {
+                continue;
+            }
+
+            boolean implementsPersistable = false;
+            Class<?> current = entity.javaType();
+            while (current != null && current != Object.class) {
+                for (Class<?> iface : current.getInterfaces()) {
+                    if (iface.getName().equals("org.springframework.data.domain.Persistable")) {
+                        implementsPersistable = true;
+                        break;
+                    }
+                }
+                if (implementsPersistable) {
+                    break;
+                }
+                current = current.getSuperclass();
+            }
+
+            if (!implementsPersistable) {
+                details.add(entity.name()
+                        + " has an assigned identifier and no @Version, but does not implement Persistable.");
+            }
+        }
+        return violation(details);
+    }
+}

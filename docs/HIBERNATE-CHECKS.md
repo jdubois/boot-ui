@@ -556,3 +556,51 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
 - **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
   preserves proxy substitution and bytecode-enhancer guarantees.
+
+### HIB-CONFIG-016 - Query failure on pagination over collection fetch should be enabled
+
+- **Severity**: MEDIUM
+- **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property.
+- **Fires when**: the property is absent, false, or unparseable.
+- **Why it matters**: by default, if a query uses pagination (`setMaxResults()`) and fetches a collection, Hibernate performs the pagination in memory instead of the database. This silently retrieves the entire result set, causing severe memory and performance issues in production.
+- **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to fail fast during development rather than silently suffering memory exhaustion in production.
+
+### HIB-CONFIG-017 - IN-clause parameter padding should be configured
+
+- **Severity**: LOW
+- **Inspects**: the `hibernate.query.in_clause_parameter_padding` property.
+- **Fires when**: the property is absent, false, or unparseable.
+- **Why it matters**: database engines cache execution plans based on exact statement strings. An `IN (...)` query dynamically expanding its parameters per element list size creates many unique statements, polluting the execution plan cache.
+- **Recommendation**: set `spring.jpa.properties.hibernate.query.in_clause_parameter_padding=true` so Hibernate pads lists up to the next power of 2, drastically reducing the number of distinct SQL strings generated and improving statement cache hit rates.
+
+### HIB-MAP-018 - Missing @Index on Foreign Key (ManyToOne/OneToOne)
+
+- **Severity**: HIGH
+- **Inspects**: foreign key columns represented by `@ManyToOne` and owning `@OneToOne` associations.
+- **Fires when**: an association declares a join column but the corresponding `@Table` lacks an `@Index` declaration for it.
+- **Why it matters**: databases do not always automatically index foreign keys. Unindexed foreign keys cause full table scans when deleting rows from the parent table (to check constraints or perform cascades), which can lead to severe lock contention and deadlocks.
+- **Recommendation**: declare an `@Index` in the `@Table(indexes = ...)` annotation for every foreign key column to optimize cascading operations and constraint checks.
+
+### HIB-MAP-019 - Missing @Index on ElementCollection table
+
+- **Severity**: HIGH
+- **Inspects**: `@ElementCollection` mappings.
+- **Fires when**: the element collection is mapped via a `@CollectionTable` but lacks an `@Index` for the joining column.
+- **Why it matters**: operations on element collections generally fetch the entire collection using the owning entity's ID. Without an index on that join column, loading the collection requires scanning the entire collection table.
+- **Recommendation**: add an index to the join column in the collection table using `@CollectionTable(indexes = @Index(columnList = "owner_id"))`.
+
+### HIB-ENTITY-006 - Avoid primitive @Id or @Version types
+
+- **Severity**: HIGH
+- **Inspects**: the Java type of attributes annotated with `@Id` or `@Version`.
+- **Fires when**: an `@Id` or `@Version` attribute uses a primitive type (`int`, `long`, `short`).
+- **Why it matters**: primitives have default values (e.g., `0` for `long`). Spring Data's default `isNew()` strategy checks if the ID or version is `null`. A default value of `0` signals to Spring Data that the entity already exists, triggering an unnecessary `SELECT` before every `INSERT`.
+- **Recommendation**: use wrapper classes (`Long`, `Integer`) so the default value is `null`, enabling Spring Data to cleanly detect new entities and skip the pre-insert `SELECT`.
+
+### HIB-ENTITY-007 - Assigned IDs should implement Persistable
+
+- **Severity**: MEDIUM
+- **Inspects**: entities with assigned identifiers (lacking `@GeneratedValue`) and no `@Version` attribute.
+- **Fires when**: the entity does not implement `org.springframework.data.domain.Persistable`.
+- **Why it matters**: when using assigned identifiers (such as a natural key or UUID created by the application), Spring Data cannot determine if the entity is new or detached because the ID is already populated. It assumes the entity might exist and issues a `SELECT` statement before `INSERT`.
+- **Recommendation**: implement `Persistable<ID>` and manage the `isNew()` flag manually (e.g., via a `@Transient` flag set after loading or defaulting to true) so Spring Data avoids the unnecessary `SELECT` before every `insert`.
