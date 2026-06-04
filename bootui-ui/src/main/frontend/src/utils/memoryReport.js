@@ -2,9 +2,9 @@ import {onBeforeUnmount, ref, watch} from 'vue'
 import {formatLoadError} from './loadError.js'
 import {useAutoRefresh} from './useAutoRefresh.js'
 
-export const MB = 1024 * 1024
+const MB = 1024 * 1024
 
-export function bytesToMb(bytes) {
+function bytesToMb(bytes) {
   return Math.round(bytes / MB)
 }
 
