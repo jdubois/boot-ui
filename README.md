@@ -104,7 +104,7 @@ The scripts clone into `./boot-ui` unless that directory already exists, build w
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>0.5.0</version>
+  <version>0.5.1</version>
 </dependency>
 ```
 
