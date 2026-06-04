@@ -74,7 +74,7 @@ function connectedReport() {
     metrics: [
       {label: 'Open pull requests', value: '1', detail: 'Bounded live queue', tone: 'primary'},
       {label: 'Open issues', value: '2', detail: 'Issues returned by this refresh', tone: 'info'},
-      {label: 'Workflow failures', value: '1', detail: 'Latest run per workflow', tone: 'danger'},
+      {label: 'Workflow failures', value: '1', detail: 'Latest run per workflow/branch', tone: 'danger'},
       {label: 'Core quota remaining', value: '500', detail: 'GitHub REST core resource', tone: 'success'},
       {label: 'Copilot usage', value: 'Available', detail: '2026-05-07 to 2026-06-03', tone: 'info'}
     ],
@@ -266,6 +266,28 @@ function fixedWorkflowReport() {
   }
 }
 
+function branchWorkflowFailureReport() {
+  const report = connectedReport()
+  const featureRun = {
+    ...report.workflowRuns[0],
+    id: 12,
+    displayTitle: 'Run tests on feature branch',
+    runNumber: 43,
+    branch: 'feature/github-dashboard',
+    htmlUrl: 'https://github.com/jdubois/boot-ui/actions/runs/12',
+    createdAt: 1780561200000,
+    updatedAt: 1780561500000
+  }
+
+  return {
+    ...report,
+    metrics: report.metrics.map((metric) =>
+      metric.label === 'Workflow failures' ? {...metric, value: '2', tone: 'danger'} : metric
+    ),
+    workflowRuns: [report.workflowRuns[0], featureRun, report.workflowRuns[1]]
+  }
+}
+
 function metricButton(wrapper, label) {
   return wrapper.findAll('button.metric-card-button').find((button) => button.text().includes(label))
 }
@@ -337,7 +359,7 @@ describe('GitHub', () => {
     await metricButton(wrapper, 'Workflow failures').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.details-drawer').text()).toContain('1 workflow needs attention')
+    expect(wrapper.find('.details-drawer').text()).toContain('1 workflow/branch pair needs attention')
     expect(wrapper.find('.details-drawer').text()).toContain('Latest 2 GitHub Actions executions')
     expect(wrapper.find('.details-drawer').text()).toContain('Build')
     expect(wrapper.find('.details-drawer').text()).not.toContain('#42 Add dashboard')
@@ -448,7 +470,7 @@ describe('GitHub', () => {
     await metricButton(wrapper, 'Workflow failures').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('1 workflow needs attention')
+    expect(wrapper.text()).toContain('1 workflow/branch pair needs attention')
     expect(wrapper.text()).toContain('Latest 2 GitHub Actions executions')
     expect(wrapper.text()).toContain('Build')
     expect(wrapper.text()).toContain('Run tests on pull request')
@@ -495,6 +517,23 @@ describe('GitHub', () => {
     expect(wrapper.find('.details-drawer').text()).toContain('timed_out')
     expect(wrapper.find('.details-drawer .alert-danger').exists()).toBe(false)
     expect(wrapper.find('.details-drawer').text()).not.toContain('needs attention')
+  })
+
+  it('counts failures separately for each workflow branch', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(branchWorkflowFailureReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(GitHub)
+    await flushPromises()
+
+    await metricButton(wrapper, 'Workflow failures').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.details-drawer').text()).toContain('2 workflow/branch pairs need attention')
+    expect(wrapper.find('.details-drawer').text()).toContain(
+      'Only the latest execution for each workflow and branch is counted'
+    )
+    expect(wrapper.find('.details-drawer').text()).toContain('feature/github-dashboard')
   })
 
   it('shows Copilot usage report metadata without exposing signed download URLs', async () => {

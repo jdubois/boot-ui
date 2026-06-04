@@ -32,8 +32,8 @@ The panel shows repository metadata and an eight-card summary grid with click-th
 requests, issue buckets, the latest GitHub Actions executions, quotas, Copilot usage report availability, and the three
 security signals. GitHub Actions execution rows link to the matching run, show the workflow, branch, event, status, and
 duration, and mirror the recent-run list from the GitHub Actions page. The workflow failure count only considers the
-latest execution for each workflow, so older failures drop out once a later run fixes that workflow; security signal
-drawers link to the matching GitHub alert pages.
+latest execution for each workflow and branch, so older failures drop out once a later run fixes that workflow on that
+branch; security signal drawers link to the matching GitHub alert pages.
 The quota card shows the lowest remaining quota percentage with a red-to-green threshold palette. The quota drawer is
 hidden by default, renders every resource returned by GitHub's `/rate_limit` response dynamically,
 highlights resources with 10% or less remaining or at quota, then adds best-effort cards for repository or owner quotas
