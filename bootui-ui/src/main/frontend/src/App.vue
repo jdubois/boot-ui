@@ -506,7 +506,9 @@ function onGlobalKeydown(e) {
 
         <router-view v-slot="{Component}">
           <transition mode="out-in" name="page-slide">
-            <component :is="Component" :key="route.fullPath" :panel="activePanel" class="page-panel" />
+            <keep-alive include="Overview">
+              <component :is="Component" :key="route.fullPath" :panel="activePanel" class="page-panel" />
+            </keep-alive>
           </transition>
         </router-view>
       </main>

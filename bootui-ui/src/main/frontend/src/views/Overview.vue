@@ -281,7 +281,7 @@ onMounted(ensurePanels)
 
       <div class="col-lg-8">
         <div class="row g-3">
-          <div v-if="githubVisible" class="col-md-6">
+          <div v-if="githubVisible" class="col-md-6 col-lg-4">
             <ScannerScoreCard
               title="GitHub"
               icon="bi-github"
@@ -359,7 +359,7 @@ onMounted(ensurePanels)
             </ScannerScoreCard>
           </div>
 
-          <div v-for="def in visibleScanners" :key="def.id" class="col-md-6">
+          <div v-for="def in visibleScanners" :key="def.id" class="col-md-6 col-lg-4">
             <ScannerScoreCard
               :title="def.title"
               :icon="def.icon"
