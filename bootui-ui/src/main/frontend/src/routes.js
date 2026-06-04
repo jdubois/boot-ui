@@ -23,6 +23,7 @@ const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
 const SpringSecurity = () => import('./views/SpringSecurity.vue')
+const SecurityAdvisor = () => import('./views/SecurityAdvisor.vue')
 const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const Memory = () => import('./views/Memory.vue')
 const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
@@ -186,6 +187,12 @@ export const routes = [
     name: 'spring-security',
     component: SpringSecurity,
     meta: {group: groups.security, icon: 'bi-person-lock', title: 'Spring Security'}
+  },
+  {
+    path: '/security-advisor',
+    name: 'security-advisor',
+    component: SecurityAdvisor,
+    meta: {group: groups.security, icon: 'bi-shield-check', title: 'Security Advisor'}
   },
   {
     path: '/security-logs',

@@ -197,9 +197,9 @@ class PanelAccessFilterTests {
         requests.put("graalvm", new ActionRequest("POST", "/bootui/api/graalvm/scan"));
         requests.put("config", new ActionRequest("POST", "/bootui/api/config/overrides"));
         requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
+        requests.put("security-advisor", new ActionRequest("POST", "/bootui/api/security-advisor/scan"));
         requests.put("pentest", new ActionRequest("POST", "/bootui/api/pentest/scan"));
         requests.put("hibernate-advisor", new ActionRequest("POST", "/bootui/api/hibernate-advisor/scan"));
-        requests.put("security-advisor", new ActionRequest("POST", "/bootui/api/security-advisor/scan"));
         requests.put("spring-cache", new ActionRequest("POST", "/bootui/api/spring-cache/clear"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/probe"));

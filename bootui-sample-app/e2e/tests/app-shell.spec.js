@@ -25,6 +25,7 @@ const allPanelLinks = [
   {id: 'flyway', title: 'Flyway', heading: /Flyway migrations/},
   {id: 'liquibase', title: 'Liquibase', heading: /Liquibase change sets/},
   {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
+  {id: 'security-advisor', title: 'Security Advisor', heading: /^Security Advisor/},
   {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
   {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
@@ -99,7 +100,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Runtime', count: 9},
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 5},
-      {title: 'Security', count: 3},
+      {title: 'Security', count: 4},
       {title: 'Services', count: 3},
       {title: 'Diagnostics', count: 6},
       {title: 'Developer tools', count: 4}
@@ -120,9 +121,10 @@ test.describe('BootUI app shell', () => {
       'Liquibase'
     ])
 
-    await page.getByRole('button', {name: /Security\s+3/}).click()
+    await page.getByRole('button', {name: /Security\s+4/}).click()
     await expect(page.getByRole('group', {name: 'Security panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Spring Security',
+      'Security Advisor',
       'Security Logs',
       'Pentesting'
     ])
