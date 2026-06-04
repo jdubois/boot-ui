@@ -227,7 +227,7 @@ onMounted(ensurePanels)
       </div>
     </div>
 
-    <div class="row g-4 mb-4">
+    <div class="row gx-3 gy-4 mb-4">
       <div class="col-lg-4">
         <OverviewHealthCard />
       </div>
@@ -236,33 +236,50 @@ onMounted(ensurePanels)
       </div>
     </div>
 
-    <div class="row g-4 mb-4">
+    <div class="row gx-3 gy-4 mb-4">
       <div class="col-12">
         <div class="card overall-card">
           <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center gap-4">
-            <div class="flex-shrink-0">
+            <div class="flex-shrink-0 min-w-0">
               <div class="text-uppercase text-muted fw-bold small">Overall score</div>
               <div class="d-flex align-items-center gap-3 mt-2">
                 <div :class="['overall-gauge', `overall-gauge--${overallBandTone}`]">
                   <span class="overall-gauge__value">{{ Number.isFinite(overall) ? overall : '—' }}</span>
                   <span class="overall-gauge__max">/ 100</span>
                 </div>
-                <div>
-                  <span :class="['badge', `text-bg-${overallBandTone}`, 'fs-6']">{{ overallBandLabel }}</span>
-                  <div class="text-muted small mt-2">{{ scoredCount }} of {{ totalCount }} scanners scored</div>
+                <div class="min-w-0">
+                  <span
+                    :class="[
+                      'badge',
+                      `text-bg-${overallBandTone}`,
+                      'fs-6',
+                      'text-truncate',
+                      'd-inline-block',
+                      'mw-100'
+                    ]"
+                    >{{ overallBandLabel }}</span
+                  >
+                  <div class="text-muted small mt-2 text-truncate">
+                    {{ scoredCount }} of {{ totalCount }} scanners scored
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div class="flex-grow-1">
+            <div class="flex-grow-1 min-w-0">
               <div v-if="overallContributions.length" class="row g-2">
                 <div
                   v-for="item in overallContributions"
                   :key="item.title"
-                  class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small"
+                  class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small min-w-0"
                 >
-                  <span class="text-muted">{{ item.title }}</span>
-                  <span :class="item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'">
+                  <span class="text-muted text-truncate me-2">{{ item.title }}</span>
+                  <span
+                    :class="[
+                      'flex-shrink-0',
+                      item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'
+                    ]"
+                  >
                     {{ item.deduction < 0 ? item.deduction : '0' }}
                   </span>
                 </div>
@@ -272,7 +289,7 @@ onMounted(ensurePanels)
               </p>
             </div>
 
-            <div class="flex-shrink-0 mt-3 mt-lg-0">
+            <div class="flex-shrink-0 mt-3 mt-lg-0 min-w-0">
               <button class="btn btn-primary" type="button" :disabled="anyRunning || totalCount === 0" @click="runAll">
                 <span v-if="anyRunning" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
                 {{ anyRunning ? 'Running scanners…' : 'Run all scanners' }}
@@ -283,7 +300,7 @@ onMounted(ensurePanels)
       </div>
     </div>
 
-    <div class="row g-4">
+    <div class="row gx-3 gy-4">
       <div v-if="githubVisible" class="col-md-6 col-lg-4">
         <ScannerScoreCard
           title="GitHub"

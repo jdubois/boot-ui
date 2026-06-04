@@ -17,7 +17,20 @@ const route = useRoute()
 const overview = ref(null)
 const panels = ref(null)
 const shellError = ref(null)
-const sidebarCollapsed = ref(localStorage.getItem('bootui.sidebar.collapsed') === 'true')
+const savedCollapsed = localStorage.getItem('bootui.sidebar.collapsed')
+const isMediumScreen = typeof window !== 'undefined' && window.innerWidth <= 991.98
+const sidebarCollapsed = ref(savedCollapsed !== null ? savedCollapsed === 'true' : isMediumScreen)
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  window.matchMedia('(max-width: 991.98px)').addEventListener('change', (e) => {
+    if (e.matches) {
+      sidebarCollapsed.value = true
+    } else if (localStorage.getItem('bootui.sidebar.collapsed') === 'false') {
+      sidebarCollapsed.value = false
+    }
+  })
+}
+
 const commandPaletteOpen = ref(false)
 const commandPaletteRef = ref(null)
 const themeMediaQuery =
@@ -1257,7 +1270,7 @@ function onGlobalKeydown(e) {
   }
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: 575.98px) {
   .bootui-shell {
     flex-direction: column;
   }
