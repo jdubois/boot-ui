@@ -287,7 +287,8 @@ public class PanelsController {
         }
     }
 
-    private boolean hibernateAdvisorAvailable() {        return classPresent("org.hibernate.SessionFactory")
+    private boolean hibernateAdvisorAvailable() {
+        return classPresent("org.hibernate.SessionFactory")
                 && classPresent("jakarta.persistence.EntityManagerFactory")
                 && beanPresent("jakarta.persistence.EntityManagerFactory");
     }
