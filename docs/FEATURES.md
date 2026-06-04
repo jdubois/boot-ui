@@ -235,6 +235,15 @@ methods, and degrades to a clear empty state when Spring Data is not present or 
 
 ![BootUI Spring Data panel](images/bootui-data.png)
 
+### Hibernate Advisor
+
+The Hibernate Advisor panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when
+Hibernate ORM is present. It reviews mapped entities, selected persistence configuration, and Spring Data repository
+metadata for common Hibernate/JPA performance and mapping risks such as eager associations, problematic identifier
+generators, collection fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report
+is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
+mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
+
 ### Flyway
 
 The Flyway panel shows schema migrations for each `Flyway` bean in the context and lists, per database, the current schema

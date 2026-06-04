@@ -9,6 +9,7 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionsPools = () => import('./views/DatabaseConnectionsPools.vue')
 const Data = () => import('./views/Data.vue')
+const HibernateAdvisor = () => import('./views/HibernateAdvisor.vue')
 const Flyway = () => import('./views/Flyway.vue')
 const Liquibase = () => import('./views/Liquibase.vue')
 const Startup = () => import('./views/Startup.vue')
@@ -161,6 +162,12 @@ export const routes = [
     name: 'data',
     component: Data,
     meta: {group: groups.database, icon: 'bi-database', title: 'Spring Data'}
+  },
+  {
+    path: '/hibernate-advisor',
+    name: 'hibernate-advisor',
+    component: HibernateAdvisor,
+    meta: {group: groups.database, icon: 'bi-database-gear', title: 'Hibernate Advisor'}
   },
   {
     path: '/flyway',

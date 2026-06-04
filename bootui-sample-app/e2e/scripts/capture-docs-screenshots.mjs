@@ -40,6 +40,7 @@ const panelOrder = [
   ['scheduled', 'Scheduled Tasks'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['data', 'Spring Data'],
+  ['hibernate-advisor', 'Hibernate Advisor'],
   ['spring-cache', 'Spring Cache'],
   ['ai', 'AI Usage'],
   ['traces', 'Traces'],
@@ -1194,6 +1195,77 @@ const architecture = {
   ]
 }
 
+const hibernateAdvisor = {
+  localOnly: true,
+  disclaimer:
+    "Heuristic Hibernate/JPA mapping rules run against the host application's mapped entities only. " +
+    "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
+  entityPackages: ['io.github.jdubois.bootui.sample'],
+  entitiesAnalyzed: 6,
+  rulesEvaluated: 9,
+  violationsFound: 4,
+  severityCounts: [
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 2},
+    {severity: 'LOW', count: 0},
+    {severity: 'INFO', count: 1}
+  ],
+  scan: {
+    analyzer: 'BootUI Hibernate Advisor',
+    status: 'SCANNED',
+    message: 'Hibernate Advisor completed against 6 mapped entities.',
+    scannedAt: nowMillis - 28_000,
+    rulesEvaluated: 9,
+    entitiesAnalyzed: 6,
+    violationsFound: 4
+  },
+  results: [
+    hibernateAdvisorResult(
+      'HIB-FETCH-001',
+      'Associations should avoid eager fetching by default',
+      'Fetching',
+      'HIGH',
+      'Detects JPA associations mapped with FetchType.EAGER, including default-eager to-one associations.',
+      2,
+      [
+        'io.github.jdubois.bootui.sample.order.Order#customer is mapped as FetchType.EAGER.',
+        'io.github.jdubois.bootui.sample.invoice.Invoice#order is mapped as FetchType.EAGER.'
+      ],
+      'Prefer LAZY associations and fetch required graphs explicitly with joins, entity graphs, or DTO queries.'
+    ),
+    hibernateAdvisorResult(
+      'HIB-ID-001',
+      'Generated identifiers should avoid GenerationType.IDENTITY',
+      'Identifiers',
+      'MEDIUM',
+      'Detects identifiers using GenerationType.IDENTITY, which prevents JDBC batch inserts.',
+      1,
+      ['io.github.jdubois.bootui.sample.Product#id uses GenerationType.IDENTITY.'],
+      "Prefer SEQUENCE with allocationSize and Hibernate's pooled optimizer when the database supports sequences."
+    ),
+    hibernateAdvisorResult(
+      'HIB-CONFIG-001',
+      'Open Session in View should be disabled',
+      'Configuration',
+      'MEDIUM',
+      "Detects spring.jpa.open-in-view=true, including Spring Boot's default when the property is not set.",
+      1,
+      ['spring.jpa.open-in-view=true is enabled.'],
+      'Set spring.jpa.open-in-view=false and fetch data inside transactional service boundaries.'
+    ),
+    hibernateAdvisorResult(
+      'HIB-FETCH-002',
+      'Batch fetching should be configured for association-heavy models',
+      'Fetching',
+      'INFO',
+      'Detects mapped associations with no global hibernate.default_batch_fetch_size and no @BatchSize.',
+      4,
+      ['4 mapped association(s) were detected without a global batch-fetch size or @BatchSize.'],
+      'Set a bounded hibernate.default_batch_fetch_size or add @BatchSize to high-traffic associations to reduce N+1 select risk.'
+    )
+  ]
+}
+
 const graalVm = {
   localOnly: true,
   disclaimer:
@@ -1608,6 +1680,7 @@ const screenshots = [
       await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
     }
   ],
+  ['hibernate-advisor', 'Hibernate Advisor', 'bootui-hibernate-advisor.png', waitForText('FetchType.EAGER')],
   ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
   ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
@@ -2134,6 +2207,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'scheduled') return fulfillJson(route, scheduled)
   if (endpoint === 'data/repositories') return fulfillJson(route, dataReport)
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
+  if (endpoint === 'hibernate-advisor') return fulfillJson(route, hibernateAdvisor)
+  if (endpoint === 'hibernate-advisor/scan') return fulfillJson(route, hibernateAdvisor)
   if (endpoint === 'database-connection-pools/pools') return fulfillJson(route, databaseConnectionPoolsReport)
   if (endpoint.startsWith('database-connection-pools/pools/') && endpoint.endsWith('/snapshot')) {
     const poolName = endpoint.slice('database-connection-pools/pools/'.length, -'/snapshot'.length)
@@ -2310,6 +2385,30 @@ function architectureResult(
     violationCount,
     sampleViolations,
     recommendation
+  }
+
+  function hibernateAdvisorResult(
+    id,
+    name,
+    category,
+    severity,
+    description,
+    violationCount,
+    sampleViolations,
+    recommendation
+  ) {
+    return {
+      id,
+      name,
+      category,
+      severity,
+      description,
+      status: 'VIOLATION',
+      violationCount,
+      sampleViolations,
+      recommendation,
+      learnMoreUrl: 'https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html'
+    }
   }
 }
 

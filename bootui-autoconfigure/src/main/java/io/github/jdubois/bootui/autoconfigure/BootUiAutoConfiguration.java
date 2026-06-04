@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
+import io.github.jdubois.bootui.autoconfigure.hibernateadvisor.HibernateAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
@@ -75,6 +76,7 @@ import org.springframework.core.env.Environment;
     LoggersController.class,
     StartupController.class,
     DataController.class,
+    HibernateAdvisorController.class,
     FlywayController.class,
     LiquibaseController.class,
     HikariController.class,
@@ -117,6 +119,7 @@ public class BootUiAutoConfiguration {
             ArchitectureController.class.getName(),
             BeansController.class.getName(),
             BootUiIndexController.class.getName(),
+            HibernateAdvisorController.class.getName(),
             SpringCacheController.class.getName(),
             ClaudeCodeController.class.getName(),
             ConditionsController.class.getName(),
