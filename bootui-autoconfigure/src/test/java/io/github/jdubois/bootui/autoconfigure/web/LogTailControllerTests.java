@@ -140,7 +140,8 @@ class LogTailControllerTests {
         when(evt.getFormattedMessage()).thenReturn("handling request");
         when(evt.getThreadName()).thenReturn("http-nio-1");
         when(evt.getMDCPropertyMap())
-                .thenReturn(java.util.Map.of("traceId", "4bf92f3577b34da6a3ce929d0e0e4736", "spanId", "00f067aa0ba902b7"));
+                .thenReturn(
+                        java.util.Map.of("traceId", "4bf92f3577b34da6a3ce929d0e0e4736", "spanId", "00f067aa0ba902b7"));
         appender.doAppend(evt);
 
         BootUiLogAppender.LogLineDto line = appender.getRecentLines().get(0);
