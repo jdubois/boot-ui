@@ -244,16 +244,22 @@ final class HibernateAdvisorScanner {
                 continue;
             }
             QueryAnnotation query = readQueryAnnotation(method);
-            if (query == null || !query.hasValue()) {
-                continue;
-            }
+            ModifyingAnnotation modifying = readModifyingAnnotation(method);
+            String queryValue = query == null ? null : query.value();
+            String countQueryValue = query == null ? null : query.countQuery();
+            boolean nativeQuery = query != null && query.nativeQuery();
             methods.add(new HibernateRepositoryMethodModel(
                     repositoryInterface.getName(),
                     method.getName(),
                     domainType,
-                    query.value(),
-                    query.nativeQuery(),
+                    method.getReturnType(),
+                    queryValue,
+                    nativeQuery,
+                    countQueryValue,
                     hasPageableParameter(method),
+                    modifying != null,
+                    modifying != null && modifying.clearAutomatically(),
+                    modifying != null && modifying.flushAutomatically(),
                     Arrays.asList(method.getParameterTypes())));
         }
         return methods;
@@ -267,8 +273,22 @@ final class HibernateAdvisorScanner {
             }
             String value = stringAttribute(annotation, "value");
             String nativeQuery = stringAttribute(annotation, "nativeQuery");
+            String countQuery = stringAttribute(annotation, "countQuery");
             boolean hasValue = value != null && !value.isBlank();
-            return new QueryAnnotation(value, Boolean.parseBoolean(nativeQuery), hasValue);
+            return new QueryAnnotation(value, Boolean.parseBoolean(nativeQuery), countQuery, hasValue);
+        }
+        return null;
+    }
+
+    private static ModifyingAnnotation readModifyingAnnotation(Method method) {
+        for (Annotation annotation : method.getAnnotations()) {
+            if (!"org.springframework.data.jpa.repository.Modifying"
+                    .equals(annotation.annotationType().getName())) {
+                continue;
+            }
+            String clear = stringAttribute(annotation, "clearAutomatically");
+            String flush = stringAttribute(annotation, "flushAutomatically");
+            return new ModifyingAnnotation(Boolean.parseBoolean(clear), Boolean.parseBoolean(flush));
         }
         return null;
     }
@@ -361,5 +381,7 @@ final class HibernateAdvisorScanner {
         }
     }
 
-    private record QueryAnnotation(String value, boolean nativeQuery, boolean hasValue) {}
+    private record QueryAnnotation(String value, boolean nativeQuery, String countQuery, boolean hasValue) {}
+
+    private record ModifyingAnnotation(boolean clearAutomatically, boolean flushAutomatically) {}
 }

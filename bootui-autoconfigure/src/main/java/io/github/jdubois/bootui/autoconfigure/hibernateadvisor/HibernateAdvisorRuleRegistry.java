@@ -5,12 +5,21 @@ import java.util.List;
 final class HibernateAdvisorRuleRegistry {
 
     private static final List<HibernateAdvisorRule> ACTIVE_RULES = List.of(
+            // Fetching
             new EagerAssociationFetchRule(),
             new CollectionJoinFetchPageableRule(),
             new MultipleBagCollectionRule(),
+            new MissingBatchFetchRule(),
+            new LobLazyFetchRule(),
+            new ElementCollectionEagerFetchRule(),
+            new CollectionFetchJoinAnnotationRule(),
+            // Identifiers
             new IdentityIdentifierRule(),
             new TableIdentifierRule(),
             new SequenceAllocationSizeRule(),
+            new GeneratedValueWithoutStrategyRule(),
+            new UuidIdentifierGeneratorRule(),
+            // Mapping
             new UnidirectionalOneToManyRule(),
             new ManyToManyListRule(),
             new OrdinalEnumRule(),
@@ -20,8 +29,27 @@ final class HibernateAdvisorRuleRegistry {
             new TablePerClassInheritanceRule(),
             new NotFoundIgnoreRule(),
             new OptionalPersistentAttributeRule(),
+            new ElementCollectionListOrderRule(),
+            new FinalEntityRule(),
+            new SingleTableMissingDiscriminatorRule(),
+            new StringColumnLengthRule(),
+            new BigDecimalPrecisionRule(),
+            new LegacyDateTimeRule(),
+            new ManyToOneOptionalRule(),
+            new LazyOneToOneEnhancementRule(),
+            // Entity design
+            new EqualsHashCodePairRule(),
+            new OptimisticLockingDynamicUpdateRule(),
+            new EqualsHashCodeAssociationsRule(),
+            new ToStringAssociationsRule(),
+            new PublicPersistentFieldRule(),
+            // Query
+            new ModifyingClearAutomaticallyRule(),
+            new StreamReturningMethodRule(),
+            new NativePagedQueryCountRule(),
+            new DerivedDeleteByQueryRule(),
+            // Configuration
             new OpenInViewRule(),
-            new MissingBatchFetchRule(),
             new LazyLoadNoTransRule(),
             new JdbcBatchSizeRule(),
             new OrderedBatchingRule(),
@@ -32,8 +60,13 @@ final class HibernateAdvisorRuleRegistry {
             new QueryCacheRegionFactoryRule(),
             new CacheableWithoutCacheStrategyRule(),
             new RiskyDdlAutoRule(),
-            new EqualsHashCodePairRule(),
-            new OptimisticLockingDynamicUpdateRule());
+            new SqlLoggingInProductionRule(),
+            new JdbcTimeZoneRule(),
+            new HibernateBuiltinPoolRule(),
+            new DeferDatasourceInitializationRule(),
+            // Caching
+            new CacheAssociationCoverageRule(),
+            new ReadOnlyCacheOnWritableEntityRule());
 
     private HibernateAdvisorRuleRegistry() {}
 

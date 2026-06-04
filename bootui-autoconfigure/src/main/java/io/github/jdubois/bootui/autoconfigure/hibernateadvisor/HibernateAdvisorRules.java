@@ -1020,3 +1020,859 @@ final class OptimisticLockingDynamicUpdateRule extends AbstractHibernateAdvisorR
         return violation(details);
     }
 }
+
+final class LobLazyFetchRule extends AbstractHibernateAdvisorRule {
+
+    LobLazyFetchRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-FETCH-005",
+                        "@Lob attributes should be loaded lazily",
+                        HibernateAdvisorCategory.FETCHING,
+                        "MEDIUM",
+                        "Detects @Lob attributes that do not declare @Basic(fetch=LAZY), so they are loaded with every entity hydration.",
+                        "Annotate @Lob fields with @Basic(fetch = FetchType.LAZY) so large CLOB/BLOB payloads load only when accessed; bytecode enhancement is required for non-association lazy loading to actually defer the SQL.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#basic-binary"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.isLob() && !attribute.hasBasicLazy()) {
+                    details.add(attribute.description()
+                            + " is annotated with @Lob but does not declare @Basic(fetch = LAZY).");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class ElementCollectionEagerFetchRule extends AbstractHibernateAdvisorRule {
+
+    ElementCollectionEagerFetchRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-FETCH-006",
+                "@ElementCollection should default to LAZY fetching",
+                HibernateAdvisorCategory.FETCHING,
+                "MEDIUM",
+                "Detects @ElementCollection attributes that explicitly opt into EAGER fetching.",
+                "Leave @ElementCollection at the default LAZY fetch type and load values explicitly when needed; eager element collections are loaded for every entity hydration.",
+                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a3160"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation elementCollection = attribute.elementCollectionAnnotation();
+                if (elementCollection == null) {
+                    continue;
+                }
+                String fetch = attribute.annotationValueName(elementCollection, "fetch");
+                if ("EAGER".equals(fetch)) {
+                    details.add(attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class CollectionFetchJoinAnnotationRule extends AbstractHibernateAdvisorRule {
+
+    CollectionFetchJoinAnnotationRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-FETCH-007",
+                        "Collection associations should not declare @Fetch(JOIN)",
+                        HibernateAdvisorCategory.FETCHING,
+                        "MEDIUM",
+                        "Detects collection-valued associations annotated with @Fetch(FetchMode.JOIN), which forces every fetch path through a SQL JOIN and undermines pagination.",
+                        "Prefer @Fetch(FetchMode.SELECT) or SUBSELECT for collections and request JOIN FETCH only on the specific query that needs the graph.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (!attribute.isCollectionAssociation()) {
+                    continue;
+                }
+                Annotation fetch = attribute.fetchAnnotation();
+                if (fetch != null && "JOIN".equals(attribute.annotationValueName(fetch, "value"))) {
+                    details.add(attribute.description() + " is a collection mapped with @Fetch(FetchMode.JOIN).");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class GeneratedValueWithoutStrategyRule extends AbstractHibernateAdvisorRule {
+
+    GeneratedValueWithoutStrategyRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-ID-004",
+                        "@GeneratedValue should declare an explicit strategy",
+                        HibernateAdvisorCategory.IDENTIFIERS,
+                        "MEDIUM",
+                        "Detects @GeneratedValue without an explicit strategy, which defaults to AUTO and typically resolves to IDENTITY on databases like MySQL and PostgreSQL.",
+                        "Pick the strategy that fits the database (SEQUENCE with allocationSize on Postgres/Oracle, IDENTITY only when truly required) and set it explicitly so the choice is reviewable.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-generated-value"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation generated = attribute.generatedValueAnnotation();
+                if (generated == null) {
+                    continue;
+                }
+                String strategy = attribute.annotationValueName(generated, "strategy");
+                if (strategy == null || "AUTO".equals(strategy)) {
+                    details.add(attribute.description() + " uses @GeneratedValue without an explicit strategy.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class UuidIdentifierGeneratorRule extends AbstractHibernateAdvisorRule {
+
+    UuidIdentifierGeneratorRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-ID-005",
+                        "UUID identifiers should use @UuidGenerator",
+                        HibernateAdvisorCategory.IDENTIFIERS,
+                        "LOW",
+                        "Detects UUID identifiers that rely on @GeneratedValue without the Hibernate @UuidGenerator strategy.",
+                        "Annotate UUID identifiers with @UuidGenerator (TIME for index-friendly v6/v7-style values) instead of inheriting the JPA default, which yields random v4 UUIDs that fragment B-tree indexes.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-uuid"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (!attribute.hasId() || !attribute.isUuidType()) {
+                    continue;
+                }
+                if (attribute.hasGeneratedValue() && !attribute.hasUuidGenerator()) {
+                    details.add(attribute.description() + " is a UUID identifier without @UuidGenerator.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class ElementCollectionListOrderRule extends AbstractHibernateAdvisorRule {
+
+    ElementCollectionListOrderRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-MAP-010",
+                        "@ElementCollection List should persist order",
+                        HibernateAdvisorCategory.MAPPING,
+                        "MEDIUM",
+                        "Detects @ElementCollection List attributes that do not declare @OrderColumn or @OrderBy, so Hibernate treats every change as a delete-and-reinsert.",
+                        "Add @OrderColumn for index-tracked lists or @OrderBy for query-time ordering; otherwise prefer Set<> or be aware that mutations rewrite the entire collection table.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#collections-list"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.isElementCollection()
+                        && attribute.isListAttribute()
+                        && !attribute.hasOrderColumn()
+                        && !attribute.hasOrderBy()) {
+                    details.add(attribute.description()
+                            + " is an @ElementCollection List without @OrderColumn or @OrderBy.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class FinalEntityRule extends AbstractHibernateAdvisorRule {
+
+    FinalEntityRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-MAP-011",
+                "Entity classes should not be final",
+                HibernateAdvisorCategory.MAPPING,
+                "HIGH",
+                "Detects @Entity classes declared as final, which prevents Hibernate from creating runtime proxies for lazy associations.",
+                "Remove the final modifier from entities (and avoid Kotlin classes without `open`) so lazy to-one associations and bytecode enhancement work correctly.",
+                "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (entity.isFinalClass()) {
+                details.add(entity.name() + " is declared final.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class SingleTableMissingDiscriminatorRule extends AbstractHibernateAdvisorRule {
+
+    SingleTableMissingDiscriminatorRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-MAP-012",
+                "SINGLE_TABLE inheritance should declare @DiscriminatorColumn",
+                HibernateAdvisorCategory.MAPPING,
+                "INFO",
+                "Detects @Inheritance(SINGLE_TABLE) roots without an explicit @DiscriminatorColumn, leaving the default name and length implicit.",
+                "Declare @DiscriminatorColumn (with name, type, and length) on the SINGLE_TABLE root so schema generation and reviews see the chosen contract instead of provider defaults.",
+                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a3158"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if ("SINGLE_TABLE".equals(entity.inheritanceStrategy()) && !entity.hasDiscriminatorColumn()) {
+                details.add(entity.name() + " uses SINGLE_TABLE inheritance without @DiscriminatorColumn.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class StringColumnLengthRule extends AbstractHibernateAdvisorRule {
+
+    StringColumnLengthRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-MAP-013",
+                "String columns should declare explicit length",
+                HibernateAdvisorCategory.MAPPING,
+                "INFO",
+                "Detects persistent String attributes without @Column(length=...), which defaults to 255 in generated DDL.",
+                "Set @Column(length=...) to a value that matches the domain so generated DDL, validation, and database constraints stay aligned; consider @Lob or columnDefinition for free-text payloads.",
+                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a2128"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (!attribute.isStringType() || attribute.hasId() || attribute.isLob()) {
+                    continue;
+                }
+                Annotation column = attribute.columnAnnotation();
+                Integer length = column == null ? null : attribute.annotationIntValue(column, "length");
+                String columnDefinition =
+                        column == null ? null : attribute.annotationStringValue(column, "columnDefinition");
+                if (length == null && (columnDefinition == null || columnDefinition.isBlank())) {
+                    details.add(attribute.description() + " is a String column without an explicit length.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class BigDecimalPrecisionRule extends AbstractHibernateAdvisorRule {
+
+    BigDecimalPrecisionRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-MAP-014",
+                "BigDecimal columns should declare precision and scale",
+                HibernateAdvisorCategory.MAPPING,
+                "MEDIUM",
+                "Detects BigDecimal attributes without @Column(precision=..., scale=...), which falls back to provider defaults that vary by database.",
+                "Always set precision and scale on monetary or numeric @Column mappings so DDL generation and Bean Validation agree on rounding behavior.",
+                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a2128"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (!attribute.isBigDecimalType()) {
+                    continue;
+                }
+                Annotation column = attribute.columnAnnotation();
+                Integer precision = column == null ? null : attribute.annotationIntValue(column, "precision");
+                Integer scale = column == null ? null : attribute.annotationIntValue(column, "scale");
+                if (precision == null || precision == 0 || scale == null) {
+                    details.add(
+                            attribute.description() + " is a BigDecimal column without explicit precision and scale.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class LegacyDateTimeRule extends AbstractHibernateAdvisorRule {
+
+    LegacyDateTimeRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-MAP-015",
+                        "Date/time attributes should use java.time",
+                        HibernateAdvisorCategory.MAPPING,
+                        "LOW",
+                        "Detects persistent attributes typed as java.util.Date, java.util.Calendar, or java.sql temporal types instead of java.time.",
+                        "Migrate temporal fields to java.time (Instant, LocalDate, LocalDateTime, OffsetDateTime, ZonedDateTime) so JDBC binding is immutable, time-zone aware, and free of @Temporal boilerplate.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#basic-mapping-temporal"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.isLegacyTemporalType()) {
+                    details.add(attribute.description() + " uses legacy temporal type "
+                            + attribute.rawType().getName() + "; prefer a java.time type.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class ManyToOneOptionalRule extends AbstractHibernateAdvisorRule {
+
+    ManyToOneOptionalRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-MAP-016",
+                        "@ManyToOne should set optional=false when the join column is non-nullable",
+                        HibernateAdvisorCategory.MAPPING,
+                        "LOW",
+                        "Detects @ManyToOne associations whose @JoinColumn is non-nullable but whose mapping still allows optional=true (the default).",
+                        "Set @ManyToOne(optional=false) when the foreign key is mandatory so Hibernate can avoid the secondary SELECT used to discriminate between null and a real proxy.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-many-to-one"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation manyToOne = attribute.manyToOneAnnotation();
+                if (manyToOne == null) {
+                    continue;
+                }
+                Boolean optional = attribute.annotationBooleanValue(manyToOne, "optional");
+                if (Boolean.FALSE.equals(optional)) {
+                    continue;
+                }
+                Annotation joinColumn = attribute.joinColumnAnnotation();
+                if (joinColumn == null) {
+                    continue;
+                }
+                Boolean nullable = attribute.annotationBooleanValue(joinColumn, "nullable");
+                if (Boolean.FALSE.equals(nullable)) {
+                    details.add(attribute.description()
+                            + " is @ManyToOne with @JoinColumn(nullable=false) but optional=true; set optional=false.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class LazyOneToOneEnhancementRule extends AbstractHibernateAdvisorRule {
+
+    LazyOneToOneEnhancementRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-MAP-017",
+                        "Lazy owning @OneToOne requires bytecode enhancement",
+                        HibernateAdvisorCategory.MAPPING,
+                        "INFO",
+                        "Detects optional owning @OneToOne associations declared LAZY without Hibernate bytecode enhancement enabled, so Hibernate silently fetches them eagerly.",
+                        "Enable hibernate.bytecode.enhancer.enableLazyInitialization (and configure the enhancement plugin), or switch the relation to @MapsId so the existing foreign key drives loading.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.isHibernateEnhancementEnabled()) {
+            return pass();
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation oneToOne = attribute.oneToOneAnnotation();
+                if (oneToOne == null) {
+                    continue;
+                }
+                String mappedBy = attribute.annotationStringValue(oneToOne, "mappedBy");
+                if (mappedBy != null && !mappedBy.isBlank()) {
+                    continue;
+                }
+                if (attribute.hasMapsId()) {
+                    continue;
+                }
+                String fetch = attribute.annotationValueName(oneToOne, "fetch");
+                Boolean optional = attribute.annotationBooleanValue(oneToOne, "optional");
+                if ("LAZY".equals(fetch) && !Boolean.FALSE.equals(optional)) {
+                    details.add(attribute.description()
+                            + " is a lazy owning @OneToOne but bytecode enhancement is disabled.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class EqualsHashCodeAssociationsRule extends AbstractHibernateAdvisorRule {
+
+    EqualsHashCodeAssociationsRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-ENTITY-003",
+                        "equals/hashCode should not include lazy associations",
+                        HibernateAdvisorCategory.ENTITY_DESIGN,
+                        "INFO",
+                        "Detects entities that override equals and hashCode while exposing JPA associations. Generated implementations (Lombok @Data/@EqualsAndHashCode without exclusions, IDE templates) typically include those associations and trigger lazy loads when entities are stored in collections.",
+                        "Base equals/hashCode on a stable business key or natural id only. If associations must participate, exclude lazy ones explicitly and use the entity class to avoid proxy mismatches.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#mapping-model-pojo-equalshashcode"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (!entity.overridesEquals() || !entity.overridesHashCode()) {
+                continue;
+            }
+            boolean hasAssociation = entity.attributes().stream().anyMatch(HibernateAttributeModel::isAssociation);
+            if (hasAssociation) {
+                details.add(entity.name()
+                        + " overrides equals/hashCode and declares associations; verify they are not included.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class ToStringAssociationsRule extends AbstractHibernateAdvisorRule {
+
+    ToStringAssociationsRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-ENTITY-004",
+                        "toString should not include lazy associations",
+                        HibernateAdvisorCategory.ENTITY_DESIGN,
+                        "INFO",
+                        "Detects entities that override toString while exposing JPA associations. Generated implementations (Lombok @Data/@ToString without exclusions, IDE templates) typically traverse associations and trigger N+1 lazy loads or LazyInitializationException outside an open session.",
+                        "Base toString on the identifier and a few stable scalar fields. Exclude associations explicitly (for example with @ToString(exclude=...)) so logging or debugging does not pull the object graph.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#mapping-model-pojo-tostring"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (!entity.overridesToString()) {
+                continue;
+            }
+            boolean hasAssociation = entity.attributes().stream().anyMatch(HibernateAttributeModel::isAssociation);
+            if (hasAssociation) {
+                details.add(
+                        entity.name() + " overrides toString and declares associations; verify they are not included.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class PublicPersistentFieldRule extends AbstractHibernateAdvisorRule {
+
+    PublicPersistentFieldRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-ENTITY-005",
+                        "Persistent fields should not be public",
+                        HibernateAdvisorCategory.ENTITY_DESIGN,
+                        "LOW",
+                        "Detects entity attributes that are reachable as public fields, which lets callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.",
+                        "Keep persistent fields private (or package-private) and expose mutators when needed; this preserves proxy substitution and bytecode-enhancer guarantees.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-pojo-accessors"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.publicMember() && !attribute.name().endsWith("()")) {
+                    details.add(attribute.description() + " is exposed as a public field.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class ModifyingClearAutomaticallyRule extends AbstractHibernateAdvisorRule {
+
+    ModifyingClearAutomaticallyRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-QUERY-001",
+                "@Modifying queries should clear or flush the persistence context",
+                HibernateAdvisorCategory.QUERY,
+                "HIGH",
+                "Detects Spring Data @Modifying queries that do not set clearAutomatically or flushAutomatically, so the persistence context can hold stale entities after the bulk update or delete.",
+                "Set @Modifying(clearAutomatically=true) (and flushAutomatically=true when pending changes must be applied first), or evict affected entities before issuing the bulk statement.",
+                "https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.modifying-queries"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No Spring Data repository metadata was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (!method.modifying()) {
+                    continue;
+                }
+                if (!method.modifyingClearsAutomatically() && !method.modifyingFlushesAutomatically()) {
+                    details.add(method.description() + " is @Modifying without clearAutomatically/flushAutomatically.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class StreamReturningMethodRule extends AbstractHibernateAdvisorRule {
+
+    StreamReturningMethodRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-QUERY-002",
+                        "Streaming repository methods need a transactional, read-only scope",
+                        HibernateAdvisorCategory.QUERY,
+                        "MEDIUM",
+                        "Detects Spring Data repository methods that return java.util.stream.Stream. They keep the underlying JDBC cursor open and must run inside an open transaction with the caller closing the stream.",
+                        "Wrap the caller in @Transactional(readOnly=true), consume the stream inside a try-with-resources block, and close it before the transaction ends; otherwise prefer Page<> or a bounded List<>.",
+                        "https://docs.spring.io/spring-data/jpa/reference/repositories/query-methods-details.html#repositories.query-streaming"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No Spring Data repository metadata was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (method.returnsStream()) {
+                    details.add(method.description() + " returns Stream; confirm callers run it inside a transaction.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class NativePagedQueryCountRule extends AbstractHibernateAdvisorRule {
+
+    NativePagedQueryCountRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-QUERY-003",
+                "Native paged @Query must declare countQuery",
+                HibernateAdvisorCategory.QUERY,
+                "HIGH",
+                "Detects native @Query methods with a Pageable parameter or Page<> return type that do not declare countQuery, leaving Spring Data unable to derive a correct COUNT statement.",
+                "Add countQuery=... to the @Query so paging can compute totals; without it Spring Data either fails to start or executes a wrong COUNT.",
+                "https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.query-methods.at-query"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No Spring Data repository metadata was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (!method.nativeQuery() || !method.hasQuery()) {
+                    continue;
+                }
+                if (!method.hasPageableParameter() && !method.returnsPage()) {
+                    continue;
+                }
+                if (!method.hasCountQuery()) {
+                    details.add(method.description() + " is a native paged @Query without countQuery.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class DerivedDeleteByQueryRule extends AbstractHibernateAdvisorRule {
+
+    DerivedDeleteByQueryRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-QUERY-004",
+                "Derived deleteBy methods load entities before deletion",
+                HibernateAdvisorCategory.QUERY,
+                "MEDIUM",
+                "Detects derived deleteBy.../removeBy... repository methods. Spring Data implements them by selecting matching entities first and then deleting them one by one, which is expensive on large result sets.",
+                "For bulk removals prefer an explicit @Modifying @Query(\"delete from ... where ...\") with clearAutomatically=true; reserve derived deleteBy for small or cascading deletes.",
+                "https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.query-methods.modifying"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No Spring Data repository metadata was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (method.isDerivedDeleteMethod() && !method.hasQuery()) {
+                    details.add(method.description()
+                            + " is a derived delete query; consider an explicit @Modifying bulk delete.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class SqlLoggingInProductionRule extends AbstractHibernateAdvisorRule {
+
+    SqlLoggingInProductionRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-CONFIG-012",
+                "SQL logging should be off when a production profile is active",
+                HibernateAdvisorCategory.CONFIGURATION,
+                "MEDIUM",
+                "Detects show-sql or DEBUG/TRACE logging for Hibernate SQL/binder categories while a production-like profile (prod, production, staging) is active.",
+                "Disable spring.jpa.show-sql and keep org.hibernate.SQL / org.hibernate.orm.jdbc.bind at INFO or WARN in production; logging every statement degrades throughput dramatically.",
+                "https://docs.spring.io/spring-boot/reference/features/logging.html"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
+        if (context.isSqlLoggingEnabled()) {
+            return violation(List.of("SQL logging is enabled while a production profile is active."));
+        }
+        return pass();
+    }
+}
+
+final class JdbcTimeZoneRule extends AbstractHibernateAdvisorRule {
+
+    JdbcTimeZoneRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-CONFIG-013",
+                        "Configure hibernate.jdbc.time_zone",
+                        HibernateAdvisorCategory.CONFIGURATION,
+                        "LOW",
+                        "Detects deployments that do not pin hibernate.jdbc.time_zone, leaving java.time conversions to use the JVM default zone.",
+                        "Set spring.jpa.properties.hibernate.jdbc.time_zone=UTC (or another fixed zone) so JDBC binds/reads of timestamps are deterministic across hosts and migrations.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#basic-datetime-timezone"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        String value =
+                context.firstProperty("spring.jpa.properties.hibernate.jdbc.time_zone", "hibernate.jdbc.time_zone");
+        if (value == null || value.isBlank()) {
+            return violation(List.of("hibernate.jdbc.time_zone is not configured."));
+        }
+        return pass();
+    }
+}
+
+final class HibernateBuiltinPoolRule extends AbstractHibernateAdvisorRule {
+
+    HibernateBuiltinPoolRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-CONFIG-014",
+                        "Hibernate's built-in connection pool should not be used",
+                        HibernateAdvisorCategory.CONFIGURATION,
+                        "HIGH",
+                        "Detects hibernate.connection.pool_size, which only activates Hibernate's internal connection pool, intended for testing and not for production load.",
+                        "Remove hibernate.connection.pool_size and rely on Spring Boot's DataSource (HikariCP by default) so connections come from a tuned, monitored pool.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#database-connectionprovider"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        String value = context.firstProperty(
+                "spring.jpa.properties.hibernate.connection.pool_size", "hibernate.connection.pool_size");
+        if (value != null && !value.isBlank()) {
+            return violation(List.of("hibernate.connection.pool_size is set to " + value
+                    + "; switch to a managed DataSource (for example HikariCP)."));
+        }
+        return pass();
+    }
+}
+
+final class DeferDatasourceInitializationRule extends AbstractHibernateAdvisorRule {
+
+    DeferDatasourceInitializationRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-CONFIG-015",
+                "spring.jpa.defer-datasource-initialization is only safe with embedded DDL flows",
+                HibernateAdvisorCategory.CONFIGURATION,
+                "MEDIUM",
+                "Detects spring.jpa.defer-datasource-initialization=true while ddl-auto is none/validate; the setting is meaningful only when Hibernate generates the schema (create/create-drop/update).",
+                "Combine defer-datasource-initialization=true with ddl-auto=create or create-drop, or remove it when relying on Flyway/Liquibase so data.sql is loaded by the migration tool instead.",
+                "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.initialization"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (!context.isPropertyTrue("spring.jpa.defer-datasource-initialization")) {
+            return pass();
+        }
+        String ddlAuto = context.firstProperty(
+                "spring.jpa.hibernate.ddl-auto",
+                "spring.jpa.properties.hibernate.hbm2ddl.auto",
+                "hibernate.hbm2ddl.auto");
+        if (ddlAuto == null) {
+            return violation(
+                    List.of(
+                            "spring.jpa.defer-datasource-initialization=true but ddl-auto is not configured; the property has no effect."));
+        }
+        String normalized = ddlAuto.toLowerCase(Locale.ROOT);
+        if (normalized.equals("create") || normalized.equals("create-drop") || normalized.equals("update")) {
+            return pass();
+        }
+        return violation(List.of("spring.jpa.defer-datasource-initialization=true while ddl-auto=" + ddlAuto
+                + "; the property has no effect."));
+    }
+}
+
+final class CacheAssociationCoverageRule extends AbstractHibernateAdvisorRule {
+
+    CacheAssociationCoverageRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-CACHE-001",
+                        "Cached entities should also cache their associations",
+                        HibernateAdvisorCategory.CACHING,
+                        "MEDIUM",
+                        "Detects entities annotated with @Cacheable or Hibernate @Cache whose associations do not declare @Cache themselves; loading a cached aggregate then re-hits the database for every uncached association.",
+                        "Annotate the associated entities (or the association attributes) with @org.hibernate.annotations.Cache so the second-level cache covers the whole graph; otherwise the cache yields little benefit.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.entities().isEmpty()) {
+            return pass();
+        }
+        java.util.Map<String, HibernateEntityModel> byJavaType = new java.util.HashMap<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (entity.javaType() != null) {
+                byJavaType.put(entity.javaType().getName(), entity);
+            }
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (!entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation()) {
+                continue;
+            }
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (!attribute.isAssociation()) {
+                    continue;
+                }
+                if (attribute.hasHibernateCacheAnnotation()) {
+                    continue;
+                }
+                Class<?> targetType = associationTargetType(attribute);
+                if (targetType == null) {
+                    continue;
+                }
+                HibernateEntityModel target = byJavaType.get(targetType.getName());
+                if (target == null) {
+                    continue;
+                }
+                if (!target.isJpaCacheable() && !target.hasHibernateCacheAnnotation()) {
+                    details.add(attribute.description() + " references uncached entity " + target.name() + ".");
+                }
+            }
+        }
+        return violation(details);
+    }
+
+    private Class<?> associationTargetType(HibernateAttributeModel attribute) {
+        if (attribute.isCollectionAssociation()) {
+            java.lang.reflect.Type generic = attribute.genericType();
+            if (generic instanceof java.lang.reflect.ParameterizedType parameterized) {
+                java.lang.reflect.Type[] args = parameterized.getActualTypeArguments();
+                if (args.length > 0 && args[args.length - 1] instanceof Class<?> raw) {
+                    return raw;
+                }
+            }
+            return null;
+        }
+        return attribute.rawType();
+    }
+}
+
+final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateAdvisorRule {
+
+    ReadOnlyCacheOnWritableEntityRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-CACHE-002",
+                        "READ_ONLY cache strategy on writable entities is unsafe",
+                        HibernateAdvisorCategory.CACHING,
+                        "MEDIUM",
+                        "Detects entities declaring @Cache(usage=READ_ONLY) while also declaring @Version (optimistic locking) or @DynamicUpdate, both signals that the entity is mutable.",
+                        "Use READ_WRITE or NONSTRICT_READ_WRITE for mutable entities; READ_ONLY throws when Hibernate detects state changes and silently misses updates from other transactions.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity-cache-mapping"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            String usage = entity.hibernateCacheUsageName();
+            if (!"READ_ONLY".equals(usage)) {
+                continue;
+            }
+            if (entity.hasVersionAttribute() || entity.hasDynamicUpdate()) {
+                details.add(
+                        entity.name()
+                                + " uses @Cache(usage=READ_ONLY) but appears to be writable (@Version or @DynamicUpdate present).");
+            }
+        }
+        return violation(details);
+    }
+}

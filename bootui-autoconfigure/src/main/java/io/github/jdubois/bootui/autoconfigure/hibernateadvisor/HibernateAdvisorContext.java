@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
 
 import java.util.List;
+import java.util.Locale;
 import org.springframework.core.env.Environment;
 
 record HibernateAdvisorContext(
@@ -78,5 +79,59 @@ record HibernateAdvisorContext(
         } catch (RuntimeException ex) {
             return null;
         }
+    }
+
+    String[] activeProfiles() {
+        try {
+            return environment.getActiveProfiles();
+        } catch (RuntimeException ex) {
+            return new String[0];
+        }
+    }
+
+    boolean isProductionProfileActive() {
+        for (String profile : activeProfiles()) {
+            if (profile == null) {
+                continue;
+            }
+            String normalized = profile.toLowerCase(Locale.ROOT);
+            if (normalized.equals("prod")
+                    || normalized.equals("production")
+                    || normalized.equals("staging")
+                    || normalized.startsWith("prod-")
+                    || normalized.endsWith("-prod")
+                    || normalized.endsWith("-production")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    boolean isHibernateEnhancementEnabled() {
+        return isPropertyTrue(
+                        "spring.jpa.properties.hibernate.enhancer.enableLazyInitialization",
+                        "hibernate.enhancer.enableLazyInitialization")
+                || isPropertyTrue(
+                        "spring.jpa.properties.hibernate.bytecode.enhancer.enableLazyInitialization",
+                        "hibernate.bytecode.enhancer.enableLazyInitialization");
+    }
+
+    boolean isSqlLoggingEnabled() {
+        if (isPropertyTrue("spring.jpa.show-sql", "hibernate.show_sql")) {
+            return true;
+        }
+        for (String key : List.of(
+                "logging.level.org.hibernate.SQL",
+                "logging.level.org.hibernate.orm.jdbc.bind",
+                "logging.level.org.hibernate.type.descriptor.sql.BasicBinder")) {
+            String value = firstProperty(key);
+            if (value != null) {
+                String normalized = value.toLowerCase(Locale.ROOT);
+                if (normalized.equals("debug") || normalized.equals("trace")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

@@ -79,6 +79,31 @@ record HibernateEntityModel(String name, Class<?> javaType, List<HibernateAttrib
         return attributes.stream().anyMatch(HibernateAttributeModel::hasVersion);
     }
 
+    boolean isFinalClass() {
+        return javaType != null && Modifier.isFinal(javaType.getModifiers());
+    }
+
+    boolean hasDynamicUpdate() {
+        return annotationInHierarchy("org.hibernate.annotations.DynamicUpdate") != null;
+    }
+
+    String inheritanceStrategy() {
+        Annotation inheritance = annotationInHierarchy("jakarta.persistence.Inheritance");
+        return annotationValueName(inheritance, "strategy");
+    }
+
+    boolean hasDiscriminatorColumn() {
+        return annotationInHierarchy("jakarta.persistence.DiscriminatorColumn") != null;
+    }
+
+    Annotation hibernateCacheAnnotation() {
+        return annotationInHierarchy("org.hibernate.annotations.Cache");
+    }
+
+    String hibernateCacheUsageName() {
+        return annotationValueName(hibernateCacheAnnotation(), "usage");
+    }
+
     boolean hasHibernateCacheAnnotation() {
         return annotation(CACHE) != null;
     }
@@ -137,6 +162,10 @@ record HibernateEntityModel(String name, Class<?> javaType, List<HibernateAttrib
         return declaresMethod("hashCode");
     }
 
+    boolean overridesToString() {
+        return declaresMethod("toString");
+    }
+
     private boolean declaresMethod(String name, Class<?>... parameterTypes) {
         if (javaType == null) {
             return false;
@@ -181,22 +210,31 @@ record HibernateAttributeModel(
         Class<?> rawType,
         Type genericType,
         String persistentAttributeType,
+        boolean publicMember,
         List<Annotation> annotations) {
 
+    private static final String BASIC = "jakarta.persistence.Basic";
     private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
+    private static final String CACHE = "org.hibernate.annotations.Cache";
+    private static final String COLUMN = "jakarta.persistence.Column";
+    private static final String ELEMENT_COLLECTION = "jakarta.persistence.ElementCollection";
     private static final String ENUMERATED = "jakarta.persistence.Enumerated";
+    private static final String FETCH = "org.hibernate.annotations.Fetch";
     private static final String GENERATED_VALUE = "jakarta.persistence.GeneratedValue";
     private static final String ID = "jakarta.persistence.Id";
     private static final String JOIN_COLUMN = "jakarta.persistence.JoinColumn";
     private static final String JOIN_COLUMNS = "jakarta.persistence.JoinColumns";
+    private static final String LOB = "jakarta.persistence.Lob";
     private static final String MANY_TO_MANY = "jakarta.persistence.ManyToMany";
     private static final String MANY_TO_ONE = "jakarta.persistence.ManyToOne";
     private static final String MAPS_ID = "jakarta.persistence.MapsId";
     private static final String ONE_TO_MANY = "jakarta.persistence.OneToMany";
     private static final String ONE_TO_ONE = "jakarta.persistence.OneToOne";
+    private static final String ORDER_BY = "jakarta.persistence.OrderBy";
     private static final String ORDER_COLUMN = "jakarta.persistence.OrderColumn";
     private static final String SEQUENCE_GENERATOR = "jakarta.persistence.SequenceGenerator";
     private static final String TRANSIENT = "jakarta.persistence.Transient";
+    private static final String UUID_GENERATOR = "org.hibernate.annotations.UuidGenerator";
     private static final String VERSION = "jakarta.persistence.Version";
 
     HibernateAttributeModel {
@@ -215,6 +253,7 @@ record HibernateAttributeModel(
                 rawType.rawType(),
                 rawType.genericType(),
                 persistentAttributeType,
+                Modifier.isPublic(member.getModifiers()),
                 annotations(member));
     }
 
@@ -225,6 +264,7 @@ record HibernateAttributeModel(
                 field.getType(),
                 field.getGenericType(),
                 persistentAttributeType(field),
+                Modifier.isPublic(field.getModifiers()),
                 List.of(field.getAnnotations()));
     }
 
@@ -235,6 +275,7 @@ record HibernateAttributeModel(
                 method.getReturnType(),
                 method.getGenericReturnType(),
                 persistentAttributeType(method),
+                Modifier.isPublic(method.getModifiers()),
                 List.of(method.getAnnotations()));
     }
 
@@ -313,6 +354,70 @@ record HibernateAttributeModel(
         return annotation(JOIN_COLUMN) != null || annotation(JOIN_COLUMNS) != null;
     }
 
+    boolean isLob() {
+        return annotation(LOB) != null;
+    }
+
+    boolean isElementCollection() {
+        return annotation(ELEMENT_COLLECTION) != null;
+    }
+
+    boolean hasBasicLazy() {
+        Annotation basic = annotation(BASIC);
+        return basic != null && "LAZY".equals(annotationValueName(basic, "fetch"));
+    }
+
+    boolean hasOrderBy() {
+        return annotation(ORDER_BY) != null;
+    }
+
+    boolean isUuidType() {
+        return rawType != null && java.util.UUID.class.equals(rawType) && annotation(TRANSIENT) == null;
+    }
+
+    boolean hasUuidGenerator() {
+        return annotation(UUID_GENERATOR) != null;
+    }
+
+    boolean isStringType() {
+        return rawType != null && String.class.equals(rawType) && annotation(TRANSIENT) == null;
+    }
+
+    boolean isBigDecimalType() {
+        return rawType != null && java.math.BigDecimal.class.equals(rawType) && annotation(TRANSIENT) == null;
+    }
+
+    boolean isLegacyTemporalType() {
+        if (rawType == null || annotation(TRANSIENT) != null) {
+            return false;
+        }
+        return rawType.equals(java.util.Date.class)
+                || rawType.equals(java.util.Calendar.class)
+                || rawType.equals(java.sql.Date.class)
+                || rawType.equals(java.sql.Time.class)
+                || rawType.equals(java.sql.Timestamp.class);
+    }
+
+    boolean hasHibernateCacheAnnotation() {
+        return annotation(CACHE) != null;
+    }
+
+    Annotation columnAnnotation() {
+        return annotation(COLUMN);
+    }
+
+    Annotation elementCollectionAnnotation() {
+        return annotation(ELEMENT_COLLECTION);
+    }
+
+    Annotation fetchAnnotation() {
+        return annotation(FETCH);
+    }
+
+    Annotation joinColumnAnnotation() {
+        return annotation(JOIN_COLUMN);
+    }
+
     Annotation associationAnnotation() {
         for (String typeName : List.of(MANY_TO_ONE, ONE_TO_ONE, ONE_TO_MANY, MANY_TO_MANY)) {
             Annotation annotation = annotation(typeName);
@@ -368,6 +473,11 @@ record HibernateAttributeModel(
     Integer annotationIntValue(Annotation annotation, String attributeName) {
         Object value = annotationValue(annotation, attributeName);
         return value instanceof Integer integerValue ? integerValue : null;
+    }
+
+    Boolean annotationBooleanValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof Boolean booleanValue ? booleanValue : null;
     }
 
     boolean annotationEnumArrayContains(Annotation annotation, String attributeName, String expectedName) {
@@ -466,9 +576,14 @@ record HibernateRepositoryMethodModel(
         String repositoryInterface,
         String methodName,
         Class<?> domainType,
+        Class<?> returnType,
         String query,
         boolean nativeQuery,
+        String countQuery,
         boolean hasPageableParameter,
+        boolean modifying,
+        boolean modifyingClearsAutomatically,
+        boolean modifyingFlushesAutomatically,
         List<Class<?>> parameterTypes) {
 
     HibernateRepositoryMethodModel {
@@ -482,6 +597,26 @@ record HibernateRepositoryMethodModel(
             }
         }
         return false;
+    }
+
+    boolean hasQuery() {
+        return query != null && !query.isBlank();
+    }
+
+    boolean hasCountQuery() {
+        return countQuery != null && !countQuery.isBlank();
+    }
+
+    boolean returnsStream() {
+        return returnType != null && java.util.stream.Stream.class.isAssignableFrom(returnType);
+    }
+
+    boolean returnsPage() {
+        return returnType != null && "org.springframework.data.domain.Page".equals(returnType.getName());
+    }
+
+    boolean isDerivedDeleteMethod() {
+        return methodName != null && (methodName.startsWith("deleteBy") || methodName.startsWith("removeBy"));
     }
 
     String description() {

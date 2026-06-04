@@ -3,8 +3,11 @@ package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorReport;
+import jakarta.persistence.Basic;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.DiscriminatorColumn;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -15,18 +18,29 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Inheritance;
 import jakarta.persistence.InheritanceType;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.SequenceGenerator;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Stream;
+import org.hibernate.annotations.Cache;
+import org.hibernate.annotations.CacheConcurrencyStrategy;
+import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.Fetch;
+import org.hibernate.annotations.FetchMode;
 import org.hibernate.annotations.NotFound;
 import org.hibernate.annotations.NotFoundAction;
 import org.hibernate.annotations.OptimisticLockType;
@@ -36,6 +50,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class HibernateAdvisorScannerTests {
 
+    private static final int RULE_COUNT = 55;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -49,7 +64,7 @@ class HibernateAdvisorScannerTests {
 
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.entitiesAnalyzed()).isEqualTo(1);
-        assertThat(report.rulesEvaluated()).isEqualTo(29);
+        assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.results())
                 .extracting(result -> result.id())
                 .contains(
@@ -73,7 +88,12 @@ class HibernateAdvisorScannerTests {
                 .withProperty("spring.jpa.properties.hibernate.jdbc.batch_size", "25")
                 .withProperty("spring.jpa.properties.hibernate.cache.use_query_cache", "true")
                 .withProperty("spring.jpa.properties.hibernate.cache.use_second_level_cache", "false")
-                .withProperty("spring.jpa.properties.hibernate.cache.region.factory_class", "jcache");
+                .withProperty("spring.jpa.properties.hibernate.cache.region.factory_class", "jcache")
+                .withProperty("spring.jpa.properties.hibernate.connection.pool_size", "5")
+                .withProperty("spring.jpa.defer-datasource-initialization", "true")
+                .withProperty("spring.jpa.hibernate.ddl-auto", "validate")
+                .withProperty("spring.jpa.show-sql", "true");
+        environment.setActiveProfiles("prod");
         HibernateRepositoryModel repository = new HibernateRepositoryModel(
                 "com.example.ProblemOrderRepository",
                 ProblemOrder.class,
@@ -82,18 +102,80 @@ class HibernateAdvisorScannerTests {
                                 "com.example.ProblemOrderRepository",
                                 "findPageWithTags",
                                 ProblemOrder.class,
+                                List.class,
                                 "select o from ProblemOrder o left join fetch o.tags where o.status = :status",
                                 false,
+                                null,
                                 true,
+                                false,
+                                false,
+                                false,
                                 List.of(Status.class)),
                         new HibernateRepositoryMethodModel(
                                 "com.example.ProblemOrderRepository",
                                 "findByIds",
                                 ProblemOrder.class,
+                                List.class,
                                 "select o from ProblemOrder o where o.id in :ids",
                                 false,
+                                null,
                                 false,
-                                List.of(List.class))));
+                                false,
+                                false,
+                                false,
+                                List.of(List.class)),
+                        new HibernateRepositoryMethodModel(
+                                "com.example.ProblemOrderRepository",
+                                "deleteAllStatus",
+                                ProblemOrder.class,
+                                int.class,
+                                "delete from ProblemOrder o where o.status = :status",
+                                false,
+                                null,
+                                false,
+                                true,
+                                false,
+                                false,
+                                List.of(Status.class)),
+                        new HibernateRepositoryMethodModel(
+                                "com.example.ProblemOrderRepository",
+                                "streamAll",
+                                ProblemOrder.class,
+                                Stream.class,
+                                null,
+                                false,
+                                null,
+                                false,
+                                false,
+                                false,
+                                false,
+                                List.of()),
+                        new HibernateRepositoryMethodModel(
+                                "com.example.ProblemOrderRepository",
+                                "findPageNative",
+                                ProblemOrder.class,
+                                List.class,
+                                "select * from problem_order where status = ?",
+                                true,
+                                null,
+                                true,
+                                false,
+                                false,
+                                false,
+                                List.of(Status.class)),
+                        new HibernateRepositoryMethodModel(
+                                "com.example.ProblemOrderRepository",
+                                "deleteByStatus",
+                                ProblemOrder.class,
+                                long.class,
+                                null,
+                                false,
+                                null,
+                                false,
+                                false,
+                                false,
+                                false,
+                                List.of(Status.class))));
         HibernateAdvisorScanner scanner = scanner(
                 environment,
                 List.of(repository),
@@ -102,11 +184,18 @@ class HibernateAdvisorScannerTests {
                 SequenceEntity.class,
                 TablePerClassEntity.class,
                 VersionlessEntity.class,
-                CacheableEntity.class);
+                CacheableEntity.class,
+                UncachedAssociation.class,
+                SingleTableRootEntity.class,
+                LegacyMappingEntity.class,
+                FinalEntity.class,
+                ReadOnlyCacheEntity.class,
+                AutoGeneratedIdEntity.class,
+                UuidIdentifierEntity.class);
 
         HibernateAdvisorReport report = scanner.scan();
 
-        assertThat(report.rulesEvaluated()).isEqualTo(29);
+        assertThat(report.rulesEvaluated()).isEqualTo(RULE_COUNT);
         assertThat(report.results())
                 .extracting(result -> result.id())
                 .contains(
@@ -118,17 +207,43 @@ class HibernateAdvisorScannerTests {
                         "HIB-CONFIG-009",
                         "HIB-CONFIG-010",
                         "HIB-CONFIG-011",
+                        "HIB-CONFIG-012",
+                        "HIB-CONFIG-013",
+                        "HIB-CONFIG-014",
+                        "HIB-CONFIG-015",
                         "HIB-FETCH-003",
                         "HIB-FETCH-004",
+                        "HIB-FETCH-005",
+                        "HIB-FETCH-006",
+                        "HIB-FETCH-007",
                         "HIB-ID-002",
                         "HIB-ID-003",
+                        "HIB-ID-004",
+                        "HIB-ID-005",
                         "HIB-MAP-004",
                         "HIB-MAP-005",
                         "HIB-MAP-006",
                         "HIB-MAP-007",
                         "HIB-MAP-008",
                         "HIB-MAP-009",
-                        "HIB-ENTITY-002");
+                        "HIB-MAP-010",
+                        "HIB-MAP-011",
+                        "HIB-MAP-012",
+                        "HIB-MAP-013",
+                        "HIB-MAP-014",
+                        "HIB-MAP-015",
+                        "HIB-MAP-016",
+                        "HIB-MAP-017",
+                        "HIB-ENTITY-002",
+                        "HIB-ENTITY-003",
+                        "HIB-ENTITY-004",
+                        "HIB-ENTITY-005",
+                        "HIB-QUERY-001",
+                        "HIB-QUERY-002",
+                        "HIB-QUERY-003",
+                        "HIB-QUERY-004",
+                        "HIB-CACHE-001",
+                        "HIB-CACHE-002");
     }
 
     @Test
@@ -138,6 +253,7 @@ class HibernateAdvisorScannerTests {
                 .withProperty("spring.jpa.hibernate.ddl-auto", "create")
                 .withProperty("hibernate.default_batch_fetch_size", "32")
                 .withProperty("hibernate.jdbc.batch_size", "25")
+                .withProperty("hibernate.jdbc.time_zone", "UTC")
                 .withProperty("hibernate.order_inserts", "true")
                 .withProperty("hibernate.order_updates", "true")
                 .withProperty("hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS", "25")
@@ -197,7 +313,7 @@ class HibernateAdvisorScannerTests {
 
         @Id
         @GeneratedValue(strategy = GenerationType.IDENTITY)
-        Long id;
+        public Long id;
 
         @ManyToOne(cascade = CascadeType.REMOVE)
         Customer customer;
@@ -206,18 +322,59 @@ class HibernateAdvisorScannerTests {
         List<LineItem> lineItems;
 
         @ManyToMany(cascade = CascadeType.ALL)
+        @Fetch(FetchMode.JOIN)
         List<Tag> tags;
 
-        @OneToOne
+        @OneToOne(fetch = FetchType.LAZY)
         Profile profile;
 
         @ManyToOne(fetch = FetchType.LAZY)
         @NotFound(action = NotFoundAction.IGNORE)
         Customer legacyCustomer;
 
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "owner_id", nullable = false)
+        Customer mandatoryOwner;
+
+        @Lob
+        String payload;
+
+        @ElementCollection(fetch = FetchType.EAGER)
+        Set<String> labels;
+
+        @ElementCollection
+        List<String> commentsList;
+
+        BigDecimal price;
+
+        Date legacyTimestamp;
+
         Optional<String> notes;
 
+        String description;
+
         Status status;
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof ProblemOrder that)) {
+                return false;
+            }
+            return Objects.equals(id, that.id);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id);
+        }
+
+        @Override
+        public String toString() {
+            return "ProblemOrder{id=" + id + "}";
+        }
     }
 
     @Entity
@@ -259,9 +416,81 @@ class HibernateAdvisorScannerTests {
 
         @Id
         Long id;
+
+        @OneToMany
+        List<UncachedAssociation> details;
     }
 
     @Entity
+    static class UncachedAssociation {
+
+        @Id
+        Long id;
+    }
+
+    @Entity
+    @Inheritance(strategy = InheritanceType.SINGLE_TABLE)
+    static class SingleTableRootEntity {
+
+        @Id
+        Long id;
+    }
+
+    @Entity
+    static class LegacyMappingEntity {
+
+        @Id
+        @GeneratedValue(strategy = GenerationType.SEQUENCE)
+        Long id;
+
+        @Lob
+        @Basic(fetch = FetchType.LAZY)
+        String document;
+
+        Date legacyDate;
+
+        BigDecimal amount;
+
+        String name;
+    }
+
+    @Entity
+    static final class FinalEntity {
+
+        @Id
+        Long id;
+    }
+
+    @Entity
+    @DynamicUpdate
+    @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)
+    static class ReadOnlyCacheEntity {
+
+        @Id
+        Long id;
+
+        @jakarta.persistence.Version
+        Long version;
+    }
+
+    @Entity
+    static class AutoGeneratedIdEntity {
+
+        @Id
+        @GeneratedValue
+        Long id;
+    }
+
+    @Entity
+    static class UuidIdentifierEntity {
+
+        @Id
+        @GeneratedValue
+        UUID id;
+    }
+
+    @Entity
+    @DiscriminatorColumn
     static class SafeOrder {
 
         @Id

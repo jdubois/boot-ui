@@ -69,6 +69,35 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: fetch at most one bag collection per query, persist list order with `@OrderColumn`, or split loading
   into targeted queries.
 
+### HIB-FETCH-005 - @Lob attributes should be loaded lazily
+
+- **Severity**: MEDIUM
+- **Inspects**: persistent attributes annotated with `@Lob`.
+- **Fires when**: a `@Lob` attribute does not declare `@Basic(fetch = FetchType.LAZY)`.
+- **Why it matters**: large CLOB/BLOB payloads are read for every entity hydration unless lazy loading is requested.
+- **Recommendation**: annotate `@Lob` fields with `@Basic(fetch = FetchType.LAZY)`; lazy loading of non-association
+  attributes requires Hibernate's bytecode enhancer to actually defer the SQL.
+
+### HIB-FETCH-006 - @ElementCollection should default to LAZY fetching
+
+- **Severity**: MEDIUM
+- **Inspects**: `@ElementCollection` attributes.
+- **Fires when**: an `@ElementCollection` explicitly opts into `FetchType.EAGER`.
+- **Why it matters**: eager element collections are loaded for every parent hydration and undermine paging and selective
+  loading.
+- **Recommendation**: keep `@ElementCollection` at the default `LAZY` fetch type and request the values explicitly when
+  needed.
+
+### HIB-FETCH-007 - Collection associations should not declare @Fetch(JOIN)
+
+- **Severity**: MEDIUM
+- **Inspects**: collection associations annotated with Hibernate's `@Fetch`.
+- **Fires when**: a `@OneToMany` or `@ManyToMany` declares `@Fetch(FetchMode.JOIN)`.
+- **Why it matters**: this forces every fetch path through a SQL JOIN, undermines pagination, and risks cartesian
+  products.
+- **Recommendation**: prefer `@Fetch(FetchMode.SELECT)` or `SUBSELECT` for collections, and request `JOIN FETCH` only in
+  the specific queries that need the graph.
+
 ## Identifiers
 
 ### HIB-ID-001 - Generated identifiers should avoid GenerationType.IDENTITY
@@ -98,6 +127,26 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: `allocationSize=1`.
 - **Why it matters**: allocation size 1 requires a sequence round-trip for every inserted row.
 - **Recommendation**: use an allocation size greater than 1 and keep it aligned with the database sequence increment.
+
+### HIB-ID-004 - @GeneratedValue should declare an explicit strategy
+
+- **Severity**: MEDIUM
+- **Inspects**: identifier attributes annotated with `@GeneratedValue`.
+- **Fires when**: `strategy` is omitted (or set to `AUTO`).
+- **Why it matters**: `AUTO` typically resolves to `IDENTITY` on databases like MySQL and PostgreSQL, silently disabling
+  JDBC batch inserts.
+- **Recommendation**: pick the strategy that fits the target database (for example `SEQUENCE` with `allocationSize` on
+  Postgres/Oracle, `IDENTITY` only when truly required) and set it explicitly.
+
+### HIB-ID-005 - UUID identifiers should use @UuidGenerator
+
+- **Severity**: LOW
+- **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue`.
+- **Fires when**: the attribute is not also annotated with `@UuidGenerator`.
+- **Why it matters**: the JPA default generates random UUIDs (v4), which fragment B-tree indexes; Hibernate's
+  `@UuidGenerator(style = TIME)` yields index-friendly identifiers.
+- **Recommendation**: annotate UUID identifiers with `@UuidGenerator` and pick the style that matches the target
+  database.
 
 ## Mapping
 
@@ -180,6 +229,122 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: an `Optional` field or property is part of the mapped model.
 - **Why it matters**: `Optional` is a return-type convenience, not a stable persistent attribute type.
 - **Recommendation**: map the underlying nullable type and expose `Optional` from a non-persistent getter if desired.
+
+### HIB-MAP-010 - @ElementCollection List should persist order
+
+- **Severity**: MEDIUM
+- **Inspects**: `@ElementCollection` attributes typed as `List`.
+- **Fires when**: the list has neither `@OrderColumn` nor `@OrderBy`.
+- **Why it matters**: without an ordering strategy, Hibernate treats any change to the list as a delete-and-reinsert of
+  the entire collection table.
+- **Recommendation**: add `@OrderColumn` for index-tracked lists or `@OrderBy` for query-time ordering, or switch the
+  attribute to a `Set`.
+
+### HIB-MAP-011 - Entity classes should not be final
+
+- **Severity**: HIGH
+- **Inspects**: `@Entity` classes for the `final` modifier.
+- **Fires when**: an entity is declared `final`.
+- **Why it matters**: Hibernate cannot create runtime proxies for lazy associations or bytecode-enhanced state when the
+  class is final.
+- **Recommendation**: remove the `final` modifier from entities (and avoid Kotlin classes without `open`).
+
+### HIB-MAP-012 - SINGLE_TABLE inheritance should declare @DiscriminatorColumn
+
+- **Severity**: INFO
+- **Inspects**: `@Inheritance(strategy = SINGLE_TABLE)` roots.
+- **Fires when**: the root entity does not declare `@DiscriminatorColumn`.
+- **Why it matters**: the default discriminator name, type, and length are implicit, which makes generated schemas and
+  cross-team reviews harder to reason about.
+- **Recommendation**: declare `@DiscriminatorColumn` explicitly so the chosen contract is visible.
+
+### HIB-MAP-013 - String columns should declare explicit length
+
+- **Severity**: INFO
+- **Inspects**: persistent `String` attributes (excluding identifiers and `@Lob` fields).
+- **Fires when**: there is no `@Column(length=...)` and no `columnDefinition`.
+- **Why it matters**: generated DDL defaults to 255 characters, which can clash with domain expectations or database
+  constraints.
+- **Recommendation**: set `@Column(length=...)` to match the domain, or use `@Lob`/`columnDefinition` for free-text
+  payloads.
+
+### HIB-MAP-014 - BigDecimal columns should declare precision and scale
+
+- **Severity**: MEDIUM
+- **Inspects**: persistent `BigDecimal` attributes.
+- **Fires when**: `@Column(precision=..., scale=...)` is missing or precision is zero.
+- **Why it matters**: provider defaults vary by database, which can silently round monetary or scientific values.
+- **Recommendation**: always set precision and scale on `BigDecimal` mappings so DDL and Bean Validation agree.
+
+### HIB-MAP-015 - Date/time attributes should use java.time
+
+- **Severity**: LOW
+- **Inspects**: persistent attributes typed as `java.util.Date`, `java.util.Calendar`, or `java.sql` temporal types.
+- **Fires when**: any of those legacy types is detected on a mapped attribute.
+- **Why it matters**: legacy temporal types are mutable, not time-zone aware, and require `@Temporal` plumbing.
+- **Recommendation**: migrate to `java.time` (`Instant`, `LocalDate`, `LocalDateTime`, `OffsetDateTime`, `ZonedDateTime`)
+  so JDBC binding is immutable and explicit about zones.
+
+### HIB-MAP-016 - @ManyToOne should set optional=false when the join column is non-nullable
+
+- **Severity**: LOW
+- **Inspects**: `@ManyToOne` associations and their `@JoinColumn`.
+- **Fires when**: `@JoinColumn(nullable=false)` is set but `optional=false` is not.
+- **Why it matters**: when the foreign key is mandatory, Hibernate can skip the secondary SELECT it would otherwise
+  issue to discriminate between null and a real proxy.
+- **Recommendation**: set `@ManyToOne(optional=false)` whenever the join column is non-nullable.
+
+### HIB-MAP-017 - Lazy owning @OneToOne requires bytecode enhancement
+
+- **Severity**: INFO
+- **Inspects**: optional owning `@OneToOne` associations.
+- **Fires when**: the association is `FetchType.LAZY`, `optional` is not `false`, no `@MapsId` is declared, and Hibernate
+  bytecode enhancement is not enabled.
+- **Why it matters**: Hibernate cannot proxy the missing-or-present discriminator on the owning side without the
+  enhancer, so it silently fetches the association eagerly.
+- **Recommendation**: enable `hibernate.bytecode.enhancer.enableLazyInitialization` (and configure the enhancement
+  plugin), or switch to `@MapsId` so the existing foreign key drives loading.
+
+## Query
+
+### HIB-QUERY-001 - @Modifying queries should clear or flush the persistence context
+
+- **Severity**: HIGH
+- **Inspects**: Spring Data JPA `@Modifying` annotations on repository methods.
+- **Fires when**: a `@Modifying` method does not set `clearAutomatically` or `flushAutomatically`.
+- **Why it matters**: the persistence context can hold stale entities after a bulk update or delete, leading to
+  hard-to-diagnose data inconsistencies.
+- **Recommendation**: set `@Modifying(clearAutomatically=true)` (and `flushAutomatically=true` when pending changes must
+  be applied first), or evict affected entities explicitly before issuing the bulk statement.
+
+### HIB-QUERY-002 - Streaming repository methods need a transactional, read-only scope
+
+- **Severity**: MEDIUM
+- **Inspects**: Spring Data repository methods returning `java.util.stream.Stream`.
+- **Fires when**: a repository method returns `Stream<>`.
+- **Why it matters**: streaming methods keep the underlying JDBC cursor open and only behave correctly inside an open
+  transaction with the caller closing the stream.
+- **Recommendation**: annotate the caller with `@Transactional(readOnly = true)`, consume the stream inside a
+  try-with-resources block, and close it before the transaction ends; otherwise prefer `Page<>` or a bounded `List<>`.
+
+### HIB-QUERY-003 - Native paged @Query must declare countQuery
+
+- **Severity**: HIGH
+- **Inspects**: Spring Data `@Query(nativeQuery=true)` methods with `Pageable` or returning `Page<>`.
+- **Fires when**: `countQuery` is missing.
+- **Why it matters**: Spring Data cannot derive a correct COUNT statement from a native query, so paging either fails to
+  start or executes the wrong COUNT.
+- **Recommendation**: add `countQuery = "..."` to the `@Query` so paging can compute totals reliably.
+
+### HIB-QUERY-004 - Derived deleteBy methods load entities before deletion
+
+- **Severity**: MEDIUM
+- **Inspects**: Spring Data derived query methods named `deleteBy...` or `removeBy...`.
+- **Fires when**: a derived delete method has no explicit `@Query`.
+- **Why it matters**: Spring Data implements derived deletes by selecting matching entities first and deleting them one
+  by one, which is expensive on large result sets.
+- **Recommendation**: for bulk removals prefer an explicit `@Modifying @Query("delete from ... where ...")` with
+  `clearAutomatically=true`; reserve derived `deleteBy` methods for small or cascading deletes.
 
 ## Configuration
 
@@ -281,6 +446,66 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: add a Hibernate cache concurrency strategy, or remove `@Cacheable` when the entity should not use the
   second-level cache.
 
+### HIB-CONFIG-012 - SQL logging should be off when a production profile is active
+
+- **Severity**: MEDIUM
+- **Inspects**: `spring.jpa.show-sql`, `hibernate.show_sql`, and DEBUG/TRACE log levels for `org.hibernate.SQL` /
+  `org.hibernate.orm.jdbc.bind` / `org.hibernate.type.descriptor.sql.BasicBinder`.
+- **Fires when**: any of those are enabled while a profile named `prod`, `production`, `staging`, or `*-prod` /
+  `*-production` is active.
+- **Why it matters**: logging every statement degrades throughput dramatically and can leak parameter values in
+  application logs.
+- **Recommendation**: keep SQL logging off in production-like environments and rely on structured slow-query logging or
+  the database's statement audit.
+
+### HIB-CONFIG-013 - Configure hibernate.jdbc.time_zone
+
+- **Severity**: LOW
+- **Inspects**: `spring.jpa.properties.hibernate.jdbc.time_zone` and `hibernate.jdbc.time_zone`.
+- **Fires when**: neither property is set.
+- **Why it matters**: without a fixed zone, JDBC binds and reads use the JVM default zone, so results vary across hosts.
+- **Recommendation**: pin `hibernate.jdbc.time_zone=UTC` (or another fixed zone) for deterministic timestamp handling.
+
+### HIB-CONFIG-014 - Hibernate's built-in connection pool should not be used
+
+- **Severity**: HIGH
+- **Inspects**: `hibernate.connection.pool_size`.
+- **Fires when**: the property is set.
+- **Why it matters**: the property activates Hibernate's internal connection pool, which is intended for testing only
+  and lacks the resilience and monitoring of a production pool.
+- **Recommendation**: remove the property and rely on Spring Boot's managed `DataSource` (HikariCP by default).
+
+### HIB-CONFIG-015 - spring.jpa.defer-datasource-initialization is only safe with embedded DDL flows
+
+- **Severity**: MEDIUM
+- **Inspects**: `spring.jpa.defer-datasource-initialization` and `spring.jpa.hibernate.ddl-auto`.
+- **Fires when**: deferred initialization is enabled while `ddl-auto` is `none`, `validate`, or unset.
+- **Why it matters**: the property is meaningful only when Hibernate creates the schema (`create`, `create-drop`,
+  `update`); otherwise `data.sql` is never executed and the configuration is misleading.
+- **Recommendation**: combine deferred initialization with `ddl-auto=create`/`create-drop`, or remove it and load seed
+  data through your migration tool (Flyway, Liquibase).
+
+## Caching
+
+### HIB-CACHE-001 - Cached entities should also cache their associations
+
+- **Severity**: MEDIUM
+- **Inspects**: entities annotated with `@Cacheable` or Hibernate `@Cache` and the entities they associate with.
+- **Fires when**: an association on a cached entity targets another entity that is itself uncached.
+- **Why it matters**: loading the aggregate from the cache still hits the database for every uncached association,
+  defeating much of the cache's value.
+- **Recommendation**: annotate the associated entities (or the association attributes) with
+  `@org.hibernate.annotations.Cache` so the second-level cache covers the whole graph.
+
+### HIB-CACHE-002 - READ_ONLY cache strategy on writable entities is unsafe
+
+- **Severity**: MEDIUM
+- **Inspects**: entities annotated with `@Cache(usage = READ_ONLY)`.
+- **Fires when**: the entity also has `@Version` or `@DynamicUpdate`, both signals that the entity is mutable.
+- **Why it matters**: `READ_ONLY` throws when Hibernate detects state changes and silently misses updates from other
+  transactions on the same entity.
+- **Recommendation**: switch to `READ_WRITE` or `NONSTRICT_READ_WRITE` for mutable entities.
+
 ## Entity design
 
 ### HIB-ENTITY-001 - Entities should override equals and hashCode consistently
@@ -300,3 +525,34 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: versionless optimistic locking relies on update predicates that match the chosen locking strategy.
 - **Recommendation**: add `@DynamicUpdate` when using versionless optimistic locking, or use a regular `@Version` column
   for simpler optimistic locking.
+
+### HIB-ENTITY-003 - equals/hashCode should not include lazy associations
+
+- **Severity**: INFO
+- **Inspects**: entities that override both `equals` and `hashCode` and declare JPA associations.
+- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@EqualsAndHashCode` without
+  exclusions, IDE templates) typically include those associations.
+- **Why it matters**: comparing entities that participate in collections then triggers lazy loading or proxy/initialized
+  mismatches.
+- **Recommendation**: base `equals` and `hashCode` on a stable business key or natural id only; exclude lazy associations
+  explicitly when generated tooling is used.
+
+### HIB-ENTITY-004 - toString should not include lazy associations
+
+- **Severity**: INFO
+- **Inspects**: entities that override `toString` and declare JPA associations.
+- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@ToString` without
+  exclusions, IDE templates) typically traverse associations.
+- **Why it matters**: logging or debugging the entity then pulls the object graph, triggering N+1 lazy loads or
+  `LazyInitializationException` outside an open session.
+- **Recommendation**: base `toString` on the identifier and a few stable scalar fields; exclude associations explicitly
+  (for example with `@ToString(exclude = ...)`).
+
+### HIB-ENTITY-005 - Persistent fields should not be public
+
+- **Severity**: LOW
+- **Inspects**: entity attributes reachable as public fields.
+- **Fires when**: a persistent field is `public`.
+- **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
+- **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
+  preserves proxy substitution and bytecode-enhancer guarantees.

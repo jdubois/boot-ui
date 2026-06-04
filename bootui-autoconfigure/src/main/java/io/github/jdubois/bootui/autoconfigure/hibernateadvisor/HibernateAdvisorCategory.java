@@ -5,7 +5,9 @@ enum HibernateAdvisorCategory {
     IDENTIFIERS("Identifiers"),
     MAPPING("Mapping"),
     CONFIGURATION("Configuration"),
-    ENTITY_DESIGN("Entity design");
+    ENTITY_DESIGN("Entity design"),
+    QUERY("Query"),
+    CACHING("Caching");
 
     private final String label;
 

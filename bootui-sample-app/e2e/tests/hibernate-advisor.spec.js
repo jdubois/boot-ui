@@ -32,6 +32,18 @@ test.describe('Hibernate Advisor view', () => {
     await expect(page.getByText(/SampleOrder#details is an owning @OneToOne without @MapsId/)).toBeVisible()
     await expect(page.getByText('@NotFound(IGNORE) should be reviewed')).toBeVisible()
     await expect(page.getByText(/SampleOrder#customer uses @NotFound\(action=IGNORE\)/)).toBeVisible()
+    await expect(page.getByText('@Lob attributes should be loaded lazily')).toBeVisible()
+    await expect(page.getByText(/SampleAuditEntry#payload is annotated with @Lob/)).toBeVisible()
+    await expect(page.getByText('BigDecimal columns should declare precision and scale')).toBeVisible()
+    await expect(
+      page.getByText(/SampleAuditEntry#amount is a BigDecimal column without explicit precision/)
+    ).toBeVisible()
+    await expect(page.getByText('@Modifying queries should clear or flush the persistence context')).toBeVisible()
+    await expect(
+      page.getByText(/SampleOrderRepository#markAllAs is @Modifying without clearAutomatically/)
+    ).toBeVisible()
+    await expect(page.getByText('Native paged @Query must declare countQuery')).toBeVisible()
+    await expect(page.getByText(/SampleOrderRepository#findPageNative/)).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
   })
 })
