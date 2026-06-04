@@ -10,8 +10,8 @@ the Playwright suite under `e2e/` exercises.
 - BootUI auto-activating when the `dev` profile is active.
 - A PostgreSQL-backed Spring Data repository so the Spring Data panel has data to
   show.
-- PostgreSQL and Redis Docker Compose services (`compose.yaml`) so the Spring Data,
-  Database Connection Pools, Spring Cache, and Dev Services panels have realistic infrastructure
+- PostgreSQL, Redis, and Ollama Docker Compose services (`compose.yaml`) so the Spring Data,
+  Database Connection Pools, Spring Cache, AI Usage, and Dev Services panels have realistic infrastructure
   to show.
 - Spring Security, scheduled tasks, custom metrics, and a small static welcome
   page so the corresponding BootUI panels are populated.
@@ -21,7 +21,7 @@ the Playwright suite under `e2e/` exercises.
 ## Prerequisites
 
 - Java 17 or later
-- Docker (or any Docker-compatible engine) for the Postgres and Redis containers
+- Docker (or any Docker-compatible engine) for the Postgres, Redis, and Ollama containers
 - The repository's Maven Wrapper (`./mvnw`) — no global Maven install needed
 
 ## Run it
@@ -32,8 +32,8 @@ From the repository root:
 ./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Spring Boot will start Docker Compose, wait for Postgres and Redis, and then
-bind the sample app to `http://localhost:8080`.
+Spring Boot will start Docker Compose, wait for Postgres, Redis, and Ollama, pull the small `qwen2.5:0.5b` chat model
+when missing, and then bind the sample app to `http://localhost:8080`.
 
 ## Visit BootUI
 
