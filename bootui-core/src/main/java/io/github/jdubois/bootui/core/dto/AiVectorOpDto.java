@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.core.dto;
 
 /**
- * Vector store operation linked to the same trace.
+ * Vector store or retrieval operation linked to the same trace.
  */
 public record AiVectorOpDto(
         String spanId,

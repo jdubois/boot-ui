@@ -15,6 +15,8 @@ public record AiOverviewDto(
         long totalOutputTokens,
         Map<String, Long> tokensByModel,
         Map<String, Integer> callsByModel,
+        int errorCount,
+        long averageDurationNanos,
         int toolCallCount,
         int vectorOperationCount,
         int embeddingCount,

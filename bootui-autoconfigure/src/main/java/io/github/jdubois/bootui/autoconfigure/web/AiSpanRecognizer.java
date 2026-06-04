@@ -14,7 +14,8 @@ import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
  *   <li>Chat: {@code gen_ai.operation.name=chat} and {@code gen_ai.system=<provider>}.</li>
  *   <li>Embeddings: {@code gen_ai.operation.name=embeddings}.</li>
  *   <li>Tool execution: {@code gen_ai.operation.name=execute_tool} or {@code spring.ai.tool}.</li>
- *   <li>Vector store: {@code db.system=spring_ai_vector_store} or scope contains "vectorstore".</li>
+ *   <li>Vector store/retrieval: {@code spring.ai.kind=vector_store}, {@code gen_ai.operation.name=retrieval},
+ *       {@code db.system=spring_ai_vector_store}, or scope contains "vectorstore".</li>
  * </ul>
  *
  * <p>Spring-AI-specific attributes (such as {@code spring.ai.tool.name}) are kept as
@@ -54,6 +55,14 @@ public final class AiSpanRecognizer {
     }
 
     public static boolean isVectorOperation(NormalizedSpan span) {
+        String springAiKind = stringAttr(span, "spring.ai.kind");
+        if (springAiKind != null && "vector_store".equalsIgnoreCase(springAiKind)) {
+            return true;
+        }
+        String genAiOperation = stringAttr(span, "gen_ai.operation.name");
+        if (genAiOperation != null && "retrieval".equalsIgnoreCase(genAiOperation)) {
+            return true;
+        }
         String dbSystem = stringAttr(span, "db.system");
         if (dbSystem != null && (dbSystem.startsWith("spring_ai") || dbSystem.contains("vector"))) {
             return true;
@@ -141,6 +150,9 @@ public final class AiSpanRecognizer {
     public static String toolName(NormalizedSpan span) {
         String name = stringAttr(span, "gen_ai.tool.name");
         if (name == null) {
+            name = stringAttr(span, "spring.ai.tool.definition.name");
+        }
+        if (name == null) {
             name = stringAttr(span, "spring.ai.tool.name");
         }
         if (name == null && span.name() != null) {
@@ -158,6 +170,9 @@ public final class AiSpanRecognizer {
         if (c == null) {
             c = stringAttr(span, "spring.ai.vectorstore.collection.name");
         }
+        if (c == null) {
+            c = stringAttr(span, "db.namespace");
+        }
         return c;
     }
 
@@ -165,6 +180,9 @@ public final class AiSpanRecognizer {
         String op = stringAttr(span, "db.operation.name");
         if (op == null) {
             op = stringAttr(span, "spring.ai.vectorstore.operation");
+        }
+        if (op == null && isVectorOperation(span)) {
+            op = stringAttr(span, "gen_ai.operation.name");
         }
         return op;
     }
