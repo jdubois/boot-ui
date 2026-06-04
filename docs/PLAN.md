@@ -3,12 +3,12 @@
 ## 1. Strategy
 
 BootUI ships as a **Spring Boot 4 starter** that adds a safe, local-only developer console to a running application. The
-released surface already covers runtime introspection, configuration, database migrations, services, diagnostics, and
-developer tooling, including the recently shipped Thread / Process Viewer, HTTP Exchanges, Flyway, and Liquibase panels.
-This plan describes the **next merged feature workstream**: it keeps the remaining roadmap items and folds in the proposed
-new capabilities chosen to close the clearest gaps against comparable developer dashboards (Spring Boot Admin, Quarkus Dev
-UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire, Symfony Web Profiler) while staying inside BootUI's
-read-mostly, fail-closed safety model.
+released surface already covers runtime introspection, configuration, database migrations, services, diagnostics, project
+health, and developer tooling, including the recently shipped Thread / Process Viewer, HTTP Exchanges, Flyway, Liquibase,
+Hibernate Advisor, HTTP Sessions, and GitHub panels. This plan describes the **next merged feature workstream**: it keeps
+the remaining roadmap items and the one capture-oriented addition chosen to close the clearest gaps against comparable
+developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire,
+Symfony Web Profiler) while staying inside BootUI's read-mostly, fail-closed safety model.
 
 The priorities for every item below remain unchanged:
 
@@ -30,82 +30,23 @@ Each new panel must:
 
 ## 2. Scope of this workstream
 
-Seven open features, grouped by priority. This list intentionally merges the remaining roadmap items with the proposed
-additions instead of replacing either set. Items are intended to land roughly in the order listed: the existing correlation
-and graph items remain in scope; the new introspection panels slot next to related areas; capture-heavy, server-specific,
-and outbound-network features land later because they need stricter masking, bounding, and opt-in behaviour.
+Three open features, grouped by priority. Items are intended to land roughly in the order listed: the existing correlation
+and graph items remain in scope; the capture-heavy e-mail viewer lands after the read-only items because it needs stricter
+masking, bounding, sandboxing, and opt-in behaviour.
 
 | Priority | Feature                               | Group           | Primary data source                                | Mutation?         | Origin           |
 | -------- | ------------------------------------- | --------------- | -------------------------------------------------- | ----------------- | ---------------- |
-| 1        | Feature Flags (Togglz)                | Configuration   | Togglz `FeatureManager`                            | Optional, gated   | New addition     |
-| 2        | Hibernate Scanner & Optimizer         | Services        | Hibernate / JPA `Metamodel`                        | No                | New addition     |
-| 3        | Trace ↔ Log ↔ Request correlation     | Diagnostics     | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
-| 4        | Bean / dependency graph visualization | Configuration   | Existing Beans and Conditions data                 | No                | Existing roadmap |
-| 5        | E-mail Viewer                         | Diagnostics     | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
-| 6        | HTTP Session Viewer (Tomcat)          | Diagnostics     | Embedded Tomcat Catalina `Manager`                 | Optional, gated   | New addition     |
-| 7        | GitHub                                | Overview        | Local git remote + GitHub REST API                 | Auto-refresh 60s  | New addition     |
+| 1        | Trace ↔ Log ↔ Request correlation     | Diagnostics     | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
+| 2        | Bean / dependency graph visualization | Configuration   | Existing Beans and Conditions data                 | No                | Existing roadmap |
+| 3        | E-mail Viewer                         | Diagnostics     | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
 
-The Trace ↔ Log ↔ Request correlation work in §3.3 builds on the already-shipped HTTP Exchanges panel. The GitHub
-panel is the only feature here requiring outbound network and credentials, so it lands last and ships read-only first even
-though its route should appear directly under the Overview panel.
+The Trace ↔ Log ↔ Request correlation work in §3.1 builds on the already-shipped HTTP Exchanges panel and the existing
+Traces and Log Tail panels. The E-mail Viewer is the only remaining capture-oriented feature in this workstream, so it
+must keep pass-through application behaviour by default and make any dev-trap mode explicitly opt-in.
 
 ## 3. Feature specifications
 
-### 3.1 Feature Flags (Togglz) — Configuration
-
-Togglz is the de-facto Java feature-flag library; a flag panel is a natural BootUI fit that complements the existing
-Configuration and Conditions panels. Togglz ships its own `/togglz-console`, but a BootUI panel keeps everything in the
-single dev console: integrated, masking-aware, fail-closed, and dev-only.
-
-Scope:
-
-- List all features grouped by Togglz feature groups, showing enabled state, active activation strategy and its
-  parameters, label, and attributes.
-- Show the backing `StateRepository` type, whether it is writable, and the `FeatureManager` name (multi-manager setups
-  handled).
-- A **toggle action is optional and confirmation-gated**, disabled by default behind the per-panel read-only property,
-  and offered only when the `StateRepository` is writable — consistent with the Spring Cache clear precedent.
-
-Design constraints:
-
-- Available only when `togglz-core` is on the classpath **and** a `FeatureManager` bean exists; otherwise fail closed
-  with a clear unavailable reason.
-- Route strategy parameter values through masking/value-exposure (they can embed user ids, percentages, allow-lists).
-- No dependency on the Togglz web console being enabled.
-
-### 3.2 Hibernate Scanner & Optimizer — Services
-
-A directly requested scanner that works like the other scanners in the starter, most closely the Architecture panel: it
-runs on demand, is bounded to the host application's own entities, evaluates a curated registry of severity-ranked rules,
-fails closed to a stable empty report, and is framed as a **review prompt, not a verdict**. BootUI ships an independent,
-open implementation of these rules, following well-known Hibernate/JPA performance best practices, with "learn more"
-links out to the relevant articles. No third-party optimizer product is bundled or required.
-
-Data source: the JPA `EntityManagerFactory` / Hibernate `SessionFactory` **Metamodel** plus persistence configuration —
-static mapping introspection bounded to the application's own entities, not runtime query interception. This keeps the
-scan bounded and safe in the same way the ArchUnit scanner is.
-
-Candidate rule set (each with a severity and a remediation link):
-
-- `FetchType.EAGER` on associations (`@ManyToOne`/`@OneToOne`/`@ManyToMany`/`@OneToMany`) → prefer `LAZY`.
-- `GenerationType.IDENTITY` identifiers → disables JDBC batch inserts; prefer `SEQUENCE` with a pooled optimizer.
-- Unidirectional `@OneToMany` without `@JoinColumn`/`mappedBy` → extra join table / inefficient DML.
-- `@ManyToMany` using `List` instead of `Set` → delete-and-reinsert problem.
-- `@Enumerated(ORDINAL)` → fragile; prefer `STRING`.
-- `open-in-view` enabled (`spring.jpa.open-in-view=true`) → warn about lazy loading outside transactions.
-- Missing batch-fetch configuration (`hibernate.default_batch_fetch_size` / `@BatchSize`) → N+1 risk (informational).
-- Risky `ddl-auto` (`update`/`create`/`create-drop`) outside test profiles (informational).
-- Entity `equals`/`hashCode` hygiene where statically detectable (informational).
-
-Design constraints:
-
-- Read-only. Available only when Hibernate ORM and an `EntityManagerFactory` bean are present; degrade to a stable empty
-  report when the metamodel cannot be read, mirroring the ArchUnit scanner's fail-closed behaviour.
-- Reuse the architecture-style report DTO shape (analyzer header, severity counts, sorted violations, disclaimer) so the
-  frontend and test scaffolding are largely reused.
-- A companion `docs/HIBERNATE-CHECKS.md` (like `docs/ARCHITECTURE-CHECKS.md`) documents every rule.
-
-### 3.3 Trace ↔ Log ↔ Request correlation — Diagnostics
+### 3.1 Trace ↔ Log ↔ Request correlation — Diagnostics
 
 This is where Aspire and Symfony differentiate. BootUI already owns a trace pipeline (the in-app OTLP sink and Traces
 panel) plus Log Tail, and the HTTP Exchanges panel; the three can be cross-linked by trace and span id.
@@ -126,7 +67,7 @@ Design constraints:
 - Trace propagation is best-effort. Correlation is presented as a convenience, not a guarantee, and must work for the
   common case where Micrometer Tracing/OTLP is active without breaking when it is not.
 
-### 3.4 Bean / dependency graph visualization — Configuration
+### 3.2 Bean / dependency graph visualization — Configuration
 
 Layers an Aspire-style relationship view on top of data BootUI already has from the Beans and Conditions panels, without a
 new data source.
@@ -148,7 +89,7 @@ Design constraints:
   performance within the project's large-app budget.
 - Avoid heavy graph libraries where a lightweight approach is sufficient, in line with the bundle-size risk in §5.
 
-### 3.5 E-mail Viewer — Diagnostics
+### 3.3 E-mail Viewer — Diagnostics
 
 Laravel Telescope's mail watcher is a beloved feature with no built-in Spring equivalent. Captured outgoing mail (HTML
 preview plus raw source) is a high-value dev-loop aid.
@@ -169,99 +110,6 @@ Design constraints:
 - Recipients, subjects, and bodies are sensitive → masked by default and revealed only under value-exposure; HTML is
   rendered sandboxed to prevent script execution.
 - Fixed-size buffer; no persistence to disk beyond on-demand `.eml` download.
-
-### 3.6 HTTP Session Viewer (Tomcat) — Diagnostics
-
-Visibility into active HTTP sessions is useful during local authentication and state debugging. This panel targets
-**embedded Tomcat only**.
-
-Scope:
-
-- Reach the Catalina `Manager` via the running `WebServerApplicationContext` → `TomcatWebServer` → `Context` →
-  `Manager.findSessions()`, reading session id, creation and last-access time, max-inactive interval, and attribute
-  **names**. Bounded snapshot.
-- List active sessions with their timing metadata and attribute names; attribute **values** are hidden by default
-  because they routinely hold auth principals, CSRF tokens, and security context.
-- An **invalidate-session action is optional and confirmation-gated**, disabled by default behind the read-only property.
-
-Design constraints:
-
-- Available only on embedded Tomcat; fail closed on Jetty, Undertow, Netty, or reactive setups with a clear "Tomcat only"
-  reason.
-- All attribute values flow through masking/value-exposure; bounded result size and server-side paging.
-- Implemented defensively: access across the Tomcat handle is wrapped so a layout change degrades to a stable empty report
-  rather than failing, the same posture as the ArchUnit importer.
-
-### 3.7 GitHub — Overview
-
-A read-only panel for the **current** project, detected from the local git remote and placed directly under the
-Overview panel in the sidebar. It answers "what is happening on GitHub for this repository right now?" without turning
-BootUI into a hosted project-management tool: repository health, live collaboration signals, CI status, security signals
-where permitted, and every quota or rate-limit resource GitHub exposes to the active credential. Live metrics are bounded
-client-side polling with BootUI's standard auto-refresh control set to 60 seconds. PR creation and other mutating actions
-are deferred; if added later they must be confirmation-gated and disabled by default.
-
-Scope:
-
-- Repository identity and health: owner/repo, default branch, visibility, archived/fork state, license, stars, forks,
-  watchers, open issues, open pull requests, latest release, pushed-at timestamp, and detected local branch/upstream.
-- Pull request queue: open PRs with author, draft state, labels, review decision, mergeability when available, check suite
-  conclusion, required-status summary, and age since last update.
-- Issues and planning: open issue counts by label/state buckets, issues assigned to the current user, stale issue/PR
-  buckets, and milestone progress when milestones exist.
-- CI and automation: recent workflow runs, current failures, average and p95 run duration, queue time when available,
-  runner availability, artifact count/size, cache size, and Dependabot activity where permitted.
-- Repository traffic and activity where the credential has access: clones, views, popular paths/referrers, commit activity,
-  release/download counts, and contributor activity, with clear "requires repository push/admin access" unavailable states.
-- Security signals where enabled and authorized: Dependabot alerts, code scanning alerts, secret scanning alerts, security
-  advisories, and branch protection summaries; no alert secret values or vulnerable code snippets are shown.
-- Quotas and limits: render **all** resources returned by GitHub's `/rate_limit` response dynamically (for example core,
-  search, code search, GraphQL, integration manifest, source import, code scanning upload, dependency snapshots, and any
-  GitHub Enterprise-specific resources), plus best-effort cards for Actions minutes/storage, Actions cache, artifacts,
-  Packages storage, Codespaces, Git LFS, and other account/org quotas when the current credential and host expose them.
-- Quota explainability: show used, remaining, limit, reset time, percentage used, scope (repo/user/org/enterprise), data
-  freshness, and the exact unavailable reason when a quota endpoint is missing, unsupported by GitHub Enterprise, or denied
-  by permissions. Highlight quota resources only when they are exhausted or have 10% or less remaining.
-- Copilot usage: when the repository owner is an organization and the credential is authorized, probe GitHub's latest
-  28-day Copilot organization usage report metadata. Show availability, report window, and download-link count only; do
-  not download or expose signed NDJSON report URLs.
-
-Data source:
-
-- Repo detection (no network): parse `owner/repo` from `.git/config` / `git remote get-url origin`; activate only for
-  GitHub remotes (github.com or a configured GitHub Enterprise host).
-- GitHub REST API (outbound, opt-in): repository metadata, pull requests, checks/statuses, workflow runs, issues,
-  releases, traffic, security alerts, Actions storage/cache/artifact data, billing/quota endpoints where authorized, and
-  `/rate_limit`. Outbound HTTP has precedent in the OSV Vulnerabilities scanner.
-- GraphQL API (optional): only for fields that are significantly more efficient or unavailable through REST, such as
-  review-decision summaries. It must be skipped when the GraphQL quota is unavailable or too constrained.
-
-Credentials and network safety:
-
-- Token discovery is opt-in and read-only from the current device: environment `GITHUB_TOKEN`/`GH_TOKEN` first, then an
-  existing `gh` CLI login if present. The token is never persisted by BootUI, never echoed to logs or the browser, and
-  only shown as masked credential metadata (source, login when safe, scopes if GitHub exposes them).
-- Without a token, fall back to unauthenticated public calls (60 req/hr) and surface every resulting quota and private-repo
-  limitation clearly.
-- Outbound calls are triggered by the panel's 60-second auto-refresh/manual refresh flow and remain guarded by a
-  configurable host allowlist (`api.github.com` / GitHub Enterprise), request timeouts, and bounded fan-out so quota
-  collection cannot exhaust the user's remaining API budget.
-- Quota collection must be adaptive: fetch `/rate_limit` first, estimate the cost of optional calls, skip low-priority
-  sections when remaining quota is below a safety threshold, and mark skipped cards as quota-protected rather than failed.
-
-Design constraints:
-
-- Available only when the working tree has a GitHub `origin`. Degrade with a clear reason when the project is not a git
-  repository, has a non-GitHub remote, is offline, hits an unauthenticated private repository, or is rate-limited.
-- Bounded result counts and refresh interval; reuse masking for any user-identifying fields, alert metadata, branch names,
-  labels, and URLs that may contain internal project information.
-- The quota model should be data-driven so new GitHub quota resources appear automatically without a BootUI release.
-- GitHub Enterprise support must not assume GitHub.com-only endpoints; unsupported quota cards stay visible as unavailable
-  with host-specific reasons.
-- UI placement is immediately after Overview, before Runtime, because this is a live project-level summary rather than a
-  developer-tool utility panel.
-- Phase 1 is a read-only dashboard only; anything mutating (PR creation, labels, merges) is a later, confirmation-gated
-  iteration.
 
 ## 4. Cross-cutting work for every new panel
 
@@ -285,13 +133,11 @@ For each feature above, the following must move together, consistent with the ex
 
 | Risk                                                               | Feature(s)     | Impact | Mitigation                                                                                                  |
 | ------------------------------------------------------------------ | -------------- | ------ | ----------------------------------------------------------------------------------------------------------- |
-| Exposing sensitive headers, principals, session data, or mail body | 3.3, 3.5, 3.6 | High   | Loopback-only activation, masking/value-exposure on every new surface, sandboxed HTML, and focused tests.   |
-| Outbound network and token exposure                                | 3.7            | High   | Off by default, opt-in token never persisted or echoed, host allowlist, timeouts, unauthenticated fallback. |
-| Unbounded capture buffers or large rendered graphs/lists           | 3.2, 3.4-3.6  | Medium | Fixed-size buffers, server-side paging, bounded snapshots, and focus-and-neighborhood graph rendering.      |
+| Exposing sensitive headers, trace context, or mail body            | 3.1, 3.3      | High   | Loopback-only activation, masking/value-exposure on every new surface, sandboxed HTML, and focused tests.   |
+| Unbounded capture buffers or large rendered graphs/lists           | 3.2, 3.3      | Medium | Fixed-size buffers, server-side paging, bounded snapshots, and focus-and-neighborhood graph rendering.      |
 | Optional Actuator endpoints, libraries, beans, or servers missing  | all            | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.        |
-| Bean/dependency graph or correlation bloating the bundle           | 3.3, 3.4      | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                       |
-| Silently swallowing application mail                               | 3.5            | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                   |
-| Unintended flag or session mutation                                | 3.1, 3.6      | Medium | Read-only by default; mutating actions confirmation-gated and dependent on a writable backend.              |
+| Bean/dependency graph or correlation bloating the bundle           | 3.1, 3.2      | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                       |
+| Silently swallowing application mail                               | 3.3            | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                   |
 | Scope creep beyond this merged feature set                         | all            | High   | Treat this list as the maximum near-term surface; move further ideas to a later plan.                       |
 
 ## 6. Validation checklist
