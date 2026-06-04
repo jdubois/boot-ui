@@ -236,149 +236,150 @@ onMounted(ensurePanels)
       </div>
     </div>
 
-    <div class="row g-4">
-      <div class="col-lg-4">
-        <div class="card overall-card h-100">
-          <div class="card-body d-flex flex-column">
-            <div class="text-uppercase text-muted fw-bold small">Overall score</div>
-            <div class="d-flex align-items-center gap-3 my-3">
-              <div :class="['overall-gauge', `overall-gauge--${overallBandTone}`]">
-                <span class="overall-gauge__value">{{ Number.isFinite(overall) ? overall : '—' }}</span>
-                <span class="overall-gauge__max">/ 100</span>
-              </div>
-              <div>
-                <span :class="['badge', `text-bg-${overallBandTone}`, 'fs-6']">{{ overallBandLabel }}</span>
-                <div class="text-muted small mt-2">{{ scoredCount }} of {{ totalCount }} scanners scored</div>
+    <div class="row g-4 mb-4">
+      <div class="col-12">
+        <div class="card overall-card">
+          <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center gap-4">
+            <div class="flex-shrink-0">
+              <div class="text-uppercase text-muted fw-bold small">Overall score</div>
+              <div class="d-flex align-items-center gap-3 mt-2">
+                <div :class="['overall-gauge', `overall-gauge--${overallBandTone}`]">
+                  <span class="overall-gauge__value">{{ Number.isFinite(overall) ? overall : '—' }}</span>
+                  <span class="overall-gauge__max">/ 100</span>
+                </div>
+                <div>
+                  <span :class="['badge', `text-bg-${overallBandTone}`, 'fs-6']">{{ overallBandLabel }}</span>
+                  <div class="text-muted small mt-2">{{ scoredCount }} of {{ totalCount }} scanners scored</div>
+                </div>
               </div>
             </div>
 
-            <div v-if="overallContributions.length" class="overall-contributions">
-              <div
-                v-for="item in overallContributions"
-                :key="item.title"
-                class="d-flex justify-content-between align-items-center small"
-              >
-                <span class="text-muted">{{ item.title }}</span>
-                <span :class="item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'">
-                  {{ item.deduction < 0 ? item.deduction : '0' }}
-                </span>
+            <div class="flex-grow-1">
+              <div v-if="overallContributions.length" class="row g-2">
+                <div
+                  v-for="item in overallContributions"
+                  :key="item.title"
+                  class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small"
+                >
+                  <span class="text-muted">{{ item.title }}</span>
+                  <span :class="item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'">
+                    {{ item.deduction < 0 ? item.deduction : '0' }}
+                  </span>
+                </div>
               </div>
+              <p v-else class="text-muted small mb-0">
+                Run the scanners to compute an overall security & health score.
+              </p>
             </div>
-            <p v-else class="text-muted small mb-0">Run the scanners to compute an overall security & health score.</p>
 
-            <button
-              class="btn btn-primary mt-auto"
-              type="button"
-              :disabled="anyRunning || totalCount === 0"
-              @click="runAll"
-            >
-              <span v-if="anyRunning" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
-              {{ anyRunning ? 'Running scanners…' : 'Run all scanners' }}
-            </button>
+            <div class="flex-shrink-0 mt-3 mt-lg-0">
+              <button class="btn btn-primary" type="button" :disabled="anyRunning || totalCount === 0" @click="runAll">
+                <span v-if="anyRunning" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                {{ anyRunning ? 'Running scanners…' : 'Run all scanners' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="col-lg-8">
-        <div class="row g-3">
-          <div v-if="githubVisible" class="col-md-6 col-lg-4">
-            <ScannerScoreCard
-              title="GitHub"
-              icon="bi-github"
-              tone="primary"
-              to="/github"
-              open-label="Open GitHub"
-              :state="github.state"
-              :score="github.score"
-              :severity-counts="github.severityCounts"
-              :status-label="github.statusLabel"
-              :status-tone="github.statusTone"
-              :error-message="github.error"
+    <div class="row g-4">
+      <div v-if="githubVisible" class="col-md-6 col-lg-4">
+        <ScannerScoreCard
+          title="GitHub"
+          icon="bi-github"
+          tone="primary"
+          to="/github"
+          open-label="Open GitHub"
+          :state="github.state"
+          :score="github.score"
+          :severity-counts="github.severityCounts"
+          :status-label="github.statusLabel"
+          :status-tone="github.statusTone"
+          :error-message="github.error"
+        >
+          <template #score>
+            <template v-if="github.state === 'running'">
+              <div class="d-flex align-items-center gap-2 text-muted">
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                <span>Connecting…</span>
+              </div>
+            </template>
+            <template v-else-if="github.state === 'error'">
+              <div class="text-danger small">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ github.error }}
+              </div>
+            </template>
+            <template v-else-if="githubScored">
+              <div class="d-flex align-items-baseline gap-2">
+                <span :class="['scanner-score', `scanner-score--${scoreBandTone(github.score)}`]">
+                  {{ github.score }}
+                </span>
+                <span class="text-muted small">/ 100</span>
+                <span :class="['badge', `text-bg-${scoreBandTone(github.score)}`, 'ms-auto']">
+                  {{ scoreBandLabel(github.score) }}
+                </span>
+              </div>
+              <div v-if="github.severityCounts.length" class="d-flex flex-wrap gap-1 mt-2">
+                <span v-for="entry in github.severityCounts" :key="entry.severity" class="badge text-bg-danger">
+                  {{ entry.count }} security alert(s)
+                </span>
+              </div>
+              <div v-else class="text-success small mt-2">
+                <i class="bi bi-check-circle me-1"></i>No open security alerts
+              </div>
+            </template>
+            <template v-else-if="github.state === 'done'">
+              <div class="text-muted small">
+                <i class="bi bi-cloud-arrow-down me-1"></i>
+                Connect to GitHub to load live security metrics.
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-muted small">Connect to GitHub to score repository security signals.</div>
+            </template>
+          </template>
+
+          <template #actions>
+            <button
+              class="btn btn-sm btn-primary"
+              type="button"
+              :disabled="github.state === 'running'"
+              @click="connectGithub"
             >
-              <template #score>
-                <template v-if="github.state === 'running'">
-                  <div class="d-flex align-items-center gap-2 text-muted">
-                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-                    <span>Connecting…</span>
-                  </div>
-                </template>
-                <template v-else-if="github.state === 'error'">
-                  <div class="text-danger small">
-                    <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ github.error }}
-                  </div>
-                </template>
-                <template v-else-if="githubScored">
-                  <div class="d-flex align-items-baseline gap-2">
-                    <span :class="['scanner-score', `scanner-score--${scoreBandTone(github.score)}`]">
-                      {{ github.score }}
-                    </span>
-                    <span class="text-muted small">/ 100</span>
-                    <span :class="['badge', `text-bg-${scoreBandTone(github.score)}`, 'ms-auto']">
-                      {{ scoreBandLabel(github.score) }}
-                    </span>
-                  </div>
-                  <div v-if="github.severityCounts.length" class="d-flex flex-wrap gap-1 mt-2">
-                    <span v-for="entry in github.severityCounts" :key="entry.severity" class="badge text-bg-danger">
-                      {{ entry.count }} security alert(s)
-                    </span>
-                  </div>
-                  <div v-else class="text-success small mt-2">
-                    <i class="bi bi-check-circle me-1"></i>No open security alerts
-                  </div>
-                </template>
-                <template v-else-if="github.state === 'done'">
-                  <div class="text-muted small">
-                    <i class="bi bi-cloud-arrow-down me-1"></i>
-                    Connect to GitHub to load live security metrics.
-                  </div>
-                </template>
-                <template v-else>
-                  <div class="text-muted small">Connect to GitHub to score repository security signals.</div>
-                </template>
-              </template>
+              <span
+                v-if="github.state === 'running'"
+                class="spinner-border spinner-border-sm me-1"
+                aria-hidden="true"
+              ></span>
+              <i v-else class="bi bi-github me-1"></i>
+              {{ githubScored ? 'Refresh' : 'Connect to GitHub' }}
+            </button>
+            <router-link to="/github" class="btn btn-sm btn-outline-secondary ms-auto">
+              Open GitHub<i class="bi bi-arrow-right-short"></i>
+            </router-link>
+          </template>
+        </ScannerScoreCard>
+      </div>
 
-              <template #actions>
-                <button
-                  class="btn btn-sm btn-primary"
-                  type="button"
-                  :disabled="github.state === 'running'"
-                  @click="connectGithub"
-                >
-                  <span
-                    v-if="github.state === 'running'"
-                    class="spinner-border spinner-border-sm me-1"
-                    aria-hidden="true"
-                  ></span>
-                  <i v-else class="bi bi-github me-1"></i>
-                  {{ githubScored ? 'Refresh' : 'Connect to GitHub' }}
-                </button>
-                <router-link to="/github" class="btn btn-sm btn-outline-secondary ms-auto">
-                  Open GitHub<i class="bi bi-arrow-right-short"></i>
-                </router-link>
-              </template>
-            </ScannerScoreCard>
-          </div>
+      <div v-for="def in visibleScanners" :key="def.id" class="col-md-6 col-lg-4">
+        <ScannerScoreCard
+          :title="def.title"
+          :icon="def.icon"
+          :tone="def.tone"
+          :to="def.to"
+          :state="scanners[def.id].state"
+          :score="scanners[def.id].score"
+          :severity-counts="scanners[def.id].severityCounts"
+          :status-label="scanners[def.id].statusLabel"
+          :status-tone="scanners[def.id].statusTone"
+          :error-message="scanners[def.id].error"
+          @run="runScanner(def)"
+        />
+      </div>
 
-          <div v-for="def in visibleScanners" :key="def.id" class="col-md-6 col-lg-4">
-            <ScannerScoreCard
-              :title="def.title"
-              :icon="def.icon"
-              :tone="def.tone"
-              :to="def.to"
-              :state="scanners[def.id].state"
-              :score="scanners[def.id].score"
-              :severity-counts="scanners[def.id].severityCounts"
-              :status-label="scanners[def.id].statusLabel"
-              :status-tone="scanners[def.id].statusTone"
-              :error-message="scanners[def.id].error"
-              @run="runScanner(def)"
-            />
-          </div>
-
-          <div v-if="totalCount === 0" class="col-12">
-            <div class="alert alert-secondary mb-0">No technology scanners were detected for this application.</div>
-          </div>
-        </div>
+      <div v-if="totalCount === 0" class="col-12">
+        <div class="alert alert-secondary mb-0">No technology scanners were detected for this application.</div>
       </div>
     </div>
   </div>
