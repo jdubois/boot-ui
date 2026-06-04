@@ -14,7 +14,7 @@ the Playwright suite under `e2e/` exercises.
   Database Connection Pools, Spring Cache, AI Usage, and Dev Services panels have realistic infrastructure
   to show.
 - Flyway migrations (the `catalog_*` tables) and Liquibase change sets (the separate
-  `inventory_*` tables) so the Flyway and Liquibase panels each have data to show.
+  `inventory_*` tables) with two pending updates each so the Flyway and Liquibase actions can be exercised manually.
 - Spring Security, scheduled tasks, custom metrics, and a small static welcome
   page so the corresponding BootUI panels are populated.
 - Local diagnostics for Architecture, Pentesting, Vulnerabilities, Traces,
@@ -73,12 +73,12 @@ Useful URLs:
    domain type.
 9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
-10. **Flyway** — inspect the applied `catalog_*` migrations (versions, descriptions,
-    state) tracked in `flyway_schema_history`; migrate/clean controls stay disabled
-    unless the trusted local BootUI action flags are enabled.
-11. **Liquibase** — inspect the executed `inventory_*` change sets recorded in
-    `DATABASECHANGELOG`, on a table set fully separate from Flyway's; update
-    controls stay disabled unless the trusted local BootUI action flag is enabled.
+10. **Flyway** — inspect the applied and pending `catalog_*` migrations (versions,
+    descriptions, state) tracked in `flyway_schema_history`, then run the two pending
+    migrations or clean the Flyway-managed schema after browser confirmation.
+11. **Liquibase** — inspect the executed `inventory_*` base change sets recorded in
+    `DATABASECHANGELOG`, on a table set fully separate from Flyway's, then apply the
+    two pending change sets after browser confirmation.
 12. **Spring Cache** — verify the Redis-backed `sample-products` and
    `sample-greetings` caches are listed, inspect cache annotations, and clear a
    cache after confirming the action.

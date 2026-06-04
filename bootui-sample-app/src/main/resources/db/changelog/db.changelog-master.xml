@@ -5,36 +5,28 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                             http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <!--
-        Liquibase-managed "inventory" schema. These tables are fully separate from
-        the Flyway-managed "catalog" tables and are tracked in Liquibase's own
-        DATABASECHANGELOG history table.
-    -->
-    <changeSet id="1" author="bootui">
-        <comment>Create inventory_warehouse table</comment>
-        <createTable tableName="inventory_warehouse">
-            <column name="id" type="bigint" autoIncrement="true">
-                <constraints primaryKey="true" nullable="false"/>
-            </column>
-            <column name="name" type="varchar(120)">
+    <include file="db/changelog/db.changelog-base.xml"/>
+
+    <changeSet id="3" author="bootui">
+        <comment>Pending BootUI demo change: add quantity tracking</comment>
+        <addColumn tableName="inventory_item">
+            <column name="quantity" type="int" defaultValueNumeric="0">
                 <constraints nullable="false"/>
             </column>
-        </createTable>
+        </addColumn>
     </changeSet>
 
-    <changeSet id="2" author="bootui">
-        <comment>Create inventory_item table and seed a warehouse</comment>
-        <createTable tableName="inventory_item">
-            <column name="id" type="bigint" autoIncrement="true">
-                <constraints primaryKey="true" nullable="false"/>
-            </column>
-            <column name="sku" type="varchar(64)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="warehouse_id" type="bigint"/>
-        </createTable>
-        <insert tableName="inventory_warehouse">
-            <column name="name" value="Main Warehouse"/>
+    <changeSet id="4" author="bootui">
+        <comment>Pending BootUI demo change: seed inventory items</comment>
+        <insert tableName="inventory_item">
+            <column name="sku" value="BOOTUI-STARTER"/>
+            <column name="warehouse_id" valueNumeric="1"/>
+            <column name="quantity" valueNumeric="12"/>
+        </insert>
+        <insert tableName="inventory_item">
+            <column name="sku" value="DEV-CONSOLE"/>
+            <column name="warehouse_id" valueNumeric="1"/>
+            <column name="quantity" valueNumeric="4"/>
         </insert>
     </changeSet>
 

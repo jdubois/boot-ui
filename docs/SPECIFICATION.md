@@ -722,7 +722,7 @@ Acceptance criteria:
 - When Liquibase is not on the classpath, the API endpoint is not registered.
 - When Liquibase is present but no `SpringLiquibase` beans exist, the panel shows a clear empty state.
 - Opening the panel only reads already-recorded change-set history; no Liquibase command is executed as a side effect.
-- Mutating Liquibase actions require explicit BootUI opt-in, browser confirmation, and a non-read-only panel.
+- Mutating Liquibase actions require browser confirmation and a non-read-only app and panel.
 
 ### 5.18 Spring Cache Panel
 
@@ -1004,10 +1004,10 @@ Initial endpoints:
 | `/bootui/api/data/repositories`         | GET    | Detected Spring Data repositories (summary)                               |
 | `/bootui/api/data/repositories/{name}`  | GET    | Spring Data repository detail with query methods                          |
 | `/bootui/api/flyway/migrations`         | GET    | Flyway migration state and action availability per database                |
-| `/bootui/api/flyway/migrate`            | POST   | Run pending Flyway migrations only when explicitly enabled and confirmed   |
-| `/bootui/api/flyway/clean`              | POST   | Clean Flyway-managed schemas only when explicitly enabled and confirmed    |
+| `/bootui/api/flyway/migrate`            | POST   | Run pending Flyway migrations only when confirmed and not read-only        |
+| `/bootui/api/flyway/clean`              | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, and not read-only |
 | `/bootui/api/liquibase/changesets`      | GET    | Executed Liquibase change sets and action availability per database        |
-| `/bootui/api/liquibase/update`          | POST   | Apply pending Liquibase change sets only when explicitly enabled and confirmed |
+| `/bootui/api/liquibase/update`          | POST   | Apply pending Liquibase change sets only when confirmed and not read-only  |
 | `/bootui/api/spring-cache`              | GET    | Spring Cache managers, caches, metrics, and annotation operations         |
 | `/bootui/api/spring-cache/clear`        | POST   | Clear one or all known caches only when explicitly enabled and confirmed  |
 | `/bootui/api/spring-security`           | GET    | Spring Security filter chain report                                       |
