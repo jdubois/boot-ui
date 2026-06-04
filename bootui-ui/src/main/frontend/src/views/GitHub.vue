@@ -326,7 +326,7 @@ const visibleWorkflowRuns = computed(() =>
 const latestWorkflowRuns = computed(() => {
   const latestRuns = new Map()
   for (const run of workflowRuns.value) {
-    const key = run.workflowId == null ? `run:${run.id}` : `workflow:${run.workflowId}`
+    const key = workflowRunScopeKey(run)
     const current = latestRuns.get(key)
     if (!current || workflowRunTime(run) > workflowRunTime(current)) {
       latestRuns.set(key, run)
@@ -334,6 +334,11 @@ const latestWorkflowRuns = computed(() => {
   }
   return [...latestRuns.values()]
 })
+
+function workflowRunScopeKey(run) {
+  if (run?.workflowId == null) return `run:${run?.id}`
+  return `workflow:${run.workflowId}:branch:${String(run.branch ?? '').trim()}`
+}
 
 const workflowFailures = computed(() => latestWorkflowRuns.value.filter(workflowProblem))
 
@@ -614,11 +619,11 @@ function securitySignalUrl(signal) {
             <i class="bi bi-exclamation-octagon-fill flex-shrink-0 mt-1"></i>
             <div>
               <strong>
-                {{ workflowFailures.length }} workflow{{ workflowFailures.length === 1 ? '' : 's' }}
+                {{ workflowFailures.length }} workflow/branch pair{{ workflowFailures.length === 1 ? '' : 's' }}
                 {{ workflowFailures.length === 1 ? 'needs' : 'need' }} attention.
               </strong>
-              Only the latest execution for each workflow is counted; older failed executions remain visible in the
-              history.
+              Only the latest execution for each workflow and branch is counted; older failed executions remain visible
+              in the history.
             </div>
           </div>
           <div v-if="visibleWorkflowRuns.length" class="table-responsive">

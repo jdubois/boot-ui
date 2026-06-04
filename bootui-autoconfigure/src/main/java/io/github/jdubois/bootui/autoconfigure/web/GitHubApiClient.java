@@ -718,7 +718,7 @@ final class GitHubApiClient implements GitHubClient {
                 new GitHubMetricDto(
                         "Workflow failures",
                         Long.toString(failures),
-                        "Latest run per workflow",
+                        "Latest run per workflow/branch",
                         failures > 0 ? "danger" : "success"),
                 new GitHubMetricDto(
                         "Core quota remaining",
@@ -772,7 +772,7 @@ final class GitHubApiClient implements GitHubClient {
     private long currentWorkflowFailures(List<GitHubWorkflowRunDto> workflowRuns) {
         Map<String, GitHubWorkflowRunDto> latestRuns = new HashMap<>();
         for (GitHubWorkflowRunDto run : workflowRuns) {
-            String key = run.workflowId() == null ? "run:" + run.id() : "workflow:" + run.workflowId();
+            String key = workflowRunScopeKey(run);
             latestRuns.merge(
                     key,
                     run,
@@ -780,6 +780,14 @@ final class GitHubApiClient implements GitHubClient {
                             workflowRunTime(candidate) > workflowRunTime(current) ? candidate : current);
         }
         return latestRuns.values().stream().filter(this::workflowFailure).count();
+    }
+
+    private String workflowRunScopeKey(GitHubWorkflowRunDto run) {
+        if (run.workflowId() == null) {
+            return "run:" + run.id();
+        }
+        String branch = run.branch() == null ? "" : run.branch().trim();
+        return "workflow:" + run.workflowId() + ":branch:" + branch;
     }
 
     private GitHubDashboardReport report(

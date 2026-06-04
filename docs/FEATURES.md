@@ -32,8 +32,8 @@ The panel shows repository metadata and an eight-card summary grid with click-th
 requests, issue buckets, the latest GitHub Actions executions, quotas, Copilot usage report availability, and the three
 security signals. GitHub Actions execution rows link to the matching run, show the workflow, branch, event, status, and
 duration, and mirror the recent-run list from the GitHub Actions page. The workflow failure count only considers the
-latest execution for each workflow, so older failures drop out once a later run fixes that workflow; security signal
-drawers link to the matching GitHub alert pages.
+latest execution for each workflow and branch, so older failures drop out once a later run fixes that workflow on that
+branch; security signal drawers link to the matching GitHub alert pages.
 The quota card shows the lowest remaining quota percentage with a red-to-green threshold palette. The quota drawer is
 hidden by default, renders every resource returned by GitHub's `/rate_limit` response dynamically,
 highlights resources with 10% or less remaining or at quota, then adds best-effort cards for repository or owner quotas
@@ -45,6 +45,8 @@ Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, o
 token is never sent to the browser, persisted by BootUI, or included in warnings; without a token, public repositories use
 GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
 safety threshold that skips optional sections before exhausting the core API quota.
+
+![BootUI GitHub panel](images/bootui-github.png)
 
 ## Runtime
 
@@ -70,6 +72,8 @@ at most 50 sessions by default; raise `bootui.http-sessions.max-sessions` if a l
 Clear and destroy actions are confirmation-gated and disabled by global or per-panel read-only mode. Clear removes all
 attributes from the selected session while keeping it valid; destroy invalidates the selected session. When the app is
 not running on embedded Tomcat, the panel shows an unavailable state instead of guessing at container internals.
+
+![BootUI HTTP Sessions panel](images/bootui-http-sessions.png)
 
 ### Metrics
 
@@ -244,6 +248,8 @@ metadata for common Hibernate/JPA performance and mapping risks such as eager as
 generators, collection fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
+
+![BootUI Hibernate Advisor panel](images/bootui-hibernate-advisor.png)
 
 ### Flyway
 

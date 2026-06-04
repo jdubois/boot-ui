@@ -205,7 +205,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(name = "org.springframework.boot.actuate.audit.AuditEventRepository")
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.boot.actuate.audit.AuditEventRepository",
+                "org.springframework.security.authentication.event.AbstractAuthenticationEvent"
+            })
     @ConditionalOnProperty(name = "management.auditevents.enabled", havingValue = "true", matchIfMissing = true)
     @ConditionalOnProperty(prefix = "bootui.panels.security-logs", name = "enabled", matchIfMissing = true)
     static class SecurityAuditRepositoryConfiguration {

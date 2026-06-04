@@ -20,7 +20,9 @@ const aiSpanId = '1111111111111111'
 
 const panelOrder = [
   ['overview', 'Overview'],
+  ['github', 'GitHub'],
   ['health', 'Health'],
+  ['http-sessions', 'HTTP Sessions'],
   ['metrics', 'Metrics'],
   ['memory', 'Memory'],
   ['tuning-advisor', 'Tuning Advisor'],
@@ -34,13 +36,15 @@ const panelOrder = [
   ['beans', 'Beans'],
   ['conditions', 'Conditions'],
   ['mappings', 'Mappings'],
+  ['database-connection-pools', 'Database Connection Pools'],
+  ['data', 'Spring Data'],
+  ['hibernate-advisor', 'Hibernate Advisor'],
+  ['flyway', 'Flyway'],
+  ['liquibase', 'Liquibase'],
   ['spring-security', 'Spring Security'],
   ['security-logs', 'Security Logs'],
   ['pentest', 'Pentesting'],
   ['scheduled', 'Scheduled Tasks'],
-  ['database-connection-pools', 'Database Connection Pools'],
-  ['data', 'Spring Data'],
-  ['hibernate-advisor', 'Hibernate Advisor'],
   ['spring-cache', 'Spring Cache'],
   ['ai', 'AI Usage'],
   ['traces', 'Traces'],
@@ -56,7 +60,7 @@ const panelOrder = [
 ]
 
 const overview = {
-  bootUiVersion: '0.4.0',
+  bootUiVersion: '0.5.0',
   applicationName: 'bootui-sample',
   springBootVersion: '4.0.6',
   javaVersion: '17',
@@ -75,6 +79,144 @@ const overview = {
     warnings: []
   },
   openApiUrl: '/swagger-ui/index.html'
+}
+
+const github = {
+  available: true,
+  unavailableReason: null,
+  connected: true,
+  status: 'CONNECTED',
+  message: null,
+  refreshedAt: nowMillis - 45_000,
+  repository: {
+    owner: 'jdubois',
+    name: 'boot-ui',
+    fullName: 'jdubois/boot-ui',
+    host: 'github.com',
+    apiBaseUrl: 'https://api.github.com/',
+    htmlUrl: 'https://github.com/jdubois/boot-ui',
+    defaultBranch: 'main',
+    localBranch: 'jdubois/prepare-0-5-0',
+    upstreamBranch: 'main',
+    visibility: 'public',
+    privateRepository: false,
+    fork: false,
+    archived: false,
+    pushedAt: nowMillis - 18 * 60 * 1000,
+    stars: 128,
+    forks: 14,
+    watchers: 11,
+    openIssues: 9,
+    latestRelease: 'v0.4.0'
+  },
+  credential: {source: 'GITHUB_TOKEN', authenticated: true, login: 'local-dev', scopes: 'repo, workflow'},
+  metrics: [
+    {label: 'Open pull requests', value: '3', detail: 'Bounded live queue', tone: 'primary'},
+    {label: 'Open issues', value: '9', detail: 'Grouped by label and age', tone: 'info'},
+    {label: 'Workflow failures', value: '1', detail: 'Latest run per workflow', tone: 'danger'},
+    {label: 'Core quota remaining', value: '90%', detail: 'GitHub REST core resource', tone: 'success'},
+    {label: 'Copilot usage', value: '2,523,456', detail: 'tokens in the latest 28-day report', tone: 'info'}
+  ],
+  quotas: [
+    githubQuota('core', 'Core', 'Rate limit', 5000, 500, 4500, 10, 'OK'),
+    githubQuota('search', 'Search', 'Rate limit', 30, 3, 27, 10, 'OK'),
+    githubQuota(
+      'actions_cache',
+      'Actions cache',
+      'Repository quota',
+      10_737_418_240,
+      1_073_741_824,
+      9_663_676_416,
+      10,
+      'OK'
+    )
+  ],
+  pullRequests: [
+    {
+      number: 211,
+      title: 'Update implementation plan roadmap',
+      author: 'julien',
+      draft: false,
+      htmlUrl: 'https://github.com/jdubois/boot-ui/pull/211',
+      updatedAt: nowMillis - 20 * 60 * 1000,
+      reviewDecision: 'APPROVED',
+      checksConclusion: 'success',
+      labels: ['docs']
+    },
+    {
+      number: 210,
+      title: 'Update GitHub Actions execution drawer',
+      author: 'julien',
+      draft: false,
+      htmlUrl: 'https://github.com/jdubois/boot-ui/pull/210',
+      updatedAt: nowMillis - 90 * 60 * 1000,
+      reviewDecision: null,
+      checksConclusion: 'success',
+      labels: ['github']
+    }
+  ],
+  workflowRuns: [
+    githubWorkflowRun(
+      501,
+      100,
+      'Build',
+      'CI-equivalent Maven build',
+      326,
+      'push',
+      'completed',
+      'success',
+      12 * 60 * 1000
+    ),
+    githubWorkflowRun(
+      502,
+      200,
+      'Release',
+      'Release v0.5.0 dry run',
+      27,
+      'workflow_dispatch',
+      'completed',
+      'failure',
+      4 * 60 * 1000
+    ),
+    githubWorkflowRun(
+      503,
+      300,
+      'Native image',
+      'Native image smoke test',
+      14,
+      'schedule',
+      'completed',
+      'success',
+      18 * 60 * 1000
+    )
+  ],
+  workflows: [
+    githubWorkflow(100, 'Build', '.github/workflows/build.yml', 501),
+    githubWorkflow(200, 'Release', '.github/workflows/release.yml', 502),
+    githubWorkflow(300, 'Native image', '.github/workflows/native.yml', 503)
+  ],
+  issueBuckets: [
+    {label: 'Open issues', count: 9, tone: 'primary'},
+    {label: 'Bug', count: 2, tone: 'danger'},
+    {label: 'Enhancement', count: 5, tone: 'info'},
+    {label: 'Documentation', count: 2, tone: 'success'}
+  ],
+  securitySignals: [
+    {label: 'Dependabot alerts', status: 'AVAILABLE', count: 0, unavailableReason: null},
+    {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null},
+    {label: 'Secret scanning alerts', status: 'AVAILABLE', count: 0, unavailableReason: null}
+  ],
+  copilotUsage: {
+    status: 'AVAILABLE',
+    scope: 'organization',
+    summary: '2,523,456 tokens used in the latest 28-day report.',
+    reportStartDay: '2026-05-07',
+    reportEndDay: '2026-06-03',
+    downloadLinkCount: 1,
+    documentationUrl: 'https://docs.github.com/en/rest/copilot/copilot-usage-metrics',
+    unavailableReason: null
+  },
+  warnings: ['Actions billing quota requires repository admin access and was skipped.']
 }
 
 const startup = {
@@ -163,6 +305,65 @@ const health = {
     {name: 'db', status: 'UP', details: {database: 'PostgreSQL', validationQuery: 'isValid()'}, components: []},
     {name: 'redis', status: 'UP', details: {version: '8.0', mode: 'standalone'}, components: []},
     {name: 'diskSpace', status: 'UP', details: {total: '494 GB', free: '128 GB', threshold: '10 MB'}, components: []}
+  ]
+}
+
+const httpSessions = {
+  available: true,
+  unavailableReason: null,
+  totalSessions: 3,
+  returnedSessions: 3,
+  limit: 50,
+  limited: false,
+  actionEnabled: true,
+  valueExposure: 'MASKED',
+  sessions: [
+    {
+      sessionKey: 'session-key-alice',
+      id: 'session-a1b2...',
+      idMasked: true,
+      current: true,
+      creationTime: new Date(nowMillis - 42 * 60 * 1000).toISOString(),
+      lastAccessedTime: new Date(nowMillis - 12_000).toISOString(),
+      idleSeconds: 12,
+      maxInactiveIntervalSeconds: 1800,
+      attributeCount: 3,
+      attributes: [
+        httpSessionAttribute(
+          'SPRING_SECURITY_CONTEXT',
+          'org.springframework.security.core.context.SecurityContextImpl'
+        ),
+        httpSessionAttribute('csrfToken', 'org.springframework.security.web.csrf.DefaultCsrfToken'),
+        httpSessionAttribute('cartSize', 'java.lang.Integer')
+      ]
+    },
+    {
+      sessionKey: 'session-key-bob',
+      id: 'session-c3d4...',
+      idMasked: true,
+      current: false,
+      creationTime: new Date(nowMillis - 3 * 3600 * 1000).toISOString(),
+      lastAccessedTime: new Date(nowMillis - 8 * 60 * 1000).toISOString(),
+      idleSeconds: 480,
+      maxInactiveIntervalSeconds: 1800,
+      attributeCount: 2,
+      attributes: [
+        httpSessionAttribute('apiToken', 'java.lang.String'),
+        httpSessionAttribute('samplePreferences', 'io.github.jdubois.bootui.sample.SampleAppPreferences')
+      ]
+    },
+    {
+      sessionKey: 'session-key-guest',
+      id: 'session-e5f6...',
+      idMasked: true,
+      current: false,
+      creationTime: new Date(nowMillis - 11 * 60 * 1000).toISOString(),
+      lastAccessedTime: new Date(nowMillis - 2 * 60 * 1000).toISOString(),
+      idleSeconds: 120,
+      maxInactiveIntervalSeconds: 1800,
+      attributeCount: 1,
+      attributes: [httpSessionAttribute('sampleGreeting', 'java.lang.String')]
+    }
   ]
 }
 
@@ -733,6 +934,75 @@ const databaseConnectionPoolSnapshots = {
 function databaseConnectionPoolSnapshot(poolName) {
   const base = databaseConnectionPoolSnapshots[poolName] || {active: 0, idle: 0, total: 0, pending: 0}
   return {poolName, ...base}
+}
+
+const flyway = {
+  total: 4,
+  databases: [
+    {
+      name: 'flyway',
+      currentVersion: '2',
+      applied: 2,
+      pending: 2,
+      migrateEnabled: true,
+      migrateDisabledReason: null,
+      cleanEnabled: false,
+      cleanDisabledReason: 'Flyway clean is disabled by spring.flyway.clean-disabled=true.',
+      migrations: [
+        flywayMigration('1', 'create catalog', 'SQL', 'SUCCESS', 'V1__create_catalog.sql', 34),
+        flywayMigration('2', 'seed catalog', 'SQL', 'SUCCESS', 'V2__seed_catalog.sql', 18),
+        flywayMigration('3', 'add catalog tags', 'SQL', 'PENDING', 'V3__add_catalog_tags.sql', null),
+        flywayMigration('4', 'classify catalog books', 'SQL', 'PENDING', 'V4__classify_catalog_books.sql', null)
+      ]
+    }
+  ]
+}
+
+const liquibase = {
+  total: 4,
+  databases: [
+    {
+      name: 'liquibase',
+      applied: 2,
+      pending: 2,
+      updateEnabled: true,
+      updateDisabledReason: null,
+      changeSets: [
+        liquibaseChangeSet(
+          '001-create-inventory',
+          'bootui',
+          'db/changelog/db.changelog-base.xml',
+          'Create inventory table',
+          'EXECUTED',
+          1
+        ),
+        liquibaseChangeSet(
+          '002-seed-inventory',
+          'bootui',
+          'db/changelog/db.changelog-base.xml',
+          'Seed inventory rows',
+          'EXECUTED',
+          2
+        ),
+        liquibaseChangeSet(
+          '003-add-location',
+          'bootui',
+          'db/changelog/db.changelog-master.xml',
+          'Add warehouse location',
+          'PENDING',
+          null
+        ),
+        liquibaseChangeSet(
+          '004-add-restock-threshold',
+          'bootui',
+          'db/changelog/db.changelog-master.xml',
+          'Add restock threshold',
+          'PENDING',
+          null
+        )
+      ]
+    }
+  ]
 }
 
 const heapDump = {
@@ -1629,7 +1899,21 @@ const copilotSessionDetail = {
 
 const screenshots = [
   ['overview', 'Overview', 'bootui-overview.png', waitForText('Understand your Spring Boot app')],
+  ['github', 'GitHub', 'bootui-github.png', waitForText('Open pull requests')],
   ['health', 'Health', 'bootui-health.png', waitForText('Component tree')],
+  [
+    'http-sessions',
+    'HTTP Sessions',
+    'bootui-http-sessions.png',
+    async (page) => {
+      await page.getByText('session-a1b2...').waitFor()
+      await page
+        .getByRole('button', {name: /Details/})
+        .first()
+        .click()
+      await page.getByText('SPRING_SECURITY_CONTEXT').waitFor()
+    }
+  ],
   [
     'metrics',
     'Metrics',
@@ -1659,7 +1943,6 @@ const screenshots = [
   ['beans', 'Beans', 'bootui-beans.png', waitForText('sampleController')],
   ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
   ['mappings', 'Mappings', 'bootui-mappings.png', waitForText('/api/sample/products')],
-  ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   [
     'database-connection-pools',
     'Database Connection Pools',
@@ -1681,9 +1964,13 @@ const screenshots = [
     }
   ],
   ['hibernate-advisor', 'Hibernate Advisor', 'bootui-hibernate-advisor.png', waitForText('FetchType.EAGER')],
-  ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
+  ['flyway', 'Flyway', 'bootui-flyway.png', waitForText('V3__add_catalog_tags.sql')],
+  ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
   ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
+  ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
+  ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
+  ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
@@ -1711,7 +1998,6 @@ const screenshots = [
     }
   ],
   ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
-  ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
@@ -2111,6 +2397,7 @@ async function handleApiRoute(route) {
   const endpoint = decodeURIComponent(url.pathname.replace(/^\/bootui\/api\/?/, ''))
 
   if (endpoint === 'overview') return fulfillJson(route, overview)
+  if (endpoint === 'github' || endpoint === 'github/refresh') return fulfillJson(route, github)
   if (endpoint === 'panels')
     return fulfillJson(route, {
       panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
@@ -2118,6 +2405,11 @@ async function handleApiRoute(route) {
   if (endpoint === 'startup') return fulfillJson(route, startup)
   if (endpoint.startsWith('memory') || endpoint.startsWith('tuning-advisor')) return fulfillJson(route, memory)
   if (endpoint === 'health') return fulfillJson(route, health)
+  if (endpoint === 'http-sessions') return fulfillJson(route, httpSessions)
+  if (endpoint.startsWith('http-sessions/') && endpoint.endsWith('/clear'))
+    return fulfillJson(route, {status: 'success', message: 'Cleared HTTP session attributes.'})
+  if (endpoint.startsWith('http-sessions/') && endpoint.endsWith('/invalidate'))
+    return fulfillJson(route, {status: 'success', message: 'Destroyed HTTP session.'})
   if (endpoint === 'metrics') return fulfillJson(route, metrics)
   if (endpoint === 'metrics/detail')
     return fulfillJson(route, metricDetail(url.searchParams.get('name') || 'jvm.memory.used'))
@@ -2209,6 +2501,13 @@ async function handleApiRoute(route) {
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
   if (endpoint === 'hibernate-advisor') return fulfillJson(route, hibernateAdvisor)
   if (endpoint === 'hibernate-advisor/scan') return fulfillJson(route, hibernateAdvisor)
+  if (endpoint === 'flyway/migrations') return fulfillJson(route, flyway)
+  if (endpoint === 'flyway/migrate')
+    return fulfillJson(route, {status: 'success', message: 'Applied 2 pending Flyway migration(s).'})
+  if (endpoint === 'flyway/clean') return fulfillJson(route, {status: 'blocked', message: 'Flyway clean is disabled.'})
+  if (endpoint === 'liquibase/changesets') return fulfillJson(route, liquibase)
+  if (endpoint === 'liquibase/update')
+    return fulfillJson(route, {status: 'success', message: 'Applied 2 pending Liquibase change set(s).'})
   if (endpoint === 'database-connection-pools/pools') return fulfillJson(route, databaseConnectionPoolsReport)
   if (endpoint.startsWith('database-connection-pools/pools/') && endpoint.endsWith('/snapshot')) {
     const poolName = endpoint.slice('database-connection-pools/pools/'.length, -'/snapshot'.length)
@@ -2386,29 +2685,29 @@ function architectureResult(
     sampleViolations,
     recommendation
   }
+}
 
-  function hibernateAdvisorResult(
+function hibernateAdvisorResult(
+  id,
+  name,
+  category,
+  severity,
+  description,
+  violationCount,
+  sampleViolations,
+  recommendation
+) {
+  return {
     id,
     name,
     category,
     severity,
     description,
+    status: 'VIOLATION',
     violationCount,
     sampleViolations,
-    recommendation
-  ) {
-    return {
-      id,
-      name,
-      category,
-      severity,
-      description,
-      status: 'VIOLATION',
-      violationCount,
-      sampleViolations,
-      recommendation,
-      learnMoreUrl: 'https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html'
-    }
+    recommendation,
+    learnMoreUrl: 'https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html'
   }
 }
 
@@ -2423,6 +2722,95 @@ function graalVmFinding(id, name, category, severity, description, occurrenceCou
     occurrenceCount,
     sampleOccurrences,
     recommendation
+  }
+}
+
+function githubQuota(key, label, category, limit, used, remaining, percentUsed, status) {
+  return {
+    key,
+    label,
+    category,
+    scope: category === 'Repository quota' ? 'repository' : 'credential',
+    limit,
+    used,
+    remaining,
+    resetAt: nowMillis + 45 * 60 * 1000,
+    percentUsed,
+    status,
+    unavailableReason: null
+  }
+}
+
+function githubWorkflowRun(id, workflowId, name, displayTitle, runNumber, event, status, conclusion, durationMillis) {
+  return {
+    id,
+    workflowId,
+    name,
+    displayTitle,
+    runNumber,
+    event,
+    status,
+    conclusion,
+    branch: 'main',
+    actor: 'github-actions[bot]',
+    htmlUrl: `https://github.com/jdubois/boot-ui/actions/runs/${id}`,
+    createdAt: nowMillis - durationMillis - runNumber * 10_000,
+    updatedAt: nowMillis - runNumber * 10_000,
+    durationMillis
+  }
+}
+
+function githubWorkflow(id, name, workflowPath) {
+  return {
+    id,
+    name,
+    path: workflowPath,
+    state: 'active',
+    htmlUrl: `https://github.com/jdubois/boot-ui/actions/workflows/${workflowPath.split('/').at(-1)}`,
+    latestRun: null
+  }
+}
+
+function httpSessionAttribute(name, type) {
+  return {
+    name,
+    type,
+    value: '******',
+    masked: true,
+    truncated: false
+  }
+}
+
+function flywayMigration(version, description, type, state, script, executionTime) {
+  return {
+    version,
+    description,
+    type,
+    script,
+    state,
+    installedBy: executionTime == null ? null : 'bootui',
+    installedOn: executionTime == null ? null : new Date(nowMillis - Number(version) * 60_000).toISOString(),
+    installedRank: executionTime == null ? null : Number(version),
+    executionTime,
+    checksum: executionTime == null ? null : 1000 + Number(version)
+  }
+}
+
+function liquibaseChangeSet(id, author, changeLog, description, execType, orderExecuted) {
+  return {
+    id,
+    author,
+    changeLog,
+    description,
+    comments: null,
+    execType,
+    dateExecuted: orderExecuted == null ? null : new Date(nowMillis - orderExecuted * 90_000).toISOString(),
+    orderExecuted,
+    checksum: orderExecuted == null ? null : `9:${orderExecuted}abcdef`,
+    tag: id === '002-seed-inventory' ? 'demo-baseline' : null,
+    deploymentId: orderExecuted == null ? null : `deploy-${orderExecuted}`,
+    contexts: [],
+    labels: []
   }
 }
 

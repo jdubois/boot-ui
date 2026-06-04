@@ -332,6 +332,19 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void missingSpringSecurityCoreDoesNotCreateAuditEventRepository() {
+        new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(BootUiAutoConfiguration.class, AuditAutoConfiguration.class))
+                .withClassLoader(new FilteredClassLoader(
+                        "org.springframework.security.authentication.event.AbstractAuthenticationEvent"))
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    assertThat(context.getStartupFailure()).isNull();
+                    assertThat(context).doesNotHaveBean(AuditEventRepository.class);
+                });
+    }
+
+    @Test
     void disabledSpringBootAuditEventsDoesNotCreateAuditEventRepository() {
         new WebApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(BootUiAutoConfiguration.class, AuditAutoConfiguration.class))
