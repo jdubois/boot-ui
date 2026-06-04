@@ -1,4 +1,5 @@
 const Overview = () => import('./views/Overview.vue')
+const GitHub = () => import('./views/GitHub.vue')
 const Beans = () => import('./views/Beans.vue')
 const Conditions = () => import('./views/Conditions.vue')
 const Config = () => import('./views/Config.vue')
@@ -51,6 +52,12 @@ export const routes = [
     name: 'overview',
     component: Overview,
     meta: {group: groups.overview, icon: 'bi-speedometer2', title: 'Overview'}
+  },
+  {
+    path: '/github',
+    name: 'github',
+    component: GitHub,
+    meta: {group: groups.overview, icon: 'bi-github', title: 'GitHub'}
   },
   {
     path: '/health',

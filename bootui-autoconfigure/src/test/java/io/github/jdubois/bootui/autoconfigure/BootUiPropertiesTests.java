@@ -149,6 +149,19 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultGithubSettingsAreBoundedAndEnabledForExplicitRefresh() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getGithub().isApiEnabled()).isTrue();
+        assertThat(props.getGithub().getRequestTimeout()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(props.getGithub().getMaxPullRequests()).isEqualTo(10);
+        assertThat(props.getGithub().getMaxIssues()).isEqualTo(25);
+        assertThat(props.getGithub().getMaxWorkflowRuns()).isEqualTo(10);
+        assertThat(props.getGithub().getQuotaSafetyThreshold()).isEqualTo(10);
+        assertThat(props.getGithub().getMaxApiCalls()).isEqualTo(17);
+        assertThat(props.getGithub().getAllowedApiHosts()).containsExactly("api.github.com");
+    }
+
+    @Test
     void defaultHttpExchangesMaxExchangesIs200() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getHttpExchanges().getMaxExchanges()).isEqualTo(200);
@@ -226,6 +239,30 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getHttpExchanges().getMaxExchanges()).isEqualTo(25);
+    }
+
+    @Test
+    void bindsGithubSettings() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.github.api-enabled", "false");
+        env.setProperty("bootui.github.request-timeout", "3s");
+        env.setProperty("bootui.github.max-pull-requests", "5");
+        env.setProperty("bootui.github.max-issues", "6");
+        env.setProperty("bootui.github.max-workflow-runs", "7");
+        env.setProperty("bootui.github.quota-safety-threshold", "4");
+        env.setProperty("bootui.github.max-api-calls", "8");
+        env.setProperty("bootui.github.allowed-api-hosts", "api.github.com,ghe.example.com");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getGithub().isApiEnabled()).isFalse();
+        assertThat(props.getGithub().getRequestTimeout()).isEqualTo(Duration.ofSeconds(3));
+        assertThat(props.getGithub().getMaxPullRequests()).isEqualTo(5);
+        assertThat(props.getGithub().getMaxIssues()).isEqualTo(6);
+        assertThat(props.getGithub().getMaxWorkflowRuns()).isEqualTo(7);
+        assertThat(props.getGithub().getQuotaSafetyThreshold()).isEqualTo(4);
+        assertThat(props.getGithub().getMaxApiCalls()).isEqualTo(8);
+        assertThat(props.getGithub().getAllowedApiHosts()).containsExactly("api.github.com", "ghe.example.com");
     }
 
     @Test

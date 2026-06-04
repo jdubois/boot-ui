@@ -2,7 +2,8 @@
 import {useId} from 'vue'
 
 defineProps({
-  modelValue: {type: Boolean, default: true}
+  modelValue: {type: Boolean, default: true},
+  title: {type: String, default: 'Refresh every 10 seconds while this tab is visible'}
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -14,7 +15,7 @@ function updateValue(event) {
 </script>
 
 <template>
-  <div class="form-check form-switch mb-0" title="Refresh every 10 seconds while this tab is visible">
+  <div class="form-check form-switch mb-0" :title="title">
     <input :id="inputId" :checked="modelValue" class="form-check-input" type="checkbox" @change="updateValue" />
     <label class="form-check-label small" :for="inputId">Auto-refresh</label>
   </div>

@@ -64,6 +64,7 @@ import org.springframework.core.env.Environment;
 @ImportRuntimeHints(BootUiRuntimeHints.class)
 @Import({
     OverviewController.class,
+    GitHubController.class,
     PanelsController.class,
     BeansController.class,
     ConditionsController.class,
@@ -124,6 +125,7 @@ public class BootUiAutoConfiguration {
             LiquibaseController.class.getName(),
             DependenciesController.class.getName(),
             DevToolsController.class.getName(),
+            GitHubController.class.getName(),
             GraalVmController.class.getName(),
             HealthController.class.getName(),
             HikariController.class.getName(),
