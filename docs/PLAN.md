@@ -4,7 +4,7 @@
 
 BootUI ships as a **Spring Boot 4 starter** that adds a safe, local-only developer console to a running application. The
 released surface already covers runtime introspection, configuration, database migrations, services, diagnostics, project
-health, and developer tooling, including the recently shipped Thread / Process Viewer, HTTP Exchanges, Flyway, Liquibase,
+health, and developer tooling, including the recently shipped Threads, HTTP Exchanges, Flyway, Liquibase,
 Hibernate Advisor, HTTP Sessions, and GitHub panels. This plan describes the **next merged feature workstream**: it keeps
 the remaining roadmap items and the one capture-oriented addition chosen to close the clearest gaps against comparable
 developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire,
@@ -34,11 +34,11 @@ Three open features, grouped by priority. Items are intended to land roughly in 
 and graph items remain in scope; the capture-heavy e-mail viewer lands after the read-only items because it needs stricter
 masking, bounding, sandboxing, and opt-in behaviour.
 
-| Priority | Feature                               | Group           | Primary data source                                | Mutation?         | Origin           |
-| -------- | ------------------------------------- | --------------- | -------------------------------------------------- | ----------------- | ---------------- |
-| 1        | Trace ↔ Log ↔ Request correlation     | Diagnostics     | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
-| 2        | Bean / dependency graph visualization | Configuration   | Existing Beans and Conditions data                 | No                | Existing roadmap |
-| 3        | E-mail Viewer                         | Diagnostics     | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
+| Priority | Feature                               | Group         | Primary data source                                | Mutation?         | Origin           |
+| -------- | ------------------------------------- | ------------- | -------------------------------------------------- | ----------------- | ---------------- |
+| 1        | Trace ↔ Log ↔ Request correlation     | Diagnostics   | Existing Traces, Log Tail, and HTTP Exchanges data | No                | Existing roadmap |
+| 2        | Bean / dependency graph visualization | Configuration | Existing Beans and Conditions data                 | No                | Existing roadmap |
+| 3        | E-mail Viewer                         | Diagnostics   | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
 
 The Trace ↔ Log ↔ Request correlation work in §3.1 builds on the already-shipped HTTP Exchanges panel and the existing
 Traces and Log Tail panels. The E-mail Viewer is the only remaining capture-oriented feature in this workstream, so it
@@ -131,14 +131,14 @@ For each feature above, the following must move together, consistent with the ex
 
 ## 5. Risks
 
-| Risk                                                               | Feature(s)     | Impact | Mitigation                                                                                                  |
-| ------------------------------------------------------------------ | -------------- | ------ | ----------------------------------------------------------------------------------------------------------- |
-| Exposing sensitive headers, trace context, or mail body            | 3.1, 3.3      | High   | Loopback-only activation, masking/value-exposure on every new surface, sandboxed HTML, and focused tests.   |
-| Unbounded capture buffers or large rendered graphs/lists           | 3.2, 3.3      | Medium | Fixed-size buffers, server-side paging, bounded snapshots, and focus-and-neighborhood graph rendering.      |
-| Optional Actuator endpoints, libraries, beans, or servers missing  | all            | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.        |
-| Bean/dependency graph or correlation bloating the bundle           | 3.1, 3.2      | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                       |
-| Silently swallowing application mail                               | 3.3            | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                   |
-| Scope creep beyond this merged feature set                         | all            | High   | Treat this list as the maximum near-term surface; move further ideas to a later plan.                       |
+| Risk                                                              | Feature(s) | Impact | Mitigation                                                                                                |
+| ----------------------------------------------------------------- | ---------- | ------ | --------------------------------------------------------------------------------------------------------- |
+| Exposing sensitive headers, trace context, or mail body           | 3.1, 3.3   | High   | Loopback-only activation, masking/value-exposure on every new surface, sandboxed HTML, and focused tests. |
+| Unbounded capture buffers or large rendered graphs/lists          | 3.2, 3.3   | Medium | Fixed-size buffers, server-side paging, bounded snapshots, and focus-and-neighborhood graph rendering.    |
+| Optional Actuator endpoints, libraries, beans, or servers missing | all        | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.      |
+| Bean/dependency graph or correlation bloating the bundle          | 3.1, 3.2   | Medium | Bounded rendering, lightweight visualization, and lazy-loaded panels.                                     |
+| Silently swallowing application mail                              | 3.3        | Medium | Pass-through by default; "dev trap" mode strictly opt-in.                                                 |
+| Scope creep beyond this merged feature set                        | all        | High   | Treat this list as the maximum near-term surface; move further ideas to a later plan.                     |
 
 ## 6. Validation checklist
 

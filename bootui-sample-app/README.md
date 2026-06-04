@@ -44,7 +44,7 @@ Open <http://localhost:8080/bootui> in a browser running on the same machine.
 Useful URLs:
 
 | URL                                         | What you see                                        |
-|---------------------------------------------|-----------------------------------------------------|
+| ------------------------------------------- | --------------------------------------------------- |
 | <http://localhost:8080/>                    | Sample application welcome page                     |
 | <http://localhost:8080/bootui>              | BootUI console                                      |
 | <http://localhost:8080/bootui/api/overview> | Stable BootUI JSON DTO for the Overview panel       |
@@ -52,8 +52,8 @@ Useful URLs:
 
 ## Suggested walkthrough
 
-1. **Overview** — confirm the activation reason is `profile=dev` and that
-   localhost-only is `true`.
+1. **Overview and GitHub** — confirm the activation reason is `profile=dev`,
+   localhost-only is `true`, and the local GitHub origin is detected.
 2. **Beans** — search for `EchoScheduler` and follow the dependency graph back
    into Spring framework beans.
 3. **Conditions** — filter on `DataSourceAutoConfiguration` to see the matched
@@ -66,11 +66,11 @@ Useful URLs:
    `.bootui/application-bootui.properties` under the repo's working directory.
 6. **Loggers** — set `io.github.jdubois.bootui.sample` to `TRACE`, exercise an
    endpoint, then clear the level and observe the inherited level reappear.
-7. **Health, Metrics, Memory, Tuning Advisor, Heap Dump, Threads, Startup Timeline, GraalVM** — sanity-check the live
-   runtime values, inspect thread activity, calculate JVM/container sizing, run native-image readiness checks, and use
-   Heap Dump to analyze a value-free class histogram.
-8. **Spring Data** — open `BootUiSampleRepository` to inspect its query methods and
-   domain type.
+7. **Health, HTTP Sessions, Metrics, Memory, Tuning Advisor, Heap Dump, Threads, Startup Timeline, GraalVM** —
+   sanity-check the live runtime values, inspect session/thread activity, calculate JVM/container sizing, run native-image
+   readiness checks, and use Heap Dump to analyze a value-free class histogram.
+8. **Spring Data and Hibernate Advisor** — open `BootUiSampleRepository` to inspect its query methods and domain type,
+   then run Hibernate Advisor to review the sample JPA mappings.
 9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
 10. **Flyway** — inspect the applied and pending `catalog_*` migrations (versions,
@@ -80,8 +80,8 @@ Useful URLs:
     tracked in `DATABASECHANGELOG`, on a table set fully separate from Flyway's, then
     apply the pending change sets after browser confirmation.
 12. **Spring Cache** — verify the Redis-backed `sample-products` and
-   `sample-greetings` caches are listed, inspect cache annotations, and clear a
-   cache after confirming the action.
+    `sample-greetings` caches are listed, inspect cache annotations, and clear a
+    cache after confirming the action.
 13. **Dev Services** — verify the Postgres and Redis Docker Compose entries are
     present and their service-connection metadata matches the actual mapped
     ports.
