@@ -108,7 +108,7 @@ Panel settings are consistent across the UI and API:
 
 | Property                              | Default | Description                                                                 |
 | ------------------------------------- | ------- | --------------------------------------------------------------------------- |
-| `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events from an `AuditEventRepository` bean. |
+| `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events and auto-contribute an in-memory `AuditEventRepository` when the host has none. |
 | `bootui.security-logs.max-logs`       | `500`   | Maximum recent audit events returned in one Security Logs response.         |
 
 ### Pentesting

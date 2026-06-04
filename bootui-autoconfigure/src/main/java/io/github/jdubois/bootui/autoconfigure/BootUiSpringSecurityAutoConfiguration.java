@@ -47,20 +47,24 @@ public class BootUiSpringSecurityAutoConfiguration {
     @ConditionalOnMissingBean(name = "bootUiSecurityFilterChain")
     public SecurityFilterChain bootUiSecurityFilterChain(HttpSecurity http, BootUiProperties properties)
             throws Exception {
-        String uiPattern = securityPattern(properties.getPath());
-        String apiPattern = securityPattern(properties.getApiPath());
+        String[] bootUiPatterns = bootUiSecurityPatterns(properties);
         String otlpPattern = childSecurityPattern(properties.getApiPath(), "otlp");
         log.warn(
-                "BootUI detected Spring Security and is permitting unauthenticated access to {} and {}; "
+                "BootUI detected Spring Security and is permitting unauthenticated access to {}; "
                         + "BootUI's localhost-only filter still rejects non-loopback callers unless "
                         + "bootui.allow-non-localhost=true is set.",
-                uiPattern,
-                apiPattern);
-        return http.securityMatcher(uiPattern, apiPattern)
+                String.join(", ", bootUiPatterns));
+        return http.securityMatcher(bootUiPatterns)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
                 .csrf(csrf -> csrf.spa().ignoringRequestMatchers(otlpPattern))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .build();
+    }
+
+    static String[] bootUiSecurityPatterns(BootUiProperties properties) {
+        String uiBasePath = withoutTrailingSlash(properties.getPath());
+        String apiBasePath = withoutTrailingSlash(properties.getApiPath());
+        return new String[] {uiBasePath, securityPattern(uiBasePath), apiBasePath, securityPattern(apiBasePath)};
     }
 
     private static String securityPattern(String basePath) {

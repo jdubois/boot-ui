@@ -5,6 +5,8 @@ import static org.springframework.security.config.Customizer.withDefaults;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,6 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
@@ -33,6 +36,10 @@ class BootUiSpringSecurityAutoConfigurationTests {
     @LocalServerPort
     private int port;
 
+    @Autowired
+    @Qualifier("bootUiSecurityFilterChain")
+    private SecurityFilterChain bootUiSecurityFilterChain;
+
     private RestClient client;
 
     @Test
@@ -47,9 +54,24 @@ class BootUiSpringSecurityAutoConfigurationTests {
     }
 
     @Test
+    void bootUiSecurityChainMatchesExactRootsAndDescendants() {
+        assertThat(bootUiSecurityFilterChain.matches(request("/bootui"))).isTrue();
+        assertThat(bootUiSecurityFilterChain.matches(request("/bootui/"))).isTrue();
+        assertThat(bootUiSecurityFilterChain.matches(request("/bootui/api"))).isTrue();
+        assertThat(bootUiSecurityFilterChain.matches(request("/bootui/api/overview")))
+                .isTrue();
+        assertThat(bootUiSecurityFilterChain.matches(request("/protected"))).isFalse();
+    }
+
+    @Test
     void logsWarningWhenOpeningBootUiRoute(CapturedOutput output) {
         assertThat(output)
-                .contains("BootUI detected Spring Security and is permitting unauthenticated access to /bootui/**");
+                .contains(
+                        "BootUI detected Spring Security and is permitting unauthenticated access to /bootui, /bootui/**");
+    }
+
+    private MockHttpServletRequest request(String path) {
+        return new MockHttpServletRequest("GET", path);
     }
 
     private RestClient client() {

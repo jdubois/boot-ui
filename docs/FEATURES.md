@@ -238,11 +238,12 @@ meant to explain local security wiring without exposing credentials or replacing
 ### Security Logs
 
 The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
-authentication successes/failures and authorization denials when Spring Security audit listeners are configured by the
-host app. It supports filtering by principal, event type, and time window, summarizes retained event counts by type, uses
-the shared visibility-aware auto-refresh controls, and masks sensitive event data before rendering. Responses are bounded
-by `bootui.security-logs.max-logs`, which defaults to `500`; when no `AuditEventRepository` bean exists, the panel fails
-closed with a clear unavailable state.
+authentication successes/failures and authorization denials when Spring Security audit listeners are active. When BootUI is
+active and the panel is enabled, it contributes an in-memory repository if the host app has not already defined one, which
+also lets Spring Boot create its standard audit listeners. It supports filtering by principal, event type, and time window,
+summarizes retained event counts by type, uses the shared visibility-aware auto-refresh controls, and masks sensitive event
+data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to `500`; if audit support
+is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
 ![BootUI Security Logs panel](images/bootui-security-logs.png)
 
