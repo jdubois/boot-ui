@@ -90,6 +90,22 @@ The scripts clone into `./boot-ui` unless that directory already exists, build w
 <http://localhost:8080/bootui> after startup. If you already cloned the repository, run `./scripts/run-sample.sh` or
 `.\scripts\run-sample.ps1` from its root to reuse that checkout.
 
+## Documentation website
+
+The GitHub Pages website is built with VuePress from the markdown files in `docs/`, so the repository documentation stays
+the source of truth for the published site.
+
+```bash
+npm install
+npm run docs:dev
+```
+
+The local development server runs at <http://127.0.0.1:8090>. Before pushing documentation changes, run:
+
+```bash
+npm run docs:build
+```
+
 ## Setup
 
 ### 1) Prerequisites

@@ -31,6 +31,8 @@ node_modules/
 dist/
 .npm/
 .eslintcache
+**/.vuepress/.cache/
+**/.vuepress/.temp/
 
 # BootUI runtime persistence (local developer overrides)
 .bootui/
