@@ -22,6 +22,29 @@ first place to confirm whether BootUI is active for the reason you expect.
 
 ![BootUI Overview panel](images/bootui-overview.png)
 
+### GitHub
+
+The GitHub panel sits directly under Overview and summarizes the current project's GitHub state from the local `origin`
+remote. It uses BootUI's standard auto-refresh control with a one-minute interval while the tab is visible; the initial
+refresh and each interval are bounded and blocked by the panel's read-only settings.
+
+The panel shows repository metadata and an eight-card summary grid with click-through detail drawers for open pull
+requests, issue buckets, configured workflows with bounded latest-run details, quotas, Copilot usage report availability,
+and the three security signals. Workflow rows link to the matching GitHub Actions workflow and show type tags, status,
+event timestamps, and GitHub build links when a latest run was returned; security signal drawers link to the matching
+GitHub alert pages.
+The quota card shows the lowest remaining quota percentage with a red-to-green threshold palette. The quota drawer is
+hidden by default, renders every resource returned by GitHub's `/rate_limit` response dynamically,
+highlights resources with 10% or less remaining or at quota, then adds best-effort cards for repository or owner quotas
+such as Actions cache, artifacts, and Actions billing when the credential can access those endpoints. Copilot usage uses
+GitHub's organization report metadata endpoint when available; BootUI shows the report window and link count only, without
+downloading or exposing signed report URLs.
+
+Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, or an existing `gh auth token` login. The
+token is never sent to the browser, persisted by BootUI, or included in warnings; without a token, public repositories use
+GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
+safety threshold that skips optional sections before exhausting the core API quota.
+
 ## Runtime
 
 ### Health

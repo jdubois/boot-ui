@@ -153,6 +153,35 @@ Acceptance criteria:
 - Clearly marks missing optional data as unavailable, not as an error.
 - Does not expose environment secrets.
 
+### 5.1.1 GitHub
+
+Purpose: summarize the current repository's GitHub project state from the local git origin, directly under the Overview
+panel.
+
+Data sources:
+
+- Local `.git` metadata for repository detection and branch/upstream information.
+- GitHub REST API during the panel's one-minute auto-refresh/manual refresh cycle.
+- Local credentials from `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`, never persisted or returned to the browser.
+
+Features:
+
+- Show repository identity, visibility, default branch, local branch, stars, forks, watchers, and recent push time.
+- Show bounded open pull requests, issue buckets, configured workflows with bounded latest-run details, and
+  permission-aware security signals.
+- Render every resource returned by `/rate_limit` dynamically, plus best-effort repository/owner quota cards when
+  authorized.
+- Skip optional sections when remaining core API quota is at or below the safety threshold.
+
+Acceptance criteria:
+
+- Initial page load and `/bootui/api/panels` do not spawn subprocesses or call GitHub.
+- Outbound GitHub calls happen only through `POST /bootui/api/github/refresh` and are blocked by read-only settings.
+- The quotas/rate-limits drawer is hidden by default and highlights resources at quota or with 10% or less remaining.
+- Private repositories, missing credentials, rate limits, denied quota endpoints, and unsupported GitHub Enterprise
+  endpoints produce stable unavailable states instead of raw errors.
+- Tokens, authorization headers, response bodies, and subprocess stderr are never exposed to the browser.
+
 ### 5.2 Beans Explorer
 
 Purpose: answer "Which beans exist, and where did they come from?"
@@ -996,6 +1025,8 @@ Initial endpoints:
 | Endpoint                                | Method | Purpose                                                                   |
 | --------------------------------------- | ------ | ------------------------------------------------------------------------- |
 | `/bootui/api/overview`                  | GET    | App, runtime, Spring Boot, profile, and BootUI status                     |
+| `/bootui/api/github`                    | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot     |
+| `/bootui/api/github/refresh`            | POST   | Explicit bounded GitHub API refresh for project metrics and quotas        |
 | `/bootui/api/beans`                     | GET    | Searchable bean summary                                                   |
 | `/bootui/api/conditions`                | GET    | Auto-configuration conditions                                             |
 | `/bootui/api/config`                    | GET    | Effective configuration values                                            |
@@ -1080,6 +1111,14 @@ Initial properties:
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
 | `bootui.dependencies.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
 | `bootui.dependencies.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
+| `bootui.github.api-enabled`                  | `true`                                  | Allow GitHub panel refresh calls to GitHub APIs.                                                   |
+| `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                              |
+| `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                         |
+| `bootui.github.max-issues`                   | `25`                                    | Maximum open issues fetched for GitHub issue buckets.                                              |
+| `bootui.github.max-workflow-runs`            | `10`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                       |
+| `bootui.github.quota-safety-threshold`       | `10`                                    | Skip optional GitHub calls when remaining core quota is at or below this value.                    |
+| `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls issued by one refresh.                                                    |
+| `bootui.github.allowed-api-hosts`             | `api.github.com`                        | Allowed GitHub API hosts; add a GitHub Enterprise host to enable enterprise remotes.               |
 | `bootui.dev-services.restart-enabled`        | `false`                                 | Enables restart controls for bean-backed Testcontainers services.                                 |
 | `bootui.dev-services.log-tail-bytes`         | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                           |
 | `bootui.telemetry.enabled`                   | `true`                                  | Enables local trace capture and the OTLP/HTTP receiver used by the Traces and AI Usage panels.    |
@@ -1148,7 +1187,9 @@ The second property should be required to expose BootUI beyond localhost.
 
 Top-level navigation:
 
-- Overview.
+- Overview:
+  - Overview.
+  - GitHub.
 - Runtime:
   - Health.
   - HTTP Sessions.
@@ -1284,7 +1325,7 @@ BootUI's current pre-1.0 release surface is complete when:
   Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security,
   Security Logs, Pentesting, Database Connection Pools, Spring Data, Flyway, Liquibase, Scheduled Tasks, Spring Cache,
   AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture, Vulnerabilities, DevTools, Dev Services, Copilot,
-  and Claude Code.
+  Claude Code, and GitHub.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
+import java.nio.file.Path;
 import java.util.regex.Pattern;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
@@ -76,6 +77,7 @@ public class PanelsController {
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTEST,
                     BootUiPanels.VULNERABILITIES -> available();
+            case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
             case BootUiPanels.HEAP_DUMP ->
                 availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
@@ -190,6 +192,15 @@ public class PanelsController {
 
     private boolean scheduledAvailable() {
         return beanPresent(ScheduledTaskHolder.class) || beanPresent(ScheduledAnnotationBeanPostProcessor.class);
+    }
+
+    private boolean githubAvailable() {
+        return GitHubRepositoryDetector.detect(Path.of(System.getProperty("user.dir", ".")), properties)
+                .isPresent();
+    }
+
+    private String githubUnavailableReason() {
+        return GitHubRepositoryDetector.unavailableReason(Path.of(System.getProperty("user.dir", ".")), properties);
     }
 
     private boolean aiAvailable() {

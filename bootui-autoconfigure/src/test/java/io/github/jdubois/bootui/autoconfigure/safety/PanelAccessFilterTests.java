@@ -207,6 +207,7 @@ class PanelAccessFilterTests {
         requests.put("dev-services", new ActionRequest("POST", "/bootui/api/dev-services/services/demo/restart"));
         requests.put("flyway", new ActionRequest("POST", "/bootui/api/flyway/migrate"));
         requests.put("liquibase", new ActionRequest("POST", "/bootui/api/liquibase/update"));
+        requests.put("github", new ActionRequest("POST", "/bootui/api/github/refresh"));
         return requests;
     }
 

@@ -37,6 +37,7 @@ Panel settings are consistent across the UI and API:
 | Group           | Panel                     | Panel id                    | Enable property                                   | Read-only property                        |
 | --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |
 | Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
+| Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
 | Runtime         | Health                    | `health`                    | `bootui.panels.health.enabled`                    | Not applicable; view-only.                |
 | Runtime         | HTTP Sessions             | `http-sessions`             | `bootui.panels.http-sessions.enabled`             | `bootui.panels.http-sessions.read-only`   |
 | Runtime         | Metrics                   | `metrics`                   | `bootui.panels.metrics.enabled`                   | Not applicable; view-only.                |
@@ -90,6 +91,21 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.http-sessions.enabled`     | `true`  | Show local embedded Tomcat HTTP sessions when a live session manager exists. |
 | `bootui.panels.http-sessions.read-only`   | `false` | Disable HTTP session clear and destroy actions.                             |
 | `bootui.http-sessions.max-sessions`       | `50`    | Maximum HTTP sessions returned in one panel response.                       |
+
+### GitHub
+
+| Property                                | Default          | Description                                                                                  |
+| --------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------- |
+| `bootui.panels.github.enabled`          | `true`           | Show the GitHub panel when the local working tree has a GitHub origin.                       |
+| `bootui.panels.github.read-only`        | `false`          | Disable live refresh calls to GitHub while keeping local repository metadata.                |
+| `bootui.github.api-enabled`             | `true`           | Additional action gate for outbound GitHub API calls during live refresh.                   |
+| `bootui.github.request-timeout`         | `5s`             | Timeout for each GitHub API request and local `gh auth token` lookup.                       |
+| `bootui.github.max-pull-requests`       | `10`             | Maximum open pull requests returned in one refresh.                                         |
+| `bootui.github.max-issues`              | `25`             | Maximum open issues fetched for issue buckets in one refresh.                               |
+| `bootui.github.max-workflow-runs`       | `10`             | Maximum recent workflow runs returned in one refresh.                                       |
+| `bootui.github.quota-safety-threshold`  | `10`             | Skip optional API calls when remaining core quota is at or below this value.                 |
+| `bootui.github.max-api-calls`           | `17`             | Maximum GitHub API requests issued by one refresh.                                          |
+| `bootui.github.allowed-api-hosts`        | `api.github.com` | Allowed GitHub API hosts. Add a GitHub Enterprise host to enable enterprise remotes.         |
 
 ### Configuration
 
