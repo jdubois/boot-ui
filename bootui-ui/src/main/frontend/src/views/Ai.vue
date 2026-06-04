@@ -373,17 +373,13 @@ function onChartMouseleave() {
 }
 
 const avgLatency = computed(() => {
-  const recent = overview.value && overview.value.recent
-  if (!recent || recent.length === 0) return null
-  const sum = recent.reduce((s, c) => s + (c.durationNanos || 0), 0)
-  return sum / recent.length
+  if (!overview.value || !overview.value.totalChats) return null
+  return overview.value.averageDurationNanos ?? null
 })
 
 const errorRate = computed(() => {
-  const recent = overview.value && overview.value.recent
-  if (!recent || recent.length === 0) return null
-  const errors = recent.filter((c) => c.statusCode === 'ERROR').length
-  return (errors / recent.length) * 100
+  if (!overview.value || !overview.value.totalChats) return null
+  return ((overview.value.errorCount || 0) / overview.value.totalChats) * 100
 })
 
 const hasAnyData = computed(() => overview.value && overview.value.totalChats > 0)

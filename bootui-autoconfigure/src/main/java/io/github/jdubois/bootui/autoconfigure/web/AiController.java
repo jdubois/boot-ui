@@ -97,6 +97,8 @@ public class AiController {
         List<NormalizedSpan> chats = chatSpansSorted();
         long totalIn = 0;
         long totalOut = 0;
+        long totalDuration = 0;
+        int errorCount = 0;
         Map<String, Long> tokensByModel = new LinkedHashMap<>();
         Map<String, Integer> callsByModel = new LinkedHashMap<>();
         for (NormalizedSpan chat : chats) {
@@ -104,6 +106,10 @@ public class AiController {
             Long out = AiSpanRecognizer.outputTokens(chat);
             totalIn += in == null ? 0 : in;
             totalOut += out == null ? 0 : out;
+            totalDuration += chat.durationNanos();
+            if (chat.isError()) {
+                errorCount++;
+            }
             String model = preferredModel(chat);
             long modelTokens = (in == null ? 0 : in) + (out == null ? 0 : out);
             tokensByModel.merge(model, modelTokens, Long::sum);
@@ -144,6 +150,8 @@ public class AiController {
                 totalOut,
                 topLongEntries(tokensByModel),
                 topIntegerEntries(callsByModel),
+                errorCount,
+                chats.isEmpty() ? 0 : totalDuration / chats.size(),
                 toolCount,
                 vectorCount,
                 embeddingCount,

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.google.protobuf.ByteString;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
@@ -117,6 +118,8 @@ class OtlpReceiverEndToEndTests {
                 .andExpect(jsonPath("$.totalChats").value(1))
                 .andExpect(jsonPath("$.totalInputTokens").value(42))
                 .andExpect(jsonPath("$.totalOutputTokens").value(7))
+                .andExpect(jsonPath("$.errorCount").value(0))
+                .andExpect(jsonPath("$.averageDurationNanos").value(250_000_000))
                 .andExpect(jsonPath("$.toolCallCount").value(1))
                 .andExpect(jsonPath("$.vectorOperationCount").value(1))
                 .andExpect(jsonPath("$.recent[0].requestModel").value("qwen3:0.6b"))
@@ -183,6 +186,37 @@ class OtlpReceiverEndToEndTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalChats").value(1))
                 .andExpect(jsonPath("$.recent.length()").value(0));
+    }
+
+    @Test
+    void aiOverviewAggregatesErrorsAndFrameworkTelemetryBeyondRecentLimit() throws Exception {
+        properties.getAi().setMaxRecentChats(1);
+        for (NormalizedSpan span : decode(mixedFrameworkTelemetryRequest())) {
+            store.add(span);
+        }
+
+        mvc.perform(get("/bootui/api/ai/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalChats").value(2))
+                .andExpect(jsonPath("$.recent.length()").value(1))
+                .andExpect(jsonPath("$.errorCount").value(1))
+                .andExpect(jsonPath("$.averageDurationNanos").value(200_000_000))
+                .andExpect(jsonPath("$.toolCallCount").value(2))
+                .andExpect(jsonPath("$.vectorOperationCount").value(2));
+
+        mvc.perform(get("/bootui/api/ai/chats/aaaaaaaaaaaaaaaa"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.toolCallCount").value(1))
+                .andExpect(jsonPath("$.summary.vectorOperationCount").value(1))
+                .andExpect(jsonPath("$.toolCalls[0].name").value("lookupWeather"))
+                .andExpect(jsonPath("$.vectorOperations[0].operation").value("query"))
+                .andExpect(jsonPath("$.vectorOperations[0].collectionName").value("documents"));
+
+        mvc.perform(get("/bootui/api/ai/chats/bbbbbbbbbbbbbbbb"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.toolCallCount").value(1))
+                .andExpect(jsonPath("$.summary.vectorOperationCount").value(1))
+                .andExpect(jsonPath("$.vectorOperations[0].operation").value("retrieval"));
     }
 
     @Test
@@ -260,6 +294,132 @@ class OtlpReceiverEndToEndTests {
                 .addSpans(chat)
                 .addSpans(tool)
                 .addSpans(vector)
+                .build();
+
+        ResourceSpans resourceSpans = ResourceSpans.newBuilder()
+                .setResource(Resource.newBuilder()
+                        .addAttributes(stringAttr("service.name", "sample"))
+                        .build())
+                .addScopeSpans(scopeSpans)
+                .build();
+
+        return ExportTraceServiceRequest.newBuilder()
+                .addResourceSpans(resourceSpans)
+                .build();
+    }
+
+    private ExportTraceServiceRequest mixedFrameworkTelemetryRequest() {
+        long now = System.currentTimeMillis() * 1_000_000L;
+        ByteString springTraceId = ByteString.copyFrom(hexToBytes("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        ByteString langChainTraceId = ByteString.copyFrom(hexToBytes("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+
+        Span springChat = Span.newBuilder()
+                .setTraceId(springTraceId)
+                .setSpanId(ByteString.copyFrom(hexToBytes("aaaaaaaaaaaaaaaa")))
+                .setName("chat spring")
+                .setKind(Span.SpanKind.SPAN_KIND_CLIENT)
+                .setStartTimeUnixNano(now)
+                .setEndTimeUnixNano(now + 100_000_000L)
+                .setStatus(Status.newBuilder()
+                        .setCode(Status.StatusCode.STATUS_CODE_OK)
+                        .build())
+                .addAttributes(stringAttr("gen_ai.operation.name", "chat"))
+                .addAttributes(stringAttr("gen_ai.system", "spring_ai"))
+                .addAttributes(stringAttr("gen_ai.request.model", "test-spring-model"))
+                .build();
+
+        Span springTool = Span.newBuilder()
+                .setTraceId(springTraceId)
+                .setSpanId(ByteString.copyFrom(hexToBytes("aaaaaaaaaaaaaaa1")))
+                .setParentSpanId(ByteString.copyFrom(hexToBytes("aaaaaaaaaaaaaaaa")))
+                .setName("spring.ai.tool")
+                .setKind(Span.SpanKind.SPAN_KIND_INTERNAL)
+                .setStartTimeUnixNano(now + 10_000_000L)
+                .setEndTimeUnixNano(now + 20_000_000L)
+                .setStatus(Status.newBuilder()
+                        .setCode(Status.StatusCode.STATUS_CODE_OK)
+                        .build())
+                .addAttributes(stringAttr("gen_ai.operation.name", "execute_tool"))
+                .addAttributes(stringAttr("gen_ai.system", "spring_ai"))
+                .addAttributes(stringAttr("spring.ai.kind", "tool_call"))
+                .addAttributes(stringAttr("spring.ai.tool.definition.name", "lookupWeather"))
+                .addAttributes(stringAttr("spring.ai.tool.type", "function"))
+                .addAttributes(stringAttr("spring.ai.tool.call.id", "call-1"))
+                .build();
+
+        Span springVector = Span.newBuilder()
+                .setTraceId(springTraceId)
+                .setSpanId(ByteString.copyFrom(hexToBytes("aaaaaaaaaaaaaaa2")))
+                .setParentSpanId(ByteString.copyFrom(hexToBytes("aaaaaaaaaaaaaaaa")))
+                .setName("redis query")
+                .setKind(Span.SpanKind.SPAN_KIND_CLIENT)
+                .setStartTimeUnixNano(now + 30_000_000L)
+                .setEndTimeUnixNano(now + 40_000_000L)
+                .setStatus(Status.newBuilder()
+                        .setCode(Status.StatusCode.STATUS_CODE_OK)
+                        .build())
+                .addAttributes(stringAttr("spring.ai.kind", "vector_store"))
+                .addAttributes(stringAttr("db.system", "redis"))
+                .addAttributes(stringAttr("db.operation.name", "query"))
+                .addAttributes(stringAttr("db.collection.name", "documents"))
+                .build();
+
+        Span langChainChat = Span.newBuilder()
+                .setTraceId(langChainTraceId)
+                .setSpanId(ByteString.copyFrom(hexToBytes("bbbbbbbbbbbbbbbb")))
+                .setName("completion gpt-4o-mini")
+                .setKind(Span.SpanKind.SPAN_KIND_CLIENT)
+                .setStartTimeUnixNano(now + 1_000_000_000L)
+                .setEndTimeUnixNano(now + 1_300_000_000L)
+                .setStatus(Status.newBuilder()
+                        .setCode(Status.StatusCode.STATUS_CODE_ERROR)
+                        .build())
+                .addAttributes(stringAttr("gen_ai.operation.name", "chat"))
+                .addAttributes(stringAttr("gen_ai.provider.name", "openai"))
+                .addAttributes(stringAttr("gen_ai.request.model", "gpt-4o-mini"))
+                .build();
+
+        Span langChainTool = Span.newBuilder()
+                .setTraceId(langChainTraceId)
+                .setSpanId(ByteString.copyFrom(hexToBytes("bbbbbbbbbbbbbbb1")))
+                .setParentSpanId(ByteString.copyFrom(hexToBytes("bbbbbbbbbbbbbbbb")))
+                .setName("langchain4j.tools.getWeather")
+                .setKind(Span.SpanKind.SPAN_KIND_INTERNAL)
+                .setStartTimeUnixNano(now + 1_010_000_000L)
+                .setEndTimeUnixNano(now + 1_020_000_000L)
+                .setStatus(Status.newBuilder()
+                        .setCode(Status.StatusCode.STATUS_CODE_OK)
+                        .build())
+                .addAttributes(stringAttr("gen_ai.operation.name", "execute_tool"))
+                .addAttributes(stringAttr("gen_ai.tool.name", "getWeather"))
+                .addAttributes(stringAttr("gen_ai.tool.type", "function"))
+                .build();
+
+        Span langChainRetrieval = Span.newBuilder()
+                .setTraceId(langChainTraceId)
+                .setSpanId(ByteString.copyFrom(hexToBytes("bbbbbbbbbbbbbbb2")))
+                .setParentSpanId(ByteString.copyFrom(hexToBytes("bbbbbbbbbbbbbbbb")))
+                .setName("retrieval documents")
+                .setKind(Span.SpanKind.SPAN_KIND_CLIENT)
+                .setStartTimeUnixNano(now + 1_030_000_000L)
+                .setEndTimeUnixNano(now + 1_050_000_000L)
+                .setStatus(Status.newBuilder()
+                        .setCode(Status.StatusCode.STATUS_CODE_OK)
+                        .build())
+                .addAttributes(stringAttr("gen_ai.operation.name", "retrieval"))
+                .addAttributes(stringAttr("gen_ai.provider.name", "langchain4j"))
+                .build();
+
+        ScopeSpans scopeSpans = ScopeSpans.newBuilder()
+                .setScope(InstrumentationScope.newBuilder()
+                        .setName("io.micrometer.observation")
+                        .build())
+                .addSpans(springChat)
+                .addSpans(springTool)
+                .addSpans(springVector)
+                .addSpans(langChainChat)
+                .addSpans(langChainTool)
+                .addSpans(langChainRetrieval)
                 .build();
 
         ResourceSpans resourceSpans = ResourceSpans.newBuilder()
