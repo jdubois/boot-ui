@@ -11,11 +11,17 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 record HibernateEntityModel(String name, Class<?> javaType, List<HibernateAttributeModel> attributes) {
 
     private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
+    private static final String CACHE = "org.hibernate.annotations.Cache";
+    private static final String CACHEABLE = "jakarta.persistence.Cacheable";
+    private static final String VERSION = "jakarta.persistence.Version";
 
     HibernateEntityModel {
         attributes = List.copyOf(attributes);
@@ -69,6 +75,60 @@ record HibernateEntityModel(String name, Class<?> javaType, List<HibernateAttrib
         return javaType != null && hasAnnotation(javaType, BATCH_SIZE);
     }
 
+    boolean hasVersionAttribute() {
+        return attributes.stream().anyMatch(HibernateAttributeModel::hasVersion);
+    }
+
+    boolean hasHibernateCacheAnnotation() {
+        return annotation(CACHE) != null;
+    }
+
+    boolean isJpaCacheable() {
+        Annotation cacheable = annotation(CACHEABLE);
+        if (cacheable == null) {
+            return false;
+        }
+        Boolean value = annotationBooleanValue(cacheable, "value");
+        return value == null || value;
+    }
+
+    Annotation annotation(String typeName) {
+        return javaType == null ? null : annotation(javaType, typeName);
+    }
+
+    Annotation annotationInHierarchy(String typeName) {
+        Class<?> current = javaType;
+        while (current != null && current != Object.class) {
+            Annotation annotation = annotation(current, typeName);
+            if (annotation != null) {
+                return annotation;
+            }
+            current = current.getSuperclass();
+        }
+        return null;
+    }
+
+    String annotationValueName(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof Enum<?> enumValue ? enumValue.name() : null;
+    }
+
+    Integer annotationIntValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof Integer integerValue ? integerValue : null;
+    }
+
+    Boolean annotationBooleanValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof Boolean booleanValue ? booleanValue : null;
+    }
+
+    List<HibernateAttributeModel> collectionAttributes() {
+        return attributes.stream()
+                .filter(HibernateAttributeModel::isCollectionAssociation)
+                .toList();
+    }
+
     boolean overridesEquals() {
         return declaresMethod("equals", Object.class);
     }
@@ -94,6 +154,25 @@ record HibernateEntityModel(String name, Class<?> javaType, List<HibernateAttrib
                 .map(annotation -> annotation.annotationType().getName())
                 .anyMatch(typeName::equals);
     }
+
+    private static Annotation annotation(AnnotatedElement element, String typeName) {
+        return Arrays.stream(element.getAnnotations())
+                .filter(candidate -> candidate.annotationType().getName().equals(typeName))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static Object annotationValue(Annotation annotation, String attributeName) {
+        if (annotation == null) {
+            return null;
+        }
+        try {
+            Method method = annotation.annotationType().getMethod(attributeName);
+            return method.invoke(annotation);
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return null;
+        }
+    }
 }
 
 record HibernateAttributeModel(
@@ -107,13 +186,18 @@ record HibernateAttributeModel(
     private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
     private static final String ENUMERATED = "jakarta.persistence.Enumerated";
     private static final String GENERATED_VALUE = "jakarta.persistence.GeneratedValue";
+    private static final String ID = "jakarta.persistence.Id";
     private static final String JOIN_COLUMN = "jakarta.persistence.JoinColumn";
     private static final String JOIN_COLUMNS = "jakarta.persistence.JoinColumns";
     private static final String MANY_TO_MANY = "jakarta.persistence.ManyToMany";
     private static final String MANY_TO_ONE = "jakarta.persistence.ManyToOne";
+    private static final String MAPS_ID = "jakarta.persistence.MapsId";
     private static final String ONE_TO_MANY = "jakarta.persistence.OneToMany";
     private static final String ONE_TO_ONE = "jakarta.persistence.OneToOne";
+    private static final String ORDER_COLUMN = "jakarta.persistence.OrderColumn";
+    private static final String SEQUENCE_GENERATOR = "jakarta.persistence.SequenceGenerator";
     private static final String TRANSIENT = "jakarta.persistence.Transient";
+    private static final String VERSION = "jakarta.persistence.Version";
 
     HibernateAttributeModel {
         annotations = List.copyOf(annotations);
@@ -177,6 +261,10 @@ record HibernateAttributeModel(
         return "MANY_TO_MANY".equals(persistentAttributeType) || annotation(MANY_TO_MANY) != null;
     }
 
+    boolean isCollectionAssociation() {
+        return isOneToMany() || isManyToMany();
+    }
+
     boolean isEnumAttribute() {
         return rawType != null && rawType.isEnum() && annotation(TRANSIENT) == null;
     }
@@ -185,12 +273,40 @@ record HibernateAttributeModel(
         return rawType != null && java.util.List.class.isAssignableFrom(rawType);
     }
 
+    boolean isBagAttribute() {
+        return isCollectionAssociation()
+                && rawType != null
+                && Collection.class.isAssignableFrom(rawType)
+                && !Set.class.isAssignableFrom(rawType)
+                && !hasOrderColumn();
+    }
+
+    boolean isOptionalAttribute() {
+        return rawType != null && Optional.class.equals(rawType) && annotation(TRANSIENT) == null;
+    }
+
     boolean hasBatchSizeAnnotation() {
         return annotation(BATCH_SIZE) != null;
     }
 
     boolean hasGeneratedValue() {
         return annotation(GENERATED_VALUE) != null;
+    }
+
+    boolean hasId() {
+        return annotation(ID) != null;
+    }
+
+    boolean hasMapsId() {
+        return annotation(MAPS_ID) != null;
+    }
+
+    boolean hasOrderColumn() {
+        return annotation(ORDER_COLUMN) != null;
+    }
+
+    boolean hasVersion() {
+        return annotation(VERSION) != null;
     }
 
     boolean hasJoinColumn() {
@@ -215,8 +331,24 @@ record HibernateAttributeModel(
         return annotation(GENERATED_VALUE);
     }
 
+    Annotation manyToManyAnnotation() {
+        return annotation(MANY_TO_MANY);
+    }
+
+    Annotation manyToOneAnnotation() {
+        return annotation(MANY_TO_ONE);
+    }
+
     Annotation oneToManyAnnotation() {
         return annotation(ONE_TO_MANY);
+    }
+
+    Annotation oneToOneAnnotation() {
+        return annotation(ONE_TO_ONE);
+    }
+
+    Annotation sequenceGeneratorAnnotation() {
+        return annotation(SEQUENCE_GENERATOR);
     }
 
     String description() {
@@ -231,6 +363,24 @@ record HibernateAttributeModel(
     String annotationStringValue(Annotation annotation, String attributeName) {
         Object value = annotationValue(annotation, attributeName);
         return value instanceof String stringValue ? stringValue : null;
+    }
+
+    Integer annotationIntValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof Integer integerValue ? integerValue : null;
+    }
+
+    boolean annotationEnumArrayContains(Annotation annotation, String attributeName, String expectedName) {
+        Object value = annotationValue(annotation, attributeName);
+        if (!(value instanceof Object[] values)) {
+            return false;
+        }
+        for (Object item : values) {
+            if (item instanceof Enum<?> enumValue && expectedName.equals(enumValue.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     Annotation annotation(String typeName) {
@@ -302,4 +452,39 @@ record HibernateAttributeModel(
     }
 
     private record RawType(Class<?> rawType, Type genericType) {}
+}
+
+record HibernateRepositoryModel(
+        String repositoryInterface, Class<?> domainType, List<HibernateRepositoryMethodModel> methods) {
+
+    HibernateRepositoryModel {
+        methods = List.copyOf(methods);
+    }
+}
+
+record HibernateRepositoryMethodModel(
+        String repositoryInterface,
+        String methodName,
+        Class<?> domainType,
+        String query,
+        boolean nativeQuery,
+        boolean hasPageableParameter,
+        List<Class<?>> parameterTypes) {
+
+    HibernateRepositoryMethodModel {
+        parameterTypes = List.copyOf(parameterTypes);
+    }
+
+    boolean hasCollectionParameter() {
+        for (Class<?> parameterType : parameterTypes) {
+            if (parameterType.isArray() || Collection.class.isAssignableFrom(parameterType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    String description() {
+        return repositoryInterface + "#" + methodName;
+    }
 }

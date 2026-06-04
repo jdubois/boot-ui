@@ -3,10 +3,12 @@ package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
 import java.util.List;
 import org.springframework.core.env.Environment;
 
-record HibernateAdvisorContext(List<HibernateEntityModel> entities, Environment environment) {
+record HibernateAdvisorContext(
+        List<HibernateEntityModel> entities, List<HibernateRepositoryModel> repositories, Environment environment) {
 
     HibernateAdvisorContext {
         entities = List.copyOf(entities);
+        repositories = List.copyOf(repositories);
     }
 
     boolean hasAssociations() {
@@ -48,6 +50,26 @@ record HibernateAdvisorContext(List<HibernateEntityModel> entities, Environment 
             }
         }
         return null;
+    }
+
+    Integer firstIntegerProperty(String... keys) {
+        for (String key : keys) {
+            Integer value = integerProperty(key);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    boolean isPropertyTrue(String... keys) {
+        String value = firstProperty(keys);
+        return value != null && "true".equalsIgnoreCase(value);
+    }
+
+    boolean isPropertyFalse(String... keys) {
+        String value = firstProperty(keys);
+        return value != null && "false".equalsIgnoreCase(value);
     }
 
     private Integer integerProperty(String key) {

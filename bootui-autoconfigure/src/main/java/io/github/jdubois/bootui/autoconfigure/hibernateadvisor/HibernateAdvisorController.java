@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorReport;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -30,8 +31,10 @@ public class HibernateAdvisorController {
 
     @Autowired
     public HibernateAdvisorController(
-            ObjectProvider<EntityManagerFactory> entityManagerFactories, Environment environment) {
-        this(new HibernateAdvisorScanner(entityManagerFactories, environment, Clock.systemUTC()));
+            ObjectProvider<EntityManagerFactory> entityManagerFactories,
+            ObjectProvider<ListableBeanFactory> beanFactories,
+            Environment environment) {
+        this(new HibernateAdvisorScanner(entityManagerFactories, beanFactories, environment, Clock.systemUTC()));
     }
 
     HibernateAdvisorController(HibernateAdvisorScanner scanner) {
