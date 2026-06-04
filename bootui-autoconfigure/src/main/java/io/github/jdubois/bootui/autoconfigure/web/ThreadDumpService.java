@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
@@ -32,15 +33,25 @@ public class ThreadDumpService {
 
     private final ThreadMXBean threadMxBean;
     private final BootUiProperties properties;
+    private final BootUiExposure exposure;
     private final SecretMasker masker = new SecretMasker();
 
     public ThreadDumpService(BootUiProperties properties) {
         this(ManagementFactory.getThreadMXBean(), properties);
     }
 
+    ThreadDumpService(BootUiProperties properties, BootUiExposure exposure) {
+        this(ManagementFactory.getThreadMXBean(), properties, exposure);
+    }
+
     ThreadDumpService(ThreadMXBean threadMxBean, BootUiProperties properties) {
+        this(threadMxBean, properties, new BootUiExposure(properties));
+    }
+
+    ThreadDumpService(ThreadMXBean threadMxBean, BootUiProperties properties, BootUiExposure exposure) {
         this.threadMxBean = threadMxBean;
         this.properties = properties;
+        this.exposure = exposure;
     }
 
     /**
@@ -152,7 +163,7 @@ public class ThreadDumpService {
         Map<String, Integer> stateTally = new LinkedHashMap<>();
         int daemonThreads = 0;
 
-        ValueExposure exposeValues = properties.getExposeValues();
+        ValueExposure exposeValues = exposure.valueExposure();
         boolean hideDetail = exposeValues == ValueExposure.METADATA_ONLY;
 
         for (ThreadInfo info : infos) {
@@ -287,7 +298,7 @@ public class ThreadDumpService {
         if (name == null) {
             return null;
         }
-        if (exposeValues != ValueExposure.FULL && properties.isMaskSecrets() && masker.isSecret(name)) {
+        if (exposeValues != ValueExposure.FULL && exposure.maskSecrets() && masker.isSecret(name)) {
             return SecretMasker.MASKED_VALUE;
         }
         return name;

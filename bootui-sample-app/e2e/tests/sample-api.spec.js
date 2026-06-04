@@ -13,7 +13,32 @@ test.describe('Sample application REST API', () => {
     const body = await response.text()
     expect(body).toContain('Welcome to the BootUI sample app')
     expect(body).toContain('href="/bootui/"')
+    expect(body).not.toContain('View sample products')
+    expect(body).not.toContain('BootUI console')
+    expect(body).toContain('Sample action lab')
     expect(body).toContain('GET /api/sample/products')
+    expect(body).toContain('Create session data')
+    expect(body).toContain('Secure API as admin')
+    expect(body).toContain('Ask Spring AI')
+  })
+
+  test('homepage action lab exercises sample flows', async ({page}) => {
+    await page.goto('/')
+
+    await page.getByRole('button', {name: 'Check products'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText(/Loaded \d+ active products/)
+    await expect(page.locator('#sample-action-result')).toContainText('BootUI Starter')
+
+    await page.getByRole('button', {name: 'Create session data'}).click()
+    await expect(page.locator('#session-data-status')).toContainText('Added 5 attributes')
+    await expect(page.locator('#sample-action-result')).toContainText('sampleMessage')
+
+    await page.getByRole('button', {name: 'Secure API as admin'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText('Admin access succeeded')
+    await expect(page.locator('#sample-action-result')).toContainText('Secure Hello, world')
+
+    await page.getByRole('button', {name: 'Secure API as developer'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText('HTTP 403')
   })
 
   test('GET /api/hello returns a simple HTTP probe greeting', async ({request}) => {

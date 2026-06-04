@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
@@ -88,6 +89,7 @@ import org.springframework.core.env.Environment;
     SecurityLogsController.class,
     MemoryController.class,
     MetricsController.class,
+    HttpSessionsController.class,
     DevToolsController.class,
     TracesController.class,
     AiController.class,
@@ -120,6 +122,7 @@ public class BootUiAutoConfiguration {
             HealthController.class.getName(),
             HikariController.class.getName(),
             HttpExchangesController.class.getName(),
+            HttpSessionsController.class.getName(),
             HttpProbeController.class.getName(),
             HeapDumpController.class.getName(),
             LoggersController.class.getName(),
@@ -201,8 +204,13 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public ConfigOverrideService bootUiConfigOverrideService(
-            ConfigurableEnvironment environment, BootUiProperties properties) {
-        return new ConfigOverrideService(environment, properties);
+            ConfigurableEnvironment environment, BootUiProperties properties, BootUiExposure exposure) {
+        return new ConfigOverrideService(environment, properties, exposure);
+    }
+
+    @Bean
+    public BootUiExposure bootUiExposure(Environment environment, BootUiProperties properties) {
+        return new BootUiExposure(environment, properties);
     }
 
     @Bean

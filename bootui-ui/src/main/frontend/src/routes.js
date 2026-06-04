@@ -4,6 +4,7 @@ const Conditions = () => import('./views/Conditions.vue')
 const Config = () => import('./views/Config.vue')
 const Mappings = () => import('./views/Mappings.vue')
 const Health = () => import('./views/Health.vue')
+const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionsPools = () => import('./views/DatabaseConnectionsPools.vue')
 const Data = () => import('./views/Data.vue')
@@ -54,6 +55,12 @@ export const routes = [
     name: 'health',
     component: Health,
     meta: {group: groups.runtime, icon: 'bi-heart-pulse', title: 'Health'}
+  },
+  {
+    path: '/http-sessions',
+    name: 'http-sessions',
+    component: HttpSessions,
+    meta: {group: groups.runtime, icon: 'bi-cookie', title: 'HTTP Sessions'}
   },
   {
     path: '/metrics',

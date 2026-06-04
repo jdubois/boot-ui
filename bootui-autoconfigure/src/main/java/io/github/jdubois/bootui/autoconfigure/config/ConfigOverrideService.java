@@ -30,13 +30,21 @@ public class ConfigOverrideService {
 
     private final BootUiProperties properties;
 
+    private final BootUiExposure exposure;
+
     private final ConfigOverridesFileStore store;
 
     private final SecretMasker masker = new SecretMasker();
 
     public ConfigOverrideService(ConfigurableEnvironment environment, BootUiProperties properties) {
+        this(environment, properties, new BootUiExposure(environment, properties));
+    }
+
+    public ConfigOverrideService(
+            ConfigurableEnvironment environment, BootUiProperties properties, BootUiExposure exposure) {
         this.environment = environment;
         this.properties = properties;
+        this.exposure = exposure;
         this.store = new ConfigOverridesFileStore(resolveFile(properties));
     }
 
@@ -61,19 +69,24 @@ public class ConfigOverrideService {
         validateName(name);
         BootUiOverridesPropertySource src = source();
         Object previous = src.getProperty(name);
-        String previousDisplay = previous == null ? null : displayValue(name, previous);
+        ValueExposure valueExposure = exposure.valueExposure();
+        boolean maskSecrets = exposure.maskSecrets();
+        String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
         src.put(name, value);
         store.save(src.mutableSource());
         String message = describeRebindCaveat(name);
-        return new ConfigOverrideResult(name, displayValue(name, value), previousDisplay, true, message);
+        return new ConfigOverrideResult(
+                name, displayValue(name, value, valueExposure, maskSecrets), previousDisplay, true, message);
     }
 
     public ConfigOverrideResult remove(String name) {
         validateName(name);
         BootUiOverridesPropertySource src = source();
+        ValueExposure valueExposure = exposure.valueExposure();
+        boolean maskSecrets = exposure.maskSecrets();
         Object previous = src.remove(name);
         store.save(src.mutableSource());
-        String previousDisplay = previous == null ? null : displayValue(name, previous);
+        String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
         return new ConfigOverrideResult(name, null, previousDisplay, true, describeRebindCaveat(name));
     }
 
@@ -93,13 +106,11 @@ public class ConfigOverrideService {
         }
     }
 
-    private String displayValue(String name, Object value) {
-        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+    private String displayValue(String name, Object value, ValueExposure valueExposure, boolean maskSecrets) {
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (properties.getExposeValues() == ValueExposure.MASKED
-                && properties.isMaskSecrets()
-                && masker.isSecret(name)) {
+        if (valueExposure == ValueExposure.MASKED && maskSecrets && masker.isSecret(name)) {
             return SecretMasker.MASKED_VALUE;
         }
         return value == null ? null : String.valueOf(value);

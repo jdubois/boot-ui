@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiOverridesPropertySource;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.core.SecretMasker;
@@ -25,7 +26,7 @@ public class ConfigController {
 
     private final ConfigOverrideService overrideService;
 
-    private final BootUiProperties properties;
+    private final BootUiExposure exposure;
 
     private final ConfigMetadataCatalog metadataCatalog;
 
@@ -37,7 +38,7 @@ public class ConfigController {
         this(
                 environment,
                 overrideService,
-                properties,
+                new BootUiExposure(environment, properties),
                 new ConfigMetadataCatalog(ConfigController.class.getClassLoader()));
     }
 
@@ -46,9 +47,17 @@ public class ConfigController {
             ConfigOverrideService overrideService,
             BootUiProperties properties,
             ConfigMetadataCatalog metadataCatalog) {
+        this(environment, overrideService, new BootUiExposure(environment, properties), metadataCatalog);
+    }
+
+    ConfigController(
+            ConfigurableEnvironment environment,
+            ConfigOverrideService overrideService,
+            BootUiExposure exposure,
+            ConfigMetadataCatalog metadataCatalog) {
         this.environment = environment;
         this.overrideService = overrideService;
-        this.properties = properties;
+        this.exposure = exposure;
         this.metadataCatalog = metadataCatalog;
     }
 
@@ -114,11 +123,10 @@ public class ConfigController {
         ConfigPropertySuggestionDto metadata = metadataCatalog.get(name);
         Object displayValue = value;
         boolean masked = false;
-        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             displayValue = null;
-        } else if (properties.getExposeValues() == ValueExposure.MASKED
-                && properties.isMaskSecrets()
-                && masker.isSecret(name)) {
+        } else if (valueExposure == ValueExposure.MASKED && exposure.maskSecrets() && masker.isSecret(name)) {
             displayValue = SecretMasker.MASKED_VALUE;
             masked = true;
         }

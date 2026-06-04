@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.DevServiceDto;
 import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
@@ -46,6 +47,8 @@ class DevServicesService {
 
     private final BootUiProperties properties;
 
+    private final BootUiExposure exposure;
+
     private final SecretMasker masker = new SecretMasker();
 
     private final AtomicReference<ComposeSnapshot> dockerComposeSnapshot =
@@ -66,6 +69,7 @@ class DevServicesService {
     DevServicesService(ConfigurableApplicationContext applicationContext, BootUiProperties properties) {
         this.applicationContext = applicationContext;
         this.properties = properties;
+        this.exposure = new BootUiExposure(applicationContext.getEnvironment(), properties);
     }
 
     public void onApplicationEvent(ApplicationEvent event) {
@@ -332,10 +336,11 @@ class DevServicesService {
     }
 
     private Object displayValue(String key, Object value) {
-        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (value == null || properties.getExposeValues() == ValueExposure.FULL || !properties.isMaskSecrets()) {
+        if (value == null || valueExposure == ValueExposure.FULL || !exposure.maskSecrets()) {
             return value;
         }
         if (masker.isSecret(key)) {

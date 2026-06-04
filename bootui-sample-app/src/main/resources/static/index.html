@@ -61,6 +61,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
+      margin-top: 28px;
     }
 
     a {
@@ -96,12 +97,6 @@
     .button:disabled {
       cursor: progress;
       opacity: 0.65;
-    }
-
-    .button.secondary {
-      background: #ffffff;
-      color: #3451b2;
-      box-shadow: inset 0 0 0 1px rgba(52, 81, 178, 0.22);
     }
 
     .content-grid {
@@ -177,6 +172,44 @@
       font: 0.95rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
 
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .test-action {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      padding: 16px;
+      border: 1px solid #d9e2f1;
+      border-radius: 18px;
+      background: #f8fbff;
+    }
+
+    .test-action p {
+      margin: 0;
+      color: #4a5568;
+      font-size: 0.95rem;
+    }
+
+    .test-action small {
+      color: #64748b;
+    }
+
+    .action-result {
+      margin-top: 16px;
+      padding: 16px;
+      overflow: auto;
+      white-space: pre-wrap;
+      border-radius: 14px;
+      background: #eef2f7;
+      color: #263245;
+      font: 0.92rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
     ul {
       margin: 0;
       padding-left: 1.2rem;
@@ -193,12 +226,6 @@
       color: #263245;
     }
 
-    @media (min-width: 860px) {
-      .hero {
-        grid-template-columns: minmax(0, 1fr) 280px;
-        align-items: center;
-      }
-    }
   </style>
 </head>
 <body>
@@ -214,20 +241,56 @@
       </p>
       <div aria-label="Primary links" class="actions">
         <a class="button" href="/bootui/">Open BootUI</a>
-        <a class="button secondary" href="/api/sample/products">View sample products</a>
       </div>
     </div>
-    <section aria-labelledby="bootui-heading">
-      <h2 id="bootui-heading">BootUI console</h2>
-      <p>
-        Open <a href="/bootui/">BootUI</a> to explore the running application,
-        including beans, conditions, configuration, mappings, health, loggers,
-        data repositories, scheduled tasks, log tailing, profiles, security, and JVM memory.
-      </p>
-    </section>
   </div>
 
   <div class="content-grid">
+    <section aria-labelledby="lab-heading" class="wide">
+      <h2 id="lab-heading">Sample action lab</h2>
+      <p>
+        Run a few safe requests to generate data for BootUI panels. Then open the linked panels to see how BootUI
+        explains the same app from different angles.
+      </p>
+      <div class="test-grid">
+        <article class="test-action">
+          <button class="button" id="products-button" type="button">Check products</button>
+          <p>Calls <code>GET /api/sample/products</code> to exercise Spring Data, cache, and HTTP Exchanges.</p>
+          <small>Inspect: Spring Data, Spring Cache, HTTP Exchanges</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="session-data-button" type="button">Create session data</button>
+          <p>Adds demo attributes, including a fake token, to this browser session.</p>
+          <small>Inspect: HTTP Sessions</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="greeting-button" type="button">Call configured greeting</button>
+          <p>Calls <code>GET /api/sample/hello</code> so BootUI can show configuration-backed behavior.</p>
+          <small>Inspect: Configuration, Spring Cache, HTTP Probe</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="public-api-button" type="button">Call public API</button>
+          <p>Calls <code>GET /api/hello</code> as a simple public endpoint for mappings and probes.</p>
+          <small>Inspect: Mappings, HTTP Probe, HTTP Exchanges</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="secure-admin-button" type="button">Secure API as admin</button>
+          <p>Calls <code>GET /api/secure</code> with <code>admin/admin</code> credentials.</p>
+          <small>Inspect: Spring Security, Security Logs</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="secure-user-button" type="button">Secure API as developer</button>
+          <p>Calls the same secured endpoint with <code>developer/developer</code> to produce a forbidden response.</p>
+          <small>Inspect: Spring Security, Security Logs, Pentesting</small>
+        </article>
+      </div>
+      <div class="form-row">
+        <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
+        <span aria-live="polite" class="chat-status" id="session-data-status" role="status"></span>
+      </div>
+      <pre class="action-result" hidden id="sample-action-result"></pre>
+    </section>
+
     <section aria-labelledby="ai-prompt-heading" class="wide">
       <h2 id="ai-prompt-heading">Ask Spring AI</h2>
       <p>
@@ -248,33 +311,6 @@
       <pre class="chat-result" hidden id="ai-chat-result"></pre>
     </section>
 
-    <section aria-labelledby="api-heading">
-      <h2 id="api-heading">Try the sample API</h2>
-      <ul>
-        <li><a href="/api/hello"><code>GET /api/hello</code></a> returns a basic greeting.</li>
-        <li><a href="/api/sample/hello"><code>GET /api/sample/hello</code></a> uses live configuration properties.</li>
-        <li><a href="/api/sample/products"><code>GET /api/sample/products</code></a> returns active JPA-backed products.
-        </li>
-      </ul>
-    </section>
-
-    <section aria-labelledby="security-heading">
-      <h2 id="security-heading">See security rules in action</h2>
-      <p>
-        The sample keeps <code>/admin</code> and <code>/api/secure</code>
-        protected with HTTP Basic authentication. Use <code>admin/admin</code>
-        for the admin role or <code>developer/developer</code> to see a forbidden user.
-      </p>
-    </section>
-
-    <section aria-labelledby="probe-heading">
-      <h2 id="probe-heading">Use BootUI to inspect it</h2>
-      <p>
-        The BootUI panels can probe these endpoints, explain Spring Security
-        matching, inspect repository methods, edit local configuration overrides,
-        and show how the app was auto-configured.
-      </p>
-    </section>
   </div>
 </main>
 <script>
@@ -282,6 +318,15 @@
   const chatMessage = document.getElementById('ai-chat-message')
   const chatStatus = document.getElementById('ai-chat-status')
   const chatResult = document.getElementById('ai-chat-result')
+  const productsButton = document.getElementById('products-button')
+  const greetingButton = document.getElementById('greeting-button')
+  const publicApiButton = document.getElementById('public-api-button')
+  const secureAdminButton = document.getElementById('secure-admin-button')
+  const secureUserButton = document.getElementById('secure-user-button')
+  const sessionDataButton = document.getElementById('session-data-button')
+  const sessionDataStatus = document.getElementById('session-data-status')
+  const sampleActionStatus = document.getElementById('sample-action-status')
+  const sampleActionResult = document.getElementById('sample-action-result')
 
   chatForm.addEventListener('submit', async event => {
     event.preventDefault()
@@ -325,6 +370,120 @@
       submitButton.disabled = false
     }
   })
+
+  async function runSampleAction(button, loadingText, action) {
+    button.disabled = true
+    sampleActionStatus.textContent = loadingText
+    sampleActionResult.hidden = true
+    sampleActionResult.textContent = ''
+
+    try {
+      await action()
+    } catch (error) {
+      sampleActionStatus.textContent = 'Action failed'
+      sampleActionResult.textContent = error instanceof Error ? error.message : String(error)
+      sampleActionResult.hidden = false
+    } finally {
+      button.disabled = false
+    }
+  }
+
+  function showSampleResult(status, result) {
+    sampleActionStatus.textContent = status
+    sampleActionResult.textContent = result
+    sampleActionResult.hidden = false
+  }
+
+  async function readTextResponse(response) {
+    const text = await response.text()
+    return text || `(empty response, HTTP ${response.status})`
+  }
+
+  function basicAuth(username, password) {
+    return 'Basic ' + btoa(`${username}:${password}`)
+  }
+
+  productsButton.addEventListener('click', () =>
+    runSampleAction(productsButton, 'Loading sample products...', async () => {
+      const response = await fetch('/api/sample/products', {headers: {Accept: 'application/json'}})
+      const products = await response.json()
+      if (!response.ok) {
+        throw new Error(`Products request failed with HTTP ${response.status}`)
+      }
+      const names = products.map(product => `- ${product.name} (${product.category})`).join('\n')
+      showSampleResult(
+        `Loaded ${products.length} active products`,
+        `${names}\n\nOpen BootUI Spring Data, Spring Cache, or HTTP Exchanges to inspect this request.`
+      )
+    })
+  )
+
+  sessionDataButton.addEventListener('click', () =>
+    runSampleAction(sessionDataButton, 'Adding session data...', async () => {
+      const response = await fetch('/api/sample/session', {
+        headers: {Accept: 'application/json'}
+      })
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(body.error || `Request failed with HTTP ${response.status}`)
+      }
+      sessionDataStatus.textContent =
+        `Added ${body.attributeCount} attributes to this browser session ` +
+        `(click ${body.sampleClickCount}). Open BootUI HTTP Sessions to inspect them.`
+      showSampleResult(
+        'Session data created',
+        `Session attributes: ${body.attributes.join(', ')}\n\nOpen BootUI HTTP Sessions to inspect the masked values.`
+      )
+    })
+  )
+
+  greetingButton.addEventListener('click', () =>
+    runSampleAction(greetingButton, 'Calling configured greeting...', async () => {
+      const response = await fetch('/api/sample/hello')
+      const text = await readTextResponse(response)
+      if (!response.ok) {
+        throw new Error(text)
+      }
+      showSampleResult('Configured greeting returned', `${text}\n\nOpen Configuration or Spring Cache to inspect it.`)
+    })
+  )
+
+  publicApiButton.addEventListener('click', () =>
+    runSampleAction(publicApiButton, 'Calling public API...', async () => {
+      const response = await fetch('/api/hello')
+      const text = await readTextResponse(response)
+      if (!response.ok) {
+        throw new Error(text)
+      }
+      showSampleResult('Public API returned', `${text}\n\nOpen Mappings, HTTP Probe, or HTTP Exchanges to inspect it.`)
+    })
+  )
+
+  secureAdminButton.addEventListener('click', () =>
+    runSampleAction(secureAdminButton, 'Calling secured API as admin...', async () => {
+      const response = await fetch('/api/secure', {
+        headers: {Authorization: basicAuth('admin', 'admin')}
+      })
+      const text = await readTextResponse(response)
+      if (!response.ok) {
+        throw new Error(text)
+      }
+      showSampleResult('Admin access succeeded', `${text}\n\nOpen Spring Security or Security Logs to inspect it.`)
+    })
+  )
+
+  secureUserButton.addEventListener('click', () =>
+    runSampleAction(secureUserButton, 'Calling secured API as developer...', async () => {
+      const response = await fetch('/api/secure', {
+        headers: {Authorization: basicAuth('developer', 'developer')}
+      })
+      const text = await readTextResponse(response)
+      showSampleResult(
+        `Developer access returned HTTP ${response.status}`,
+        `${text}\n\nThis forbidden response is useful in Spring Security, Security Logs, and Pentesting.`
+      )
+    })
+  )
 </script>
 </body>
 </html>

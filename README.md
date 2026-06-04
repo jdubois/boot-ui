@@ -22,6 +22,7 @@ BootUI exposes these panels in the same grouped order as the application menu. S
 | --------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Overview        | [Overview](docs/FEATURES.md#overview)                                   | See runtime identity, versions, ports, active profiles, activation reason, and safety state.                                            |
 | Runtime         | [Health](docs/FEATURES.md#health)                                       | Explore the Actuator health tree and contributor details, with setup guidance when health is unavailable or only defaults are reported. |
+| Runtime         | [HTTP Sessions](docs/FEATURES.md#http-sessions)                         | Inspect bounded local Tomcat HTTP sessions, masked attributes, and confirmation-gated clear/destroy actions.                            |
 | Runtime         | [Metrics](docs/FEATURES.md#metrics)                                     | Browse Micrometer meters, tags, measurements, and a local live chart for selected metrics.                                              |
 | Runtime         | [Memory](docs/FEATURES.md#memory)                                       | Review live JVM heap, non-heap, and memory pool usage.                                                                                  |
 | Runtime         | [Tuning Advisor](docs/FEATURES.md#tuning-advisor)                       | Calculate fixed bare-metal JVM options, percentage-based Kubernetes JVM settings, probes, and detected virtual-thread sizing from live JVM context. |
@@ -156,6 +157,7 @@ Common properties:
 | `bootui.startup.enabled`                 | `true`                                  | Auto-install startup buffering for the Startup Timeline panel while BootUI is active.    |
 | `bootui.startup.capacity`                | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                |
 | `bootui.cache.clear-enabled`             | `true`                                  | Enables Spring Cache clear actions after explicit browser confirmation.                  |
+| `bootui.http-sessions.max-sessions`      | `50`                                    | Maximum Tomcat HTTP sessions listed by the HTTP Sessions panel.                          |
 | `bootui.http-exchanges.max-exchanges`    | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.           |
 | `bootui.security-logs.max-logs`          | `500`                                   | Maximum recent audit events returned by the Security Logs panel.                         |
 | `bootui.dev-services.restart-enabled`    | `false`                                 | Enables restart controls for bean-backed Testcontainers services. Disabled by default.   |

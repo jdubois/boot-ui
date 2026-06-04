@@ -4,6 +4,7 @@ import {expect, test} from './fixtures.js'
 const allPanelLinks = [
   {id: 'overview', title: 'Overview', heading: /^Overview/},
   {id: 'health', title: 'Health', heading: /^Health/},
+  {id: 'http-sessions', title: 'HTTP Sessions', heading: /^HTTP Sessions/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
   {id: 'memory', title: 'Memory', heading: /^Memory/},
   {id: 'tuning-advisor', title: 'Tuning Advisor', heading: /^Tuning Advisor/},
@@ -91,7 +92,7 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Runtime', count: 8},
+      {title: 'Runtime', count: 9},
       {title: 'Configuration', count: 6},
       {title: 'Security', count: 3},
       {title: 'Services', count: 5},

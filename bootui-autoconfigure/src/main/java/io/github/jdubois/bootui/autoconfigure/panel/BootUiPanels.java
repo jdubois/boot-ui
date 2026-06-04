@@ -15,6 +15,7 @@ public final class BootUiPanels {
 
     public static final String OVERVIEW = "overview";
     public static final String HEALTH = "health";
+    public static final String HTTP_SESSIONS = "http-sessions";
     public static final String METRICS = "metrics";
     public static final String MEMORY = "memory";
     public static final String TUNING_ADVISOR = "tuning-advisor";
@@ -50,6 +51,7 @@ public final class BootUiPanels {
     private static final List<Panel> PANELS = List.of(
             new Panel(OVERVIEW, "Overview", false, "/overview"),
             new Panel(HEALTH, "Health", false, "/health"),
+            new Panel(HTTP_SESSIONS, "HTTP Sessions", true, "/http-sessions"),
             new Panel(METRICS, "Metrics", false, "/metrics"),
             new Panel(MEMORY, "Memory", false, "/memory"),
             new Panel(TUNING_ADVISOR, "Tuning Advisor", false, "/tuning-advisor"),

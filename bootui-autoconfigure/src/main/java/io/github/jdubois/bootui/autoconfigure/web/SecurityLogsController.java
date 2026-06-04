@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.SecurityLogDataDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -42,12 +44,23 @@ public class SecurityLogsController {
 
     private final BootUiProperties properties;
 
+    private final BootUiExposure exposure;
+
     private final SecretMasker masker = new SecretMasker();
 
+    @Autowired
     public SecurityLogsController(
-            ObjectProvider<AuditEventRepository> auditEventRepositoryProvider, BootUiProperties properties) {
+            ObjectProvider<AuditEventRepository> auditEventRepositoryProvider,
+            BootUiProperties properties,
+            BootUiExposure exposure) {
         this.auditEventRepositoryProvider = auditEventRepositoryProvider;
         this.properties = properties;
+        this.exposure = exposure;
+    }
+
+    SecurityLogsController(
+            ObjectProvider<AuditEventRepository> auditEventRepositoryProvider, BootUiProperties properties) {
+        this(auditEventRepositoryProvider, properties, new BootUiExposure(properties));
     }
 
     @GetMapping
@@ -139,14 +152,15 @@ public class SecurityLogsController {
     }
 
     private DisplayValue displayText(String key, Object value) {
-        if (properties.getExposeValues() == ValueExposure.METADATA_ONLY) {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return new DisplayValue(null, false, false);
         }
         if (value == null) {
             return new DisplayValue(null, false, false);
         }
-        boolean masked = properties.getExposeValues() == ValueExposure.MASKED
-                && properties.isMaskSecrets()
+        boolean masked = valueExposure == ValueExposure.MASKED
+                && exposure.maskSecrets()
                 && (masker.isSecret(key) || isSensitiveAuditKey(key));
         if (masked) {
             return new DisplayValue(SecretMasker.MASKED_VALUE, true, false);

@@ -19,6 +19,7 @@ class PanelsControllerTests {
     private static final List<String> PANEL_IDS = List.of(
             BootUiPanels.OVERVIEW,
             BootUiPanels.HEALTH,
+            BootUiPanels.HTTP_SESSIONS,
             BootUiPanels.METRICS,
             BootUiPanels.MEMORY,
             BootUiPanels.TUNING_ADVISOR,
@@ -113,6 +114,10 @@ class PanelsControllerTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath(panelPath(BootUiPanels.HEALTH) + ".available")
                             .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_SESSIONS) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_SESSIONS) + ".unavailableReason")
+                            .value("HTTP Sessions require an embedded servlet web server"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.METRICS) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.STARTUP) + ".available")

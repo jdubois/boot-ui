@@ -34,6 +34,19 @@ live statuses visible and shows guidance for adding application or dependency he
 
 ![BootUI Health panel](images/bootui-health.png)
 
+### HTTP Sessions
+
+The HTTP Sessions panel lists local embedded Tomcat sessions with creation time, last access time, idle duration,
+attribute count, and current-session highlighting. Session identifiers are treated as bearer credentials: by default the
+UI only receives an opaque action key and a masked display id, and every attribute value is masked. Setting
+`bootui.expose-values=FULL` reveals display ids and stringified attribute values for local troubleshooting and shows an
+explicit FULL exposure warning, while `METADATA_ONLY` keeps attribute names and types without values. The panel returns
+at most 50 sessions by default; raise `bootui.http-sessions.max-sessions` if a local app needs a larger bounded view.
+
+Clear and destroy actions are confirmation-gated and disabled by global or per-panel read-only mode. Clear removes all
+attributes from the selected session while keeping it valid; destroy invalidates the selected session. When the app is
+not running on embedded Tomcat, the panel shows an unavailable state instead of guessing at container internals.
+
 ### Metrics
 
 The Metrics panel browses Micrometer meters exposed by Actuator. You can inspect meter descriptions, base units, tags,
