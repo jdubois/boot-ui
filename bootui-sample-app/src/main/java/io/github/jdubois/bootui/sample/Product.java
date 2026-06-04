@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 
 @Entity
 @Table(name = "sample_products")
+// Hibernate Advisor demo: the IDENTITY id below intentionally triggers HIB-ID-001.
 public class Product {
 
     @Id

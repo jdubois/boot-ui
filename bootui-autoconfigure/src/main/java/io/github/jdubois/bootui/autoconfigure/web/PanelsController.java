@@ -111,6 +111,8 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
+            case BootUiPanels.HIBERNATE_ADVISOR ->
+                availability(hibernateAdvisorAvailable(), hibernateAdvisorUnavailableReason());
             case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
             case BootUiPanels.FLYWAY -> availability(flywayAvailable(), flywayUnavailableReason());
             case BootUiPanels.LIQUIBASE -> availability(liquibaseAvailable(), liquibaseUnavailableReason());
@@ -281,6 +283,22 @@ public class PanelsController {
         } catch (ClassNotFoundException ex) {
             return false;
         }
+    }
+
+    private boolean hibernateAdvisorAvailable() {
+        return classPresent("org.hibernate.SessionFactory")
+                && classPresent("jakarta.persistence.EntityManagerFactory")
+                && beanPresent("jakarta.persistence.EntityManagerFactory");
+    }
+
+    private String hibernateAdvisorUnavailableReason() {
+        if (!classPresent("org.hibernate.SessionFactory")) {
+            return "Hibernate ORM is not on the classpath";
+        }
+        if (!classPresent("jakarta.persistence.EntityManagerFactory")) {
+            return "Jakarta Persistence is not on the classpath";
+        }
+        return "No EntityManagerFactory beans are available";
     }
 
     private boolean architectureAvailable() {

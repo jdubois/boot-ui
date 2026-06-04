@@ -1,0 +1,305 @@
+package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
+
+import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.EntityType;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Field;
+import java.lang.reflect.Member;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Type;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+record HibernateEntityModel(String name, Class<?> javaType, List<HibernateAttributeModel> attributes) {
+
+    private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
+
+    HibernateEntityModel {
+        attributes = List.copyOf(attributes);
+    }
+
+    static HibernateEntityModel from(EntityType<?> entityType) {
+        Class<?> javaType = entityType.getJavaType();
+        List<HibernateAttributeModel> attributes = new ArrayList<>();
+        for (Attribute<?, ?> attribute : entityType.getAttributes()) {
+            Member member = attribute.getJavaMember();
+            if (member != null) {
+                attributes.add(HibernateAttributeModel.from(attribute, member));
+            }
+        }
+        String name = javaType == null ? entityType.getName() : javaType.getName();
+        return new HibernateEntityModel(name, javaType, attributes);
+    }
+
+    static HibernateEntityModel fromClass(Class<?> javaType) {
+        List<HibernateAttributeModel> attributes = new ArrayList<>();
+        Class<?> current = javaType;
+        while (current != null && current != Object.class) {
+            for (Field field : current.getDeclaredFields()) {
+                if (!Modifier.isStatic(field.getModifiers())) {
+                    attributes.add(HibernateAttributeModel.from(field));
+                }
+            }
+            for (Method method : current.getDeclaredMethods()) {
+                if (method.getParameterCount() == 0
+                        && method.getReturnType() != Void.TYPE
+                        && !method.isSynthetic()
+                        && !method.isBridge()
+                        && !Modifier.isStatic(method.getModifiers())
+                        && Arrays.stream(method.getAnnotations()).anyMatch(HibernateAttributeModel::isJpaAnnotation)) {
+                    attributes.add(HibernateAttributeModel.from(method));
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return new HibernateEntityModel(javaType.getName(), javaType, attributes);
+    }
+
+    String packageName() {
+        if (javaType == null || javaType.getPackageName().isBlank()) {
+            return "";
+        }
+        return javaType.getPackageName();
+    }
+
+    boolean hasBatchSizeAnnotation() {
+        return javaType != null && hasAnnotation(javaType, BATCH_SIZE);
+    }
+
+    boolean overridesEquals() {
+        return declaresMethod("equals", Object.class);
+    }
+
+    boolean overridesHashCode() {
+        return declaresMethod("hashCode");
+    }
+
+    private boolean declaresMethod(String name, Class<?>... parameterTypes) {
+        if (javaType == null) {
+            return false;
+        }
+        try {
+            Method method = javaType.getMethod(name, parameterTypes);
+            return method.getDeclaringClass() != Object.class;
+        } catch (NoSuchMethodException ex) {
+            return false;
+        }
+    }
+
+    private static boolean hasAnnotation(AnnotatedElement element, String typeName) {
+        return Arrays.stream(element.getAnnotations())
+                .map(annotation -> annotation.annotationType().getName())
+                .anyMatch(typeName::equals);
+    }
+}
+
+record HibernateAttributeModel(
+        String entityName,
+        String name,
+        Class<?> rawType,
+        Type genericType,
+        String persistentAttributeType,
+        List<Annotation> annotations) {
+
+    private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
+    private static final String ENUMERATED = "jakarta.persistence.Enumerated";
+    private static final String GENERATED_VALUE = "jakarta.persistence.GeneratedValue";
+    private static final String JOIN_COLUMN = "jakarta.persistence.JoinColumn";
+    private static final String JOIN_COLUMNS = "jakarta.persistence.JoinColumns";
+    private static final String MANY_TO_MANY = "jakarta.persistence.ManyToMany";
+    private static final String MANY_TO_ONE = "jakarta.persistence.ManyToOne";
+    private static final String ONE_TO_MANY = "jakarta.persistence.OneToMany";
+    private static final String ONE_TO_ONE = "jakarta.persistence.OneToOne";
+    private static final String TRANSIENT = "jakarta.persistence.Transient";
+
+    HibernateAttributeModel {
+        annotations = List.copyOf(annotations);
+    }
+
+    static HibernateAttributeModel from(Attribute<?, ?> attribute, Member member) {
+        RawType rawType = rawType(member);
+        String entityName = member.getDeclaringClass().getName();
+        String persistentAttributeType = attribute.getPersistentAttributeType() == null
+                ? null
+                : attribute.getPersistentAttributeType().name();
+        return new HibernateAttributeModel(
+                entityName,
+                attribute.getName(),
+                rawType.rawType(),
+                rawType.genericType(),
+                persistentAttributeType,
+                annotations(member));
+    }
+
+    static HibernateAttributeModel from(Field field) {
+        return new HibernateAttributeModel(
+                field.getDeclaringClass().getName(),
+                field.getName(),
+                field.getType(),
+                field.getGenericType(),
+                persistentAttributeType(field),
+                List.of(field.getAnnotations()));
+    }
+
+    static HibernateAttributeModel from(Method method) {
+        return new HibernateAttributeModel(
+                method.getDeclaringClass().getName(),
+                method.getName() + "()",
+                method.getReturnType(),
+                method.getGenericReturnType(),
+                persistentAttributeType(method),
+                List.of(method.getAnnotations()));
+    }
+
+    boolean isAssociation() {
+        return isAssociationType(persistentAttributeType)
+                || annotation(MANY_TO_ONE) != null
+                || annotation(ONE_TO_ONE) != null
+                || annotation(ONE_TO_MANY) != null
+                || annotation(MANY_TO_MANY) != null;
+    }
+
+    boolean isToOneAssociation() {
+        return "MANY_TO_ONE".equals(persistentAttributeType)
+                || "ONE_TO_ONE".equals(persistentAttributeType)
+                || annotation(MANY_TO_ONE) != null
+                || annotation(ONE_TO_ONE) != null;
+    }
+
+    boolean isOneToMany() {
+        return "ONE_TO_MANY".equals(persistentAttributeType) || annotation(ONE_TO_MANY) != null;
+    }
+
+    boolean isManyToMany() {
+        return "MANY_TO_MANY".equals(persistentAttributeType) || annotation(MANY_TO_MANY) != null;
+    }
+
+    boolean isEnumAttribute() {
+        return rawType != null && rawType.isEnum() && annotation(TRANSIENT) == null;
+    }
+
+    boolean isListAttribute() {
+        return rawType != null && java.util.List.class.isAssignableFrom(rawType);
+    }
+
+    boolean hasBatchSizeAnnotation() {
+        return annotation(BATCH_SIZE) != null;
+    }
+
+    boolean hasGeneratedValue() {
+        return annotation(GENERATED_VALUE) != null;
+    }
+
+    boolean hasJoinColumn() {
+        return annotation(JOIN_COLUMN) != null || annotation(JOIN_COLUMNS) != null;
+    }
+
+    Annotation associationAnnotation() {
+        for (String typeName : List.of(MANY_TO_ONE, ONE_TO_ONE, ONE_TO_MANY, MANY_TO_MANY)) {
+            Annotation annotation = annotation(typeName);
+            if (annotation != null) {
+                return annotation;
+            }
+        }
+        return null;
+    }
+
+    Annotation enumeratedAnnotation() {
+        return annotation(ENUMERATED);
+    }
+
+    Annotation generatedValueAnnotation() {
+        return annotation(GENERATED_VALUE);
+    }
+
+    Annotation oneToManyAnnotation() {
+        return annotation(ONE_TO_MANY);
+    }
+
+    String description() {
+        return entityName + "#" + name;
+    }
+
+    String annotationValueName(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof Enum<?> enumValue ? enumValue.name() : null;
+    }
+
+    String annotationStringValue(Annotation annotation, String attributeName) {
+        Object value = annotationValue(annotation, attributeName);
+        return value instanceof String stringValue ? stringValue : null;
+    }
+
+    Annotation annotation(String typeName) {
+        for (Annotation annotation : annotations) {
+            if (annotation.annotationType().getName().equals(typeName)) {
+                return annotation;
+            }
+        }
+        return null;
+    }
+
+    static boolean isJpaAnnotation(Annotation annotation) {
+        return annotation.annotationType().getName().startsWith("jakarta.persistence.");
+    }
+
+    private static boolean isAssociationType(String type) {
+        return "MANY_TO_ONE".equals(type)
+                || "ONE_TO_ONE".equals(type)
+                || "ONE_TO_MANY".equals(type)
+                || "MANY_TO_MANY".equals(type);
+    }
+
+    private static RawType rawType(Member member) {
+        if (member instanceof Field field) {
+            return new RawType(field.getType(), field.getGenericType());
+        }
+        if (member instanceof Method method) {
+            return new RawType(method.getReturnType(), method.getGenericReturnType());
+        }
+        return new RawType(Object.class, Object.class);
+    }
+
+    private static List<Annotation> annotations(Member member) {
+        if (member instanceof AnnotatedElement element) {
+            return List.of(element.getAnnotations());
+        }
+        return List.of();
+    }
+
+    private static String persistentAttributeType(AnnotatedElement element) {
+        if (hasAnnotation(element, MANY_TO_ONE)) {
+            return "MANY_TO_ONE";
+        }
+        if (hasAnnotation(element, ONE_TO_ONE)) {
+            return "ONE_TO_ONE";
+        }
+        if (hasAnnotation(element, ONE_TO_MANY)) {
+            return "ONE_TO_MANY";
+        }
+        if (hasAnnotation(element, MANY_TO_MANY)) {
+            return "MANY_TO_MANY";
+        }
+        return null;
+    }
+
+    private static boolean hasAnnotation(AnnotatedElement element, String typeName) {
+        return Arrays.stream(element.getAnnotations())
+                .map(annotation -> annotation.annotationType().getName())
+                .anyMatch(typeName::equals);
+    }
+
+    private Object annotationValue(Annotation annotation, String attributeName) {
+        try {
+            Method method = annotation.annotationType().getMethod(attributeName);
+            return method.invoke(annotation);
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private record RawType(Class<?> rawType, Type genericType) {}
+}

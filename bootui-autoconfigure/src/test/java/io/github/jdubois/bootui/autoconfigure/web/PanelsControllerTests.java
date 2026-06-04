@@ -39,6 +39,7 @@ class PanelsControllerTests {
             BootUiPanels.SCHEDULED,
             BootUiPanels.DATABASE_CONNECTION_POOLS,
             BootUiPanels.DATA,
+            BootUiPanels.HIBERNATE_ADVISOR,
             BootUiPanels.SPRING_CACHE,
             BootUiPanels.AI,
             BootUiPanels.TRACES,
@@ -141,6 +142,10 @@ class PanelsControllerTests {
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".unavailableReason")
                             .value("No database connection pool beans are available"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE_ADVISOR) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE_ADVISOR) + ".unavailableReason")
+                            .value("Hibernate ORM is not on the classpath"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_EXCHANGES) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_EXCHANGES) + ".unavailableReason")

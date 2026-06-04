@@ -21,6 +21,7 @@ const allPanelLinks = [
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
+  {id: 'hibernate-advisor', title: 'Hibernate Advisor', heading: /^Hibernate Advisor/},
   {id: 'flyway', title: 'Flyway', heading: /Flyway migrations/},
   {id: 'liquibase', title: 'Liquibase', heading: /Liquibase change sets/},
   {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
@@ -97,7 +98,7 @@ test.describe('BootUI app shell', () => {
     const groups = [
       {title: 'Runtime', count: 9},
       {title: 'Configuration', count: 6},
-      {title: 'Database', count: 4},
+      {title: 'Database', count: 5},
       {title: 'Security', count: 3},
       {title: 'Services', count: 3},
       {title: 'Diagnostics', count: 6},
@@ -110,10 +111,11 @@ test.describe('BootUI app shell', () => {
       await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Runtime' ? 'true' : 'false')
     }
 
-    await page.getByRole('button', {name: /Database\s+4/}).click()
+    await page.getByRole('button', {name: /Database\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
       'Spring Data',
+      'Hibernate Advisor',
       'Flyway',
       'Liquibase'
     ])
