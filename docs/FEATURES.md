@@ -210,6 +210,8 @@ sessions and are blocked by `bootui.read-only=true` or `bootui.panels.flyway.rea
 Flyway's own `clean-disabled=false` setting. The panel degrades to a clear empty state when Flyway is not on the classpath
 or no `Flyway` beans are present.
 
+![BootUI Flyway panel](images/bootui-flyway.png)
+
 ### Liquibase
 
 The Liquibase panel shows change sets for each `SpringLiquibase` bean in the context. It reads the change-log history and
@@ -221,6 +223,8 @@ The panel also exposes a confirmation-gated `update` action that applies pending
 for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`. The panel
 fails closed per bean when its history cannot be read and degrades to a clear empty state when Liquibase is not on the
 classpath or no `SpringLiquibase` beans are present.
+
+![BootUI Liquibase panel](images/bootui-liquibase.png)
 
 ## Security
 
