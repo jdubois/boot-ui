@@ -13,7 +13,7 @@ test.describe('Overview view', () => {
     await expect(page.locator('.overview-hero')).toContainText('Understand your Spring Boot app in minutes.')
 
     // Overall score box and the on-demand "Run all scanners" action.
-    const overall = page.locator('.overall-card')
+    const overall = page.locator('.overall-card').first()
     await expect(overall).toContainText('Overall score')
     await expect(overall.getByRole('button', {name: /Run all scanners/})).toBeVisible()
 
@@ -27,7 +27,7 @@ test.describe('Overview view', () => {
     await openView('overview', 'Overview')
 
     // Nothing is scored on load.
-    await expect(page.locator('.overall-card')).toContainText('0 of')
+    await expect(page.locator('.overall-card').first()).toContainText('0 of')
 
     const architectureCard = page.locator('.scanner-card', {hasText: 'Architecture'})
     const scanResponse = page.waitForResponse(

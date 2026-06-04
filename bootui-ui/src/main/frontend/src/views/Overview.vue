@@ -5,6 +5,8 @@ import {describeLoadError} from '../utils/loadError.js'
 import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {overallScore, scoreBandLabel, scoreBandTone, scoreFromSeverityCounts} from '../utils/scannerScore.js'
 import ScannerScoreCard from './components/ScannerScoreCard.vue'
+import OverviewHealthCard from './components/OverviewHealthCard.vue'
+import OverviewMemoryCard from './components/OverviewMemoryCard.vue'
 
 const injectedPanels = inject('panels', null)
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
@@ -25,22 +27,6 @@ function panelAvailable(id) {
 // Severity-based scanners share the same {severityCounts, scan.status} contract.
 const scannerDefs = [
   {
-    id: 'vulnerabilities',
-    title: 'Vulnerabilities',
-    icon: 'bi-bug',
-    tone: 'danger',
-    to: '/vulnerabilities',
-    endpoint: 'api/dependencies/scan'
-  },
-  {
-    id: 'pentest',
-    title: 'Pentesting',
-    icon: 'bi-shield-exclamation',
-    tone: 'warning',
-    to: '/pentest',
-    endpoint: 'api/pentest/scan'
-  },
-  {
     id: 'architecture',
     title: 'Architecture',
     icon: 'bi-diagram-2',
@@ -55,6 +41,22 @@ const scannerDefs = [
     tone: 'info',
     to: '/hibernate-advisor',
     endpoint: 'api/hibernate-advisor/scan'
+  },
+  {
+    id: 'vulnerabilities',
+    title: 'Vulnerabilities',
+    icon: 'bi-bug',
+    tone: 'danger',
+    to: '/vulnerabilities',
+    endpoint: 'api/dependencies/scan'
+  },
+  {
+    id: 'pentest',
+    title: 'Pentesting',
+    icon: 'bi-shield-exclamation',
+    tone: 'warning',
+    to: '/pentest',
+    endpoint: 'api/pentest/scan'
   }
 ]
 
@@ -198,10 +200,6 @@ onMounted(ensurePanels)
   <div>
     <div class="overview-hero mb-4">
       <div class="hero-copy">
-        <span class="hero-kicker">
-          <i class="bi bi-stars me-1"></i>
-          Runtime command center
-        </span>
         <h2>Overview</h2>
         <p class="hero-lead">Understand your Spring Boot app in minutes.</p>
         <p>
@@ -212,12 +210,21 @@ onMounted(ensurePanels)
       <div class="hero-actions">
         <a class="btn btn-outline-light" href="/">
           <i class="bi bi-house-door me-1"></i>
-          Back to homepage
+          Application homepage
         </a>
         <a :href="githubProjectUrl" class="btn btn-outline-light" rel="noopener noreferrer" target="_blank">
           <i class="bi bi-github me-1"></i>
           BootUI GitHub project
         </a>
+      </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+      <div class="col-lg-4">
+        <OverviewHealthCard />
+      </div>
+      <div class="col-lg-8">
+        <OverviewMemoryCard />
       </div>
     </div>
 
@@ -266,22 +273,6 @@ onMounted(ensurePanels)
 
       <div class="col-lg-8">
         <div class="row g-3">
-          <div v-for="def in visibleScanners" :key="def.id" class="col-md-6">
-            <ScannerScoreCard
-              :title="def.title"
-              :icon="def.icon"
-              :tone="def.tone"
-              :to="def.to"
-              :state="scanners[def.id].state"
-              :score="scanners[def.id].score"
-              :severity-counts="scanners[def.id].severityCounts"
-              :status-label="scanners[def.id].statusLabel"
-              :status-tone="scanners[def.id].statusTone"
-              :error-message="scanners[def.id].error"
-              @run="runScanner(def)"
-            />
-          </div>
-
           <div v-if="githubVisible" class="col-md-6">
             <ScannerScoreCard
               title="GitHub"
@@ -358,6 +349,22 @@ onMounted(ensurePanels)
                 </router-link>
               </template>
             </ScannerScoreCard>
+          </div>
+
+          <div v-for="def in visibleScanners" :key="def.id" class="col-md-6">
+            <ScannerScoreCard
+              :title="def.title"
+              :icon="def.icon"
+              :tone="def.tone"
+              :to="def.to"
+              :state="scanners[def.id].state"
+              :score="scanners[def.id].score"
+              :severity-counts="scanners[def.id].severityCounts"
+              :status-label="scanners[def.id].statusLabel"
+              :status-tone="scanners[def.id].statusTone"
+              :error-message="scanners[def.id].error"
+              @run="runScanner(def)"
+            />
           </div>
 
           <div v-if="totalCount === 0" class="col-12">
