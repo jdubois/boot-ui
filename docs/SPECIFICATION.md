@@ -167,7 +167,7 @@ Data sources:
 Features:
 
 - Show repository identity, visibility, default branch, local branch, stars, forks, watchers, and recent push time.
-- Show bounded open pull requests, issue buckets, configured workflows with bounded latest-run details, and
+- Show bounded open pull requests, issue buckets, latest GitHub Actions executions, configured workflow links, and
   permission-aware security signals.
 - Render every resource returned by `/rate_limit` dynamically, plus best-effort repository/owner quota cards when
   authorized.
@@ -1115,7 +1115,7 @@ Initial properties:
 | `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                              |
 | `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                         |
 | `bootui.github.max-issues`                   | `25`                                    | Maximum open issues fetched for GitHub issue buckets.                                              |
-| `bootui.github.max-workflow-runs`            | `10`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                       |
+| `bootui.github.max-workflow-runs`            | `20`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                       |
 | `bootui.github.quota-safety-threshold`       | `10`                                    | Skip optional GitHub calls when remaining core quota is at or below this value.                    |
 | `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls issued by one refresh.                                                    |
 | `bootui.github.allowed-api-hosts`             | `api.github.com`                        | Allowed GitHub API hosts; add a GitHub Enterprise host to enable enterprise remotes.               |

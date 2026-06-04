@@ -155,7 +155,7 @@ class BootUiPropertiesTests {
         assertThat(props.getGithub().getRequestTimeout()).isEqualTo(Duration.ofSeconds(5));
         assertThat(props.getGithub().getMaxPullRequests()).isEqualTo(10);
         assertThat(props.getGithub().getMaxIssues()).isEqualTo(25);
-        assertThat(props.getGithub().getMaxWorkflowRuns()).isEqualTo(10);
+        assertThat(props.getGithub().getMaxWorkflowRuns()).isEqualTo(20);
         assertThat(props.getGithub().getQuotaSafetyThreshold()).isEqualTo(10);
         assertThat(props.getGithub().getMaxApiCalls()).isEqualTo(17);
         assertThat(props.getGithub().getAllowedApiHosts()).containsExactly("api.github.com");

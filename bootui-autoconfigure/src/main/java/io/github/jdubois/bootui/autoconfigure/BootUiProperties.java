@@ -539,7 +539,7 @@ public class BootUiProperties {
         /**
          * Maximum workflow runs returned in one dashboard refresh.
          */
-        private int maxWorkflowRuns = 10;
+        private int maxWorkflowRuns = 20;
 
         /**
          * Safety threshold below which optional GitHub calls are skipped.
