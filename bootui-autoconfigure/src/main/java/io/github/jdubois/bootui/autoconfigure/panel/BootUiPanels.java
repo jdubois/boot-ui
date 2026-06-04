@@ -37,6 +37,7 @@ public final class BootUiPanels {
     public static final String HIBERNATE_ADVISOR = "hibernate-advisor";
     public static final String SPRING_CACHE = "spring-cache";
     public static final String SPRING_SECURITY = "spring-security";
+    public static final String SECURITY_ADVISOR = "security-advisor";
     public static final String SECURITY_LOGS = "security-logs";
     public static final String AI = "ai";
     public static final String TRACES = "traces";
@@ -70,6 +71,7 @@ public final class BootUiPanels {
             new Panel(CONDITIONS, "Conditions", false, "/conditions"),
             new Panel(MAPPINGS, "Mappings", false, "/mappings"),
             new Panel(SPRING_SECURITY, "Spring Security", false, "/spring-security"),
+            new Panel(SECURITY_ADVISOR, "Security Advisor", true, "/security-advisor"),
             new Panel(SECURITY_LOGS, "Security Logs", false, "/security-logs"),
             new Panel(PENTEST, "Pentesting", true, "/pentest"),
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),

@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.pentest.*;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -95,6 +96,7 @@ import org.springframework.core.env.Environment;
     HttpExchangesController.class,
     ProfileController.class,
     SpringSecurityController.class,
+    SecurityAdvisorController.class,
     SecurityLogsController.class,
     MemoryController.class,
     MetricsController.class,
@@ -149,6 +151,7 @@ public class BootUiAutoConfiguration {
             ProfileController.class.getName(),
             ScheduledController.class.getName(),
             SecurityLogsController.class.getName(),
+            SecurityAdvisorController.class.getName(),
             SpringSecurityController.class.getName(),
             StartupController.class.getName(),
             TracesController.class.getName(),

@@ -26,7 +26,9 @@ const allPanelLinks = [
   {id: 'liquibase', title: 'Liquibase', heading: /Liquibase change sets/},
   {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
   {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
+  {id: 'security-advisor', title: 'Security Advisor', heading: /^Security Advisor/},
   {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
+  {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
@@ -35,7 +37,6 @@ const allPanelLinks = [
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
-  {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
   {id: 'devtools', title: 'DevTools', heading: /^DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
@@ -99,9 +100,9 @@ test.describe('BootUI app shell', () => {
       {title: 'Runtime', count: 9},
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 5},
-      {title: 'Security', count: 3},
+      {title: 'Security', count: 5},
       {title: 'Services', count: 3},
-      {title: 'Diagnostics', count: 6},
+      {title: 'Diagnostics', count: 5},
       {title: 'Developer tools', count: 4}
     ]
 
@@ -120,11 +121,13 @@ test.describe('BootUI app shell', () => {
       'Liquibase'
     ])
 
-    await page.getByRole('button', {name: /Security\s+3/}).click()
+    await page.getByRole('button', {name: /Security\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Security panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Spring Security',
       'Security Logs',
-      'Pentesting'
+      'Security Advisor',
+      'Pentesting',
+      'Vulnerabilities'
     ])
 
     await page.getByRole('button', {name: /Services\s+3/}).click()
@@ -134,14 +137,13 @@ test.describe('BootUI app shell', () => {
       'AI Usage'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+6/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Traces',
       'Log Tail',
       'HTTP Exchanges',
       'HTTP Probe',
-      'Architecture',
-      'Vulnerabilities'
+      'Architecture'
     ])
   })
 

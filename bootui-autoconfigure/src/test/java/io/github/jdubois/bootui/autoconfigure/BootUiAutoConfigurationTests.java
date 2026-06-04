@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
 import io.github.jdubois.bootui.autoconfigure.pentest.*;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.net.URI;
 import java.nio.file.Path;
@@ -216,6 +217,7 @@ class BootUiAutoConfigurationTests {
                             ProfileController.class,
                             ScheduledController.class,
                             SecurityLogsController.class,
+                            SecurityAdvisorController.class,
                             SpringSecurityController.class,
                             StartupController.class,
                             TracesController.class,
