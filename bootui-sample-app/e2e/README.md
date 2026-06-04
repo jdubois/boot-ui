@@ -86,10 +86,31 @@ cd bootui-sample-app/e2e
 npm test
 ```
 
+## Documentation screenshots
+
+The documentation screenshots under `../../docs/images/` are generated from the
+Vue app with deterministic mocked API responses:
+
+```bash
+npm run screenshots
+```
+
+To refresh only selected panels, pass route ids, titles, or image filenames:
+
+```bash
+BOOTUI_SCREENSHOT_ONLY=overview,github,http-sessions npm run screenshots
+```
+
 ## Configuration
 
 - `BOOTUI_BASE_URL` — override the base URL (default `http://localhost:8080`).
 - `BOOTUI_SAMPLE_PORT` — override the port used to build the default base URL.
+- `BOOTUI_SCREENSHOT_BASE_URL` — reuse an existing Vite server when generating
+  documentation screenshots.
+- `BOOTUI_SCREENSHOT_PORT` — Vite port for the screenshot generator when it starts
+  its own server (default `5173`).
+- `BOOTUI_SCREENSHOT_ONLY` — comma-separated route ids, titles, or filenames to
+  capture instead of the full screenshot set.
 
 ## Artefacts
 

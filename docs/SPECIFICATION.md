@@ -718,7 +718,38 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
-### 5.17.1 Flyway Panel
+### 5.17.1 Hibernate Advisor Panel
+
+Purpose: answer "Which Hibernate/JPA mapping and configuration risks should I review before they become production
+performance issues?"
+
+Data sources:
+
+- JPA `EntityManagerFactory` metamodel when Hibernate ORM is present.
+- Spring Data repository metadata for query and paging heuristics.
+- Selected Spring Boot and Hibernate configuration properties.
+
+Features:
+
+- Run explicit, read-only Hibernate/JPA checks against the host application's mapped entities.
+- Report findings by severity and category, including fetching, identifier, configuration, repository-query, cascade, and
+  cache risks.
+- Show scanned entity packages, rule counts, mapped-entity counts, sample evidence, and remediation guidance.
+- Cache the latest report until the next explicit scan.
+
+Out of scope for the current release surface:
+
+- Executing SQL, invoking repositories, changing mappings, or rewriting queries from the UI.
+- Replacing project-specific performance tests, query plans, or code reviews.
+
+Acceptance criteria:
+
+- When Hibernate/JPA infrastructure is unavailable, the panel shows a clear unavailable state.
+- Opening the panel never executes application queries or mutates persistence metadata.
+- The scan action is blocked by global read-only mode and `bootui.panels.hibernate-advisor.read-only`.
+- Findings are presented as heuristic review prompts, not definitive performance verdicts.
+
+### 5.17.2 Flyway Panel
 
 Purpose: answer "Which Flyway-managed databases exist, what schema version is applied, which migrations are applied or
 pending, and can I explicitly run safe local Flyway actions?"
@@ -749,7 +780,7 @@ Acceptance criteria:
 - Opening the panel only reads already-computed migration metadata; no Flyway command is executed as a side effect.
 - Mutating Flyway actions require browser confirmation and a non-read-only app and panel.
 
-### 5.17.2 Liquibase Panel
+### 5.17.3 Liquibase Panel
 
 Purpose: answer "Which Liquibase-managed databases exist, which change sets have been applied or are pending, and can I
 explicitly apply pending change sets?"
@@ -1022,61 +1053,63 @@ return page metadata so the SPA can avoid fetching every row before filtering.
 
 Initial endpoints:
 
-| Endpoint                                | Method | Purpose                                                                   |
-| --------------------------------------- | ------ | ------------------------------------------------------------------------- |
-| `/bootui/api/overview`                  | GET    | App, runtime, Spring Boot, profile, and BootUI status                     |
-| `/bootui/api/github`                    | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot     |
-| `/bootui/api/github/refresh`            | POST   | Explicit bounded GitHub API refresh for project metrics and quotas        |
-| `/bootui/api/beans`                     | GET    | Searchable bean summary                                                   |
-| `/bootui/api/conditions`                | GET    | Auto-configuration conditions                                             |
-| `/bootui/api/config`                    | GET    | Effective configuration values                                            |
-| `/bootui/api/config/overrides`          | POST   | Create or update a local runtime configuration property override          |
-| `/bootui/api/config/overrides/{name}`   | DELETE | Remove a local runtime configuration property override                    |
-| `/bootui/api/mappings`                  | GET    | HTTP mappings                                                             |
-| `/bootui/api/mappings/flat`             | GET    | Stable, paged HTTP mapping summaries                                      |
-| `/bootui/api/health`                    | GET    | Health tree                                                               |
-| `/bootui/api/http-sessions`             | GET    | Bounded local embedded-Tomcat HTTP session report                         |
-| `/bootui/api/http-sessions/{key}/clear` | POST   | Clear attributes from a selected HTTP session after explicit confirmation |
-| `/bootui/api/http-sessions/{key}/invalidate` | POST   | Invalidate a selected HTTP session after explicit confirmation            |
-| `/bootui/api/loggers`                   | GET    | Logger levels                                                             |
-| `/bootui/api/loggers/{name}`            | POST   | Change logger level                                                       |
-| `/bootui/api/startup`                   | GET    | Startup timeline                                                          |
-| `/bootui/api/threads`                   | GET    | Stable, paged live thread snapshot with state counts and deadlock info    |
-| `/bootui/api/threads/download`          | POST   | Confirmation-gated raw text thread dump download                          |
-| `/bootui/api/metrics`                   | GET    | Browseable Micrometer meter list                                          |
-| `/bootui/api/metrics/detail`            | GET    | Micrometer meter detail and live measurements                             |
-| `/bootui/api/dependencies`              | GET    | Runtime Maven dependency inventory without external scanning              |
-| `/bootui/api/dependencies/scan`         | POST   | Explicit on-demand OSV.dev vulnerability scan                             |
-| `/bootui/api/devtools`                  | GET    | Spring Boot DevTools status                                               |
-| `/bootui/api/devtools/livereload`       | POST   | Trigger a DevTools LiveReload notification when available                 |
-| `/bootui/api/devtools/restart`          | POST   | Schedule a DevTools restart after explicit confirmation                   |
-| `/bootui/api/memory`                    | GET    | JVM memory report                                                         |
-| `/bootui/api/tuning-advisor`            | GET    | JVM tuning advisor report                                                 |
-| `/bootui/api/scheduled`                 | GET    | Scheduled tasks                                                           |
-| `/bootui/api/probe`                     | POST   | Local HTTP probe                                                          |
-| `/bootui/api/logs/recent`               | GET    | Recent log lines                                                          |
-| `/bootui/api/logs/stream`               | GET    | Log stream over Server-Sent Events                                        |
-| `/bootui/api/profiles`                  | GET    | Profile-specific property sources                                         |
-| `/bootui/api/dev-services`              | GET    | Docker Compose, Testcontainers, and service connection entries            |
-| `/bootui/api/dev-services/{id}/logs`    | GET    | Bounded log tail for a bean-backed service when available                 |
-| `/bootui/api/dev-services/{id}/restart` | POST   | Restart a bean-backed service only when explicitly enabled                |
-| `/bootui/api/data/repositories`         | GET    | Detected Spring Data repositories (summary)                               |
-| `/bootui/api/data/repositories/{name}`  | GET    | Spring Data repository detail with query methods                          |
-| `/bootui/api/flyway/migrations`         | GET    | Flyway migration state and action availability per database                |
-| `/bootui/api/flyway/migrate`            | POST   | Run pending Flyway migrations only when confirmed and not read-only        |
-| `/bootui/api/flyway/clean`              | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, and not read-only |
-| `/bootui/api/liquibase/changesets`      | GET    | Applied/pending Liquibase change sets and action availability per database |
-| `/bootui/api/liquibase/update`          | POST   | Apply pending Liquibase change sets only when confirmed and not read-only  |
-| `/bootui/api/spring-cache`              | GET    | Spring Cache managers, caches, metrics, and annotation operations         |
-| `/bootui/api/spring-cache/clear`        | POST   | Clear one or all known caches only when explicitly enabled and confirmed  |
-| `/bootui/api/spring-security`           | GET    | Spring Security filter chain report                                       |
-| `/bootui/api/spring-security/explain`   | GET    | Best-effort chain match for a method/path                                 |
-| `/bootui/api/spring-security/endpoints` | GET    | Best-effort per-endpoint authorization report                             |
-| `/bootui/api/security-logs`             | GET    | Recent Spring Boot audit/security events                                  |
-| `/bootui/api/pentest`                   | GET    | Latest local OWASP hygiene report                                         |
-| `/bootui/api/pentest/scan`              | POST   | Run explicit bounded localhost OWASP hygiene checks                       |
-| `/bootui/api/copilot/**`                | GET    | Sanitized GitHub Copilot CLI session dashboard, explorer, raw reveal, SSE |
-| `/bootui/api/claude-code/**`            | GET    | Sanitized Claude Code project-log dashboard, explorer, raw reveal, SSE    |
+| Endpoint                                     | Method | Purpose                                                                                |
+| -------------------------------------------- | ------ | -------------------------------------------------------------------------------------- |
+| `/bootui/api/overview`                       | GET    | App, runtime, Spring Boot, profile, and BootUI status                                  |
+| `/bootui/api/github`                         | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot                  |
+| `/bootui/api/github/refresh`                 | POST   | Explicit bounded GitHub API refresh for project metrics and quotas                     |
+| `/bootui/api/beans`                          | GET    | Searchable bean summary                                                                |
+| `/bootui/api/conditions`                     | GET    | Auto-configuration conditions                                                          |
+| `/bootui/api/config`                         | GET    | Effective configuration values                                                         |
+| `/bootui/api/config/overrides`               | POST   | Create or update a local runtime configuration property override                       |
+| `/bootui/api/config/overrides/{name}`        | DELETE | Remove a local runtime configuration property override                                 |
+| `/bootui/api/mappings`                       | GET    | HTTP mappings                                                                          |
+| `/bootui/api/mappings/flat`                  | GET    | Stable, paged HTTP mapping summaries                                                   |
+| `/bootui/api/health`                         | GET    | Health tree                                                                            |
+| `/bootui/api/http-sessions`                  | GET    | Bounded local embedded-Tomcat HTTP session report                                      |
+| `/bootui/api/http-sessions/{key}/clear`      | POST   | Clear attributes from a selected HTTP session after explicit confirmation              |
+| `/bootui/api/http-sessions/{key}/invalidate` | POST   | Invalidate a selected HTTP session after explicit confirmation                         |
+| `/bootui/api/loggers`                        | GET    | Logger levels                                                                          |
+| `/bootui/api/loggers/{name}`                 | POST   | Change logger level                                                                    |
+| `/bootui/api/startup`                        | GET    | Startup timeline                                                                       |
+| `/bootui/api/threads`                        | GET    | Stable, paged live thread snapshot with state counts and deadlock info                 |
+| `/bootui/api/threads/download`               | POST   | Confirmation-gated raw text thread dump download                                       |
+| `/bootui/api/metrics`                        | GET    | Browseable Micrometer meter list                                                       |
+| `/bootui/api/metrics/detail`                 | GET    | Micrometer meter detail and live measurements                                          |
+| `/bootui/api/dependencies`                   | GET    | Runtime Maven dependency inventory without external scanning                           |
+| `/bootui/api/dependencies/scan`              | POST   | Explicit on-demand OSV.dev vulnerability scan                                          |
+| `/bootui/api/devtools`                       | GET    | Spring Boot DevTools status                                                            |
+| `/bootui/api/devtools/livereload`            | POST   | Trigger a DevTools LiveReload notification when available                              |
+| `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
+| `/bootui/api/memory`                         | GET    | JVM memory report                                                                      |
+| `/bootui/api/tuning-advisor`                 | GET    | JVM tuning advisor report                                                              |
+| `/bootui/api/scheduled`                      | GET    | Scheduled tasks                                                                        |
+| `/bootui/api/probe`                          | POST   | Local HTTP probe                                                                       |
+| `/bootui/api/logs/recent`                    | GET    | Recent log lines                                                                       |
+| `/bootui/api/logs/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
+| `/bootui/api/profiles`                       | GET    | Profile-specific property sources                                                      |
+| `/bootui/api/dev-services`                   | GET    | Docker Compose, Testcontainers, and service connection entries                         |
+| `/bootui/api/dev-services/{id}/logs`         | GET    | Bounded log tail for a bean-backed service when available                              |
+| `/bootui/api/dev-services/{id}/restart`      | POST   | Restart a bean-backed service only when explicitly enabled                             |
+| `/bootui/api/data/repositories`              | GET    | Detected Spring Data repositories (summary)                                            |
+| `/bootui/api/data/repositories/{name}`       | GET    | Spring Data repository detail with query methods                                       |
+| `/bootui/api/hibernate-advisor`              | GET    | Latest Hibernate/JPA advisor report                                                    |
+| `/bootui/api/hibernate-advisor/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
+| `/bootui/api/flyway/migrations`              | GET    | Flyway migration state and action availability per database                            |
+| `/bootui/api/flyway/migrate`                 | POST   | Run pending Flyway migrations only when confirmed and not read-only                    |
+| `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, and not read-only |
+| `/bootui/api/liquibase/changesets`           | GET    | Applied/pending Liquibase change sets and action availability per database             |
+| `/bootui/api/liquibase/update`               | POST   | Apply pending Liquibase change sets only when confirmed and not read-only              |
+| `/bootui/api/spring-cache`                   | GET    | Spring Cache managers, caches, metrics, and annotation operations                      |
+| `/bootui/api/spring-cache/clear`             | POST   | Clear one or all known caches only when explicitly enabled and confirmed               |
+| `/bootui/api/spring-security`                | GET    | Spring Security filter chain report                                                    |
+| `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
+| `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
+| `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
+| `/bootui/api/pentest`                        | GET    | Latest local OWASP hygiene report                                                      |
+| `/bootui/api/pentest/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
+| `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, explorer, raw reveal, SSE              |
+| `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, explorer, raw reveal, SSE                 |
 
 ### 6.5 Configuration properties
 
@@ -1111,14 +1144,14 @@ Initial properties:
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
 | `bootui.dependencies.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
 | `bootui.dependencies.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
-| `bootui.github.api-enabled`                  | `true`                                  | Allow GitHub panel refresh calls to GitHub APIs.                                                   |
-| `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                              |
-| `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                         |
-| `bootui.github.max-issues`                   | `25`                                    | Maximum open issues fetched for GitHub issue buckets.                                              |
-| `bootui.github.max-workflow-runs`            | `20`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                       |
-| `bootui.github.quota-safety-threshold`       | `10`                                    | Skip optional GitHub calls when remaining core quota is at or below this value.                    |
-| `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls issued by one refresh.                                                    |
-| `bootui.github.allowed-api-hosts`             | `api.github.com`                        | Allowed GitHub API hosts; add a GitHub Enterprise host to enable enterprise remotes.               |
+| `bootui.github.api-enabled`                  | `true`                                  | Allow GitHub panel refresh calls to GitHub APIs.                                                  |
+| `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                             |
+| `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                        |
+| `bootui.github.max-issues`                   | `25`                                    | Maximum open issues fetched for GitHub issue buckets.                                             |
+| `bootui.github.max-workflow-runs`            | `20`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                      |
+| `bootui.github.quota-safety-threshold`       | `10`                                    | Skip optional GitHub calls when remaining core quota is at or below this value.                   |
+| `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls issued by one refresh.                                                   |
+| `bootui.github.allowed-api-hosts`            | `api.github.com`                        | Allowed GitHub API hosts; add a GitHub Enterprise host to enable enterprise remotes.              |
 | `bootui.dev-services.restart-enabled`        | `false`                                 | Enables restart controls for bean-backed Testcontainers services.                                 |
 | `bootui.dev-services.log-tail-bytes`         | `65536`                                 | Maximum bytes returned by one Dev Services log request.                                           |
 | `bootui.telemetry.enabled`                   | `true`                                  | Enables local trace capture and the OTLP/HTTP receiver used by the Traces and AI Usage panels.    |
@@ -1210,6 +1243,7 @@ Top-level navigation:
 - Database:
   - Database Connection Pools.
   - Spring Data.
+  - Hibernate Advisor.
   - Flyway.
   - Liquibase.
 - Security:
@@ -1323,9 +1357,9 @@ BootUI's current pre-1.0 release surface is complete when:
 - The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
   unavailable navigation groups covering Health, HTTP Sessions, Metrics, Memory, Tuning Advisor, Heap Dump, Threads,
   Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Spring Security,
-  Security Logs, Pentesting, Database Connection Pools, Spring Data, Flyway, Liquibase, Scheduled Tasks, Spring Cache,
-  AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture, Vulnerabilities, DevTools, Dev Services, Copilot,
-  Claude Code, and GitHub.
+  Security Logs, Pentesting, Database Connection Pools, Spring Data, Hibernate Advisor, Flyway, Liquibase, Scheduled
+  Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture, Vulnerabilities, DevTools,
+  Dev Services, Copilot, Claude Code, and GitHub.
 - Secret-like values are masked.
 - BootUI is disabled by default outside local/dev contexts.
 - Tests verify activation and safety behavior.

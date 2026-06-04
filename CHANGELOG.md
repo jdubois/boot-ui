@@ -7,15 +7,42 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [0.5.0] - 2026-06-04
+
+Fifth BootUI release, focused on repository context, servlet session inspection, database migration/advisor tooling, and
+release-facing documentation for the expanded 0.5.0 panel surface.
+
 ### Added
 
+- GitHub dashboard panel under Overview, with local repository detection, bounded refreshes for pull requests, issues,
+  latest GitHub Actions executions, dynamic rate-limit/quota drawers, security signals, and Copilot usage report metadata.
+- HTTP Sessions panel backed by embedded Tomcat session metadata, with masked session identifiers and attributes by
+  default plus confirmation-gated clear/destroy actions.
+- Database navigation group with read-mostly Flyway and Liquibase panels, including migration/change-set inventory and
+  confirmation-gated `migrate`, `clean`, and `update` actions.
+- Hibernate Advisor panel with explicit Hibernate/JPA mapping, configuration, caching, and repository-query checks, plus
+  the `docs/HIBERNATE-CHECKS.md` rule catalogue.
 - Auto-configured an in-memory Spring Boot `AuditEventRepository` for Security Logs when BootUI is active, audit events are
   enabled, and the host app has not provided its own repository.
+- Sample-app quick-start scripts for macOS/Linux and Windows PowerShell.
+
+### Changed
+
+- Standardized panel auto-refresh controls and visibility-aware refresh behaviour across live panels.
+- Updated the GitHub Actions drawer to show latest execution details and count only the latest run per workflow when
+  reporting workflow failures.
+- Expanded the sample app with Flyway/Liquibase schemas, richer Hibernate/JPA sample mappings, HTTP session data, security
+  events, and release screenshots for the current sidebar surface.
+- Reworked the implementation roadmap so already-shipped database/security/runtime panels moved out of the plan and the
+  next workstream focuses on trace/log/request correlation, bean graph visualization, and an e-mail viewer.
 
 ### Fixed
 
+- Corrected AI Usage telemetry KPIs and summary calculations.
 - Matched the exact BootUI root paths in BootUI's highest-priority Spring Security chain so host SPA fallback filters do
   not intercept `/bootui` before BootUI can redirect to its console.
+- Tightened security diagnostics, value exposure handling, panel availability wiring, and release documentation for the
+  0.5.0 panel surface.
 
 ## [0.4.0] - 2026-06-03
 
@@ -266,22 +293,14 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.4.0...HEAD
-
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jdubois/boot-ui/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jdubois/boot-ui/compare/v0.3.0...v0.4.0
-
 [0.3.0]: https://github.com/jdubois/boot-ui/compare/v0.2.0...v0.3.0
-
 [0.2.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0...v0.2.0
-
 [0.1.0]: https://github.com/jdubois/boot-ui/compare/v0.1.0-alpha.5...v0.1.0
-
 [0.1.0-alpha.5]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.5
-
 [0.1.0-alpha.4]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.4
-
 [0.1.0-alpha.3]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.3
-
 [0.1.0-alpha.2]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.2
-
 [0.1.0-alpha.1]: https://github.com/jdubois/boot-ui/releases/tag/v0.1.0-alpha.1

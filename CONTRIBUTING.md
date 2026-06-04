@@ -128,10 +128,10 @@ to stage for manual publishing instead.
 
 To prepare and publish a release, run the **Release** GitHub Actions workflow
 from the branch you want to release, usually `main`, and enter the target version
-without the leading `v`, for example `0.4.0`. The workflow updates all Maven
+without the leading `v`, for example `0.5.0`. The workflow updates all Maven
 module versions, refreshes the README dependency example, optionally verifies
 with the `release` Maven profile, commits the release, creates an annotated
-`v0.4.0` tag, pushes the branch plus tag, and publishes to Maven Central in the
+`v0.5.0` tag, pushes the branch plus tag, and publishes to Maven Central in the
 same run. The selected branch must allow `github-actions[bot]` to push the
 release commit and tag.
 
@@ -141,7 +141,7 @@ tagged with the Maven project version. Configure these repository or environment
 secrets before running it:
 
 | Secret                   | Value                                            |
-|--------------------------|--------------------------------------------------|
+| ------------------------ | ------------------------------------------------ |
 | `MAVEN_CENTRAL_USERNAME` | Sonatype Central Portal user token username      |
 | `MAVEN_CENTRAL_PASSWORD` | Sonatype Central Portal user token password      |
 | `GPG_PRIVATE_KEY`        | ASCII-armored private key used to sign artifacts |
@@ -164,7 +164,7 @@ want to review and publish the deployment in the Central Portal.
 
 ## Reporting bugs and security issues
 
-- **Bugs**: open an issue using the *Bug report* template.
+- **Bugs**: open an issue using the _Bug report_ template.
 - **Security vulnerabilities**: do **not** open a public issue. Use GitHub's
   private security advisory flow: see [SECURITY.md](SECURITY.md).
 
