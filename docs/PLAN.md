@@ -43,11 +43,11 @@ and outbound-network features land later because they need stricter masking, bou
 | 4        | Bean / dependency graph visualization | Configuration   | Existing Beans and Conditions data                 | No                | Existing roadmap |
 | 5        | E-mail Viewer                         | Diagnostics     | Intercepted `JavaMailSender`                       | No (capture only) | New addition     |
 | 6        | HTTP Session Viewer (Tomcat)          | Diagnostics     | Embedded Tomcat Catalina `Manager`                 | Optional, gated   | New addition     |
-| 7        | GitHub Integration                    | Developer tools | Local git remote + GitHub REST API                 | No (phase 1)      | New addition     |
+| 7        | GitHub                                | Overview        | Local git remote + GitHub REST API                 | Auto-refresh 60s  | New addition     |
 
 The Trace ↔ Log ↔ Request correlation work in §3.3 builds on the already-shipped HTTP Exchanges panel. The GitHub
-integration is the only feature here requiring outbound network and credentials, so it lands last and ships read-only
-first.
+panel is the only feature here requiring outbound network and credentials, so it lands last and ships read-only first even
+though its route should appear directly under the Overview panel.
 
 ## 3. Feature specifications
 
@@ -192,33 +192,74 @@ Design constraints:
 - Implemented defensively: access across the Tomcat handle is wrapped so a layout change degrades to a stable empty report
   rather than failing, the same posture as the ArchUnit importer.
 
-### 3.7 GitHub Integration — Developer tools
+### 3.7 GitHub — Overview
 
-A read-only dashboard for the **current** project, detected from the local git remote: repository metadata, open pull
-requests with CI/check status, recent workflow runs, and headline stats (open issues/PRs, stars), plus an API rate-limit
-indicator. Live metrics are bounded client-side polling. PR creation and other mutating actions are deferred; if added
-later they must be confirmation-gated and disabled by default.
+A read-only panel for the **current** project, detected from the local git remote and placed directly under the
+Overview panel in the sidebar. It answers "what is happening on GitHub for this repository right now?" without turning
+BootUI into a hosted project-management tool: repository health, live collaboration signals, CI status, security signals
+where permitted, and every quota or rate-limit resource GitHub exposes to the active credential. Live metrics are bounded
+client-side polling with BootUI's standard auto-refresh control set to 60 seconds. PR creation and other mutating actions
+are deferred; if added later they must be confirmation-gated and disabled by default.
+
+Scope:
+
+- Repository identity and health: owner/repo, default branch, visibility, archived/fork state, license, stars, forks,
+  watchers, open issues, open pull requests, latest release, pushed-at timestamp, and detected local branch/upstream.
+- Pull request queue: open PRs with author, draft state, labels, review decision, mergeability when available, check suite
+  conclusion, required-status summary, and age since last update.
+- Issues and planning: open issue counts by label/state buckets, issues assigned to the current user, stale issue/PR
+  buckets, and milestone progress when milestones exist.
+- CI and automation: recent workflow runs, current failures, average and p95 run duration, queue time when available,
+  runner availability, artifact count/size, cache size, and Dependabot activity where permitted.
+- Repository traffic and activity where the credential has access: clones, views, popular paths/referrers, commit activity,
+  release/download counts, and contributor activity, with clear "requires repository push/admin access" unavailable states.
+- Security signals where enabled and authorized: Dependabot alerts, code scanning alerts, secret scanning alerts, security
+  advisories, and branch protection summaries; no alert secret values or vulnerable code snippets are shown.
+- Quotas and limits: render **all** resources returned by GitHub's `/rate_limit` response dynamically (for example core,
+  search, code search, GraphQL, integration manifest, source import, code scanning upload, dependency snapshots, and any
+  GitHub Enterprise-specific resources), plus best-effort cards for Actions minutes/storage, Actions cache, artifacts,
+  Packages storage, Codespaces, Git LFS, and other account/org quotas when the current credential and host expose them.
+- Quota explainability: show used, remaining, limit, reset time, percentage used, scope (repo/user/org/enterprise), data
+  freshness, and the exact unavailable reason when a quota endpoint is missing, unsupported by GitHub Enterprise, or denied
+  by permissions. Highlight quota resources only when they are exhausted or have 10% or less remaining.
+- Copilot usage: when the repository owner is an organization and the credential is authorized, probe GitHub's latest
+  28-day Copilot organization usage report metadata. Show availability, report window, and download-link count only; do
+  not download or expose signed NDJSON report URLs.
 
 Data source:
 
 - Repo detection (no network): parse `owner/repo` from `.git/config` / `git remote get-url origin`; activate only for
   GitHub remotes (github.com or a configured GitHub Enterprise host).
-- GitHub REST API (outbound, opt-in): pull requests, checks/statuses, workflow runs, repo stats, and `/rate_limit`.
-  Outbound HTTP has precedent in the OSV Vulnerabilities scanner.
+- GitHub REST API (outbound, opt-in): repository metadata, pull requests, checks/statuses, workflow runs, issues,
+  releases, traffic, security alerts, Actions storage/cache/artifact data, billing/quota endpoints where authorized, and
+  `/rate_limit`. Outbound HTTP has precedent in the OSV Vulnerabilities scanner.
+- GraphQL API (optional): only for fields that are significantly more efficient or unavailable through REST, such as
+  review-decision summaries. It must be skipped when the GraphQL quota is unavailable or too constrained.
 
 Credentials and network safety:
 
-- Token discovery is opt-in and read-only: environment `GITHUB_TOKEN`/`GH_TOKEN` or an existing `gh` CLI login. The token
-  is never persisted, never echoed, and shown masked. Without a token, fall back to unauthenticated calls (60 req/hr) and
-  surface the rate-limit state clearly.
-- Outbound calls are off by default, triggered by an explicit Connect/Refresh action, with a configurable host allowlist
-  (`api.github.com` / GitHub Enterprise) and request timeouts.
+- Token discovery is opt-in and read-only from the current device: environment `GITHUB_TOKEN`/`GH_TOKEN` first, then an
+  existing `gh` CLI login if present. The token is never persisted by BootUI, never echoed to logs or the browser, and
+  only shown as masked credential metadata (source, login when safe, scopes if GitHub exposes them).
+- Without a token, fall back to unauthenticated public calls (60 req/hr) and surface every resulting quota and private-repo
+  limitation clearly.
+- Outbound calls are triggered by the panel's 60-second auto-refresh/manual refresh flow and remain guarded by a
+  configurable host allowlist (`api.github.com` / GitHub Enterprise), request timeouts, and bounded fan-out so quota
+  collection cannot exhaust the user's remaining API budget.
+- Quota collection must be adaptive: fetch `/rate_limit` first, estimate the cost of optional calls, skip low-priority
+  sections when remaining quota is below a safety threshold, and mark skipped cards as quota-protected rather than failed.
 
 Design constraints:
 
 - Available only when the working tree has a GitHub `origin`. Degrade with a clear reason when the project is not a git
   repository, has a non-GitHub remote, is offline, hits an unauthenticated private repository, or is rate-limited.
-- Bounded result counts and refresh interval; reuse masking for any user-identifying fields.
+- Bounded result counts and refresh interval; reuse masking for any user-identifying fields, alert metadata, branch names,
+  labels, and URLs that may contain internal project information.
+- The quota model should be data-driven so new GitHub quota resources appear automatically without a BootUI release.
+- GitHub Enterprise support must not assume GitHub.com-only endpoints; unsupported quota cards stay visible as unavailable
+  with host-specific reasons.
+- UI placement is immediately after Overview, before Runtime, because this is a live project-level summary rather than a
+  developer-tool utility panel.
 - Phase 1 is a read-only dashboard only; anything mutating (PR creation, labels, merges) is a later, confirmation-gated
   iteration.
 

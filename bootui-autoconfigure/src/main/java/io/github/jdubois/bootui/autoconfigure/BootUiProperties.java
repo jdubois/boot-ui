@@ -85,6 +85,10 @@ public class BootUiProperties {
      */
     private Dependencies dependencies = new Dependencies();
     /**
+     * GitHub panel settings.
+     */
+    private GitHub github = new GitHub();
+    /**
      * HTTP Exchanges panel settings.
      */
     private HttpExchanges httpExchanges = new HttpExchanges();
@@ -268,6 +272,14 @@ public class BootUiProperties {
 
     public void setDependencies(Dependencies dependencies) {
         this.dependencies = dependencies;
+    }
+
+    public GitHub getGithub() {
+        return github;
+    }
+
+    public void setGithub(GitHub github) {
+        this.github = github == null ? new GitHub() : github;
     }
 
     public HttpExchanges getHttpExchanges() {
@@ -487,6 +499,113 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    public static class GitHub {
+
+        /**
+         * Allow the GitHub panel refresh action to call GitHub APIs.
+         */
+        private boolean apiEnabled = true;
+
+        /**
+         * Timeout applied to each GitHub API request and local credential lookup.
+         */
+        private Duration requestTimeout = Duration.ofSeconds(5);
+
+        /**
+         * Maximum pull requests returned in one dashboard refresh.
+         */
+        private int maxPullRequests = 10;
+
+        /**
+         * Maximum issues returned in one dashboard refresh.
+         */
+        private int maxIssues = 25;
+
+        /**
+         * Maximum workflow runs returned in one dashboard refresh.
+         */
+        private int maxWorkflowRuns = 10;
+
+        /**
+         * Safety threshold below which optional GitHub calls are skipped.
+         */
+        private int quotaSafetyThreshold = 10;
+
+        /**
+         * Maximum number of GitHub API calls issued by one refresh.
+         */
+        private int maxApiCalls = 17;
+
+        /**
+         * Additional allowed GitHub API hosts. GitHub.com is allowed by default.
+         */
+        private String[] allowedApiHosts = {"api.github.com"};
+
+        public boolean isApiEnabled() {
+            return apiEnabled;
+        }
+
+        public void setApiEnabled(boolean apiEnabled) {
+            this.apiEnabled = apiEnabled;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout == null ? Duration.ofSeconds(5) : requestTimeout;
+        }
+
+        public int getMaxPullRequests() {
+            return maxPullRequests;
+        }
+
+        public void setMaxPullRequests(int maxPullRequests) {
+            this.maxPullRequests = maxPullRequests;
+        }
+
+        public int getMaxIssues() {
+            return maxIssues;
+        }
+
+        public void setMaxIssues(int maxIssues) {
+            this.maxIssues = maxIssues;
+        }
+
+        public int getMaxWorkflowRuns() {
+            return maxWorkflowRuns;
+        }
+
+        public void setMaxWorkflowRuns(int maxWorkflowRuns) {
+            this.maxWorkflowRuns = maxWorkflowRuns;
+        }
+
+        public int getQuotaSafetyThreshold() {
+            return quotaSafetyThreshold;
+        }
+
+        public void setQuotaSafetyThreshold(int quotaSafetyThreshold) {
+            this.quotaSafetyThreshold = quotaSafetyThreshold;
+        }
+
+        public int getMaxApiCalls() {
+            return maxApiCalls;
+        }
+
+        public void setMaxApiCalls(int maxApiCalls) {
+            this.maxApiCalls = maxApiCalls;
+        }
+
+        public String[] getAllowedApiHosts() {
+            return allowedApiHosts;
+        }
+
+        public void setAllowedApiHosts(String[] allowedApiHosts) {
+            this.allowedApiHosts = allowedApiHosts == null ? new String[] {"api.github.com"} : allowedApiHosts;
         }
     }
 

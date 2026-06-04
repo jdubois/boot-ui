@@ -53,6 +53,7 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(DevToolsBridge.class)
                         .hasSingleBean(DevToolsController.class)
                         .hasSingleBean(OverviewController.class)
+                        .hasSingleBean(GitHubController.class)
                         .hasSingleBean(DevServicesController.class)
                         .hasSingleBean(DependenciesController.class)
                         .hasSingleBean(PentestController.class)
@@ -157,6 +158,8 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
                     assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
                     assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
+                    assertThat(properties.getGithub().isApiEnabled()).isTrue();
+                    assertThat(properties.getGithub().getMaxApiCalls()).isEqualTo(17);
                     assertThat(properties.getCopilot().getMaxParsedSessions()).isEqualTo(12);
                     assertThat(properties.getClaudeCode().getMaxParsedSessions())
                             .isEqualTo(8);
@@ -183,6 +186,7 @@ class BootUiAutoConfigurationTests {
                             LiquibaseController.class,
                             DependenciesController.class,
                             DevToolsController.class,
+                            GitHubController.class,
                             GraalVmController.class,
                             HealthController.class,
                             HikariController.class,

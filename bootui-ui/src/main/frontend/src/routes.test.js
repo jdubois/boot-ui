@@ -7,6 +7,7 @@ describe('routes', () => {
   it('keeps the sidebar order aligned with the documented feature order', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
       'Overview',
+      'GitHub',
       'Health',
       'Metrics',
       'Memory',
@@ -75,6 +76,7 @@ describe('routes', () => {
     ])
 
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
+      groups.overview,
       groups.overview,
       groups.runtime,
       groups.runtime,
