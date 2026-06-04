@@ -42,7 +42,7 @@ if ((Test-Path -LiteralPath ".\mvnw.cmd") -and (Test-Path -LiteralPath ".\bootui
     }
 
     Write-Host "Cloning BootUI into $TargetDirectory..."
-    Invoke-Native -FilePath "git" -Arguments @("clone", $RepositoryUrl, $TargetDirectory)
+    Invoke-Native -FilePath "git" -Arguments @("clone", "--depth", "1", $RepositoryUrl, $TargetDirectory)
     Set-Location -LiteralPath $TargetDirectory
 }
 

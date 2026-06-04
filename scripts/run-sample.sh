@@ -23,7 +23,7 @@ else
   fi
 
   echo "Cloning BootUI into $TARGET_DIR..."
-  git clone "$REPO_URL" "$TARGET_DIR"
+  git clone --depth 1 "$REPO_URL" "$TARGET_DIR"
   cd "$TARGET_DIR"
 fi
 
