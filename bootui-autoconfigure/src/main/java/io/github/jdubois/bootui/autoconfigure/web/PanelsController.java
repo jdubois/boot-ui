@@ -122,6 +122,8 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.security.web.SecurityFilterChain"),
                         "Spring Security not on the classpath");
+            case BootUiPanels.SECURITY_ADVISOR ->
+                availability(securityAdvisorAvailable(), securityAdvisorUnavailableReason());
             case BootUiPanels.SECURITY_LOGS ->
                 availability(beanPresent(AuditEventRepository.class), "No AuditEventRepository bean is available");
             case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
@@ -299,6 +301,18 @@ public class PanelsController {
             return "Jakarta Persistence is not on the classpath";
         }
         return "No EntityManagerFactory beans are available";
+    }
+
+    private boolean securityAdvisorAvailable() {
+        return classPresent("org.springframework.security.web.FilterChainProxy")
+                && beanPresent("org.springframework.security.web.FilterChainProxy");
+    }
+
+    private String securityAdvisorUnavailableReason() {
+        if (!classPresent("org.springframework.security.web.FilterChainProxy")) {
+            return "Spring Security not on the classpath";
+        }
+        return "No Spring Security filter chains are available";
     }
 
     private boolean architectureAvailable() {

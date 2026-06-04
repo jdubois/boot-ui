@@ -23,6 +23,7 @@ const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
 const SpringSecurity = () => import('./views/SpringSecurity.vue')
+const SecurityAdvisor = () => import('./views/SecurityAdvisor.vue')
 const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const Memory = () => import('./views/Memory.vue')
 const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
@@ -194,10 +195,22 @@ export const routes = [
     meta: {group: groups.security, icon: 'bi-shield-lock', title: 'Security Logs'}
   },
   {
+    path: '/security-advisor',
+    name: 'security-advisor',
+    component: SecurityAdvisor,
+    meta: {group: groups.security, icon: 'bi-shield-check', title: 'Security Advisor'}
+  },
+  {
     path: '/pentest',
     name: 'pentest',
     component: Pentesting,
     meta: {group: groups.security, icon: 'bi-shield-exclamation', title: 'Pentesting'}
+  },
+  {
+    path: '/vulnerabilities',
+    name: 'vulnerabilities',
+    component: Vulnerabilities,
+    meta: {group: groups.security, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
     path: '/scheduled',
@@ -246,12 +259,6 @@ export const routes = [
     name: 'architecture',
     component: Architecture,
     meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
-  },
-  {
-    path: '/vulnerabilities',
-    name: 'vulnerabilities',
-    component: Vulnerabilities,
-    meta: {group: groups.diagnostics, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
     path: '/devtools',

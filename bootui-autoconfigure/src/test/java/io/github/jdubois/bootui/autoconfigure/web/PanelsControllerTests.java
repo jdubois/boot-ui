@@ -34,6 +34,7 @@ class PanelsControllerTests {
             BootUiPanels.CONDITIONS,
             BootUiPanels.MAPPINGS,
             BootUiPanels.SPRING_SECURITY,
+            BootUiPanels.SECURITY_ADVISOR,
             BootUiPanels.SECURITY_LOGS,
             BootUiPanels.PENTEST,
             BootUiPanels.SCHEDULED,
