@@ -24,6 +24,7 @@ target/
 *.ear
 *.log
 hs_err_pid*
+.m2/
 
 # Node / Vue
 node/

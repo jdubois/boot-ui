@@ -10,11 +10,11 @@ services:
   redis:
     image: redis:8-alpine
     ports:
-      - "6379:6379"
+      - "6379"
   ollama:
     image: ollama/ollama:latest
     ports:
-      - "11434:11434"
+      - "11434"
     healthcheck:
       test: [ "CMD", "ollama", "--version" ]
       interval: 10s
