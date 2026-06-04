@@ -5,4 +5,13 @@ import java.util.List;
 /**
  * Recorded change sets of one Liquibase bean (one managed database / change-log table).
  */
-public record LiquibaseDatabaseDto(String name, int total, List<LiquibaseChangeSetDto> changeSets) {}
+public record LiquibaseDatabaseDto(
+        String name,
+        int total,
+        List<LiquibaseChangeSetDto> changeSets,
+        boolean updateEnabled,
+        String updateDisabledReason,
+        boolean dropAllEnabled,
+        String dropAllDisabledReason,
+        boolean generateChangeLogEnabled,
+        String generateChangeLogDisabledReason) {}

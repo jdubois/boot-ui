@@ -114,6 +114,9 @@ class BootUiAutoConfigurationTests {
             assertThat(properties.getDevServices().isRestartEnabled()).isFalse();
             assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(64 * 1024);
             assertThat(properties.getCache().isClearEnabled()).isTrue();
+            assertThat(properties.getFlyway().isMigrateEnabled()).isFalse();
+            assertThat(properties.getFlyway().isCleanEnabled()).isFalse();
+            assertThat(properties.getLiquibase().isUpdateEnabled()).isFalse();
             assertThat(properties.getCopilot().getMaxParsedSessions()).isEqualTo(100);
             assertThat(properties.getClaudeCode().getMaxParsedSessions()).isEqualTo(100);
         });
@@ -134,6 +137,9 @@ class BootUiAutoConfigurationTests {
                         "bootui.dev-services.restart-enabled=true",
                         "bootui.dev-services.log-tail-bytes=2048",
                         "bootui.cache.clear-enabled=false",
+                        "bootui.flyway.migrate-enabled=true",
+                        "bootui.flyway.clean-enabled=true",
+                        "bootui.liquibase.update-enabled=true",
                         "bootui.http-exchanges.max-exchanges=2",
                         "bootui.dependencies.osv-enabled=false",
                         "bootui.dependencies.max-packages=42",
@@ -153,6 +159,9 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getDevServices().isRestartEnabled()).isTrue();
                     assertThat(properties.getDevServices().getLogTailBytes()).isEqualTo(2048);
                     assertThat(properties.getCache().isClearEnabled()).isFalse();
+                    assertThat(properties.getFlyway().isMigrateEnabled()).isTrue();
+                    assertThat(properties.getFlyway().isCleanEnabled()).isTrue();
+                    assertThat(properties.getLiquibase().isUpdateEnabled()).isTrue();
                     assertThat(properties.getHttpExchanges().getMaxExchanges()).isEqualTo(2);
                     assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
                     assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);

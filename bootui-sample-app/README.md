@@ -77,7 +77,8 @@ Useful URLs:
     state) tracked in `flyway_schema_history`; migrate/clean controls stay disabled
     unless the trusted local BootUI action flags are enabled.
 11. **Liquibase** — inspect the executed `inventory_*` change sets recorded in
-    `DATABASECHANGELOG`, on a table set fully separate from Flyway's, all read-only.
+    `DATABASECHANGELOG`, on a table set fully separate from Flyway's; update
+    controls stay disabled unless the trusted local BootUI action flag is enabled.
 12. **Spring Cache** — verify the Redis-backed `sample-products` and
    `sample-greetings` caches are listed, inspect cache annotations, and clear a
    cache after confirming the action.

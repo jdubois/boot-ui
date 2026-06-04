@@ -84,7 +84,7 @@ public final class BootUiPanels {
             new Panel(COPILOT, "Copilot", false, "/copilot"),
             new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"),
             new Panel(FLYWAY, "Flyway", true, "/flyway"),
-            new Panel(LIQUIBASE, "Liquibase", false, "/liquibase"));
+            new Panel(LIQUIBASE, "Liquibase", true, "/liquibase"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

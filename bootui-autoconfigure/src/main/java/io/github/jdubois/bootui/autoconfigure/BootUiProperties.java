@@ -81,6 +81,10 @@ public class BootUiProperties {
      */
     private Flyway flyway = new Flyway();
     /**
+     * Liquibase panel settings.
+     */
+    private Liquibase liquibase = new Liquibase();
+    /**
      * Security Logs panel settings.
      */
     private SecurityLogs securityLogs = new SecurityLogs();
@@ -264,6 +268,14 @@ public class BootUiProperties {
 
     public void setFlyway(Flyway flyway) {
         this.flyway = flyway == null ? new Flyway() : flyway;
+    }
+
+    public Liquibase getLiquibase() {
+        return liquibase;
+    }
+
+    public void setLiquibase(Liquibase liquibase) {
+        this.liquibase = liquibase == null ? new Liquibase() : liquibase;
     }
 
     public SecurityLogs getSecurityLogs() {
@@ -459,6 +471,23 @@ public class BootUiProperties {
 
         public void setCleanEnabled(boolean cleanEnabled) {
             this.cleanEnabled = cleanEnabled;
+        }
+    }
+
+    public static class Liquibase {
+
+        /**
+         * Allow BootUI to apply pending Liquibase change sets. Disabled by default
+         * because it mutates the application database.
+         */
+        private boolean updateEnabled = false;
+
+        public boolean isUpdateEnabled() {
+            return updateEnabled;
+        }
+
+        public void setUpdateEnabled(boolean updateEnabled) {
+            this.updateEnabled = updateEnabled;
         }
     }
 

@@ -214,12 +214,16 @@ generate reviewable scripts safely. The panel degrades to a clear empty state wh
 
 ### Liquibase
 
-The Liquibase panel provides read-only visibility into Liquibase change sets. It reads the change-log history that
-Liquibase recorded for each `SpringLiquibase` bean in the context and lists, per database, the executed change sets (id,
-author, change-log, description, comments, execution type, date executed, order executed, checksum, tag, deployment id,
-contexts, and labels). It never runs `update`, `rollback`, `dropAll`, or any other mutating Liquibase command, fails
-closed per bean when its history cannot be read, and degrades to a clear empty state when Liquibase is not on the
-classpath or no `SpringLiquibase` beans are present.
+The Liquibase panel shows change sets for each `SpringLiquibase` bean in the context. It reads the change-log history that
+Liquibase recorded and lists, per database, the executed change sets (id, author, change-log, description, comments,
+execution type, date executed, order executed, checksum, tag, deployment id, contexts, and labels). Multiple or named
+datasources appear independently.
+
+The panel also exposes a confirmation-gated `update` action that applies pending change sets. BootUI keeps it disabled by
+default; it requires `bootui.liquibase.update-enabled=true` and is also blocked by `bootui.read-only=true` or
+`bootui.panels.liquibase.read-only=true`. Destructive `dropAll` and changelog generation controls are shown as unavailable
+until BootUI can expose them with the right safety guarantees. The panel fails closed per bean when its history cannot be
+read and degrades to a clear empty state when Liquibase is not on the classpath or no `SpringLiquibase` beans are present.
 
 ## Security
 

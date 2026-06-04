@@ -687,7 +687,7 @@ Features:
 
 Out of scope for the current release surface:
 
-- Running `repair`, `baseline`, `validate`, rollback, or any Liquibase mutating command from the UI.
+- Running `repair`, `baseline`, `validate`, rollback, or Liquibase mutating commands beyond gated `update` from the UI.
 
 Acceptance criteria:
 
@@ -698,7 +698,8 @@ Acceptance criteria:
 
 ### 5.17.2 Liquibase Panel
 
-Purpose: answer "Which Liquibase-managed databases exist and which change sets have been executed?"
+Purpose: answer "Which Liquibase-managed databases exist, which change sets have been executed, and can I explicitly
+apply pending change sets?"
 
 Data sources:
 
@@ -711,16 +712,20 @@ Features:
 - List each `SpringLiquibase` bean as a database, with its executed change sets.
 - For each change set, show id, author, change-log, description, comments, execution type, date executed, order executed,
   checksum, tag, deployment id, contexts, and labels.
+- Allow a confirmed `update` action only when `bootui.liquibase.update-enabled=true`.
+- Show `dropAll` and changelog generation controls as unavailable until BootUI can expose them with the right safety
+  guarantees.
 
 Out of scope for the current release surface:
 
-- Running `update`, `rollback`, `dropAll`, or any other mutating Liquibase command from the UI.
+- Running `rollback`, `dropAll`, changelog generation, or any other Liquibase mutating command beyond gated `update`.
 
 Acceptance criteria:
 
 - When Liquibase is not on the classpath, the API endpoint is not registered.
 - When Liquibase is present but no `SpringLiquibase` beans exist, the panel shows a clear empty state.
-- The panel fails closed per bean when a bean's change-log history cannot be read, and never mutates the database.
+- Opening the panel only reads already-recorded change-set history; no Liquibase command is executed as a side effect.
+- Mutating Liquibase actions require explicit BootUI opt-in, browser confirmation, and a non-read-only panel.
 
 ### 5.18 Spring Cache Panel
 
@@ -1004,7 +1009,8 @@ Initial endpoints:
 | `/bootui/api/flyway/migrations`         | GET    | Flyway migration state and action availability per database                |
 | `/bootui/api/flyway/migrate`            | POST   | Run pending Flyway migrations only when explicitly enabled and confirmed   |
 | `/bootui/api/flyway/clean`              | POST   | Clean Flyway-managed schemas only when explicitly enabled and confirmed    |
-| `/bootui/api/liquibase/changesets`      | GET    | Executed Liquibase change sets per database (read-only)                   |
+| `/bootui/api/liquibase/changesets`      | GET    | Executed Liquibase change sets and action availability per database        |
+| `/bootui/api/liquibase/update`          | POST   | Apply pending Liquibase change sets only when explicitly enabled and confirmed |
 | `/bootui/api/spring-cache`              | GET    | Spring Cache managers, caches, metrics, and annotation operations         |
 | `/bootui/api/spring-cache/clear`        | POST   | Clear one or all known caches only when explicitly enabled and confirmed  |
 | `/bootui/api/spring-security`           | GET    | Spring Security filter chain report                                       |
@@ -1045,6 +1051,7 @@ Initial properties:
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
 | `bootui.flyway.migrate-enabled`              | `false`                                 | Enable confirmation-gated Flyway migrate actions. Disabled by default.                            |
 | `bootui.flyway.clean-enabled`                | `false`                                 | Enable confirmation-gated Flyway clean actions when Flyway also allows clean.                     |
+| `bootui.liquibase.update-enabled`            | `false`                                 | Enable confirmation-gated Liquibase update actions. Disabled by default.                         |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
