@@ -6,13 +6,20 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.sql.DataSource;
+import liquibase.integration.spring.SpringLiquibase;
+import org.flywaydb.core.Flyway;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.flyway.autoconfigure.FlywayMigrationStrategy;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +31,10 @@ import org.springframework.web.bind.annotation.RestController;
 @EnableScheduling
 @EnableConfigurationProperties(BootUiSampleApplication.SampleSettings.class)
 public class BootUiSampleApplication {
+
+    private static final String FLYWAY_STARTUP_TARGET = "2";
+    private static final String LIQUIBASE_BASE_CHANGELOG = "classpath:db/changelog/db.changelog-base.xml";
+    private static final String LIQUIBASE_MASTER_CHANGELOG = "classpath:db/changelog/db.changelog-master.xml";
 
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(BootUiSampleApplication.class);
@@ -43,6 +54,42 @@ public class BootUiSampleApplication {
         }
         Path moduleComposeFile = workingDirectory.resolve(Path.of("bootui-sample-app", "compose.yaml"));
         return Files.isRegularFile(moduleComposeFile) ? Optional.of(moduleComposeFile) : Optional.empty();
+    }
+
+    @Bean
+    FlywayMigrationStrategy sampleFlywayStartupStrategy() {
+        return flyway -> {
+            // BootUI should demonstrate pending migrations, so the sample applies
+            // its base schema in a runner below.
+        };
+    }
+
+    @Bean
+    ApplicationRunner sampleMigrationDemoInitializer(
+            Flyway flyway, DataSource dataSource, ResourceLoader resourceLoader) {
+        return args -> {
+            Flyway.configure()
+                    .configuration(flyway.getConfiguration())
+                    .target(FLYWAY_STARTUP_TARGET)
+                    .load()
+                    .migrate();
+
+            SpringLiquibase baseLiquibase = new SpringLiquibase();
+            baseLiquibase.setDataSource(dataSource);
+            baseLiquibase.setResourceLoader(resourceLoader);
+            baseLiquibase.setChangeLog(LIQUIBASE_BASE_CHANGELOG);
+            baseLiquibase.setShouldRun(true);
+            baseLiquibase.afterPropertiesSet();
+        };
+    }
+
+    @Bean
+    SpringLiquibase liquibase(DataSource dataSource) {
+        SpringLiquibase liquibase = new SpringLiquibase();
+        liquibase.setDataSource(dataSource);
+        liquibase.setChangeLog(LIQUIBASE_MASTER_CHANGELOG);
+        liquibase.setShouldRun(false);
+        return liquibase;
     }
 
     @ConfigurationProperties(prefix = "sample")

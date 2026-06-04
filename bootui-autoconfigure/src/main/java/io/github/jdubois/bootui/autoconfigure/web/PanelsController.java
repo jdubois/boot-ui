@@ -108,6 +108,8 @@ public class PanelsController {
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
             case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
+            case BootUiPanels.FLYWAY -> availability(flywayAvailable(), flywayUnavailableReason());
+            case BootUiPanels.LIQUIBASE -> availability(liquibaseAvailable(), liquibaseUnavailableReason());
             case BootUiPanels.SPRING_CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
             case BootUiPanels.SPRING_SECURITY ->
@@ -211,6 +213,38 @@ public class PanelsController {
             return "No supported JDBC connection pool implementation is available";
         }
         return "No database connection pool beans are available";
+    }
+
+    private boolean flywayAvailable() {
+        return classPresent("org.flywaydb.core.Flyway") && beanPresent("org.flywaydb.core.Flyway");
+    }
+
+    private String flywayUnavailableReason() {
+        if (!classPresent("org.flywaydb.core.Flyway")) {
+            return "Flyway is not on the classpath";
+        }
+        return "No Flyway beans are available";
+    }
+
+    private boolean liquibaseAvailable() {
+        return classPresent("liquibase.integration.spring.SpringLiquibase")
+                && beanPresent("liquibase.integration.spring.SpringLiquibase");
+    }
+
+    private String liquibaseUnavailableReason() {
+        if (!classPresent("liquibase.integration.spring.SpringLiquibase")) {
+            return "Liquibase is not on the classpath";
+        }
+        return "No Liquibase beans are available";
+    }
+
+    private boolean beanPresent(String className) {
+        try {
+            Class<?> type = ClassUtils.forName(className, getClass().getClassLoader());
+            return beanPresent(type);
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
     }
 
     private boolean architectureAvailable() {

@@ -251,7 +251,7 @@ public class BootUiProperties {
     }
 
     public void setCache(Cache cache) {
-        this.cache = cache;
+        this.cache = cache == null ? new Cache() : cache;
     }
 
     public SecurityLogs getSecurityLogs() {
