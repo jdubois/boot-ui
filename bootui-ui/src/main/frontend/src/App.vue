@@ -71,6 +71,7 @@ function onSystemThemeChange(e) {
 const semanticNavigationGroups = [
   {key: 'runtime', title: 'Runtime', icon: 'bi-activity'},
   {key: 'configuration', title: 'Configuration', icon: 'bi-sliders'},
+  {key: 'database', title: 'Database', icon: 'bi-database'},
   {key: 'security', title: 'Security', icon: 'bi-shield-lock'},
   {key: 'services', title: 'Services', icon: 'bi-hdd-network'},
   {key: 'diagnostics', title: 'Diagnostics', icon: 'bi-search'},

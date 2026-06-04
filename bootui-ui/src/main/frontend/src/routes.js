@@ -8,6 +8,8 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionsPools = () => import('./views/DatabaseConnectionsPools.vue')
 const Data = () => import('./views/Data.vue')
+const Flyway = () => import('./views/Flyway.vue')
+const Liquibase = () => import('./views/Liquibase.vue')
 const Startup = () => import('./views/Startup.vue')
 const Scheduled = () => import('./views/Scheduled.vue')
 const HttpProbe = () => import('./views/HttpProbe.vue')
@@ -36,6 +38,7 @@ export const groups = {
   overview: 'overview',
   runtime: 'runtime',
   configuration: 'configuration',
+  database: 'database',
   security: 'security',
   services: 'services',
   diagnostics: 'diagnostics',
@@ -141,6 +144,30 @@ export const routes = [
     meta: {group: groups.configuration, icon: 'bi-signpost-2', title: 'Mappings'}
   },
   {
+    path: '/database-connection-pools',
+    name: 'database-connection-pools',
+    component: DatabaseConnectionsPools,
+    meta: {group: groups.database, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
+  },
+  {
+    path: '/data',
+    name: 'data',
+    component: Data,
+    meta: {group: groups.database, icon: 'bi-database', title: 'Spring Data'}
+  },
+  {
+    path: '/flyway',
+    name: 'flyway',
+    component: Flyway,
+    meta: {group: groups.database, icon: 'bi-arrow-up-right-circle', title: 'Flyway'}
+  },
+  {
+    path: '/liquibase',
+    name: 'liquibase',
+    component: Liquibase,
+    meta: {group: groups.database, icon: 'bi-droplet', title: 'Liquibase'}
+  },
+  {
     path: '/spring-security',
     name: 'spring-security',
     component: SpringSecurity,
@@ -163,18 +190,6 @@ export const routes = [
     name: 'scheduled',
     component: Scheduled,
     meta: {group: groups.services, icon: 'bi-clock-history', title: 'Scheduled Tasks'}
-  },
-  {
-    path: '/database-connection-pools',
-    name: 'database-connection-pools',
-    component: DatabaseConnectionsPools,
-    meta: {group: groups.services, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
-  },
-  {
-    path: '/data',
-    name: 'data',
-    component: Data,
-    meta: {group: groups.services, icon: 'bi-database', title: 'Spring Data'}
   },
   {
     path: '/spring-cache',

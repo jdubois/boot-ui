@@ -31,6 +31,8 @@ public final class BootUiPanels {
     public static final String CONDITIONS = "conditions";
     public static final String MAPPINGS = "mappings";
     public static final String DATA = "data";
+    public static final String FLYWAY = "flyway";
+    public static final String LIQUIBASE = "liquibase";
     public static final String DATABASE_CONNECTION_POOLS = "database-connection-pools";
     public static final String SPRING_CACHE = "spring-cache";
     public static final String SPRING_SECURITY = "spring-security";
@@ -82,7 +84,9 @@ public final class BootUiPanels {
             new Panel(DEVTOOLS, "DevTools", true, "/devtools"),
             new Panel(DEV_SERVICES, "Dev Services", true, "/dev-services"),
             new Panel(COPILOT, "Copilot", false, "/copilot"),
-            new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"));
+            new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"),
+            new Panel(FLYWAY, "Flyway", true, "/flyway"),
+            new Panel(LIQUIBASE, "Liquibase", true, "/liquibase"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

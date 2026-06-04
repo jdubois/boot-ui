@@ -52,12 +52,14 @@ Panel settings are consistent across the UI and API:
 | Configuration   | Beans                     | `beans`                     | `bootui.panels.beans.enabled`                     | Not applicable; view-only.                |
 | Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                |
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
+| Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
+| Database        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                |
+| Database        | Flyway                    | `flyway`                    | `bootui.panels.flyway.enabled`                    | `bootui.panels.flyway.read-only`          |
+| Database        | Liquibase                 | `liquibase`                 | `bootui.panels.liquibase.enabled`                 | `bootui.panels.liquibase.read-only`       |
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
 | Security        | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`         |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                |
-| Services        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
-| Services        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                |
 | Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`    |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
@@ -115,7 +117,7 @@ Panel settings are consistent across the UI and API:
 
 | Property                              | Default | Description                                                                 |
 | ------------------------------------- | ------- | --------------------------------------------------------------------------- |
-| `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events from an `AuditEventRepository` bean. |
+| `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events and auto-contribute an in-memory `AuditEventRepository` when the host has none. |
 | `bootui.security-logs.max-logs`       | `500`   | Maximum recent audit events returned in one Security Logs response.         |
 
 ### Pentesting
@@ -132,6 +134,20 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.spring-cache.enabled`   | `true`  | Show Spring Cache managers, caches, metrics, and cache annotations.                               |
 | `bootui.panels.spring-cache.read-only` | `false` | Disable cache clear actions.                                                                      |
 | `bootui.cache.clear-enabled`           | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing. |
+
+### Flyway
+
+| Property                         | Default | Description                                                                                                 |
+| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.flyway.enabled`   | `true`  | Show Flyway migration state and allow its read APIs.                                                        |
+| `bootui.panels.flyway.read-only` | `false` | Disable Flyway `migrate` and `clean` actions while keeping migration state visible.                         |
+
+### Liquibase
+
+| Property                            | Default | Description                                                                            |
+| ----------------------------------- | ------- | -------------------------------------------------------------------------------------- |
+| `bootui.panels.liquibase.enabled`   | `true`  | Show Liquibase change-set history and allow its read APIs.                             |
+| `bootui.panels.liquibase.read-only` | `false` | Disable Liquibase `update` actions while keeping change-set history visible.           |
 
 ### Traces
 

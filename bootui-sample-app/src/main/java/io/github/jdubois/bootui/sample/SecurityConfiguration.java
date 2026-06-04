@@ -9,8 +9,12 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.actuate.audit.AuditEvent;
-import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
+import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -29,6 +33,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(SecurityConfiguration.class);
 
     @Bean
     @Order(1)
@@ -78,24 +84,29 @@ class SecurityConfiguration {
     }
 
     @Bean
-    InMemoryAuditEventRepository auditEventRepository() {
-        InMemoryAuditEventRepository repository = new InMemoryAuditEventRepository();
-        repository.add(new AuditEvent(
-                Instant.now().minusSeconds(300),
-                "developer",
-                "AUTHENTICATION_SUCCESS",
-                Map.of("path", "/api/public", "remoteAddress", "127.0.0.1")));
-        repository.add(new AuditEvent(
-                Instant.now().minusSeconds(120),
-                "anonymousUser",
-                "AUTHORIZATION_DENIED",
-                Map.of("path", "/api/secure", "sessionId", "sample-session")));
-        repository.add(new AuditEvent(
-                Instant.now().minusSeconds(60),
-                "admin",
-                "AUTHENTICATION_SUCCESS",
-                Map.of("path", "/api/secure", "details", "HTTP Basic login accepted")));
-        return repository;
+    ApplicationRunner sampleAuditEvents(ObjectProvider<AuditEventRepository> auditEventRepositoryProvider) {
+        return args -> {
+            AuditEventRepository repository = auditEventRepositoryProvider.getIfAvailable();
+            if (repository == null) {
+                log.info("Skipping sample Security Logs events because no AuditEventRepository bean is available");
+                return;
+            }
+            repository.add(new AuditEvent(
+                    Instant.now().minusSeconds(300),
+                    "developer",
+                    "AUTHENTICATION_SUCCESS",
+                    Map.of("path", "/api/public", "remoteAddress", "127.0.0.1")));
+            repository.add(new AuditEvent(
+                    Instant.now().minusSeconds(120),
+                    "anonymousUser",
+                    "AUTHORIZATION_DENIED",
+                    Map.of("path", "/api/secure", "sessionId", "sample-session")));
+            repository.add(new AuditEvent(
+                    Instant.now().minusSeconds(60),
+                    "admin",
+                    "AUTHENTICATION_SUCCESS",
+                    Map.of("path", "/api/secure", "details", "HTTP Basic login accepted")));
+        };
     }
 
     private static CsrfTokenRequestAttributeHandler csrfTokenRequestHandler() {

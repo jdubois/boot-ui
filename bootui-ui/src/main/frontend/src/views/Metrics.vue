@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, ref} from 'vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -18,7 +18,6 @@ const selectedTags = ref([])
 const selectedStatistic = ref('')
 const history = ref([])
 const lastUpdated = ref(null)
-let timer = null
 let loadingDetail = false
 
 const filteredMeters = computed(() => {
@@ -80,13 +79,17 @@ function resetHistory() {
   history.value = []
 }
 
-function selectMeter(name) {
-  if (selectedName.value === name) return
+function resetSelection(name) {
   selectedName.value = name
   selectedTags.value = []
   selectedStatistic.value = ''
   detail.value = null
   resetHistory()
+}
+
+function selectMeter(name) {
+  if (selectedName.value === name) return
+  resetSelection(name)
   loadDetail()
 }
 
@@ -123,10 +126,18 @@ async function fetchMetrics() {
     data.value = await res.json()
     error.value = null
     if (!selectedName.value && data.value.meters.length) {
-      selectMeter(preferredInitialMeter(data.value.meters))
+      resetSelection(preferredInitialMeter(data.value.meters))
     }
+    return true
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load metrics')
+    return false
+  }
+}
+
+async function refreshMetrics() {
+  if (await fetchMetrics()) {
+    await loadDetail()
   }
 }
 
@@ -168,23 +179,7 @@ function appendHistoryPoint() {
   history.value = [...history.value, {timestamp: Date.now(), value: selectedMeasurement.value.value}].slice(-60)
 }
 
-function scheduleNextPoll() {
-  if (timer) clearTimeout(timer)
-  timer = setTimeout(async () => {
-    if (autoRefresh.value && document.visibilityState === 'visible') {
-      await loadDetail()
-    }
-    scheduleNextPoll()
-  }, 2000)
-}
-
-onMounted(scheduleNextPoll)
-
-onBeforeUnmount(() => {
-  if (timer) clearTimeout(timer)
-})
-
-const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh(fetchMetrics)
+const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh(refreshMetrics)
 </script>
 
 <template>
@@ -192,7 +187,7 @@ const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh
     <PanelHeader
       icon="bi-activity"
       title="Metrics"
-      subtitle="Browse meters, filter tag sets, and watch live values update every 2 seconds."
+      subtitle="Browse meters, filter tag sets, and watch live values update automatically."
       :loading="loading"
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"

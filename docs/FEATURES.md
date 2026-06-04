@@ -192,6 +192,53 @@ on the server.
 
 ![BootUI Mappings panel](images/bootui-mappings.png)
 
+## Database
+
+### Database Connection Pools
+
+The Database Connection Pools panel inspects supported JDBC connection pool beans. It is read-only and fails closed when
+no supported pool implementation or pool beans are present. For each pool it shows the pool identity, masked JDBC URL and
+username, driver, min/max sizing, and timeout/lifetime settings, and surfaces a clear unavailable reason for closed or
+uninitialized pools. A local live chart polls bounded snapshots of active, idle, total, and pending connections every two
+seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
+pools.
+
+![BootUI Database Connection Pools panel](images/bootui-database-connection-pools.png)
+
+### Spring Data
+
+The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
+methods, and degrades to a clear empty state when Spring Data is not present or no repositories are registered.
+
+![BootUI Spring Data panel](images/bootui-data.png)
+
+### Flyway
+
+The Flyway panel shows schema migrations for each `Flyway` bean in the context and lists, per database, the current schema
+version together with applied and pending migrations (version, description, type, script, state, installed-by,
+installed-on, execution time, and checksum). Multiple or named datasources appear independently.
+
+The panel also exposes confirmation-gated `migrate` and `clean` actions. They are available by default for trusted local
+sessions and are blocked by `bootui.read-only=true` or `bootui.panels.flyway.read-only=true`; `clean` also requires
+Flyway's own `clean-disabled=false` setting. The panel degrades to a clear empty state when Flyway is not on the classpath
+or no `Flyway` beans are present.
+
+![BootUI Flyway panel](images/bootui-flyway.png)
+
+### Liquibase
+
+The Liquibase panel shows change sets for each `SpringLiquibase` bean in the context. It reads the change-log history and
+configured changelog, then lists applied and pending change sets per database (id, author, change-log, description,
+comments, execution type, date executed, order executed, checksum, tag, deployment id, contexts, and labels). Multiple or
+named datasources appear independently.
+
+The panel also exposes a confirmation-gated `update` action that applies pending change sets. It is available by default
+for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`. The panel
+fails closed per bean when its history cannot be read and degrades to a clear empty state when Liquibase is not on the
+classpath or no `SpringLiquibase` beans are present.
+
+![BootUI Liquibase panel](images/bootui-liquibase.png)
+
 ## Security
 
 ### Spring Security
@@ -204,11 +251,12 @@ meant to explain local security wiring without exposing credentials or replacing
 ### Security Logs
 
 The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including
-authentication successes/failures and authorization denials when Spring Security audit listeners are configured by the
-host app. It supports filtering by principal, event type, and time window, summarizes retained event counts by type, uses
-the shared visibility-aware auto-refresh controls, and masks sensitive event data before rendering. Responses are bounded
-by `bootui.security-logs.max-logs`, which defaults to `500`; when no `AuditEventRepository` bean exists, the panel fails
-closed with a clear unavailable state.
+authentication successes/failures and authorization denials when Spring Security audit listeners are active. When BootUI is
+active and the panel is enabled, it contributes an in-memory repository if the host app has not already defined one, which
+also lets Spring Boot create its standard audit listeners. It supports filtering by principal, event type, and time window,
+summarizes retained event counts by type, uses the shared visibility-aware auto-refresh controls, and masks sensitive event
+data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to `500`; if audit support
+is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
 ![BootUI Security Logs panel](images/bootui-security-logs.png)
 
@@ -237,24 +285,6 @@ The Scheduled Tasks panel lists scheduled jobs registered with Spring scheduling
 trigger metadata so background activity is visible during local development.
 
 ![BootUI Scheduled Tasks panel](images/bootui-scheduled-tasks.png)
-
-### Database Connection Pools
-
-The Database Connection Pools panel inspects supported JDBC connection pool beans. It is read-only and fails closed when
-no supported pool implementation or pool beans are present. For each pool it shows the pool identity, masked JDBC URL and
-username, driver, min/max sizing, and timeout/lifetime settings, and surfaces a clear unavailable reason for closed or
-uninitialized pools. A local live chart polls bounded snapshots of active, idle, total, and pending connections every two
-seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
-pools.
-
-![BootUI Database Connection Pools panel](images/bootui-database-connection-pools.png)
-
-### Spring Data
-
-The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
-methods, and degrades to a clear empty state when Spring Data is not present or no repositories are registered.
-
-![BootUI Spring Data panel](images/bootui-data.png)
 
 ### Spring Cache
 

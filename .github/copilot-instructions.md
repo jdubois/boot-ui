@@ -47,10 +47,10 @@ suite through Maven, installs Playwright Chromium, and runs `bootui-sample-app/e
 Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow (`.github/workflows/release.yml`)
 publishes `v*` tags to Maven Central through the `release` Maven profile and the Sonatype Central Publishing plugin.
 
-## Formatting before PRs
+## Formatting before commits and PRs
 
-- Before marking a PR ready or creating one, run the formatters for the areas touched by the change; after broad
-  AI-generated edits, run all of them:
+- Before committing, pushing, creating/updating a PR, or marking a PR ready, run the formatters for the areas touched by
+  the change; after broad AI-generated edits, run all of them:
 
 ```bash
 ./mvnw -B -ntp spotless:apply
@@ -58,7 +58,7 @@ publishes `v*` tags to Maven Central through the `release` Maven profile and the
 (cd bootui-sample-app/e2e && npm run format)
 ```
 
-- Validate with the same formatting checks CI uses:
+- Do not commit or create/update a PR until the same formatting checks CI uses pass:
 
 ```bash
 ./mvnw -B -ntp spotless:check
