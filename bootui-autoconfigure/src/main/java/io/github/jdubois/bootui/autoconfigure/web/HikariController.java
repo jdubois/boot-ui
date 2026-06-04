@@ -44,7 +44,6 @@ public class HikariController {
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
     private final BootUiProperties properties;
-    private final SecretMasker masker = new SecretMasker();
 
     public HikariController(ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiProperties properties) {
         this.beanFactoryProvider = beanFactoryProvider;

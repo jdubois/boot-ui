@@ -1,5 +1,5 @@
-export const SERVER_UNREACHABLE_TITLE = 'Server unreachable'
-export const SERVER_UNREACHABLE_MESSAGE =
+const SERVER_UNREACHABLE_TITLE = 'Server unreachable'
+const SERVER_UNREACHABLE_MESSAGE =
   'BootUI could not reach the Spring Boot app. The server may have been stopped. Start it again, then retry or refresh this page.'
 
 const NETWORK_ERROR_MARKERS = [
