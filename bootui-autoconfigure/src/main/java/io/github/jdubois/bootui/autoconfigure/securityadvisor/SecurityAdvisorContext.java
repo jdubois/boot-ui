@@ -1,11 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.securityadvisor;
 
+import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.FilterChainModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.PasswordEncoderModel;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.boot.env.DefaultPropertiesPropertySource;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.PropertySource;
@@ -25,8 +27,6 @@ record SecurityAdvisorContext(
         boolean methodSecurityAnnotationsPresent,
         boolean webSecurityConfigurerAdapterPresent,
         Environment environment) {
-    private static final String BOOTUI_ACTUATOR_DEFAULTS_PROPERTY_SOURCE = "bootUiActuatorEndpointDefaults";
-
     SecurityAdvisorContext {
         chains = List.copyOf(chains);
         passwordEncoders = List.copyOf(passwordEncoders);
@@ -103,12 +103,17 @@ record SecurityAdvisorContext(
             if (text.isBlank()) {
                 continue;
             }
-            if (BOOTUI_ACTUATOR_DEFAULTS_PROPERTY_SOURCE.equals(propertySource.getName())) {
-                return null;
+            if (isBootUiActuatorDefault(propertySource, key, text)) {
+                continue;
             }
             return text;
         }
         return null;
+    }
+
+    private boolean isBootUiActuatorDefault(PropertySource<?> propertySource, String key, String value) {
+        return DefaultPropertiesPropertySource.NAME.equals(propertySource.getName())
+                && BootUiActuatorDefaultsEnvironmentPostProcessor.isBootUiActuatorDefault(key, value);
     }
 
     String[] activeProfiles() {

@@ -9,9 +9,9 @@ the security configuration.
 The checks are heuristic review prompts. They highlight common Spring Security hardening gaps, but the right remediation
 still depends on the application's threat model and deployment topology.
 
-Actuator exposure checks ignore BootUI's own low-priority local actuator defaults
-(`bootUiActuatorEndpointDefaults`). Those defaults are contributed only while BootUI is active so local panels can read
-Actuator data, and host `management.*` settings still win. If the host application explicitly configures actuator exposure
+Actuator exposure checks ignore BootUI's own low-priority local actuator defaults. Those defaults are merged into
+Spring Boot's shared `defaultProperties` source (only for keys the host has not set) so local panels can read Actuator
+data, and host `management.*` settings always win. If the host application explicitly configures actuator exposure
 or health detail properties, the checks continue to evaluate those values.
 
 ## Availability and bounds

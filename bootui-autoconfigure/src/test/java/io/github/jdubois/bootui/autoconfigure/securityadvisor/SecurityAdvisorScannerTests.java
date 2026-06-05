@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.SecurityAdvisorRuleResultDto;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -151,7 +152,7 @@ class SecurityAdvisorScannerTests {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
-        environment.getPropertySources().addLast(bootUiActuatorDefaultsPropertySource());
+        environment.getPropertySources().addLast(bootUiActuatorDefaultsInDefaultPropertiesSource());
         ConfigurationPropertySources.attach(environment);
         SecurityAdvisorContext context = new SecurityAdvisorContext(
                 List.of(chain),
@@ -199,7 +200,7 @@ class SecurityAdvisorScannerTests {
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui")
                 .withProperty("management.endpoints.web.exposure.include", "env,beans")
                 .withProperty("management.endpoint.health.show-details", "always");
-        environment.getPropertySources().addLast(bootUiActuatorDefaultsPropertySource());
+        environment.getPropertySources().addLast(bootUiActuatorDefaultsInDefaultPropertiesSource());
         ConfigurationPropertySources.attach(environment);
         SecurityAdvisorContext context = new SecurityAdvisorContext(
                 List.of(chain),
@@ -221,6 +222,23 @@ class SecurityAdvisorScannerTests {
         assertThat(report.results())
                 .extracting(SecurityAdvisorRuleResultDto::id)
                 .contains("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-004", "SEC-ACT-006");
+    }
+
+    @Test
+    void scanReportsHostDefaultPropertiesActuatorExposure() {
+        MockEnvironment environment = resourceServerEnvironment();
+        environment
+                .getPropertySources()
+                .addLast(new MapPropertySource(
+                        "defaultProperties",
+                        new LinkedHashMap<>(Map.of("management.endpoints.web.exposure.include", "env,beans"))));
+        ConfigurationPropertySources.attach(environment);
+        SecurityAdvisorReport report =
+                new SecurityAdvisorScanner(hardenedContext(List.of(), environment), CLOCK).scan();
+
+        assertThat(report.results())
+                .extracting(SecurityAdvisorRuleResultDto::id)
+                .contains("SEC-ACT-002", "SEC-ACT-003", "SEC-ACT-006");
     }
 
     @Test
@@ -504,9 +522,9 @@ class SecurityAdvisorScannerTests {
         }
     }
 
-    private static MapPropertySource bootUiActuatorDefaultsPropertySource() {
+    private static MapPropertySource bootUiActuatorDefaultsInDefaultPropertiesSource() {
         return new MapPropertySource(
-                "bootUiActuatorEndpointDefaults",
+                "defaultProperties",
                 Map.of(
                         "management.endpoints.web.exposure.include",
                         "health,info,beans,conditions,configprops,env,loggers,mappings,metrics,startup,scheduledtasks",
