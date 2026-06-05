@@ -20,7 +20,7 @@ The Overview panel gives a fast summary of the running application: application 
 active profiles, web type, ports, startup duration when available, activation reason, and local safety state. It is the
 first place to confirm whether BootUI is active for the reason you expect.
 
-![BootUI Overview panel](images/bootui-overview.png)
+![BootUI Overview panel](./images/bootui-overview.png)
 
 ### GitHub
 
@@ -46,7 +46,7 @@ token is never sent to the browser, persisted by BootUI, or included in warnings
 GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
 safety threshold that skips optional sections before exhausting the core API quota.
 
-![BootUI GitHub panel](images/bootui-github.png)
+![BootUI GitHub panel](./images/bootui-github.png)
 
 ## Runtime
 
@@ -58,7 +58,7 @@ infrastructure is clear, and shows setup guidance instead of a healthy-looking s
 is not available. When Actuator health is present but only Spring Boot's default indicators are reported, it keeps the
 live statuses visible and shows guidance for adding application or dependency health contributors.
 
-![BootUI Health panel](images/bootui-health.png)
+![BootUI Health panel](./images/bootui-health.png)
 
 ### HTTP Sessions
 
@@ -73,14 +73,14 @@ Clear and destroy actions are confirmation-gated and disabled by global or per-p
 attributes from the selected session while keeping it valid; destroy invalidates the selected session. When the app is
 not running on embedded Tomcat, the panel shows an unavailable state instead of guessing at container internals.
 
-![BootUI HTTP Sessions panel](images/bootui-http-sessions.png)
+![BootUI HTTP Sessions panel](./images/bootui-http-sessions.png)
 
 ### Metrics
 
 The Metrics panel browses Micrometer meters exposed by Actuator. You can inspect meter descriptions, base units, tags,
 available measurements, and render a local live chart for a selected metric/tag combination.
 
-![BootUI Metrics panel](images/bootui-metrics.png)
+![BootUI Metrics panel](./images/bootui-metrics.png)
 
 ### Memory
 
@@ -88,7 +88,7 @@ The Memory panel summarizes current live JVM heap and non-heap usage plus memory
 the running process metrics so you can spot high heap pressure, non-heap growth, and pool-level saturation without the
 JVM sizing controls mixed into the view.
 
-![BootUI Memory panel](images/bootui-memory.png)
+![BootUI Memory panel](./images/bootui-memory.png)
 
 ### Tuning Advisor
 
@@ -107,7 +107,7 @@ memory limit when an operator resizes the pod. A Spring Boot Actuator probes tog
 probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
 non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
 
-![BootUI Tuning Advisor panel](images/bootui-tuning-advisor.png)
+![BootUI Tuning Advisor panel](./images/bootui-tuning-advisor.png)
 
 ### Heap Dump
 
@@ -122,7 +122,7 @@ default: it only summarizes class names and sizes (never object values), all cap
 mutating `POST` requests that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled
 unless explicitly enabled via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
 
-![BootUI Heap Dump panel](images/bootui-heap-dump.png)
+![BootUI Heap Dump panel](./images/bootui-heap-dump.png)
 
 ### Threads
 
@@ -138,7 +138,7 @@ metadata-only exposure. The raw text thread dump is offered as a confirmation-ga
 the panel is read-only. The panel stays loopback-only and fails closed, showing an explained unavailable state instead
 of disappearing when thread information cannot be read.
 
-![BootUI Threads panel](images/bootui-threads.png)
+![BootUI Threads panel](./images/bootui-threads.png)
 
 ### Startup Timeline
 
@@ -148,7 +148,7 @@ installs a `BufferingApplicationStartup` by default so the panel has data withou
 `bootui.startup.enabled=false` or tune the retained step count with `bootui.startup.capacity`. If startup data is still
 unavailable, the panel shows an empty state instead of failing.
 
-![BootUI Startup Timeline panel](images/bootui-startup-timeline.png)
+![BootUI Startup Timeline panel](./images/bootui-startup-timeline.png)
 
 ### GraalVM
 
@@ -163,7 +163,7 @@ standard configuration resource globs. The checks and generated metadata are heu
 do not replace, the GraalVM tracing agent and an actual native build. See
 [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one inspects.
 
-![BootUI GraalVM panel](images/bootui-graalvm.png)
+![BootUI GraalVM panel](./images/bootui-graalvm.png)
 
 ## Configuration
 
@@ -175,7 +175,7 @@ active profiles, and masked values. It can create, update, and delete local runt
 tables load in bounded server-side pages for search, source, and override-only filters. The override property-name
 picker limits its datalist suggestions while narrowing against the full metadata catalog as you type.
 
-![BootUI Configuration panel](images/bootui-configuration.png)
+![BootUI Configuration panel](./images/bootui-configuration.png)
 
 ### Profile Diff
 
@@ -183,7 +183,7 @@ The Profile Diff panel compares profile-specific property sources and values. It
 changes between local development profiles while still routing browser-visible names and values through BootUI's secret
 masking rules.
 
-![BootUI Profile Diff panel](images/bootui-profile-diff.png)
+![BootUI Profile Diff panel](./images/bootui-profile-diff.png)
 
 ### Loggers
 
@@ -191,7 +191,7 @@ The Loggers panel lists runtime logger configuration from Actuator. It shows con
 server-side search, and can update or clear logger levels without restarting the application. Large logger lists load in
 bounded pages while filtering still searches the full logger set.
 
-![BootUI Loggers panel](images/bootui-loggers.png)
+![BootUI Loggers panel](./images/bootui-loggers.png)
 
 ### Beans
 
@@ -200,7 +200,7 @@ bean names and types, plus classifications such as application, Spring framework
 own beans are hidden by default; when self-data filtering is disabled they are classified separately as BootUI beans.
 Large bean lists load in bounded pages so the initial payload stays small while filters still apply to the full bean set.
 
-![BootUI Beans panel](images/bootui-beans.png)
+![BootUI Beans panel](./images/bootui-beans.png)
 
 ### Conditions
 
@@ -209,7 +209,7 @@ and unconditional classes so you can see why an auto-configuration applied or wh
 load in bounded pages, and filtering runs on the server so the browser does not need the full report before narrowing
 results.
 
-![BootUI Conditions panel](images/bootui-conditions.png)
+![BootUI Conditions panel](./images/bootui-conditions.png)
 
 ### Mappings
 
@@ -218,7 +218,7 @@ produces/consumes metadata so the running application's web surface is visible w
 Large mapping lists load through a stable, paged BootUI DTO, and the filter continues to search every discovered route
 on the server.
 
-![BootUI Mappings panel](images/bootui-mappings.png)
+![BootUI Mappings panel](./images/bootui-mappings.png)
 
 ## Database
 
@@ -231,14 +231,14 @@ uninitialized pools. A local live chart polls bounded snapshots of active, idle,
 seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
 pools.
 
-![BootUI Database Connection Pools panel](images/bootui-database-connection-pools.png)
+![BootUI Database Connection Pools panel](./images/bootui-database-connection-pools.png)
 
 ### Spring Data
 
 The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
 methods, and degrades to a clear empty state when Spring Data is not present or no repositories are registered.
 
-![BootUI Spring Data panel](images/bootui-data.png)
+![BootUI Spring Data panel](./images/bootui-data.png)
 
 ### Hibernate Advisor
 
@@ -249,7 +249,7 @@ generators, collection fetch pagination, unsafe cascades, cache misconfiguration
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Hibernate Advisor panel](images/bootui-hibernate-advisor.png)
+![BootUI Hibernate Advisor panel](./images/bootui-hibernate-advisor.png)
 
 ### Flyway
 
@@ -262,7 +262,7 @@ sessions and are blocked by `bootui.read-only=true` or `bootui.panels.flyway.rea
 Flyway's own `clean-disabled=false` setting. The panel degrades to a clear empty state when Flyway is not on the classpath
 or no `Flyway` beans are present.
 
-![BootUI Flyway panel](images/bootui-flyway.png)
+![BootUI Flyway panel](./images/bootui-flyway.png)
 
 ### Liquibase
 
@@ -276,7 +276,7 @@ for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.
 fails closed per bean when its history cannot be read and degrades to a clear empty state when Liquibase is not on the
 classpath or no `SpringLiquibase` beans are present.
 
-![BootUI Liquibase panel](images/bootui-liquibase.png)
+![BootUI Liquibase panel](./images/bootui-liquibase.png)
 
 ## Security
 
@@ -285,7 +285,7 @@ classpath or no `SpringLiquibase` beans are present.
 The Spring Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
 meant to explain local security wiring without exposing credentials or replacing a full security audit.
 
-![BootUI Spring Security panel](images/bootui-security.png)
+![BootUI Spring Security panel](./images/bootui-security.png)
 
 ### Security Logs
 
@@ -297,7 +297,7 @@ summarizes retained event counts by type, uses the shared visibility-aware auto-
 data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to `500`; if audit support
 is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
-![BootUI Security Logs panel](images/bootui-security-logs.png)
+![BootUI Security Logs panel](./images/bootui-security-logs.png)
 
 ### Security Advisor
 
@@ -310,7 +310,7 @@ resource-server validation, and configuration hygiene. The report is framed as a
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
 [SECURITY-ADVISOR-CHECKS.md](SECURITY-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Security Advisor panel](images/bootui-security-advisor.png)
+![BootUI Security Advisor panel](./images/bootui-security-advisor.png)
 
 ### Pentesting
 
@@ -327,7 +327,7 @@ Each hygiene check is registered with a stable identifier, OWASP 2025 category, 
 new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
 full catalogue of checks and what each one inspects.
 
-![BootUI Pentesting panel](images/bootui-pentesting.png)
+![BootUI Pentesting panel](./images/bootui-pentesting.png)
 
 ### Vulnerabilities
 
@@ -335,7 +335,7 @@ The Vulnerabilities panel shows dependency inventory and local OSV vulnerability
 vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
 ordered by severity first, with dependencies and advisories alphabetized within the same severity.
 
-![BootUI Vulnerabilities panel](images/bootui-vulnerabilities.png)
+![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.png)
 
 ## Services
 
@@ -344,7 +344,7 @@ ordered by severity first, with dependencies and advisories alphabetized within 
 The Scheduled Tasks panel lists scheduled jobs registered with Spring scheduling infrastructure. It shows task type and
 trigger metadata so background activity is visible during local development.
 
-![BootUI Scheduled Tasks panel](images/bootui-scheduled-tasks.png)
+![BootUI Scheduled Tasks panel](./images/bootui-scheduled-tasks.png)
 
 ### Spring Cache
 
@@ -353,7 +353,7 @@ implementations, safe local sizes, Micrometer cache metrics when registered, and
 and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser
 confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
-![BootUI Spring Cache panel](images/bootui-spring-cache.png)
+![BootUI Spring Cache panel](./images/bootui-spring-cache.png)
 
 ### AI Usage
 
@@ -376,7 +376,7 @@ windows, spans, and attributes
 are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from BootUI's local telemetry
 capture, is in-memory only, and is cleared on restart.
 
-![BootUI AI Usage panel](images/bootui-ai.png)
+![BootUI AI Usage panel](./images/bootui-ai.png)
 
 ## Diagnostics
 
@@ -397,14 +397,14 @@ tracing is merely empty. The in-memory trace buffer is bounded by `bootui.teleme
 caps to keep misconfigured local exporters from overflowing the UI. Trace data is reset on application restart or via
 the panel's clear action.
 
-![BootUI Traces panel](images/bootui-traces.png)
+![BootUI Traces panel](./images/bootui-traces.png)
 
 ### Log Tail
 
 The Log Tail panel reads recent local application logs and streams new log events from the running process. It is
 intended for quick local diagnosis without leaving the BootUI console.
 
-![BootUI Log Tail panel](images/bootui-log-tail.png)
+![BootUI Log Tail panel](./images/bootui-log-tail.png)
 
 ### HTTP Exchanges
 
@@ -419,14 +419,14 @@ exists. The default buffer retains 200 exchanges and can be changed with `bootui
 that capacity requires an application restart. If the repository is unavailable, the panel shows a clear unavailable
 state instead of implying that no traffic has occurred.
 
-![BootUI HTTP Exchanges panel](images/bootui-http-exchanges.png)
+![BootUI HTTP Exchanges panel](./images/bootui-http-exchanges.png)
 
 ### HTTP Probe
 
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers,
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
 
-![BootUI HTTP Probe panel](images/bootui-http-probe.png)
+![BootUI HTTP Probe panel](./images/bootui-http-probe.png)
 
 ### Architecture
 
@@ -450,7 +450,7 @@ rule is registered with a stable identifier, category, severity, and recommendat
 violating rules, sorted by severity and violation count. See
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
 
-![BootUI Architecture panel](images/bootui-architecture.png)
+![BootUI Architecture panel](./images/bootui-architecture.png)
 
 ## Developer tools
 
@@ -459,7 +459,7 @@ violating rules, sorted by severity and violation count. See
 The DevTools panel reports Spring Boot DevTools availability, LiveReload status, and restart support. Restart actions
 are shown only when available and require explicit confirmation before execution.
 
-![BootUI DevTools panel](images/bootui-devtools.png)
+![BootUI DevTools panel](./images/bootui-devtools.png)
 
 ### Dev Services
 
@@ -476,7 +476,7 @@ warnings in the panel.
 > own logs will surface them in this panel. This is consistent with BootUI being a local-only, loopback-restricted
 > developer console.
 
-![BootUI Dev Services panel](images/bootui-dev-services.png)
+![BootUI Dev Services panel](./images/bootui-dev-services.png)
 
 ### Copilot
 
@@ -499,7 +499,7 @@ live data panels, while the backend watches the directory through a Java NIO `Wa
 [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control), which pioneered this dashboarding of
 Copilot CLI session state.
 
-![BootUI Copilot panel](images/bootui-copilot.png)
+![BootUI Copilot panel](./images/bootui-copilot.png)
 
 ### Claude Code
 
@@ -515,4 +515,4 @@ sidebar dims the panel when no Claude Code projects directory is found. Data is 
 under `~/.claude/`. Because Claude Code writes sessions inside per-project subdirectories, BootUI refreshes this panel
 through the shared visibility-aware auto-refresh polling used by the other live data panels.
 
-![BootUI Claude Code panel](images/bootui-claude-code.png)
+![BootUI Claude Code panel](./images/bootui-claude-code.png)
