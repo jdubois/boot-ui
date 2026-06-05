@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorMod
 import java.util.List;
 import java.util.Locale;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.boot.env.DefaultPropertiesPropertySource;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.PropertySource;
@@ -111,10 +112,7 @@ record SecurityAdvisorContext(
     }
 
     private boolean isBootUiActuatorDefault(PropertySource<?> propertySource, String key, String value) {
-        if (BootUiActuatorDefaultsEnvironmentPostProcessor.PROPERTY_SOURCE_NAME.equals(propertySource.getName())) {
-            return true;
-        }
-        return "defaultProperties".equals(propertySource.getName())
+        return DefaultPropertiesPropertySource.NAME.equals(propertySource.getName())
                 && BootUiActuatorDefaultsEnvironmentPostProcessor.isBootUiActuatorDefault(key, value);
     }
 

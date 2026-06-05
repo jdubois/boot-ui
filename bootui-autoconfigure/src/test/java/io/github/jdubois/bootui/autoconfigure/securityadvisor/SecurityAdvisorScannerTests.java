@@ -227,9 +227,11 @@ class SecurityAdvisorScannerTests {
     @Test
     void scanReportsHostDefaultPropertiesActuatorExposure() {
         MockEnvironment environment = resourceServerEnvironment();
-        environment.getPropertySources().addLast(new MapPropertySource(
-                "defaultProperties",
-                new LinkedHashMap<>(Map.of("management.endpoints.web.exposure.include", "env,beans"))));
+        environment
+                .getPropertySources()
+                .addLast(new MapPropertySource(
+                        "defaultProperties",
+                        new LinkedHashMap<>(Map.of("management.endpoints.web.exposure.include", "env,beans"))));
         ConfigurationPropertySources.attach(environment);
         SecurityAdvisorReport report =
                 new SecurityAdvisorScanner(hardenedContext(List.of(), environment), CLOCK).scan();

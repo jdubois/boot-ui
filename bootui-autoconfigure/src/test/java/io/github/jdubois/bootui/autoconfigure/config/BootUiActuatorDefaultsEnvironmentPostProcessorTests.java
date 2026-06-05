@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.env.DefaultPropertiesPropertySource;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.mock.env.MockEnvironment;
@@ -27,12 +28,8 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
         assertThat(env.getProperty(
                         BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
                 .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY);
-        assertThat(env.getPropertySources()
-                        .contains(BootUiActuatorDefaultsEnvironmentPostProcessor.PROPERTY_SOURCE_NAME))
+        assertThat(env.getPropertySources().contains(DefaultPropertiesPropertySource.NAME))
                 .isTrue();
-        assertThat(env.getPropertySources()
-                        .contains("defaultProperties"))
-                .isFalse();
     }
 
     @Test
@@ -89,13 +86,13 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
 
         processor.postProcessEnvironment(env, new SpringApplication());
 
-        assertThat(env.getPropertySources()
-                        .contains(BootUiActuatorDefaultsEnvironmentPostProcessor.PROPERTY_SOURCE_NAME))
+        assertThat(env.getPropertySources().contains(DefaultPropertiesPropertySource.NAME))
                 .isFalse();
+        assertThat(env.getProperty("management.endpoints.web.exposure.include")).isNull();
     }
 
     @Test
-    void orderIsBetweenOverridesAndStartupProcessors() {
+    void runsAsLowestPrecedenceLibraryDefault() {
         assertThat(processor.getOrder()).isEqualTo(Ordered.LOWEST_PRECEDENCE - 10);
     }
 
@@ -120,10 +117,38 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
     @Test
     void laterAddLastDefaultsOverrideBootUiDefaults() {
         MockEnvironment env = new MockEnvironment().withProperty("bootui.enabled", "ON");
-        env.getPropertySources().addLast(new MapPropertySource(
-                "libraryDefaults", Map.of("management.endpoints.web.exposure.include", "*")));
+        env.getPropertySources()
+                .addLast(new MapPropertySource(
+                        "libraryDefaults", Map.of("management.endpoints.web.exposure.include", "*")));
 
         processor.postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("management.endpoints.web.exposure.include")).isEqualTo("*");
+    }
+
+    @Test
+    void losesToHostDefaultPropertiesAfterSpringBootPinsDefaultsToEnd() {
+        MockEnvironment env = new MockEnvironment().withProperty("bootui.enabled", "ON");
+        DefaultPropertiesPropertySource.addOrMerge(
+                Map.of("management.endpoints.web.exposure.include", "*"), env.getPropertySources());
+
+        processor.postProcessEnvironment(env, new SpringApplication());
+        // Spring Boot pins defaultProperties to the bottom after every EnvironmentPostProcessor runs.
+        DefaultPropertiesPropertySource.moveToEnd(env);
+
+        assertThat(env.getProperty("management.endpoints.web.exposure.include")).isEqualTo("*");
+    }
+
+    @Test
+    void losesToLaterPostProcessorDefaultsAfterSpringBootPinsDefaultsToEnd() {
+        MockEnvironment env = new MockEnvironment().withProperty("bootui.enabled", "ON");
+
+        processor.postProcessEnvironment(env, new SpringApplication());
+        // A library EnvironmentPostProcessor that runs after BootUI contributes its defaults via addLast.
+        env.getPropertySources()
+                .addLast(new MapPropertySource(
+                        "libraryDefaults", Map.of("management.endpoints.web.exposure.include", "*")));
+        DefaultPropertiesPropertySource.moveToEnd(env);
 
         assertThat(env.getProperty("management.endpoints.web.exposure.include")).isEqualTo("*");
     }
