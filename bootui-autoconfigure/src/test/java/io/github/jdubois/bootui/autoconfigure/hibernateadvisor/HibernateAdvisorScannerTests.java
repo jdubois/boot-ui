@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorReport;
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorRuleResultDto;
+import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Basic;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.Convert;
 import jakarta.persistence.DiscriminatorColumn;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
@@ -90,6 +92,13 @@ class HibernateAdvisorScannerTests {
                     .anySatisfy(sample ->
                             assertThat(sample).contains("labels is an @ElementCollection mapped as FetchType.EAGER."));
         });
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-MAP-003"))
+                .singleElement()
+                .satisfies(
+                        result -> assertThat(result.sampleViolations())
+                                .contains(
+                                        "io.github.jdubois.bootui.autoconfigure.hibernateadvisor.HibernateAdvisorScannerTests$ProblemOrder#status relies on JPA's default ORDINAL enum storage."));
     }
 
     @Test
@@ -258,6 +267,46 @@ class HibernateAdvisorScannerTests {
     }
 
     @Test
+    void paginationOverCollectionFetchRulesStillApplyThroughHibernate74() {
+        HibernateAdvisorContext context = collectionFetchPaginationContext("7.4.9.Final");
+
+        HibernateAdvisorRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
+        HibernateAdvisorRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
+
+        assertThat(queryResult.status()).isEqualTo(HibernateAdvisorRuleSupport.VIOLATION);
+        assertThat(queryResult.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("findPageWithTags", "o.tags"));
+        assertThat(configResult.status()).isEqualTo(HibernateAdvisorRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void paginationOverCollectionFetchRulesSkipAfterHibernate74() {
+        HibernateAdvisorContext context = collectionFetchPaginationContext("7.5.0.Final");
+
+        HibernateAdvisorRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
+        HibernateAdvisorRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
+
+        assertThat(queryResult.status()).isEqualTo(HibernateAdvisorRuleSupport.SKIPPED);
+        assertThat(queryResult.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("Hibernate 7.5.0.Final"));
+        assertThat(configResult.status()).isEqualTo(HibernateAdvisorRuleSupport.SKIPPED);
+        assertThat(configResult.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("Hibernate 7.5.0.Final"));
+    }
+
+    @Test
+    void hibernateVersionComparisonUsesMajorMinorNumbers() {
+        assertThat(HibernateRuntimeVersion.parse("7.4.99.Final").isAfterMajorMinor(7, 4))
+                .isFalse();
+        assertThat(HibernateRuntimeVersion.parse("7.10.0.Final").isAfterMajorMinor(7, 4))
+                .isTrue();
+        assertThat(HibernateRuntimeVersion.parse("8.0.0.Final").isAfterMajorMinor(7, 4))
+                .isTrue();
+        assertThat(HibernateRuntimeVersion.parse("unknown").isAfterMajorMinor(7, 4))
+                .isFalse();
+    }
+
+    @Test
     void scanPassesWhenMappingsAndConfigurationAreSafe() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.jpa.open-in-view", "false")
@@ -367,7 +416,32 @@ class HibernateAdvisorScannerTests {
                         .toList(),
                 repositories,
                 environment,
-                CLOCK);
+                CLOCK,
+                "7.4.9.Final");
+    }
+
+    private HibernateAdvisorContext collectionFetchPaginationContext(String hibernateVersion) {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.ProblemOrderRepository",
+                ProblemOrder.class,
+                List.of(new HibernateRepositoryMethodModel(
+                        "com.example.ProblemOrderRepository",
+                        "findPageWithTags",
+                        ProblemOrder.class,
+                        List.class,
+                        "select o from ProblemOrder o left join fetch o.tags where o.status = :status",
+                        false,
+                        null,
+                        true,
+                        false,
+                        false,
+                        false,
+                        List.of(Status.class))));
+        return new HibernateAdvisorContext(
+                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
+                List.of(repository),
+                new MockEnvironment(),
+                hibernateVersion);
     }
 
     @Entity
@@ -630,6 +704,38 @@ class HibernateAdvisorScannerTests {
 
         @Enumerated(EnumType.STRING)
         Status status;
+
+        @Enumerated(EnumType.ORDINAL)
+        Status stableOrdinalStatus;
+
+        @Convert(converter = StatusCodeConverter.class)
+        Status convertedStatus;
+    }
+
+    static class StatusCodeConverter implements AttributeConverter<Status, Integer> {
+
+        @Override
+        public Integer convertToDatabaseColumn(Status attribute) {
+            if (attribute == null) {
+                return null;
+            }
+            return switch (attribute) {
+                case NEW -> 10;
+                case SHIPPED -> 20;
+            };
+        }
+
+        @Override
+        public Status convertToEntityAttribute(Integer dbData) {
+            if (dbData == null) {
+                return null;
+            }
+            return switch (dbData) {
+                case 10 -> Status.NEW;
+                case 20 -> Status.SHIPPED;
+                default -> throw new IllegalArgumentException("Unknown status code: " + dbData);
+            };
+        }
     }
 
     static class Customer {}

@@ -1,15 +1,35 @@
 package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.core.env.Environment;
 
 record HibernateAdvisorContext(
-        List<HibernateEntityModel> entities, List<HibernateRepositoryModel> repositories, Environment environment) {
+        List<HibernateEntityModel> entities,
+        List<HibernateRepositoryModel> repositories,
+        Environment environment,
+        HibernateRuntimeVersion hibernateVersion) {
+
+    HibernateAdvisorContext(
+            List<HibernateEntityModel> entities, List<HibernateRepositoryModel> repositories, Environment environment) {
+        this(entities, repositories, environment, HibernateRuntimeVersion.detect());
+    }
+
+    HibernateAdvisorContext(
+            List<HibernateEntityModel> entities,
+            List<HibernateRepositoryModel> repositories,
+            Environment environment,
+            String hibernateVersion) {
+        this(entities, repositories, environment, HibernateRuntimeVersion.parse(hibernateVersion));
+    }
 
     HibernateAdvisorContext {
         entities = List.copyOf(entities);
         repositories = List.copyOf(repositories);
+        hibernateVersion = hibernateVersion == null ? HibernateRuntimeVersion.unknown() : hibernateVersion;
     }
 
     boolean hasAssociations() {
@@ -93,6 +113,14 @@ record HibernateAdvisorContext(
         return false;
     }
 
+    boolean hasHibernateCollectionFetchPaginationFix() {
+        return hibernateVersion.isAfterMajorMinor(7, 4);
+    }
+
+    String hibernateVersionDisplay() {
+        return hibernateVersion.display();
+    }
+
     boolean isHibernateEnhancementEnabled() {
         return isPropertyTrue(
                         "spring.jpa.properties.hibernate.enhancer.enableLazyInitialization",
@@ -119,5 +147,66 @@ record HibernateAdvisorContext(
             }
         }
         return false;
+    }
+}
+
+record HibernateRuntimeVersion(String display, Integer major, Integer minor) {
+
+    private static final Pattern VERSION_PREFIX = Pattern.compile("^(\\d+)(?:\\.(\\d+))?.*");
+
+    static HibernateRuntimeVersion detect() {
+        return parse(detectedVersionString());
+    }
+
+    static HibernateRuntimeVersion parse(String version) {
+        if (version == null || version.isBlank()) {
+            return unknown();
+        }
+        String sanitized = version.trim();
+        Matcher matcher = VERSION_PREFIX.matcher(sanitized);
+        if (!matcher.matches()) {
+            return new HibernateRuntimeVersion(sanitized, null, null);
+        }
+        return new HibernateRuntimeVersion(sanitized, parseInteger(matcher.group(1)), parseInteger(matcher.group(2)));
+    }
+
+    static HibernateRuntimeVersion unknown() {
+        return new HibernateRuntimeVersion("unknown", null, null);
+    }
+
+    boolean isAfterMajorMinor(int targetMajor, int targetMinor) {
+        if (major == null) {
+            return false;
+        }
+        if (major > targetMajor) {
+            return true;
+        }
+        return major == targetMajor && minor != null && minor > targetMinor;
+    }
+
+    private static String detectedVersionString() {
+        try {
+            Class<?> versionType = Class.forName("org.hibernate.Version");
+            Method getVersionString = versionType.getMethod("getVersionString");
+            Object value = getVersionString.invoke(null);
+            if (value instanceof String version && !version.isBlank()) {
+                return version;
+            }
+            Package versionPackage = versionType.getPackage();
+            return versionPackage == null ? null : versionPackage.getImplementationVersion();
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private static Integer parseInteger(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

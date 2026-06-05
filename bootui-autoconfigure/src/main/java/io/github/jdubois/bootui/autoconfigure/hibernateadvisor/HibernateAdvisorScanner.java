@@ -42,6 +42,7 @@ final class HibernateAdvisorScanner {
             .thenComparing(HibernateAdvisorRuleResultDto::id);
 
     private final Supplier<EntityDiscovery> entityDiscoverySupplier;
+    private final Supplier<HibernateRuntimeVersion> hibernateVersionSupplier;
     private final Environment environment;
     private final Clock clock;
 
@@ -65,9 +66,31 @@ final class HibernateAdvisorScanner {
         this(() -> new EntityDiscovery(entities, repositories, List.of()), environment, clock);
     }
 
+    HibernateAdvisorScanner(
+            List<HibernateEntityModel> entities,
+            List<HibernateRepositoryModel> repositories,
+            Environment environment,
+            Clock clock,
+            String hibernateVersion) {
+        this(
+                () -> new EntityDiscovery(entities, repositories, List.of()),
+                environment,
+                clock,
+                () -> HibernateRuntimeVersion.parse(hibernateVersion));
+    }
+
     private HibernateAdvisorScanner(
             Supplier<EntityDiscovery> entityDiscoverySupplier, Environment environment, Clock clock) {
+        this(entityDiscoverySupplier, environment, clock, HibernateRuntimeVersion::detect);
+    }
+
+    private HibernateAdvisorScanner(
+            Supplier<EntityDiscovery> entityDiscoverySupplier,
+            Environment environment,
+            Clock clock,
+            Supplier<HibernateRuntimeVersion> hibernateVersionSupplier) {
         this.entityDiscoverySupplier = entityDiscoverySupplier;
+        this.hibernateVersionSupplier = hibernateVersionSupplier;
         this.environment = environment;
         this.clock = clock;
     }
@@ -92,8 +115,8 @@ final class HibernateAdvisorScanner {
             return report("DISABLED", message, clock.millis(), List.of(), 0, 0, List.of());
         }
 
-        HibernateAdvisorContext context =
-                new HibernateAdvisorContext(discovery.entities(), discovery.repositories(), environment);
+        HibernateAdvisorContext context = new HibernateAdvisorContext(
+                discovery.entities(), discovery.repositories(), environment, hibernateVersionSupplier.get());
         List<HibernateAdvisorRuleResultDto> results = HibernateAdvisorRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))
                 .toList();

@@ -500,15 +500,14 @@ final class MultipleBagCollectionRule extends AbstractHibernateAdvisorRule {
 final class OrdinalEnumRule extends AbstractHibernateAdvisorRule {
 
     OrdinalEnumRule() {
-        super(
-                new HibernateAdvisorRuleDefinition(
-                        "HIB-MAP-003",
-                        "Enum attributes should be stored as strings",
-                        HibernateAdvisorCategory.MAPPING,
-                        "MEDIUM",
-                        "Detects enum attributes that use @Enumerated(ORDINAL) or omit @Enumerated, which defaults to ORDINAL.",
-                        "Use @Enumerated(EnumType.STRING) or an explicit converter so enum reordering does not corrupt data.",
-                        "https://jakarta.ee/specifications/persistence/3.2/apidocs/jakarta.persistence/jakarta/persistence/enumerated"));
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-MAP-003",
+                "Enum attributes should declare an explicit storage strategy",
+                HibernateAdvisorCategory.MAPPING,
+                "MEDIUM",
+                "Detects enum attributes that omit @Enumerated and therefore rely on JPA's ORDINAL default.",
+                "Declare the enum mapping explicitly: use STRING, a database-native enum type, a stable converter/code, or an intentional ORDINAL mapping backed by append-only enum ordering and a lookup table or database constraint.",
+                "https://vladmihalcea.com/the-best-way-to-map-an-enum-type-with-jpa-and-hibernate/"));
     }
 
     @Override
@@ -520,10 +519,8 @@ final class OrdinalEnumRule extends AbstractHibernateAdvisorRule {
                     continue;
                 }
                 Annotation enumerated = attribute.enumeratedAnnotation();
-                String value = enumerated == null ? "ORDINAL" : attribute.annotationValueName(enumerated, "value");
-                if (!"STRING".equals(value)) {
-                    details.add(attribute.description() + " stores enum values as ORDINAL"
-                            + (enumerated == null ? " by JPA default." : "."));
+                if (enumerated == null && !attribute.hasConvertAnnotation()) {
+                    details.add(attribute.description() + " relies on JPA's default ORDINAL enum storage.");
                 }
             }
         }
@@ -652,6 +649,11 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateAdvisorRule
 
     @Override
     HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.hasHibernateCollectionFetchPaginationFix()) {
+            return skipped("Hibernate "
+                    + context.hibernateVersionDisplay()
+                    + " is newer than 7.4, where pagination over collection fetch joins was fixed.");
+        }
         if (context.repositories().isEmpty()) {
             return skipped("No Spring Data repository metadata was detected.");
         }
@@ -1917,6 +1919,11 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateAdv
 
     @Override
     HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.hasHibernateCollectionFetchPaginationFix()) {
+            return skipped("Hibernate "
+                    + context.hibernateVersionDisplay()
+                    + " is newer than 7.4, where pagination over collection fetch joins was fixed.");
+        }
         if (!context.isPropertyTrue(
                 "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch",
                 "hibernate.query.fail_on_pagination_over_collection_fetch")) {

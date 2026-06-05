@@ -49,7 +49,7 @@ public class SampleOrder {
     @OneToOne
     private SampleOrderDetails details;
 
-    // Intentionally omits @Enumerated(EnumType.STRING) to trigger HIB-MAP-003.
+    // Intentionally omits @Enumerated to trigger HIB-MAP-003.
     private SampleOrderStatus status;
 
     protected SampleOrder() {}
