@@ -6,23 +6,32 @@ import io.github.jdubois.bootui.core.dto.FlywayDatabaseDto;
 import io.github.jdubois.bootui.core.dto.FlywayMigrationDto;
 import io.github.jdubois.bootui.core.dto.FlywayReport;
 import jakarta.annotation.Nullable;
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
+import org.flywaydb.core.api.Location;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.MigrationState;
 import org.flywaydb.core.api.configuration.Configuration;
 import org.flywaydb.core.api.output.CleanResult;
 import org.flywaydb.core.api.output.MigrateResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -41,10 +50,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/bootui/api/flyway")
 public class FlywayController {
 
+    private static final Logger log = LoggerFactory.getLogger(FlywayController.class);
+
     private static final String CLEAN_DISABLED_BY_FLYWAY =
             "Flyway clean is disabled by Flyway configuration. Set spring.flyway.clean-disabled=false to allow it.";
     private static final String CONFIRMATION_REQUIRED =
             "Action requires confirm=true because it mutates the application database.";
+    private static final String MODULITH_ACTIONS_DISABLED =
+            "Spring Modulith module-aware Flyway migrations use module-specific history tables and are read-only in BootUI.";
+    private static final String MODULITH_STRATEGY_CLASS =
+            "org.springframework.modulith.runtime.flyway.SpringModulithFlywayMigrationStrategy";
+    private static final String MODULITH_IDENTIFIERS_CLASS =
+            "org.springframework.modulith.core.ApplicationModuleIdentifiers";
+    private static final String MODULITH_ROOT_IDENTIFIER = "__root";
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
 
@@ -54,7 +72,7 @@ public class FlywayController {
 
     @GetMapping("/migrations")
     public FlywayReport migrations() {
-        List<FlywayDatabaseDto> databases = discover().stream()
+        List<FlywayDatabaseDto> databases = discoverReportEntries().stream()
                 .map(this::toDatabaseDto)
                 .sorted(Comparator.comparing(FlywayDatabaseDto::name, Comparator.nullsLast(String::compareTo)))
                 .toList();
@@ -64,7 +82,11 @@ public class FlywayController {
 
     @PostMapping("/migrate")
     public ResponseEntity<FlywayActionResult> migrate(@RequestBody(required = false) FlywayActionRequest request) {
-        FlywayEntry entry = findTarget(request).orElse(null);
+        ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
+        if (moduleAwareFlywayActive(factory)) {
+            return action(HttpStatus.FORBIDDEN, "blocked", MODULITH_ACTIONS_DISABLED, requestedBeanName(request));
+        }
+        FlywayEntry entry = findTarget(factory, request).orElse(null);
         if (entry == null) {
             return action(
                     HttpStatus.NOT_FOUND, "unavailable", "No Flyway bean matched the requested datasource.", null);
@@ -93,7 +115,11 @@ public class FlywayController {
 
     @PostMapping("/clean")
     public ResponseEntity<FlywayActionResult> clean(@RequestBody(required = false) FlywayActionRequest request) {
-        FlywayEntry entry = findTarget(request).orElse(null);
+        ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
+        if (moduleAwareFlywayActive(factory)) {
+            return action(HttpStatus.FORBIDDEN, "blocked", MODULITH_ACTIONS_DISABLED, requestedBeanName(request));
+        }
+        FlywayEntry entry = findTarget(factory, request).orElse(null);
         if (entry == null) {
             return action(
                     HttpStatus.NOT_FOUND, "unavailable", "No Flyway bean matched the requested datasource.", null);
@@ -121,11 +147,24 @@ public class FlywayController {
         }
     }
 
-    private List<FlywayEntry> discover() {
+    private List<FlywayEntry> discoverReportEntries() {
         ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
         if (factory == null) {
             return List.of();
         }
+        List<FlywayEntry> entries = discoverFlywayBeans(factory);
+        if (entries.isEmpty() || !moduleAwareFlywayActive(factory)) {
+            return entries;
+        }
+        List<String> moduleIdentifiers = moduleIdentifiers(factory);
+        List<FlywayEntry> moduleAwareEntries = new ArrayList<>();
+        for (FlywayEntry entry : entries) {
+            moduleAwareEntries.addAll(toModuleAwareEntries(entry, moduleIdentifiers));
+        }
+        return moduleAwareEntries.isEmpty() ? readOnlyEntries(entries) : moduleAwareEntries;
+    }
+
+    private List<FlywayEntry> discoverFlywayBeans(ListableBeanFactory factory) {
         String[] beanNames = factory.getBeanNamesForType(Flyway.class);
         List<FlywayEntry> entries = new ArrayList<>(beanNames.length);
         for (String beanName : beanNames) {
@@ -135,7 +174,7 @@ public class FlywayController {
             } catch (Exception ex) {
                 continue;
             }
-            entries.add(new FlywayEntry(strip(beanName), flyway));
+            entries.add(FlywayEntry.writable(strip(beanName), flyway));
         }
         return entries;
     }
@@ -164,7 +203,8 @@ public class FlywayController {
             }
             migrations.add(toMigrationDto(info));
         }
-        String cleanDisabledReason = cleanDisabledReason(entry.flyway());
+        String cleanDisabledReason =
+                entry.actionsEnabled() ? cleanDisabledReason(entry.flyway()) : entry.disabledReason();
         return new FlywayDatabaseDto(
                 entry.beanName(),
                 currentVersion,
@@ -172,9 +212,9 @@ public class FlywayController {
                 pending,
                 migrations.size(),
                 migrations,
-                true,
-                null,
-                cleanDisabledReason == null,
+                entry.actionsEnabled(),
+                entry.actionsEnabled() ? null : entry.disabledReason(),
+                entry.actionsEnabled() && cleanDisabledReason == null,
                 cleanDisabledReason);
     }
 
@@ -207,15 +247,25 @@ public class FlywayController {
         return beanName.startsWith("&") ? beanName.substring(1) : beanName;
     }
 
-    private java.util.Optional<FlywayEntry> findTarget(@Nullable FlywayActionRequest request) {
-        List<FlywayEntry> entries = discover();
+    private Optional<FlywayEntry> findTarget(
+            @Nullable ListableBeanFactory factory, @Nullable FlywayActionRequest request) {
+        if (factory == null) {
+            return Optional.empty();
+        }
+        List<FlywayEntry> entries = discoverFlywayBeans(factory);
         String requested = request == null ? null : request.beanName();
         if (requested == null || requested.isBlank()) {
-            return entries.size() == 1 ? java.util.Optional.of(entries.get(0)) : java.util.Optional.empty();
+            return entries.size() == 1 ? Optional.of(entries.get(0)) : Optional.empty();
         }
         return entries.stream()
                 .filter(entry -> entry.beanName().equals(requested))
                 .findFirst();
+    }
+
+    @Nullable
+    private String requestedBeanName(@Nullable FlywayActionRequest request) {
+        String beanName = request == null ? null : request.beanName();
+        return beanName == null || beanName.isBlank() ? null : beanName;
     }
 
     @Nullable
@@ -241,5 +291,123 @@ public class FlywayController {
         return values == null ? List.of() : List.copyOf(values);
     }
 
-    private record FlywayEntry(String beanName, Flyway flyway) {}
+    private List<FlywayEntry> readOnlyEntries(List<FlywayEntry> entries) {
+        return entries.stream()
+                .map(entry -> FlywayEntry.readOnly(entry.beanName(), entry.flyway(), MODULITH_ACTIONS_DISABLED))
+                .toList();
+    }
+
+    private boolean moduleAwareFlywayActive(@Nullable ListableBeanFactory factory) {
+        return factory != null && beanPresent(factory, MODULITH_STRATEGY_CLASS);
+    }
+
+    private boolean beanPresent(ListableBeanFactory factory, String className) {
+        Class<?> type = classForName(className);
+        if (type == null) {
+            return false;
+        }
+        String[] beanNames = factory.getBeanNamesForType(type, false, false);
+        return beanNames != null && beanNames.length > 0;
+    }
+
+    @Nullable
+    private Class<?> classForName(String className) {
+        try {
+            return ClassUtils.forName(className, getClass().getClassLoader());
+        } catch (ClassNotFoundException ex) {
+            return null;
+        }
+    }
+
+    private List<String> moduleIdentifiers(ListableBeanFactory factory) {
+        Class<?> identifiersType = classForName(MODULITH_IDENTIFIERS_CLASS);
+        if (identifiersType == null) {
+            return List.of();
+        }
+        String[] beanNames = factory.getBeanNamesForType(identifiersType, false, false);
+        if (beanNames == null || beanNames.length == 0) {
+            return List.of();
+        }
+        try {
+            Object identifiers = factory.getBean(beanNames[0], identifiersType);
+            Method streamMethod = identifiersType.getMethod("stream");
+            Object stream = streamMethod.invoke(identifiers);
+            if (stream instanceof Stream<?> identifierStream) {
+                try (identifierStream) {
+                    return identifierStream
+                            .map(Object::toString)
+                            .filter(identifier -> !identifier.isBlank())
+                            .toList();
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            log.debug("Could not inspect Spring Modulith application module identifiers", ex);
+        }
+        return List.of();
+    }
+
+    private List<FlywayEntry> toModuleAwareEntries(FlywayEntry entry, List<String> moduleIdentifiers) {
+        Set<String> identifiers = new LinkedHashSet<>();
+        identifiers.add(MODULITH_ROOT_IDENTIFIER);
+        identifiers.addAll(moduleIdentifiers);
+
+        List<FlywayEntry> entries = new ArrayList<>(identifiers.size());
+        for (String identifier : identifiers) {
+            try {
+                entries.add(FlywayEntry.readOnly(
+                        moduleAwareName(entry.beanName(), identifier),
+                        moduleAwareFlyway(entry.flyway(), identifier),
+                        MODULITH_ACTIONS_DISABLED));
+            } catch (RuntimeException ex) {
+                log.debug("Could not create Spring Modulith Flyway view for module {}", identifier, ex);
+            }
+        }
+        return entries;
+    }
+
+    private String moduleAwareName(String beanName, String identifier) {
+        return beanName + ":" + identifier;
+    }
+
+    private Flyway moduleAwareFlyway(Flyway flyway, String identifier) {
+        Configuration configuration = flyway.getConfiguration();
+        List<String> locations = Stream.of(configuration.getLocations())
+                .map(Location::toString)
+                .map(location -> moduleAwareLocation(location, identifier))
+                .toList();
+
+        return Flyway.configure()
+                .configuration(configuration)
+                .locations(locations.toArray(String[]::new))
+                .table(moduleAwareTable(configuration.getTable(), identifier))
+                .baselineVersion("0")
+                .baselineOnMigrate(true)
+                .load();
+    }
+
+    private String moduleAwareLocation(String location, String identifier) {
+        if (location.endsWith("*")) {
+            return location;
+        }
+        return location + "/" + identifier.replace('.', '/');
+    }
+
+    private String moduleAwareTable(String table, String identifier) {
+        return MODULITH_ROOT_IDENTIFIER.equals(identifier) ? table : table + "_" + identifier;
+    }
+
+    private record FlywayEntry(
+            String beanName,
+            Flyway flyway,
+            boolean actionsEnabled,
+            @Nullable String disabledReason) {
+
+        static FlywayEntry writable(String beanName, Flyway flyway) {
+            return new FlywayEntry(beanName, flyway, true, null);
+        }
+
+        static FlywayEntry readOnly(String beanName, Flyway flyway, String disabledReason) {
+            return new FlywayEntry(beanName, flyway, false, disabledReason);
+        }
+    }
 }

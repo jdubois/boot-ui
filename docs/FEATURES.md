@@ -255,12 +255,15 @@ mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catal
 
 The Flyway panel shows schema migrations for each `Flyway` bean in the context and lists, per database, the current schema
 version together with applied and pending migrations (version, description, type, script, state, installed-by,
-installed-on, execution time, and checksum). Multiple or named datasources appear independently.
+installed-on, execution time, and checksum). Multiple or named datasources appear independently. When Spring Modulith
+module-aware Flyway migrations are active, the panel shows the root and module-specific history tables separately so
+module-local migrations are visible even though Spring Modulith creates those Flyway views only during migration.
 
 The panel also exposes confirmation-gated `migrate` and `clean` actions. They are available by default for trusted local
 sessions and are blocked by `bootui.read-only=true` or `bootui.panels.flyway.read-only=true`; `clean` also requires
-Flyway's own `clean-disabled=false` setting. The panel degrades to a clear empty state when Flyway is not on the classpath
-or no `Flyway` beans are present.
+Flyway's own `clean-disabled=false` setting. Spring Modulith module-aware entries are read-only in BootUI because their
+module-specific history tables are managed by Spring Modulith's migration strategy. The panel degrades to a clear empty
+state when Flyway is not on the classpath or no `Flyway` beans are present.
 
 ![BootUI Flyway panel](./images/bootui-flyway.png)
 
