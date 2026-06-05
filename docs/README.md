@@ -3,8 +3,6 @@ home: true
 title: BootUI
 heroText: BootUI
 tagline: A local-only developer console for Spring Boot 4 applications.
-heroImage: /images/bootui-overview.png
-heroAlt: BootUI Overview dashboard screenshot
 actions:
   - text: Explore features
     link: /FEATURES.html

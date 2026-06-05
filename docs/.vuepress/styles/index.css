@@ -326,6 +326,8 @@ body {
 
 .vp-home {
   animation: fade-up 360ms ease both;
+  display: flex;
+  flex-direction: column;
 }
 
 .vp-page {
@@ -344,6 +346,7 @@ body {
 }
 
 .vp-hero {
+  order: 1;
   max-width: 68rem;
   margin-top: 2rem;
   padding: 3rem;
@@ -351,18 +354,6 @@ body {
   background:
     linear-gradient(135deg, rgba(25, 135, 84, 0.09), rgba(13, 110, 253, 0.07)),
     var(--bootui-surface);
-}
-
-.vp-hero .vp-hero-image,
-.vp-hero img[src*='bootui-overview'] {
-  display: block;
-  width: min(100%, 58rem);
-  max-width: 100%;
-  max-height: none;
-  margin: 0 auto 2rem;
-  border: 1px solid var(--bootui-border);
-  border-radius: 1.1rem;
-  box-shadow: var(--bootui-shadow-md);
 }
 
 .vp-hero::before {
@@ -422,6 +413,7 @@ body {
 
 .vp-features {
   gap: 1rem;
+  order: 3;
 }
 
 .vp-feature {
@@ -548,6 +540,33 @@ body {
   border: 1px solid var(--bootui-border);
   border-radius: 1.1rem;
   box-shadow: var(--bootui-shadow-sm);
+}
+
+.vp-home > [vp-content] {
+  display: contents;
+}
+
+.vp-home > [vp-content] > div {
+  display: contents;
+}
+
+.vp-home > [vp-content] > div > p:first-child {
+  order: 2;
+  margin: 2rem 0 0;
+}
+
+.vp-home > [vp-content] > div > p:first-child img[src*='bootui-overview'] {
+  width: min(100%, 58rem);
+  margin: 0 auto;
+  box-shadow: var(--bootui-shadow-md);
+}
+
+.vp-home > [vp-content] > div > :not(p:first-child) {
+  order: 4;
+}
+
+.vp-home > .vp-footer {
+  order: 5;
 }
 
 [vp-content] code {
