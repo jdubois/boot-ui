@@ -64,7 +64,7 @@ describe('HTTP Exchanges', () => {
     expect(wrapper.text()).not.toContain('Authorization')
     expect(wrapper.text()).not.toContain('BootUI self-request')
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
-    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(true)
 
     const detailsButton = wrapper.find('.http-exchanges-detail-toggle')
     expect(detailsButton.text()).toContain('View details')

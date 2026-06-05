@@ -3,7 +3,6 @@ import {apiFetch} from '../api.js'
 import {computed, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -98,11 +97,9 @@ function typeBadgeClass(typeName) {
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+      v-model:auto-refresh="autoRefresh"
+      @refresh="load"
+    />
 
     <p class="text-muted small">
       Read-only Spring Boot audit events from the application <code>AuditEventRepository</code>.

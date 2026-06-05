@@ -5,7 +5,6 @@ import ServerListFooter from './components/ServerListFooter.vue'
 import {formatNumber} from '../utils/format.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 
 const filter = ref('')
 const method = ref('')
@@ -50,7 +49,7 @@ async function refreshExchanges() {
   }
 }
 
-const {autoRefresh, loading: refreshLoading} = useAutoRefresh(refreshExchanges)
+const {autoRefresh, loading: refreshLoading, load: refreshNow} = useAutoRefresh(refreshExchanges)
 
 function formatTimestamp(timestamp) {
   if (!timestamp) return '—'
@@ -140,11 +139,9 @@ watch([filter, method, statusClass], scheduleReload)
       :loading="refreshLoading || loading"
       :error="error"
       :last-fetched="lastFetched"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+      v-model:auto-refresh="autoRefresh"
+      @refresh="refreshNow"
+    />
 
     <div v-if="unavailableReason" class="alert alert-warning" role="alert">
       <strong>HTTP exchange recording is unavailable.</strong>

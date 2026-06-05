@@ -1,7 +1,6 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, ref} from 'vue'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -191,12 +190,9 @@ const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh
       :loading="loading"
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
+      v-model:auto-refresh="autoRefresh"
       @refresh="loadMetrics"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+    />
 
     <PanelSkeleton v-if="initialLoading" />
 

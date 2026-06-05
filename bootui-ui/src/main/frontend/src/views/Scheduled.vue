@@ -2,17 +2,16 @@
 import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const report = ref(null)
-const loading = ref(true)
 const error = ref(null)
 const filter = ref('')
 const lastFetched = ref(null)
 
-async function load() {
-  loading.value = true
+async function fetchReport() {
   error.value = null
   try {
     const res = await apiFetch('api/scheduled')
@@ -21,10 +20,10 @@ async function load() {
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load scheduled tasks')
-  } finally {
-    loading.value = false
   }
 }
+
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
 
 const filtered = computed(() => {
   if (!report.value) return []
@@ -58,8 +57,6 @@ function formatExpression(task) {
   if (task.timeUnit === 's') return `${numericValue / 1000} s`
   return `${numericValue} ms`
 }
-
-onMounted(load)
 </script>
 
 <template>
@@ -70,10 +67,11 @@ onMounted(load)
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
     />
 
-    <PanelSkeleton v-if="loading && !report" />
+    <PanelSkeleton v-if="initialLoading && !report" />
     <div v-else-if="report && !report.schedulingPresent" class="alert alert-info">
       No Spring Scheduling detected on the classpath.
     </div>

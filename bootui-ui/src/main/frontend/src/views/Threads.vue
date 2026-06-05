@@ -5,7 +5,6 @@ import {formatNumber} from '../utils/format.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 
@@ -35,7 +34,7 @@ const {
   errorContext: 'Could not load threads'
 })
 
-const {autoRefresh, loading: refreshLoading} = useAutoRefresh(loadThreads)
+const {autoRefresh, loading: refreshLoading, load: refreshThreads} = useAutoRefresh(loadThreads)
 
 const available = computed(() => data.value?.available !== false)
 const unavailableReason = computed(() => data.value?.unavailableReason || 'Thread information is unavailable.')
@@ -126,9 +125,10 @@ watch([filter, state], scheduleReload)
       :loading="loading"
       :error="error"
       :last-fetched="data?.capturedAt || null"
+      v-model:auto-refresh="autoRefresh"
+      @refresh="refreshThreads"
     >
       <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
         <button
           :disabled="readOnly || downloading || !available"
           :title="readOnly ? readOnlyReason : 'Download a raw thread dump snapshot'"

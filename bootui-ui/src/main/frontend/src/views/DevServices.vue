@@ -1,15 +1,15 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, onMounted, ref} from 'vue'
+import {computed, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const report = ref(null)
-const loading = ref(true)
 const error = ref(null)
 const filter = ref('')
 const selected = ref(null)
@@ -18,8 +18,7 @@ const actionMessage = ref(null)
 const busyService = ref(null)
 const lastFetched = ref(null)
 
-async function load(options = {}) {
-  loading.value = true
+async function fetchReport(options = {}) {
   error.value = null
   if (!options.preserveActionMessage) {
     actionMessage.value = null
@@ -32,10 +31,10 @@ async function load(options = {}) {
     syncSelectedService()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load Dev Services')
-  } finally {
-    loading.value = false
   }
 }
+
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
 
 const filtered = computed(() => {
   if (!report.value) return []
@@ -186,8 +185,6 @@ async function responseMessage(res) {
     return `HTTP ${res.status}`
   }
 }
-
-onMounted(load)
 </script>
 
 <template>
@@ -203,6 +200,7 @@ onMounted(load)
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
     />
 
@@ -219,7 +217,7 @@ onMounted(load)
       </ul>
     </div>
 
-    <PanelSkeleton v-if="loading && !report" />
+    <PanelSkeleton v-if="initialLoading && !report" />
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">
       No Docker Compose, Testcontainers, or Spring Boot service connection beans were detected.
     </div>

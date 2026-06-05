@@ -84,7 +84,7 @@ describe('Threads', () => {
     expect(wrapper.text()).toContain('RUNNABLE: 1')
     expect(wrapper.find('code').text()).toBe('main')
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
-    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(true)
   })
 
   it('expands and collapses the stack trace for a thread', async () => {

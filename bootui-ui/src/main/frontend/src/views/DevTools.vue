@@ -4,7 +4,6 @@ import {computed, onUnmounted, ref} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 
 const props = defineProps(panelProps)
@@ -135,12 +134,9 @@ onUnmounted(clearReconnectTimer)
       subtitle="Trigger Spring Boot DevTools LiveReload notifications or restart the local application."
       :loading="loading || restarting"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+    />
 
     <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
       <div>
