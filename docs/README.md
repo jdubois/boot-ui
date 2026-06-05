@@ -3,6 +3,8 @@ home: true
 title: BootUI
 heroText: BootUI
 tagline: A local-only developer console for Spring Boot 4 applications.
+heroImage: /images/bootui-overview.png
+heroAlt: BootUI Overview dashboard screenshot
 actions:
   - text: Explore features
     link: /FEATURES.html
@@ -25,8 +27,6 @@ features:
     details: Add one Spring Boot starter dependency and get the bundled Vue UI, REST API, and docs-backed workflow without a separate frontend deployment.
 footer: Apache-2.0 Licensed | BootUI
 ---
-
-![BootUI overview](./images/bootui-overview.png)
 
 ## Start here
 

@@ -353,6 +353,18 @@ body {
     var(--bootui-surface);
 }
 
+.vp-hero .vp-hero-image,
+.vp-hero img[src*='bootui-overview'] {
+  display: block;
+  width: min(100%, 58rem);
+  max-width: 100%;
+  max-height: none;
+  margin: 0 auto 2rem;
+  border: 1px solid var(--bootui-border);
+  border-radius: 1.1rem;
+  box-shadow: var(--bootui-shadow-md);
+}
+
 .vp-hero::before {
   display: inline-flex;
   width: 4rem;
