@@ -18,6 +18,8 @@ nb-configuration.xml
 
 # Java / Maven
 target/
+# Per-worktree local Maven repository used by the GitHub Copilot app scripts.
+.m2/
 *.class
 *.jar
 *.war

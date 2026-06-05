@@ -9,12 +9,16 @@ services:
       - "5432"
   redis:
     image: redis:8-alpine
+    # Dynamic host port so concurrent worktrees do not collide on 6379;
+    # Spring Boot's docker-compose support discovers the mapped port.
     ports:
-      - "6379:6379"
+      - "6379"
   ollama:
     image: ollama/ollama:latest
+    # Dynamic host port so concurrent worktrees do not collide on 11434; the
+    # ollama service-connection below feeds the mapped port to Spring AI.
     ports:
-      - "11434:11434"
+      - "11434"
     healthcheck:
       test: [ "CMD", "ollama", "--version" ]
       interval: 10s
