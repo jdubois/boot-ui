@@ -52,7 +52,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class HibernateAdvisorScannerTests {
 
-    private static final int RULE_COUNT = 61;
+    private static final int RULE_COUNT = 60;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -81,6 +81,13 @@ class HibernateAdvisorScannerTests {
         assertThat(report.results())
                 .anySatisfy(result -> assertThat(result.sampleViolations())
                         .anySatisfy(sample -> assertThat(sample).contains("customer is mapped as FetchType.EAGER.")));
+        assertThat(report.results()).anySatisfy(result -> {
+            assertThat(result.id()).isEqualTo("HIB-FETCH-001");
+            assertThat(result.name()).isEqualTo("Eager fetching should stay explicit and bounded");
+            assertThat(result.sampleViolations())
+                    .anySatisfy(sample ->
+                            assertThat(sample).contains("labels is an @ElementCollection mapped as FetchType.EAGER."));
+        });
     }
 
     @Test
@@ -217,7 +224,6 @@ class HibernateAdvisorScannerTests {
                         "HIB-FETCH-003",
                         "HIB-FETCH-004",
                         "HIB-FETCH-005",
-                        "HIB-FETCH-006",
                         "HIB-FETCH-007",
                         "HIB-ID-002",
                         "HIB-ID-003",

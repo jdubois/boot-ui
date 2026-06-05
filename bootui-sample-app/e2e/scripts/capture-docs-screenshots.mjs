@@ -1493,16 +1493,17 @@ const hibernateAdvisor = {
   results: [
     hibernateAdvisorResult(
       'HIB-FETCH-001',
-      'Associations should avoid eager fetching by default',
+      'Eager fetching should stay explicit and bounded',
       'Fetching',
       'HIGH',
-      'Detects JPA associations mapped with FetchType.EAGER, including default-eager to-one associations.',
-      2,
+      'Detects JPA associations and @ElementCollection attributes mapped with FetchType.EAGER, including default-eager to-one associations.',
+      3,
       [
         'io.github.jdubois.bootui.sample.order.Order#customer is mapped as FetchType.EAGER.',
-        'io.github.jdubois.bootui.sample.invoice.Invoice#order is mapped as FetchType.EAGER.'
+        'io.github.jdubois.bootui.sample.invoice.Invoice#order is mapped as FetchType.EAGER.',
+        'io.github.jdubois.bootui.sample.preferences.Preferences#enabledFeatures is an @ElementCollection mapped as FetchType.EAGER.'
       ],
-      'Prefer LAZY associations and fetch required graphs explicitly with joins, entity graphs, or DTO queries.'
+      'Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins, entity graphs, or DTO queries.'
     ),
     hibernateAdvisorResult(
       'HIB-ID-001',

@@ -29,16 +29,17 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 ## Fetching
 
-### HIB-FETCH-001 - Associations should avoid eager fetching by default
+### HIB-FETCH-001 - Eager fetching should stay explicit and bounded
 
 - **Severity**: HIGH
-- **Inspects**: `@ManyToOne`, `@OneToOne`, `@OneToMany`, and `@ManyToMany` mappings on metamodel attributes.
-- **Fires when**: an association resolves to `FetchType.EAGER`, including default-eager to-one associations where no
-  `fetch` attribute is declared.
-- **Why it matters**: eager associations are fetched whether or not the use case needs them, which can amplify query
-  counts, payload size, and accidental object graph loading.
-- **Recommendation**: prefer `LAZY` associations and fetch required data explicitly with joins, entity graphs, or DTO
-  projections.
+- **Inspects**: `@ManyToOne`, `@OneToOne`, `@OneToMany`, `@ManyToMany`, and `@ElementCollection` mappings on metamodel
+  attributes.
+- **Fires when**: a mapping resolves to `FetchType.EAGER`, including default-eager to-one associations where no `fetch`
+  attribute is declared and element collections that explicitly opt into eager fetching.
+- **Why it matters**: eager mappings are fetched whether or not the use case needs them, which can amplify query counts,
+  payload size, and accidental object graph or collection-table loading.
+- **Recommendation**: prefer `LAZY` mappings and fetch required data explicitly with joins, entity graphs, DTO
+  projections, or targeted collection-value queries.
 
 ### HIB-FETCH-002 - Batch fetching should be configured for association-heavy models
 
@@ -77,16 +78,6 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: large CLOB/BLOB payloads are read for every entity hydration unless lazy loading is requested.
 - **Recommendation**: annotate `@Lob` fields with `@Basic(fetch = FetchType.LAZY)`; lazy loading of non-association
   attributes requires Hibernate's bytecode enhancer to actually defer the SQL.
-
-### HIB-FETCH-006 - @ElementCollection should default to LAZY fetching
-
-- **Severity**: MEDIUM
-- **Inspects**: `@ElementCollection` attributes.
-- **Fires when**: an `@ElementCollection` explicitly opts into `FetchType.EAGER`.
-- **Why it matters**: eager element collections are loaded for every parent hydration and undermine paging and selective
-  loading.
-- **Recommendation**: keep `@ElementCollection` at the default `LAZY` fetch type and request the values explicitly when
-  needed.
 
 ### HIB-FETCH-007 - Collection associations should not declare @Fetch(JOIN)
 

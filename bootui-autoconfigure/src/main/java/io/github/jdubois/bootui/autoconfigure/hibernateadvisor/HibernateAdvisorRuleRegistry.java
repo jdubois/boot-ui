@@ -6,12 +6,11 @@ final class HibernateAdvisorRuleRegistry {
 
     private static final List<HibernateAdvisorRule> ACTIVE_RULES = List.of(
             // Fetching
-            new EagerAssociationFetchRule(),
+            new EagerFetchRule(),
             new CollectionJoinFetchPageableRule(),
             new MultipleBagCollectionRule(),
             new MissingBatchFetchRule(),
             new LobLazyFetchRule(),
-            new ElementCollectionEagerFetchRule(),
             new CollectionFetchJoinAnnotationRule(),
             // Identifiers
             new IdentityIdentifierRule(),

@@ -47,17 +47,17 @@ abstract class AbstractHibernateAdvisorRule implements HibernateAdvisorRule {
     }
 }
 
-final class EagerAssociationFetchRule extends AbstractHibernateAdvisorRule {
+final class EagerFetchRule extends AbstractHibernateAdvisorRule {
 
-    EagerAssociationFetchRule() {
+    EagerFetchRule() {
         super(
                 new HibernateAdvisorRuleDefinition(
                         "HIB-FETCH-001",
-                        "Associations should avoid eager fetching by default",
+                        "Eager fetching should stay explicit and bounded",
                         HibernateAdvisorCategory.FETCHING,
                         "HIGH",
-                        "Detects JPA associations mapped with FetchType.EAGER, including default-eager to-one associations.",
-                        "Prefer LAZY associations and fetch required graphs explicitly with joins, entity graphs, or DTO queries.",
+                        "Detects JPA associations and @ElementCollection attributes mapped with FetchType.EAGER, including default-eager to-one associations.",
+                        "Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins, entity graphs, or DTO queries.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
     }
 
@@ -67,12 +67,13 @@ final class EagerAssociationFetchRule extends AbstractHibernateAdvisorRule {
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 Annotation association = attribute.associationAnnotation();
-                if (association == null) {
-                    continue;
-                }
-                String fetch = attribute.annotationValueName(association, "fetch");
-                if ("EAGER".equals(fetch)) {
+                if (association != null && "EAGER".equals(attribute.annotationValueName(association, "fetch"))) {
                     details.add(attribute.description() + " is mapped as FetchType.EAGER.");
+                }
+                Annotation elementCollection = attribute.elementCollectionAnnotation();
+                if (elementCollection != null
+                        && "EAGER".equals(attribute.annotationValueName(elementCollection, "fetch"))) {
+                    details.add(attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.");
                 }
             }
         }
@@ -1043,38 +1044,6 @@ final class LobLazyFetchRule extends AbstractHibernateAdvisorRule {
                 if (attribute.isLob() && !attribute.hasBasicLazy()) {
                     details.add(attribute.description()
                             + " is annotated with @Lob but does not declare @Basic(fetch = LAZY).");
-                }
-            }
-        }
-        return violation(details);
-    }
-}
-
-final class ElementCollectionEagerFetchRule extends AbstractHibernateAdvisorRule {
-
-    ElementCollectionEagerFetchRule() {
-        super(new HibernateAdvisorRuleDefinition(
-                "HIB-FETCH-006",
-                "@ElementCollection should default to LAZY fetching",
-                HibernateAdvisorCategory.FETCHING,
-                "MEDIUM",
-                "Detects @ElementCollection attributes that explicitly opt into EAGER fetching.",
-                "Leave @ElementCollection at the default LAZY fetch type and load values explicitly when needed; eager element collections are loaded for every entity hydration.",
-                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a3160"));
-    }
-
-    @Override
-    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
-        List<String> details = new ArrayList<>();
-        for (HibernateEntityModel entity : context.entities()) {
-            for (HibernateAttributeModel attribute : entity.attributes()) {
-                Annotation elementCollection = attribute.elementCollectionAnnotation();
-                if (elementCollection == null) {
-                    continue;
-                }
-                String fetch = attribute.annotationValueName(elementCollection, "fetch");
-                if ("EAGER".equals(fetch)) {
-                    details.add(attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.");
                 }
             }
         }
