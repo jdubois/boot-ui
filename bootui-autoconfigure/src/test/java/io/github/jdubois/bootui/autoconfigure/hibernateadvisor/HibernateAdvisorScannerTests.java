@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorReport;
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorRuleResultDto;
+import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Basic;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.Convert;
 import jakarta.persistence.DiscriminatorColumn;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
@@ -83,6 +85,13 @@ class HibernateAdvisorScannerTests {
         assertThat(report.results())
                 .anySatisfy(result -> assertThat(result.sampleViolations())
                         .anySatisfy(sample -> assertThat(sample).contains("customer is mapped as FetchType.EAGER.")));
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-MAP-003"))
+                .singleElement()
+                .satisfies(
+                        result -> assertThat(result.sampleViolations())
+                                .contains(
+                                        "io.github.jdubois.bootui.autoconfigure.hibernateadvisor.HibernateAdvisorScannerTests$ProblemOrder#status relies on JPA's default ORDINAL enum storage."));
     }
 
     @Test
@@ -689,6 +698,38 @@ class HibernateAdvisorScannerTests {
 
         @Enumerated(EnumType.STRING)
         Status status;
+
+        @Enumerated(EnumType.ORDINAL)
+        Status stableOrdinalStatus;
+
+        @Convert(converter = StatusCodeConverter.class)
+        Status convertedStatus;
+    }
+
+    static class StatusCodeConverter implements AttributeConverter<Status, Integer> {
+
+        @Override
+        public Integer convertToDatabaseColumn(Status attribute) {
+            if (attribute == null) {
+                return null;
+            }
+            return switch (attribute) {
+                case NEW -> 10;
+                case SHIPPED -> 20;
+            };
+        }
+
+        @Override
+        public Status convertToEntityAttribute(Integer dbData) {
+            if (dbData == null) {
+                return null;
+            }
+            return switch (dbData) {
+                case 10 -> Status.NEW;
+                case 20 -> Status.SHIPPED;
+                default -> throw new IllegalArgumentException("Unknown status code: " + dbData);
+            };
+        }
     }
 
     static class Customer {}

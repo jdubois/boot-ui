@@ -16,7 +16,7 @@ import org.springframework.stereotype.Repository;
 // plus the HIB-QUERY-* checks below.
 public interface SampleOrderRepository extends JpaRepository<SampleOrder, Long> {
 
-    // Keeps the enum-mapped entity visible in Spring Data; SampleOrder.status intentionally triggers HIB-MAP-003.
+    // Keeps the enum-mapped entity visible in Spring Data; SampleOrder.status intentionally omits @Enumerated.
     List<SampleOrder> findByStatus(SampleOrderStatus status);
 
     // Intentionally combines Pageable with a collection fetch join to trigger HIB-FETCH-003.

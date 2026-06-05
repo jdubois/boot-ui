@@ -174,13 +174,16 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: list-backed many-to-many mappings can force delete-and-reinsert behavior for join-table rows.
 - **Recommendation**: use `Set`, or model the join table as an entity when it has attributes or business meaning.
 
-### HIB-MAP-003 - Enum attributes should be stored as strings
+### HIB-MAP-003 - Enum attributes should declare an explicit storage strategy
 
 - **Severity**: MEDIUM
 - **Inspects**: enum-valued mapped attributes.
-- **Fires when**: an enum attribute uses `@Enumerated(ORDINAL)` or omits `@Enumerated`, which defaults to ordinal storage.
-- **Why it matters**: ordinal persistence is fragile because reordering enum constants changes the stored meaning.
-- **Recommendation**: use `@Enumerated(EnumType.STRING)` or an explicit converter.
+- **Fires when**: an enum attribute omits `@Enumerated` and therefore relies on JPA's default ordinal storage.
+- **Why it matters**: default ordinal persistence is easy to enable accidentally, and reordering enum constants changes the
+  stored meaning unless the ordinal values are treated as a stable schema contract.
+- **Recommendation**: declare the mapping explicitly. Use `@Enumerated(EnumType.STRING)`, a database-native enum type, an
+  explicit converter with stable database codes, or an intentional `@Enumerated(EnumType.ORDINAL)` mapping backed by
+  append-only enum ordering plus a lookup/description table or database constraint.
 
 ### HIB-MAP-004 - Many-to-many associations should not cascade remove
 
