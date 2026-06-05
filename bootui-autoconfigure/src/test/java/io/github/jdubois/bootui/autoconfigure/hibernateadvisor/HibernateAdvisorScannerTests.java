@@ -47,6 +47,7 @@ import org.hibernate.annotations.CacheConcurrencyStrategy;
 import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.Fetch;
 import org.hibernate.annotations.FetchMode;
+import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.NotFound;
 import org.hibernate.annotations.NotFoundAction;
 import org.hibernate.annotations.OptimisticLockType;
@@ -56,7 +57,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class HibernateAdvisorScannerTests {
 
-    private static final int RULE_COUNT = 60;
+    private static final int RULE_COUNT = 63;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -404,6 +405,125 @@ class HibernateAdvisorScannerTests {
         assertThat(report.results()).isEmpty();
     }
 
+    @Test
+    void eagerToOneFetchJoinRuleFlagsEntityQueriesWithoutJoinFetch() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.ProblemOrderRepository",
+                ProblemOrder.class,
+                List.of(
+                        queryMethod("findAllOrders", List.class, "select o from ProblemOrder o", false, false),
+                        queryMethod(
+                                "findWithCustomer",
+                                List.class,
+                                "select o from ProblemOrder o join fetch o.customer",
+                                false,
+                                false),
+                        queryMethod("findIds", List.class, "select o.id from ProblemOrder o", false, false),
+                        queryMethod("findNative", List.class, "select * from problem_order", true, false)));
+        HibernateAdvisorContext context = new HibernateAdvisorContext(
+                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
+                List.of(repository),
+                new MockEnvironment());
+
+        HibernateAdvisorRuleResultDto result = new EagerToOneFetchJoinRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateAdvisorRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("findAllOrders", "customer"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findWithCustomer"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findIds"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findNative"));
+    }
+
+    @Test
+    void eagerToOneFetchJoinRuleSkipsWhenNoRepositoriesAreAvailable() {
+        HibernateAdvisorContext context = new HibernateAdvisorContext(
+                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)), List.of(), new MockEnvironment());
+
+        HibernateAdvisorRuleResultDto result = new EagerToOneFetchJoinRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateAdvisorRuleSupport.SKIPPED);
+    }
+
+    @Test
+    void entityProjectionQueryRuleFlagsPagedAndStreamedWholeEntitySelects() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.ProblemOrderRepository",
+                ProblemOrder.class,
+                List.of(
+                        queryMethod("findPage", List.class, "select o from ProblemOrder o", false, true),
+                        queryMethod("streamAll", Stream.class, "select o from ProblemOrder o", false, false),
+                        queryMethod(
+                                "findPageDto",
+                                List.class,
+                                "select new com.example.OrderView(o.id, o.status) from ProblemOrder o",
+                                false,
+                                true),
+                        queryMethod("findIdsPage", List.class, "select o.id from ProblemOrder o", false, true),
+                        queryMethod("findAll", List.class, "select o from ProblemOrder o", false, false)));
+        HibernateAdvisorContext context = new HibernateAdvisorContext(
+                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
+                List.of(repository),
+                new MockEnvironment());
+
+        HibernateAdvisorRuleResultDto result = new EntityProjectionQueryRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateAdvisorRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("findPage"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("streamAll"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findPageDto"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findIdsPage"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("findAll "));
+    }
+
+    @Test
+    void missingVersionRuleFlagsMutableEntitiesWithoutVersion() {
+        HibernateAdvisorContext context = entitiesContext(
+                MutableNoVersionEntity.class,
+                VersionedEntity.class,
+                ImmutableMutableEntity.class,
+                IdOnlyEntity.class,
+                VersionlessOptimisticEntity.class);
+
+        HibernateAdvisorRuleResultDto result = new MissingVersionRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(HibernateAdvisorRuleSupport.VIOLATION);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains(MutableNoVersionEntity.class.getName()));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("VersionedEntity"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("ImmutableMutableEntity"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("IdOnlyEntity"));
+        assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("VersionlessOptimisticEntity"));
+    }
+
+    private HibernateRepositoryMethodModel queryMethod(
+            String methodName, Class<?> returnType, String query, boolean nativeQuery, boolean pageable) {
+        return new HibernateRepositoryMethodModel(
+                "com.example.ProblemOrderRepository",
+                methodName,
+                ProblemOrder.class,
+                returnType,
+                query,
+                nativeQuery,
+                null,
+                pageable,
+                false,
+                false,
+                false,
+                List.of());
+    }
+
+    private HibernateAdvisorContext entitiesContext(Class<?>... entityTypes) {
+        return new HibernateAdvisorContext(
+                List.of(entityTypes).stream()
+                        .map(HibernateEntityModel::fromClass)
+                        .toList(),
+                List.of(),
+                new MockEnvironment());
+    }
+
     private HibernateAdvisorScanner scanner(MockEnvironment environment, Class<?> entityType) {
         return scanner(environment, List.of(), entityType);
     }
@@ -688,6 +808,9 @@ class HibernateAdvisorScannerTests {
         @GeneratedValue(strategy = GenerationType.SEQUENCE)
         Long id;
 
+        @jakarta.persistence.Version
+        Long version;
+
         @ManyToOne(fetch = FetchType.LAZY)
         Customer customer;
 
@@ -736,6 +859,55 @@ class HibernateAdvisorScannerTests {
                 default -> throw new IllegalArgumentException("Unknown status code: " + dbData);
             };
         }
+    }
+
+    @Entity
+    static class MutableNoVersionEntity {
+
+        @Id
+        Long id;
+
+        String name;
+    }
+
+    @Entity
+    static class VersionedEntity {
+
+        @Id
+        Long id;
+
+        String name;
+
+        @jakarta.persistence.Version
+        Long version;
+    }
+
+    @Entity
+    @Immutable
+    static class ImmutableMutableEntity {
+
+        @Id
+        Long id;
+
+        String name;
+    }
+
+    @Entity
+    static class IdOnlyEntity {
+
+        @Id
+        Long id;
+    }
+
+    @Entity
+    @OptimisticLocking(type = OptimisticLockType.ALL)
+    @DynamicUpdate
+    static class VersionlessOptimisticEntity {
+
+        @Id
+        Long id;
+
+        String name;
     }
 
     static class Customer {}

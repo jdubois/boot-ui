@@ -51,6 +51,15 @@ abstract class AbstractHibernateAdvisorRule implements HibernateAdvisorRule {
 
 final class HibernateAdvisorRuleModelSupport {
 
+    private static final Pattern FROM_ALIAS =
+            Pattern.compile("\\bfrom\\s+[\\w.$]+\\s+(?:as\\s+)?([A-Za-z_]\\w*)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JOIN_FETCH =
+            Pattern.compile("\\bjoin\\s+fetch\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)+)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SELECT_CLAUSE =
+            Pattern.compile("^\\s*select\\s+(.*?)\\s+from\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern DISTINCT_PREFIX = Pattern.compile("(?i)^distinct\\s+");
+    private static final Pattern OBJECT_WRAPPER = Pattern.compile("(?i)^object\\(\\s*([A-Za-z_]\\w*)\\s*\\)$");
+
     private HibernateAdvisorRuleModelSupport() {}
 
     static Map<String, HibernateEntityModel> entitiesByJavaType(List<HibernateEntityModel> entities) {
@@ -61,6 +70,82 @@ final class HibernateAdvisorRuleModelSupport {
             }
         }
         return byJavaType;
+    }
+
+    static HibernateEntityModel entityForDomainType(HibernateAdvisorContext context, Class<?> domainType) {
+        if (domainType == null) {
+            return null;
+        }
+        for (HibernateEntityModel entity : context.entities()) {
+            if (domainType.equals(entity.javaType())) {
+                return entity;
+            }
+        }
+        return null;
+    }
+
+    static String rootAlias(String query) {
+        if (query == null) {
+            return null;
+        }
+        Matcher matcher = FROM_ALIAS.matcher(query);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    static List<String> joinFetchPaths(String query) {
+        List<String> paths = new ArrayList<>();
+        if (query == null) {
+            return paths;
+        }
+        Matcher matcher = JOIN_FETCH.matcher(query);
+        while (matcher.find()) {
+            paths.add(matcher.group(1));
+        }
+        return paths;
+    }
+
+    static String directAttribute(String rootAlias, String path) {
+        if (rootAlias == null || path == null) {
+            return null;
+        }
+        String prefix = rootAlias + ".";
+        if (!path.startsWith(prefix)) {
+            return null;
+        }
+        String remainder = path.substring(prefix.length());
+        int dot = remainder.indexOf('.');
+        return dot == -1 ? remainder : remainder.substring(0, dot);
+    }
+
+    /**
+     * Returns true when the JPQL query hydrates the whole root entity (e.g. {@code select o from Entity o},
+     * {@code select distinct o ...}, {@code select object(o) ...}, or an implicit {@code from Entity o}) rather than a
+     * constructor expression, scalar value, aggregate, or multi-select projection.
+     */
+    static boolean selectsWholeRootEntity(String query) {
+        if (query == null || query.isBlank()) {
+            return false;
+        }
+        String alias = rootAlias(query);
+        if (alias == null) {
+            return false;
+        }
+        String trimmed = query.trim();
+        Matcher select = SELECT_CLAUSE.matcher(trimmed);
+        String selectItem;
+        if (select.find()) {
+            selectItem = select.group(1).trim();
+        } else if (trimmed.regionMatches(true, 0, "from", 0, 4)) {
+            return true;
+        } else {
+            return false;
+        }
+        String normalized = DISTINCT_PREFIX.matcher(selectItem).replaceFirst("").trim();
+        Matcher object = OBJECT_WRAPPER.matcher(normalized);
+        if (object.matches()) {
+            normalized = object.group(1);
+        }
+        return normalized.equalsIgnoreCase(alias);
     }
 
     static Class<?> associationTargetType(HibernateAttributeModel attribute) {
@@ -630,11 +715,6 @@ final class MissingBatchFetchRule extends AbstractHibernateAdvisorRule {
 
 final class CollectionJoinFetchPageableRule extends AbstractHibernateAdvisorRule {
 
-    private static final Pattern FROM_ALIAS =
-            Pattern.compile("\\bfrom\\s+[\\w.$]+\\s+(\\w+)\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern JOIN_FETCH =
-            Pattern.compile("\\bjoin\\s+fetch\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)+)\\b", Pattern.CASE_INSENSITIVE);
-
     CollectionJoinFetchPageableRule() {
         super(
                 new HibernateAdvisorRuleDefinition(
@@ -659,7 +739,8 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateAdvisorRule
         }
         List<String> details = new ArrayList<>();
         for (HibernateRepositoryModel repository : context.repositories()) {
-            HibernateEntityModel domainEntity = entityForDomain(context, repository.domainType());
+            HibernateEntityModel domainEntity =
+                    HibernateAdvisorRuleModelSupport.entityForDomainType(context, repository.domainType());
             if (domainEntity == null) {
                 continue;
             }
@@ -668,12 +749,12 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateAdvisorRule
                 if (!method.hasPageableParameter() || method.nativeQuery() || method.query() == null) {
                     continue;
                 }
-                String rootAlias = rootAlias(method.query());
+                String rootAlias = HibernateAdvisorRuleModelSupport.rootAlias(method.query());
                 if (rootAlias == null) {
                     continue;
                 }
-                for (String path : joinFetchPaths(method.query())) {
-                    String attributeName = directAttribute(rootAlias, path);
+                for (String path : HibernateAdvisorRuleModelSupport.joinFetchPaths(method.query())) {
+                    String attributeName = HibernateAdvisorRuleModelSupport.directAttribute(rootAlias, path);
                     if (attributeName != null && collectionNames.contains(attributeName)) {
                         details.add(method.description() + " pages a collection JOIN FETCH path " + path + ".");
                     }
@@ -683,48 +764,12 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateAdvisorRule
         return violation(details);
     }
 
-    private HibernateEntityModel entityForDomain(HibernateAdvisorContext context, Class<?> domainType) {
-        if (domainType == null) {
-            return null;
-        }
-        for (HibernateEntityModel entity : context.entities()) {
-            if (domainType.equals(entity.javaType())) {
-                return entity;
-            }
-        }
-        return null;
-    }
-
     private Set<String> collectionAttributeNames(HibernateEntityModel entity) {
         Set<String> names = new HashSet<>();
         for (HibernateAttributeModel attribute : entity.collectionAttributes()) {
             names.add(attribute.name());
         }
         return names;
-    }
-
-    private String rootAlias(String query) {
-        Matcher matcher = FROM_ALIAS.matcher(query);
-        return matcher.find() ? matcher.group(1) : null;
-    }
-
-    private List<String> joinFetchPaths(String query) {
-        List<String> paths = new ArrayList<>();
-        Matcher matcher = JOIN_FETCH.matcher(query);
-        while (matcher.find()) {
-            paths.add(matcher.group(1));
-        }
-        return paths;
-    }
-
-    private String directAttribute(String rootAlias, String path) {
-        String prefix = rootAlias + ".";
-        if (!path.startsWith(prefix)) {
-            return null;
-        }
-        String remainder = path.substring(prefix.length());
-        int dot = remainder.indexOf('.');
-        return dot == -1 ? remainder : remainder.substring(0, dot);
     }
 }
 
@@ -2133,5 +2178,183 @@ final class AssignedIdPersistableRule extends AbstractHibernateAdvisorRule {
             }
         }
         return violation(details);
+    }
+}
+
+final class EagerToOneFetchJoinRule extends AbstractHibernateAdvisorRule {
+
+    EagerToOneFetchJoinRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-QUERY-005",
+                        "Eager to-one associations should be JOIN FETCHed in entity-returning queries",
+                        HibernateAdvisorCategory.QUERY,
+                        "INFO",
+                        "Detects Spring Data JPQL @Query methods that select whole entities (lists, pages, streams, or slices) whose domain entity declares an eager @ManyToOne/@OneToOne association the query does not JOIN FETCH. JPQL does not auto-add joins for eager to-one mappings, so Hibernate issues an extra secondary select per returned row (N+1).",
+                        "JOIN FETCH the eager to-one association in the query, or map it FetchType.LAZY (see HIB-FETCH-001) and fetch it explicitly only where needed.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No Spring Data repository metadata was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            HibernateEntityModel domainEntity =
+                    HibernateAdvisorRuleModelSupport.entityForDomainType(context, repository.domainType());
+            if (domainEntity == null) {
+                continue;
+            }
+            List<HibernateAttributeModel> eagerToOne = eagerToOneAssociations(domainEntity);
+            if (eagerToOne.isEmpty()) {
+                continue;
+            }
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (method.nativeQuery() || !method.hasQuery() || !method.returnsMultiple()) {
+                    continue;
+                }
+                if (!HibernateAdvisorRuleModelSupport.selectsWholeRootEntity(method.query())) {
+                    continue;
+                }
+                Set<String> fetched = fetchedAttributes(method.query());
+                List<String> uncovered = new ArrayList<>();
+                for (HibernateAttributeModel association : eagerToOne) {
+                    if (!fetched.contains(association.name())) {
+                        uncovered.add(association.name());
+                    }
+                }
+                if (!uncovered.isEmpty()) {
+                    details.add(method.description() + " selects whole entities but does not JOIN FETCH eager to-one "
+                            + String.join(", ", uncovered) + "; Hibernate runs an extra select per row (N+1).");
+                }
+            }
+        }
+        return violation(details);
+    }
+
+    private List<HibernateAttributeModel> eagerToOneAssociations(HibernateEntityModel entity) {
+        List<HibernateAttributeModel> eager = new ArrayList<>();
+        for (HibernateAttributeModel attribute : entity.attributes()) {
+            if (!attribute.isToOneAssociation()) {
+                continue;
+            }
+            Annotation association = attribute.associationAnnotation();
+            if (!"EAGER".equals(attribute.annotationValueName(association, "fetch"))) {
+                continue;
+            }
+            String fetchMode = attribute.annotationValueName(attribute.fetchAnnotation(), "value");
+            if ("JOIN".equals(fetchMode) || "SUBSELECT".equals(fetchMode)) {
+                continue;
+            }
+            eager.add(attribute);
+        }
+        return eager;
+    }
+
+    private Set<String> fetchedAttributes(String query) {
+        Set<String> fetched = new HashSet<>();
+        String rootAlias = HibernateAdvisorRuleModelSupport.rootAlias(query);
+        for (String path : HibernateAdvisorRuleModelSupport.joinFetchPaths(query)) {
+            String attribute = HibernateAdvisorRuleModelSupport.directAttribute(rootAlias, path);
+            if (attribute != null) {
+                fetched.add(attribute);
+            }
+        }
+        return fetched;
+    }
+}
+
+final class EntityProjectionQueryRule extends AbstractHibernateAdvisorRule {
+
+    EntityProjectionQueryRule() {
+        super(new HibernateAdvisorRuleDefinition(
+                "HIB-QUERY-006",
+                "Paged or streamed reads should prefer DTO projections over whole entities",
+                HibernateAdvisorCategory.QUERY,
+                "INFO",
+                "Detects paged or streamed Spring Data JPQL @Query methods (Pageable parameter, or Page/Slice/Stream return) that select whole entities instead of a constructor expression or interface/DTO projection.",
+                "For read-mostly, paged, or streamed endpoints prefer a DTO/interface projection (select new ...(...) or a projection interface) so Hibernate hydrates only the columns the caller needs.",
+                "https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No Spring Data repository metadata was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (method.nativeQuery() || !method.hasQuery()) {
+                    continue;
+                }
+                boolean pagedOrStreamed = method.hasPageableParameter()
+                        || method.returnsPage()
+                        || method.returnsSlice()
+                        || method.returnsStream();
+                if (!pagedOrStreamed) {
+                    continue;
+                }
+                if (HibernateAdvisorRuleModelSupport.selectsWholeRootEntity(method.query())) {
+                    details.add(
+                            method.description()
+                                    + " returns whole entities from a paged/streamed @Query; consider a DTO/interface projection.");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class MissingVersionRule extends AbstractHibernateAdvisorRule {
+
+    MissingVersionRule() {
+        super(
+                new HibernateAdvisorRuleDefinition(
+                        "HIB-ENTITY-008",
+                        "Mutable entities should declare @Version for optimistic locking",
+                        HibernateAdvisorCategory.ENTITY_DESIGN,
+                        "INFO",
+                        "Detects mutable mapped entities (entities with non-identifier persistent state) that do not declare a @Version attribute and do not opt into Hibernate versionless optimistic locking or @Immutable.",
+                        "Add a @Version attribute (for example a Long or Instant) so concurrent updates fail fast instead of silently overwriting each other; skip this only for append-only, read-only, or reference data.",
+                        "https://jakarta.ee/specifications/persistence/3.1/apidocs/jakarta.persistence/jakarta/persistence/version"));
+    }
+
+    @Override
+    HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            if (entity.hasVersionAttribute()
+                    || entity.annotationInHierarchy("org.hibernate.annotations.Immutable") != null) {
+                continue;
+            }
+            String optimisticLockingType = entity.annotationValueName(
+                    entity.annotationInHierarchy("org.hibernate.annotations.OptimisticLocking"), "type");
+            if ("DIRTY".equals(optimisticLockingType) || "ALL".equals(optimisticLockingType)) {
+                continue;
+            }
+            if (hasMutableState(entity)) {
+                details.add(
+                        entity.name()
+                                + " has mutable persistent state but no @Version field, so concurrent updates can silently overwrite one another.");
+            }
+        }
+        return violation(details);
+    }
+
+    private boolean hasMutableState(HibernateEntityModel entity) {
+        for (HibernateAttributeModel attribute : entity.attributes()) {
+            if (attribute.hasId()
+                    || attribute.hasVersion()
+                    || attribute.isAssociation()
+                    || attribute.annotation("jakarta.persistence.EmbeddedId") != null
+                    || attribute.annotation("jakarta.persistence.Transient") != null) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 }

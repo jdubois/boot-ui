@@ -47,12 +47,15 @@ final class HibernateAdvisorRuleRegistry {
             new PublicPersistentFieldRule(),
             new PrimitiveIdentifierOrVersionRule(),
             new AssignedIdPersistableRule(),
+            new MissingVersionRule(),
 
             // Query
             new ModifyingClearAutomaticallyRule(),
             new StreamReturningMethodRule(),
             new NativePagedQueryCountRule(),
             new DerivedDeleteByQueryRule(),
+            new EagerToOneFetchJoinRule(),
+            new EntityProjectionQueryRule(),
             // Configuration
             new OpenInViewRule(),
             new LazyLoadNoTransRule(),

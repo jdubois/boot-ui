@@ -346,6 +346,32 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: for bulk removals prefer an explicit `@Modifying @Query("delete from ... where ...")` with
   `clearAutomatically=true`; reserve derived `deleteBy` methods for small or cascading deletes.
 
+### HIB-QUERY-005 - Eager to-one associations should be JOIN FETCHed in entity-returning queries
+
+- **Severity**: INFO
+- **Inspects**: Spring Data JPQL `@Query` methods that return multiple whole entities (`List`/`Set`/`Collection`,
+  `Stream`, `Page`, `Slice`, or arrays) on a repository whose domain entity declares an eager `@ManyToOne` / `@OneToOne`
+  association (explicit `FetchType.EAGER` or the to-one default) without `@Fetch(JOIN)` / `@Fetch(SUBSELECT)`.
+- **Fires when**: such a query selects the whole root entity (for example `select o from Entity o`) but does not
+  `JOIN FETCH` the eager to-one association.
+- **Why it matters**: JPQL does not automatically add joins for eager to-one mappings, so Hibernate issues an extra
+  secondary `SELECT` for the association on every returned row, producing an N+1 query pattern.
+- **Recommendation**: `JOIN FETCH` the eager association in the query, or map it `FetchType.LAZY` (see HIB-FETCH-001) and
+  fetch it explicitly only where the use case needs it. Complements HIB-FETCH-001 by pinpointing the specific finders
+  affected.
+
+### HIB-QUERY-006 - Paged or streamed reads should prefer DTO projections over whole entities
+
+- **Severity**: INFO
+- **Inspects**: Spring Data JPQL `@Query` methods that are paged or streamed (a `Pageable` parameter, or a `Page`,
+  `Slice`, or `Stream` return type).
+- **Fires when**: the query selects the whole root entity (for example `select o from Entity o`) rather than a
+  constructor expression (`select new ...(...)`) or an interface/DTO projection.
+- **Why it matters**: hydrating whole managed entities for read-mostly, paged, or streamed endpoints loads every mapped
+  column and tracks each row in the persistence context, which is wasteful when the caller only needs a few fields.
+- **Recommendation**: return a DTO/interface projection so Hibernate selects only the columns the caller needs; reserve
+  whole-entity reads for cases that mutate the loaded entities.
+
 ## Configuration
 
 ### HIB-CONFIG-001 - Open Session in View should be disabled
@@ -606,3 +632,16 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: the entity does not implement `org.springframework.data.domain.Persistable`.
 - **Why it matters**: when using assigned identifiers (such as a natural key or UUID created by the application), Spring Data cannot determine if the entity is new or detached because the ID is already populated. It assumes the entity might exist and issues a `SELECT` statement before `INSERT`.
 - **Recommendation**: implement `Persistable<ID>` and manage the `isNew()` flag manually (e.g., via a `@Transient` flag set after loading or defaulting to true) so Spring Data avoids the unnecessary `SELECT` before every `insert`.
+
+### HIB-ENTITY-008 - Mutable entities should declare @Version for optimistic locking
+
+- **Severity**: INFO
+- **Inspects**: mapped entities that carry non-identifier persistent state (at least one attribute that is not an `@Id`,
+  `@EmbeddedId`, `@Version`, association, or `@Transient`).
+- **Fires when**: the entity declares no `@Version` attribute and has not opted into versionless optimistic locking
+  (`@OptimisticLocking(DIRTY|ALL)`) or `@org.hibernate.annotations.Immutable`.
+- **Why it matters**: without a version column, two concurrent transactions that read and then update the same row will
+  silently overwrite each other's changes (a lost update) because nothing detects the stale snapshot.
+- **Recommendation**: add a `@Version` attribute (for example a `Long` or `Instant`) so concurrent updates fail fast with
+  an optimistic-lock exception; skip this only for append-only, read-only, or reference data where lost updates cannot
+  occur.
