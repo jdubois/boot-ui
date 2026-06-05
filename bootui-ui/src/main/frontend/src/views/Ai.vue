@@ -6,7 +6,6 @@ import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -413,6 +412,7 @@ const detectedFrameworkLabel = computed(() => {
       :loading="loading"
       :error="error"
       :last-fetched="lastUpdated"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
     >
       <template #actions>
@@ -425,7 +425,6 @@ const detectedFrameworkLabel = computed(() => {
           <i class="bi bi-robot me-1"></i>{{ fw }}
         </span>
         <span v-if="isStale" class="badge text-bg-warning">Data may be stale</span>
-        <AutoRefreshToggle v-model="autoRefresh" />
         <button v-if="overview && hasAnyData" class="btn btn-sm btn-outline-secondary" @click="exportCsv">
           <i class="bi bi-download"></i> Export CSV
         </button>

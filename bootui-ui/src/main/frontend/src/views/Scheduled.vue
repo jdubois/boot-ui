@@ -3,7 +3,6 @@ import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -68,12 +67,9 @@ function formatExpression(task) {
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+    />
 
     <PanelSkeleton v-if="initialLoading && !report" />
     <div v-else-if="report && !report.schedulingPresent" class="alert alert-info">

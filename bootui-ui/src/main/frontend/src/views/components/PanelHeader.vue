@@ -2,6 +2,7 @@
 import {computed, getCurrentInstance, onBeforeUnmount, ref, watch} from 'vue'
 import {formatRelative} from '../../utils/format.js'
 import {describeLoadError} from '../../utils/loadError.js'
+import AutoRefreshToggle from './AutoRefreshToggle.vue'
 
 const props = defineProps({
   icon: {type: String, default: null},
@@ -10,13 +11,17 @@ const props = defineProps({
   loading: {type: Boolean, default: false},
   error: {type: [String, Object], default: null},
   lastFetched: {type: Number, default: null},
-  refreshable: {type: Boolean, default: false}
+  refreshable: {type: Boolean, default: true},
+  autoRefresh: {type: Boolean, default: null},
+  autoRefreshable: {type: Boolean, default: true},
+  autoRefreshTitle: {type: String, default: 'Refresh every 10 seconds while this tab is visible'}
 })
 
-const emit = defineEmits(['refresh'])
+const emit = defineEmits(['refresh', 'update:autoRefresh'])
 
 const instance = getCurrentInstance()
-const hasRefresh = computed(() => props.refreshable && typeof instance?.vnode.props?.onRefresh === 'function')
+const hasRefresh = computed(() => props.refreshable && !!instance?.vnode.props?.onRefresh)
+const hasAutoRefresh = computed(() => props.autoRefreshable && props.autoRefresh !== null)
 const now = ref(Date.now())
 let relativeTimer = null
 
@@ -52,6 +57,10 @@ const retryButtonClass = computed(() =>
   loadError.value?.serverUnreachable ? 'btn-outline-warning' : 'btn-outline-danger'
 )
 
+function updateAutoRefresh(value) {
+  emit('update:autoRefresh', value)
+}
+
 watch(() => props.lastFetched, startRelativeTimer, {immediate: true})
 
 onBeforeUnmount(stopRelativeTimer)
@@ -65,7 +74,12 @@ onBeforeUnmount(stopRelativeTimer)
     </div>
     <div class="panel-header__actions">
       <span v-if="lastFetchedText" class="last-fetched-text">{{ lastFetchedText }}</span>
-      <slot name="actions"></slot>
+      <AutoRefreshToggle
+        v-if="hasAutoRefresh"
+        :model-value="autoRefresh"
+        :title="autoRefreshTitle"
+        @update:model-value="updateAutoRefresh"
+      />
       <button
         v-if="hasRefresh"
         :disabled="loading"
@@ -75,6 +89,7 @@ onBeforeUnmount(stopRelativeTimer)
       >
         <i :class="['bi bi-arrow-clockwise', {spin: loading}]"></i>
       </button>
+      <slot name="actions"></slot>
     </div>
   </div>
   <div

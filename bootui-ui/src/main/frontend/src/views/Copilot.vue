@@ -5,7 +5,6 @@ import {useRoute} from 'vue-router'
 import {formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -418,12 +417,9 @@ watch(
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+    />
 
     <PanelSkeleton v-if="initialLoading" />
     <div v-else-if="!available" class="card border-info">

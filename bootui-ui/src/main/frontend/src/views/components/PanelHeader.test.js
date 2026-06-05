@@ -30,6 +30,25 @@ describe('PanelHeader', () => {
     wrapper.unmount()
   })
 
+  it('renders shared auto-refresh controls and emits auto-refresh updates', async () => {
+    const onUpdateAutoRefresh = vi.fn()
+    const wrapper = mount(PanelHeader, {
+      props: {
+        title: 'Health',
+        autoRefresh: true,
+        'onUpdate:autoRefresh': onUpdateAutoRefresh
+      }
+    })
+
+    expect(wrapper.text()).toContain('Auto-refresh')
+
+    await wrapper.get('input[type="checkbox"]').setValue(false)
+
+    expect(onUpdateAutoRefresh).toHaveBeenCalledWith(false)
+
+    wrapper.unmount()
+  })
+
   it('hides refresh controls when refresh is not available', () => {
     const wrapper = mount(PanelHeader, {
       props: {

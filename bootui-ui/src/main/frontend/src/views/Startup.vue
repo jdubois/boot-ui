@@ -1,7 +1,8 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, onMounted, ref} from 'vue'
+import {computed, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
+import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -9,8 +10,6 @@ const report = ref({steps: []})
 const filter = ref('')
 const selectedDurationBand = ref('all')
 const expandedStepIds = ref(new Set())
-const loading = ref(true)
-const loaded = ref(false)
 const error = ref('')
 const lastFetched = ref(null)
 
@@ -76,8 +75,7 @@ function buildTree(steps) {
   return roots
 }
 
-async function load() {
-  loading.value = true
+async function fetchStartup() {
   error.value = ''
 
   try {
@@ -96,11 +94,10 @@ async function load() {
     report.value = {steps: []}
     expandedStepIds.value = new Set()
     error.value = describeLoadError(err, 'Unable to load startup data')
-  } finally {
-    loading.value = false
-    loaded.value = true
   }
 }
+
+const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchStartup)
 
 const sortedSteps = computed(() => [...report.value.steps].sort((a, b) => a.id - b.id))
 
@@ -177,8 +174,6 @@ function collapseAll() {
 function treeStepHasChildren(stepId) {
   return report.value.steps.some((step) => step.parentId === stepId)
 }
-
-onMounted(load)
 </script>
 
 <template>
@@ -190,6 +185,7 @@ onMounted(load)
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
     />
 
@@ -246,7 +242,7 @@ onMounted(load)
       </div>
     </div>
 
-    <PanelSkeleton v-if="loading && !loaded" />
+    <PanelSkeleton v-if="initialLoading" />
     <div v-else-if="report.steps.length === 0 && !error" class="alert alert-light border" role="status">
       <i class="bi bi-info-circle me-2"></i>No startup data available
     </div>

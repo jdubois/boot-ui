@@ -6,7 +6,6 @@ import {formatBytes} from '../utils/memoryReport.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -425,16 +424,12 @@ function securitySignalUrl(signal) {
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
-      :refreshable="false"
-    >
-      <template #actions>
-        <AutoRefreshToggle
-          v-if="!readOnly"
-          v-model="autoRefresh"
-          title="Refresh every minute while this tab is visible"
-        />
-      </template>
-    </PanelHeader>
+      :refreshable="!readOnly"
+      :auto-refreshable="!readOnly"
+      auto-refresh-title="Refresh every minute while this tab is visible"
+      v-model:auto-refresh="autoRefresh"
+      @refresh="load"
+    />
 
     <PanelSkeleton v-if="initialLoading" />
 

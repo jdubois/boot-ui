@@ -1,5 +1,4 @@
 <script setup>
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {formatBytes, memoryProgressClass, useMemoryReport} from '../utils/memoryReport.js'
@@ -16,12 +15,9 @@ const {data, error, lastUpdated, autoRefresh, loading, initialLoading, load} = u
       :loading="loading"
       :error="error"
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+    />
 
     <PanelSkeleton v-if="initialLoading" />
 
