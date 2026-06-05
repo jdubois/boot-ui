@@ -16,10 +16,18 @@ scripts:
   # root npm dependencies used by the VuePress docs. Builds into a per-worktree
   # Maven repository (.m2/ at the worktree root) so concurrent sessions never
   # clash in the shared ~/.m2 registry.
+  #
+  # The extra `spring-boot:help` invocation primes spring-boot-maven-plugin into
+  # the per-worktree .m2/. The sample app declares the plugin without executions
+  # and does not inherit spring-boot-starter-parent, so `install` never resolves
+  # it; without this online prime the later offline `spring-boot:run` in the dev
+  # server fails with "No plugin found for prefix 'spring-boot'".
   - name: Setup
     command: >-
       ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app -am
       -DskipTests install
+      && ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app
+      spring-boot:help
       && npm install
     triggers:
       - session.create
