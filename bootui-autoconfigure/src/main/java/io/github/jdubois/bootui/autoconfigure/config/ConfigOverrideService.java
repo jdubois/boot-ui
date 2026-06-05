@@ -74,7 +74,7 @@ public class ConfigOverrideService {
         String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
         src.put(name, value);
         store.save(src.mutableSource());
-        String message = describeRebindCaveat(name);
+        String message = describeRebindCaveat();
         return new ConfigOverrideResult(
                 name, displayValue(name, value, valueExposure, maskSecrets), previousDisplay, true, message);
     }
@@ -87,7 +87,7 @@ public class ConfigOverrideService {
         Object previous = src.remove(name);
         store.save(src.mutableSource());
         String previousDisplay = previous == null ? null : displayValue(name, previous, valueExposure, maskSecrets);
-        return new ConfigOverrideResult(name, null, previousDisplay, true, describeRebindCaveat(name));
+        return new ConfigOverrideResult(name, null, previousDisplay, true, describeRebindCaveat());
     }
 
     private BootUiOverridesPropertySource source() {
@@ -116,7 +116,7 @@ public class ConfigOverrideService {
         return value == null ? null : String.valueOf(value);
     }
 
-    private String describeRebindCaveat(String name) {
+    private String describeRebindCaveat() {
         return "Override stored at " + store.file()
                 + ". Already-bound @ConfigurationProperties beans may keep their previous value until restart.";
     }
