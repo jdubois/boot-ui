@@ -14,11 +14,11 @@ Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 
 | Topic | Link |
 | ----- | ---- |
-| Setup | <https://www.julien-dubois.com/boot-ui/SETUP.html> |
-| Features | <https://www.julien-dubois.com/boot-ui/FEATURES.html> |
-| Properties | <https://www.julien-dubois.com/boot-ui/PROPERTIES.html> |
-| Sample app | <https://www.julien-dubois.com/boot-ui/TRY-SAMPLE-APP.html> |
-| Repository docs | <https://www.julien-dubois.com/boot-ui/REPOSITORY.html> |
+| Setup | <https://www.julien-dubois.com/boot-ui/setup> |
+| Features | <https://www.julien-dubois.com/boot-ui/features> |
+| Properties | <https://www.julien-dubois.com/boot-ui/properties> |
+| Sample app | <https://www.julien-dubois.com/boot-ui/try-sample-app> |
+| Repository docs | <https://www.julien-dubois.com/boot-ui/repository> |
 
 ## Project resources
 

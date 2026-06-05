@@ -5,10 +5,10 @@ heroText: BootUI
 tagline: A local-only developer console for Spring Boot 4 applications.
 actions:
   - text: Explore features
-    link: /FEATURES.html
+    link: /features
     type: primary
   - text: View configuration
-    link: /PROPERTIES.html
+    link: /properties
     type: secondary
 features:
   - title: Runtime observability
