@@ -16,9 +16,24 @@ application. Set
 
 ## Overview
 
-The Overview panel gives a fast summary of the running application: application name, Spring Boot version, Java version,
-active profiles, web type, ports, startup duration when available, activation reason, and local safety state. It is the
-first place to confirm whether BootUI is active for the reason you expect.
+The Overview panel is the BootUI landing page and acts as a guided "understand your app in minutes" dashboard rather than
+a static summary. It opens with a hero banner and quick links to the running application's homepage and the BootUI GitHub
+project, followed by two live cards: a Health card that polls the Actuator health status and a Memory card that renders
+the current JVM memory breakdown (heap, metaspace, code cache, direct memory, and thread stacks). Both cards auto-refresh
+while the tab is visible.
+
+Below the live cards is an on-demand security & health scoring dashboard. An overall score out of 100 summarizes the
+application's posture, with a qualitative band (Good at 80+, Needs attention at 50+, At risk below 50) and a breakdown of
+how much each scanner deducted from a perfect score. A single "Run all scanners" button triggers every available scanner,
+or each scanner card can be run individually.
+
+Each scanner card shows its own 0–100 score, status, and severity counts. The severity-based scanners are Architecture,
+Hibernate Advisor, Security Advisor, Vulnerabilities, and Pentesting; scores start at 100 and subtract a fixed weighted
+penalty per finding (critical 25, high 10, medium 3, low 1), so a clean scan stays at 100. The GitHub card is not a
+severity scanner: it connects to the local repository and, only when the credential is connected and authenticated,
+contributes a score derived from open security alerts. The overall score is the mean of the scanners that were actually
+scored, and only scanners whose panels are available for the current application are shown, so the dashboard degrades
+gracefully when optional infrastructure is missing.
 
 ![BootUI Overview panel](./images/bootui-overview.png)
 
