@@ -36,6 +36,7 @@ const DevTools = () => import('./views/DevTools.vue')
 const Traces = () => import('./views/Traces.vue')
 const Ai = () => import('./views/Ai.vue')
 const Copilot = () => import('./views/Copilot.vue')
+const CopilotFix = () => import('./views/CopilotFix.vue')
 
 export const groups = {
   overview: 'overview',
@@ -283,6 +284,12 @@ export const routes = [
     name: 'claude-code',
     component: Copilot,
     meta: {group: groups.developerTools, icon: 'bi-claude', title: 'Claude Code'}
+  },
+  {
+    path: '/copilot-fix',
+    name: 'copilot-fix',
+    component: CopilotFix,
+    meta: {group: groups.developerTools, icon: 'bi-magic', title: 'Fix with Copilot'}
   },
   {path: '/dependencies', redirect: '/vulnerabilities'}
 ]

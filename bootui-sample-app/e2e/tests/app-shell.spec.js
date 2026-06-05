@@ -40,7 +40,8 @@ const allPanelLinks = [
   {id: 'devtools', title: 'DevTools', heading: /^DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
-  {id: 'claude-code', title: 'Claude Code', heading: /^Claude Code/}
+  {id: 'claude-code', title: 'Claude Code', heading: /^Claude Code/},
+  {id: 'copilot-fix', title: 'Fix with Copilot', heading: /Fix with Copilot/}
 ]
 
 async function mockPanelAvailability(page, overrides = {}) {
@@ -103,7 +104,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Security', count: 5},
       {title: 'Services', count: 3},
       {title: 'Diagnostics', count: 5},
-      {title: 'Developer tools', count: 4}
+      {title: 'Developer tools', count: 5}
     ]
 
     for (const group of groups) {

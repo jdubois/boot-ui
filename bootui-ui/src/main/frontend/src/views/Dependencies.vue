@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
+import {useRouter} from 'vue-router'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
@@ -14,6 +15,8 @@ const actionMessage = ref(null)
 const loading = ref(false)
 const search = ref('')
 const vulnerableOnly = ref(false)
+const router = useRouter()
+const copilotFixAvailable = ref(false)
 
 const severityClasses = {
   CRITICAL: 'text-bg-danger',
@@ -145,7 +148,43 @@ function showReadOnlyMessage() {
   }, 6000)
 }
 
-onMounted(loadDependencies)
+async function loadCopilotFixStatus() {
+  try {
+    const res = await apiFetch('api/copilot-fix/status', {cache: 'no-store'})
+    if (!res.ok) return
+    const status = await res.json()
+    copilotFixAvailable.value = status.available === true
+  } catch (e) {
+    // The "Fix it with Copilot" affordance stays hidden when the capability is unavailable.
+  }
+}
+
+function fixWithCopilot(dependency, vulnerability) {
+  const fixedVersion = vulnerability.fixedVersions?.[0]
+  const summaryParts = [vulnerability.summary || vulnerability.details || '']
+  if (fixedVersion) {
+    summaryParts.push(`A fixed version is available: upgrade to ${fixedVersion} (or the nearest safe release).`)
+  }
+  const descriptor = {
+    findingId: vulnerability.id,
+    source: 'vulnerabilities',
+    title: `${dependency.packageName} ${dependency.version}: ${vulnerability.id}`,
+    summary: summaryParts.filter(Boolean).join('\n\n'),
+    severity: vulnerability.severity,
+    targets: [`${dependency.packageName}:${dependency.version}`]
+  }
+  try {
+    sessionStorage.setItem('bootui.copilotFix.pending', JSON.stringify(descriptor))
+  } catch (e) {
+    // Fall back to navigating without a seeded finding if storage is unavailable.
+  }
+  router.push('/copilot-fix')
+}
+
+onMounted(() => {
+  loadDependencies()
+  loadCopilotFixStatus()
+})
 </script>
 
 <template>
@@ -318,6 +357,14 @@ onMounted(loadDependencies)
                       <div v-if="vulnerability.aliases.length" class="small text-muted">
                         {{ vulnerability.aliases.join(', ') }}
                       </div>
+                      <button
+                        v-if="copilotFixAvailable"
+                        type="button"
+                        class="btn btn-sm btn-outline-primary mt-1"
+                        @click="fixWithCopilot(dependency, vulnerability)"
+                      >
+                        <i class="bi bi-magic me-1" aria-hidden="true"></i>Fix it with Copilot
+                      </button>
                     </div>
                   </div>
                 </td>

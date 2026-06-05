@@ -44,7 +44,8 @@ describe('routes', () => {
       'DevTools',
       'Dev Services',
       'Copilot',
-      'Claude Code'
+      'Claude Code',
+      'Fix with Copilot'
     ])
   })
 
@@ -114,6 +115,7 @@ describe('routes', () => {
       groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
+      groups.developerTools,
       groups.developerTools,
       groups.developerTools,
       groups.developerTools,
