@@ -21,8 +21,6 @@ const severityClasses = {
   INFO: 'text-bg-secondary'
 }
 
-const severityOrder = ['HIGH', 'MEDIUM', 'LOW', 'INFO']
-
 const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
 
 const maxSeverityCount = computed(() => {
