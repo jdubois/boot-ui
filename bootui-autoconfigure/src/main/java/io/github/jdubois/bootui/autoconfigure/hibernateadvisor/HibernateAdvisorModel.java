@@ -620,6 +620,21 @@ record HibernateRepositoryMethodModel(
         return returnType != null && "org.springframework.data.domain.Page".equals(returnType.getName());
     }
 
+    boolean returnsSlice() {
+        return returnType != null && "org.springframework.data.domain.Slice".equals(returnType.getName());
+    }
+
+    boolean returnsMultiple() {
+        if (returnType == null) {
+            return false;
+        }
+        return returnsStream()
+                || returnsPage()
+                || returnsSlice()
+                || returnType.isArray()
+                || Collection.class.isAssignableFrom(returnType);
+    }
+
     boolean isDerivedDeleteMethod() {
         return methodName != null && (methodName.startsWith("deleteBy") || methodName.startsWith("removeBy"));
     }
