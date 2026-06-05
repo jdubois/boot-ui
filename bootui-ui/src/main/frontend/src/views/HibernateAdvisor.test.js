@@ -65,6 +65,17 @@ describe('HibernateAdvisor', () => {
     vi.unstubAllGlobals()
   })
 
+  it('shows the Vlad Mihalcea best-practices note under the title', async () => {
+    const wrapper = await mountWithReport(advisorReport([]))
+    const link = wrapper.get('a[href="https://vladmihalcea.com"]')
+
+    expect(wrapper.text()).toContain(
+      'Many of those rules are best practices from Vlad Mihalcea, who reviewed the code himself - join him at'
+    )
+    expect(link.text()).toBe('https://vladmihalcea.com')
+    expect(link.attributes('target')).toBe('_blank')
+  })
+
   it('shows only advisor findings sorted by importance', async () => {
     const wrapper = await mountWithReport(
       advisorReport([
