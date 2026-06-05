@@ -9,7 +9,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/bootui/api': {
-        target: 'http://localhost:8080',
+        // Defaults to :8080; override with BOOTUI_API_PROXY_TARGET so the dev
+        // server can point at a sample app bound to a dynamic port.
+        target: process.env.BOOTUI_API_PROXY_TARGET || 'http://localhost:8080',
         changeOrigin: true
       }
     }
