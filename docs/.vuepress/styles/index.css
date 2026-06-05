@@ -36,8 +36,10 @@
   --vp-c-text: var(--bootui-text);
   --vp-c-text-mute: var(--bootui-text-muted);
   --vp-c-text-subtle: var(--bootui-text-subtle);
-  --vp-navbar-height: 4.75rem;
-  --vp-sidebar-width: 18rem;
+  --navbar-height: 4.75rem;
+  --sidebar-width: 20rem;
+  --content-width: 52rem;
+  --homepage-width: 76rem;
   --vp-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
@@ -274,6 +276,41 @@ body {
   text-transform: uppercase;
 }
 
+.vp-sidebar .vp-sidebar-heading.collapsible {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.vp-sidebar .vp-sidebar-heading .arrow {
+  flex: 0 0 auto;
+  opacity: 0.72;
+}
+
+.vp-sidebar .bootui-sidebar-link-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.vp-sidebar .bootui-sidebar-link-toggle::after {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  content: '';
+  opacity: 0.72;
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.vp-sidebar .bootui-sidebar-link-toggle--collapsed::after {
+  transform: rotate(-45deg);
+}
+
 .vp-sidebar .vp-sidebar-children {
   margin-left: 0.85rem;
   padding-left: 0.5rem;
@@ -347,7 +384,7 @@ body {
 
 .vp-hero {
   order: 1;
-  max-width: 68rem;
+  width: 100%;
   margin-top: 2rem;
   padding: 3rem;
   overflow: hidden;
@@ -413,7 +450,7 @@ body {
 
 .vp-features {
   gap: 1rem;
-  order: 3;
+  order: 2;
 }
 
 .vp-feature {
@@ -551,13 +588,14 @@ body {
 }
 
 .vp-home > [vp-content] > div > p:first-child {
-  order: 2;
+  order: 3;
+  width: 100%;
   margin: 2rem 0 0;
 }
 
 .vp-home > [vp-content] > div > p:first-child img[src*='bootui-overview'] {
-  width: min(100%, 58rem);
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   box-shadow: var(--bootui-shadow-md);
 }
 
@@ -583,6 +621,108 @@ body {
 .vp-page-meta,
 .vp-page-nav {
   border-color: var(--bootui-border);
+}
+
+.vp-page-meta {
+  margin-top: 1.75rem;
+  border: 1px solid var(--bootui-border);
+  border-radius: 1.1rem;
+  background: var(--bootui-surface);
+  box-shadow: var(--bootui-shadow-sm);
+  gap: 0.75rem;
+}
+
+.vp-page-meta .edit-link .label {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--bootui-nav-hover-bg);
+  padding: 0.5rem 0.75rem;
+  color: var(--bootui-nav-hover-color);
+  font-weight: 800;
+}
+
+.vp-page-meta .git-info {
+  color: var(--bootui-text-muted);
+}
+
+.vp-page-meta .meta-item-label {
+  color: var(--bootui-text-subtle);
+  font-weight: 700;
+}
+
+.vp-page-meta .meta-item-info {
+  color: var(--bootui-text-muted);
+  font-weight: 600;
+}
+
+.vp-page-nav {
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0;
+  border-top: 0;
+}
+
+.vp-page-nav .auto-link {
+  display: flex;
+  min-width: min(100%, 18rem);
+  flex: 1 1 18rem;
+  flex-direction: column;
+  margin: 0;
+  border: 1px solid var(--bootui-border);
+  border-radius: 1.1rem;
+  background: var(--bootui-surface);
+  padding: 1rem 1.15rem;
+  box-shadow: var(--bootui-shadow-sm);
+  color: var(--bootui-text);
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.vp-page-nav .auto-link:hover {
+  border-color: rgba(25, 135, 84, 0.2);
+  background:
+    linear-gradient(135deg, rgba(25, 135, 84, 0.08), rgba(13, 110, 253, 0.06)),
+    var(--bootui-surface);
+  box-shadow: var(--bootui-shadow-md);
+  color: var(--bootui-text);
+  transform: translateY(-2px);
+}
+
+.vp-page-nav .auto-link .hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  color: var(--bootui-text-subtle);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.vp-page-nav .auto-link .link {
+  color: var(--bootui-text);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.vp-page-nav .auto-link:hover .link {
+  color: var(--bootui-green-dark);
+}
+
+.vp-page-nav .next {
+  align-items: flex-end;
+}
+
+.vp-page-nav .next .hint {
+  justify-content: flex-end;
 }
 
 .vp-page-title h1 {
@@ -634,6 +774,22 @@ html[data-theme='dark'] [vp-content] code {
   .vp-hero {
     margin-top: 1rem;
     padding: 2rem;
+  }
+}
+
+@media (min-width: 1200px) {
+  :root {
+    --sidebar-width: 22rem;
+    --content-width: 58rem;
+    --homepage-width: 82rem;
+  }
+}
+
+@media (min-width: 1680px) {
+  :root {
+    --sidebar-width: 24rem;
+    --content-width: 64rem;
+    --homepage-width: 90rem;
   }
 }
 

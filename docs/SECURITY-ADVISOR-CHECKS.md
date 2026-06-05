@@ -1,4 +1,4 @@
-# Security Advisor checks
+# Spring Security Advisor checks
 
 The Security Advisor panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration.
 It introspects the registered `SecurityFilterChain` beans and their filter lists, simulates an anonymous authorization

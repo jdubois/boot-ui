@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {toDocLink} from './doc-links.js'
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const hiddenDocs = ['README.md']
@@ -17,6 +18,7 @@ const checkDocs = [
   'ARCHITECTURE-CHECKS.md',
   'GRAALVM-READINESS-CHECKS.md',
   'HIBERNATE-CHECKS.md',
+  'SECURITY-ADVISOR-CHECKS.md',
   'PENTEST-CHECKS.md'
 ]
 
@@ -33,16 +35,19 @@ export function createDocsSidebar() {
   return [
     {
       text: 'Project documentation',
+      collapsible: true,
       children: coreDocs.filter((file) => markdownFiles.includes(file)).map(toSidebarItem)
     },
     {
       text: 'Diagnostic checks',
-      children: checkDocs.filter((file) => markdownFiles.includes(file)).map(toSidebarItem)
+      collapsible: true,
+      children: checkDocs.filter((file) => markdownFiles.includes(file)).map(toDiagnosticSidebarItem)
     },
     ...(remainingDocs.length
       ? [
           {
             text: 'Additional docs',
+            collapsible: true,
             children: remainingDocs.map(toSidebarItem)
           }
         ]
@@ -53,7 +58,15 @@ export function createDocsSidebar() {
 function toSidebarItem(file) {
   return {
     text: readTitle(file),
-    link: file === 'README.md' ? '/' : `/${file.replace(/\.md$/, '.html')}`
+    link: toDocLink(file)
+  }
+}
+
+function toDiagnosticSidebarItem(file) {
+  const item = toSidebarItem(file)
+  return {
+    ...item,
+    text: item.text.replace(/\s+checks$/i, '')
   }
 }
 
