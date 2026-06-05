@@ -49,29 +49,14 @@ if ((Test-Path -LiteralPath ".\mvnw.cmd") -and (Test-Path -LiteralPath ".\bootui
 Require-Command java
 Require-Command docker
 
-$MavenRunArguments = @(
-    "-ntp",
-    "-pl",
-    "bootui-sample-app",
-    "-Dmaven.test.skip=true",
-    "spring-boot:run",
-    "-Dspring-boot.run.profiles=dev"
-)
+Write-Host "Building BootUI with tests skipped..."
+Invoke-Native -FilePath ".\mvnw.cmd" -Arguments @("-B", "-ntp", "install", "-DskipTests")
 
 Write-Host "Starting the BootUI sample app with PostgreSQL, Redis, and Ollama."
 Write-Host "First startup may also pull the qwen2.5:0.5b chat model. Open http://localhost:8080/bootui after startup."
-Write-Host "Trying the offline Maven cache first for the fastest startup."
-$OfflineArguments = @("-o") + $MavenRunArguments
-& ".\mvnw.cmd" @OfflineArguments
-$OfflineExitCode = $LASTEXITCODE
-
-if ($OfflineExitCode -eq 0) {
-    exit 0
-}
-
-if (($OfflineExitCode -eq 130) -or ($OfflineExitCode -eq -1073741510)) {
-    exit $OfflineExitCode
-}
-
-Write-Host "Offline launch failed; retrying without -o so Maven can resolve missing artifacts."
-Invoke-Native -FilePath ".\mvnw.cmd" -Arguments $MavenRunArguments
+Invoke-Native -FilePath ".\mvnw.cmd" -Arguments @(
+    "-pl",
+    "bootui-sample-app",
+    "spring-boot:run",
+    "-Dspring-boot.run.profiles=dev"
+)
