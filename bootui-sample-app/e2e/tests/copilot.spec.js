@@ -9,6 +9,8 @@ test.describe('Copilot panel', () => {
       sessionCount: 2,
       eventCount: 42,
       turnCount: 7,
+      totalInputTokens: 123456,
+      totalOutputTokens: 7890,
       errorCount: 3,
       activeLast24Hours: 1,
       activeLast7Days: 2,
@@ -32,13 +34,17 @@ test.describe('Copilot panel', () => {
         startEpochMillis: Date.now() - (23 - index) * 60 * 60 * 1000,
         endEpochMillis: Date.now() - (22 - index) * 60 * 60 * 1000,
         eventCount: index % 4 === 0 ? 10 : index,
-        errorCount: index % 8 === 0 ? 1 : 0
+        errorCount: index % 8 === 0 ? 1 : 0,
+        inputTokens: index === 23 ? 123456 : index % 4 === 0 ? 2000 + index * 100 : 0,
+        outputTokens: index === 23 ? 7890 : index % 3 === 0 ? 300 + index * 20 : 0
       })),
       dailyActivityBuckets: Array.from({length: 7}, (_, index) => ({
         startEpochMillis: Date.now() - (6 - index) * 24 * 60 * 60 * 1000,
         endEpochMillis: Date.now() - (5 - index) * 24 * 60 * 60 * 1000,
         eventCount: (index + 1) * 3,
-        errorCount: index === 6 ? 1 : 0
+        errorCount: index === 6 ? 1 : 0,
+        inputTokens: index === 6 ? 123456 : (index + 1) * 3500,
+        outputTokens: index === 6 ? 7890 : (index + 1) * 420
       })),
       recentSessions: [
         {
@@ -51,6 +57,8 @@ test.describe('Copilot panel', () => {
           status: null,
           eventCount: 30,
           turnCount: 5,
+          inputTokens: 100000,
+          outputTokens: 6000,
           errorCount: 2,
           lastActivitySummary: 'FILE_EDIT · apply_patch',
           schemaDrift: false
@@ -72,7 +80,8 @@ test.describe('Copilot panel', () => {
           startedAtEpochMillis: Date.now() - 120_000,
           durationMillis: 1500,
           summary: 'Investigating session',
-          eventCount: 2
+          eventCount: 2,
+          outputTokens: 900
         }
       ],
       recentEvents: [
@@ -163,6 +172,19 @@ test.describe('Copilot panel', () => {
     await expect(
       page.locator('.metric-card', {hasText: 'Sanitized events'}).getByText('42', {exact: true})
     ).toBeVisible()
+    await expect(page.getByRole('group', {name: 'Activity chart mode'}).getByText('Tokens')).toBeVisible()
+    await expect(page.locator('#activity-mode-tokens')).toBeChecked()
+    await expect(page.getByText('Blue bars show input tokens; red bars show output tokens')).toBeVisible()
+    await expect(page.locator('.metric-card', {hasText: 'Tokens'}).getByText('131,34k', {exact: true})).toBeVisible()
+    await expect(page.locator('.metric-card', {hasText: 'Tokens'}).getByText('123,45k in · 7,89k out')).toBeVisible()
+    const hourlyActivity = page.locator('.activity-chart').first()
+    await hourlyActivity.locator('.activity-column').nth(23).hover()
+    await expect(
+      hourlyActivity.locator('.activity-tooltip', {hasText: 'Input tokens: 123,45k · Output tokens: 7,89k'})
+    ).toBeVisible()
+    await page.locator('label[for="activity-mode-events"]').click()
+    await hourlyActivity.locator('.activity-column').nth(23).hover()
+    await expect(hourlyActivity.locator('.activity-tooltip', {hasText: 'Events: 23 · Failures: 0'})).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Top tools'}).locator('..').getByText('apply_patch')).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Event mix'}).locator('..').getByText('FILE_EDIT')).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Session explorer'})).toBeVisible()
@@ -177,5 +199,6 @@ test.describe('Copilot panel', () => {
     await page.getByRole('tab', {name: 'Turn story'}).click()
     await expect(page.getByRole('tab', {name: 'Turn story'})).toHaveClass(/active/)
     await expect(page.getByText('Investigating session')).toBeVisible()
+    await expect(page.getByText('900 out')).toBeVisible()
   })
 })

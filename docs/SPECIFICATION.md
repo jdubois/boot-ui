@@ -1114,8 +1114,8 @@ Initial endpoints:
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
 | `/bootui/api/pentest`                        | GET    | Latest local OWASP hygiene report                                                      |
 | `/bootui/api/pentest/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
-| `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, explorer, raw reveal, SSE              |
-| `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, explorer, raw reveal, SSE                 |
+| `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
+| `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, token usage, explorer, raw reveal, SSE    |
 
 ### 6.5 Configuration properties
 

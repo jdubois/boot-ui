@@ -14,6 +14,8 @@ public record CopilotDashboardDto(
         int sessionCount,
         int eventCount,
         int turnCount,
+        Long totalInputTokens,
+        Long totalOutputTokens,
         int errorCount,
         int activeLast24Hours,
         int activeLast7Days,
