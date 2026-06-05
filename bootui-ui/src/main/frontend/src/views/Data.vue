@@ -3,6 +3,7 @@ import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
+import UnavailableState from './components/UnavailableState.vue'
 
 const report = ref(null)
 const detail = ref(null)
@@ -94,14 +95,14 @@ onMounted(load)
   <div>
     <PanelHeader icon="bi-database" title="Spring Data repositories" :error="error" />
 
-    <div v-if="!springDataPresent" class="alert alert-info">
+    <UnavailableState v-if="!springDataPresent" variant="info">
       Spring Data is not on the classpath of this application. Add a Spring Data starter (e.g.
       <code>spring-boot-starter-data-jpa</code>) to see repositories here.
-    </div>
+    </UnavailableState>
 
-    <div v-else-if="report && report.total === 0" class="alert alert-secondary">
+    <UnavailableState v-else-if="report && report.total === 0">
       Spring Data is on the classpath, but no repository beans were detected in the application context.
-    </div>
+    </UnavailableState>
 
     <template v-else-if="report">
       <div class="row g-2 mb-3">

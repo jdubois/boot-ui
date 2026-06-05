@@ -1,6 +1,7 @@
 <script setup>
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import UnavailableState from './components/UnavailableState.vue'
 import {formatBytes, memoryProgressClass, useMemoryReport} from '../utils/memoryReport.js'
 
 const {data, error, lastUpdated, autoRefresh, loading, initialLoading, load} = useMemoryReport()
@@ -148,6 +149,6 @@ const {data, error, lastUpdated, autoRefresh, loading, initialLoading, load} = u
       </div>
     </template>
 
-    <div v-else-if="!error" class="text-muted">Loading…</div>
+    <UnavailableState v-else-if="!error" message="Live memory data is unavailable. Retry or refresh this panel." />
   </div>
 </template>
