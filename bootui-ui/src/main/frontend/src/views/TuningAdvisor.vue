@@ -2,6 +2,7 @@
 import {computed} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import UnavailableState from './components/UnavailableState.vue'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {confidenceBadgeClass, formatBytes, useMemoryReport} from '../utils/memoryReport.js'
 
@@ -397,7 +398,7 @@ async function copyKubernetesYaml() {
       </div>
     </template>
 
-    <div v-else-if="!error" class="text-muted">Loading…</div>
+    <UnavailableState v-else-if="!error" message="Tuning advisor data is unavailable. Retry or refresh this panel." />
   </div>
 </template>
 

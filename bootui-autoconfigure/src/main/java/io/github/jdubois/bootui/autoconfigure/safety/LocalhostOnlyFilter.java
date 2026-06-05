@@ -9,19 +9,41 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Locale;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Rejects any BootUI request that does not originate from a loopback address.
+ * Rejects any BootUI request that does not originate from the local machine.
  *
- * <p>The filter is bypassed only when {@code bootui.allow-non-localhost=true}.
- * BootUI is a developer tool, not a production endpoint, so we fail closed by
- * default.</p>
+ * <p>The filter enforces three independent defenses and is bypassed entirely only when
+ * {@code bootui.allow-non-localhost=true}:</p>
+ * <ol>
+ *   <li><strong>Loopback source</strong> — the remote address must be a loopback address.</li>
+ *   <li><strong>Host allow-list (DNS-rebinding defense)</strong> — when a {@code Host} header is
+ *       present it must resolve to a known loopback name or a configured
+ *       {@code bootui.allowed-hosts} entry. A browser victim of a DNS-rebinding attack always sends
+ *       the attacker's hostname in {@code Host}, so this blocks the rebinding even though the socket
+ *       still terminates on loopback. A missing {@code Host} header is allowed: browsers always set
+ *       it (and cannot suppress it from script), so its absence indicates a non-browser local client
+ *       rather than an attack.</li>
+ *   <li><strong>Cross-site write protection (CSRF defense)</strong> — for state-changing methods the
+ *       request is rejected when {@code Sec-Fetch-Site: cross-site} is present, or when an
+ *       {@code Origin} header is present and its host does not match the request host. This protects
+ *       mutating endpoints even when Spring Security (and its CSRF tokens) is not on the classpath.</li>
+ * </ol>
+ *
+ * <p>BootUI is a developer tool, not a production endpoint, so we fail closed by default.</p>
  */
 public class LocalhostOnlyFilter extends AbstractBootUiFilter {
 
     private static final Logger log = LoggerFactory.getLogger(LocalhostOnlyFilter.class);
+
+    private static final Set<String> BUILT_IN_ALLOWED_HOSTS =
+            Set.of("localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
+
+    private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
     public LocalhostOnlyFilter(BootUiProperties properties) {
         super(properties);
@@ -42,17 +64,114 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
         }
 
         String remote = request.getRemoteAddr();
-        if (isLoopback(remote)) {
-            chain.doFilter(request, response);
+        if (!isLoopback(remote)) {
+            reject(
+                    response,
+                    "BootUI is restricted to loopback requests. Set bootui.allow-non-localhost=true to override.",
+                    "non-loopback request from {} to {}",
+                    remote,
+                    request.getRequestURI());
             return;
         }
 
-        log.warn("BootUI rejected non-loopback request from {} to {}", remote, request.getRequestURI());
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-        response.setContentType("application/json");
-        response.getWriter()
-                .write("{\"error\":\"BootUI is restricted to loopback requests. "
-                        + "Set bootui.allow-non-localhost=true to override.\"}");
+        String hostHeader = request.getHeader("Host");
+        String requestHost = extractHost(hostHeader);
+        if (requestHost != null && !isAllowedHost(requestHost)) {
+            reject(
+                    response,
+                    "BootUI rejected an unrecognized Host header. "
+                            + "Add it to bootui.allowed-hosts to allow this hostname.",
+                    "request with disallowed Host '{}' to {}",
+                    hostHeader,
+                    request.getRequestURI());
+            return;
+        }
+
+        if (!isSafeMethod(request) && isCrossSiteWrite(request, requestHost)) {
+            reject(
+                    response,
+                    "BootUI rejected a cross-site request to a state-changing endpoint.",
+                    "cross-site {} request to {}",
+                    request.getMethod(),
+                    request.getRequestURI());
+            return;
+        }
+
+        chain.doFilter(request, response);
+    }
+
+    private boolean isSafeMethod(HttpServletRequest request) {
+        String method = request.getMethod();
+        return method != null && SAFE_METHODS.contains(method.toUpperCase(Locale.ROOT));
+    }
+
+    private boolean isCrossSiteWrite(HttpServletRequest request, String requestHost) {
+        String fetchSite = request.getHeader("Sec-Fetch-Site");
+        if (fetchSite != null && fetchSite.equalsIgnoreCase("cross-site")) {
+            return true;
+        }
+        String origin = request.getHeader("Origin");
+        if (origin == null || origin.isBlank()) {
+            return false;
+        }
+        // Compare host only (not scheme/port) on purpose: the remote cross-site threat is already blocked by the Host
+        // allow-list, and a stricter port match would break the supported Vite dev-server proxy (browser Origin
+        // localhost:5173 proxied to a Host of localhost:8080) for state-changing actions.
+        String originHost = extractHost(origin);
+        return originHost == null || !originHost.equalsIgnoreCase(requestHost);
+    }
+
+    private boolean isAllowedHost(String host) {
+        if (BUILT_IN_ALLOWED_HOSTS.contains(host)) {
+            return true;
+        }
+        String[] configured = properties.getAllowedHosts();
+        if (configured != null) {
+            for (String allowed : configured) {
+                if (allowed != null && host.equalsIgnoreCase(allowed.trim())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Extracts the lowercased host from a {@code Host} or {@code Origin} header value, stripping any
+     * scheme, port, path, and IPv6 brackets. Returns {@code null} for blank or malformed input.
+     */
+    private String extractHost(String value) {
+        if (value == null) {
+            return null;
+        }
+        String candidate = value.trim();
+        if (candidate.isEmpty()) {
+            return null;
+        }
+        int scheme = candidate.indexOf("://");
+        if (scheme >= 0) {
+            candidate = candidate.substring(scheme + 3);
+        }
+        int slash = candidate.indexOf('/');
+        if (slash >= 0) {
+            candidate = candidate.substring(0, slash);
+        }
+        if (candidate.isEmpty()) {
+            return null;
+        }
+        String host;
+        if (candidate.startsWith("[")) {
+            int close = candidate.indexOf(']');
+            if (close < 0) {
+                return null;
+            }
+            host = candidate.substring(1, close);
+        } else {
+            int colon = candidate.indexOf(':');
+            host = colon >= 0 ? candidate.substring(0, colon) : candidate;
+        }
+        host = host.trim().toLowerCase(Locale.ROOT);
+        return host.isEmpty() ? null : host;
     }
 
     private boolean isLoopback(String remoteAddr) {
@@ -65,5 +184,13 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
         } catch (UnknownHostException e) {
             return false;
         }
+    }
+
+    private void reject(HttpServletResponse response, String message, String logFormat, Object... logArgs)
+            throws IOException {
+        log.warn("BootUI rejected " + logFormat, logArgs);
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.getWriter().write("{\"error\":\"" + message + "\"}");
     }
 }

@@ -524,6 +524,93 @@ class HibernateAdvisorScannerTests {
                 new MockEnvironment());
     }
 
+    @Test
+    void ruleEvaluationWrapsRuntimeExceptionAsErrorResult() {
+        HibernateAdvisorRuleResultDto result = new ThrowingRule().evaluate(emptyContext());
+
+        assertThat(result.status()).isEqualTo(HibernateAdvisorRuleSupport.ERROR);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).hasSize(1);
+        assertThat(result.sampleViolations().get(0))
+                .contains("Rule could not be evaluated:")
+                .contains("boom");
+    }
+
+    @Test
+    void ruleEvaluationWrapsLinkageErrorAsErrorResult() {
+        HibernateAdvisorRuleResultDto result = new LinkageErrorRule().evaluate(emptyContext());
+
+        assertThat(result.status()).isEqualTo(HibernateAdvisorRuleSupport.ERROR);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations().get(0)).contains("missing");
+    }
+
+    @Test
+    void skippedRuleSurfacesSkippedStatusAndReason() {
+        HibernateAdvisorRuleResultDto result = new SkippingRule().evaluate(emptyContext());
+
+        assertThat(result.status()).isEqualTo(HibernateAdvisorRuleSupport.SKIPPED);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).containsExactly("Not applicable in this context.");
+    }
+
+    @Test
+    void everyActiveRuleRoutesThroughTheFailClosedBase() {
+        assertThat(HibernateAdvisorRuleRegistry.activeRules())
+                .allSatisfy(rule -> assertThat(rule).isInstanceOf(AbstractHibernateAdvisorRule.class));
+    }
+
+    private static HibernateAdvisorContext emptyContext() {
+        return new HibernateAdvisorContext(List.of(), List.of(), new MockEnvironment());
+    }
+
+    private static HibernateAdvisorRuleDefinition testRuleDefinition() {
+        return new HibernateAdvisorRuleDefinition(
+                "HIB-TEST-001",
+                "Deliberately failing test rule",
+                HibernateAdvisorCategory.CONFIGURATION,
+                "LOW",
+                "Test-only rule used to exercise the fail-closed base.",
+                "No action required.",
+                null);
+    }
+
+    private static final class ThrowingRule extends AbstractHibernateAdvisorRule {
+
+        ThrowingRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+            throw new IllegalStateException("boom");
+        }
+    }
+
+    private static final class LinkageErrorRule extends AbstractHibernateAdvisorRule {
+
+        LinkageErrorRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+            throw new NoClassDefFoundError("missing");
+        }
+    }
+
+    private static final class SkippingRule extends AbstractHibernateAdvisorRule {
+
+        SkippingRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+            return skipped("Not applicable in this context.");
+        }
+    }
+
     private HibernateAdvisorScanner scanner(MockEnvironment environment, Class<?> entityType) {
         return scanner(environment, List.of(), entityType);
     }

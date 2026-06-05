@@ -5,6 +5,7 @@ import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
+import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -243,6 +244,11 @@ onUnmounted(clearReconnectTimer)
         </div>
       </div>
     </div>
+
+    <UnavailableState
+      v-else
+      message="DevTools status is unavailable. The app may be restarting or unreachable — retry or refresh this panel."
+    />
   </div>
 </template>
 

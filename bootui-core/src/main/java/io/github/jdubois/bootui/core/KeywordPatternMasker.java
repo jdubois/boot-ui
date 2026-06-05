@@ -52,11 +52,16 @@ public class KeywordPatternMasker implements MaskingStrategy {
     }
 
     @Override
+    public boolean shouldMask(String propertyName, Object value) {
+        return isSecret(propertyName) || SecretValueDetector.looksLikeSecret(value);
+    }
+
+    @Override
     public Object mask(String propertyName, Object value) {
         if (value == null) {
             return null;
         }
-        if (isSecret(propertyName)) {
+        if (shouldMask(propertyName, value)) {
             return "******";
         }
         return value;

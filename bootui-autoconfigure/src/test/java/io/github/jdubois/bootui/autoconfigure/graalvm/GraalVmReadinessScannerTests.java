@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
@@ -53,7 +54,19 @@ class GraalVmReadinessScannerTests {
                 .allSatisfy(finding -> assertThat(finding.status()).isEqualTo("REVIEW"));
         assertThat(report.findings())
                 .extracting(GraalVmFindingDto::id)
-                .contains("GRAAL-REFLECT-001", "GRAAL-PROXY-001", "GRAAL-RES-001", "GRAAL-SER-001", "GRAAL-NATIVE-001");
+                .contains(
+                        "GRAAL-REFLECT-001",
+                        "GRAAL-REFLECT-002",
+                        "GRAAL-REFLECT-003",
+                        "GRAAL-REFLECT-004",
+                        "GRAAL-PROXY-001",
+                        "GRAAL-RES-001",
+                        "GRAAL-RES-002",
+                        "GRAAL-SERVICE-001",
+                        "GRAAL-SER-001",
+                        "GRAAL-INIT-001",
+                        "GRAAL-NATIVE-001",
+                        "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
                 .isSortedAccordingTo(Comparator.comparingInt(GraalVmReadinessScannerTests::severityRank));
         assertThat(report.severityCounts()).extracting("severity").containsExactly("HIGH", "MEDIUM", "LOW", "INFO");
@@ -123,6 +136,93 @@ class GraalVmReadinessScannerTests {
         assertThat(report.checksRun()).isZero();
         assertThat(report.findings()).isEmpty();
         assertThat(report.findingsFound()).isZero();
+    }
+
+    @Test
+    void checkEvaluationWrapsRuntimeExceptionAsErrorFinding() {
+        GraalVmFindingDto finding = new ThrowingCheck().evaluate(null);
+
+        assertThat(finding.status()).isEqualTo(GraalVmCheckSupport.ERROR);
+        assertThat(finding.occurrenceCount()).isZero();
+        assertThat(finding.sampleOccurrences()).hasSize(1);
+        assertThat(finding.sampleOccurrences().get(0))
+                .contains("Check could not be evaluated:")
+                .contains("boom");
+    }
+
+    @Test
+    void checkEvaluationWrapsLinkageErrorAsErrorFinding() {
+        GraalVmFindingDto finding = new LinkageErrorCheck().evaluate(null);
+
+        assertThat(finding.status()).isEqualTo(GraalVmCheckSupport.ERROR);
+        assertThat(finding.occurrenceCount()).isZero();
+        assertThat(finding.sampleOccurrences().get(0)).contains("missing");
+    }
+
+    @Test
+    void checkThatIsNotApplicableSurfacesSkippedStatus() {
+        GraalVmFindingDto finding = new NotApplicableCheck().evaluate(null);
+
+        assertThat(finding.status()).isEqualTo(GraalVmCheckSupport.SKIPPED);
+        assertThat(finding.occurrenceCount()).isZero();
+        assertThat(finding.sampleOccurrences().get(0)).contains("not applicable");
+    }
+
+    @Test
+    void directlyImplementedCheckReportsErrorInsteadOfThrowing() {
+        // SerializationCheck implements GraalVmCheck directly (not via AbstractArchUnitGraalVmCheck); a null
+        // class set forces its body to throw so the test exercises its own fail-closed try/catch.
+        GraalVmFindingDto finding = new SerializationCheck().evaluate(new GraalVmContext(null, List.of()));
+
+        assertThat(finding.status()).isEqualTo(GraalVmCheckSupport.ERROR);
+        assertThat(finding.occurrenceCount()).isZero();
+        assertThat(finding.sampleOccurrences().get(0)).contains("Check could not be evaluated:");
+    }
+
+    private static GraalVmCheckDefinition testCheckDefinition() {
+        return new GraalVmCheckDefinition(
+                "GRAAL-TEST-001",
+                "Deliberately failing test check",
+                GraalVmCategory.REFLECTION,
+                "INFO",
+                "Test-only check used to exercise the fail-closed base.",
+                "No action required.");
+    }
+
+    private static final class ThrowingCheck extends AbstractArchUnitGraalVmCheck {
+
+        ThrowingCheck() {
+            super(testCheckDefinition());
+        }
+
+        @Override
+        ArchRule rule(GraalVmContext context) {
+            throw new IllegalStateException("boom");
+        }
+    }
+
+    private static final class LinkageErrorCheck extends AbstractArchUnitGraalVmCheck {
+
+        LinkageErrorCheck() {
+            super(testCheckDefinition());
+        }
+
+        @Override
+        ArchRule rule(GraalVmContext context) {
+            throw new NoClassDefFoundError("missing");
+        }
+    }
+
+    private static final class NotApplicableCheck extends AbstractArchUnitGraalVmCheck {
+
+        NotApplicableCheck() {
+            super(testCheckDefinition());
+        }
+
+        @Override
+        ArchRule rule(GraalVmContext context) {
+            return null;
+        }
     }
 
     private static int severityRank(String severity) {
