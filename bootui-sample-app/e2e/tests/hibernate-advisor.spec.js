@@ -8,8 +8,11 @@ test.describe('Hibernate Advisor view', () => {
     await expect(page.getByText('No Hibernate Advisor data yet')).toBeVisible()
     await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
 
-    await expect(page.getByText('Associations should avoid eager fetching by default')).toBeVisible()
+    await expect(page.getByText('Eager fetching should stay explicit and bounded')).toBeVisible()
     await expect(page.getByText(/SampleOrder#customer is mapped as FetchType.EAGER/)).toBeVisible()
+    await expect(
+      page.getByText(/SampleAppPreferences#enabledFeatures is an @ElementCollection mapped as FetchType.EAGER/)
+    ).toBeVisible()
     await expect(page.getByText('Generated identifiers should avoid GenerationType.IDENTITY')).toBeVisible()
     await expect(page.getByText(/Product#id uses GenerationType.IDENTITY/)).toBeVisible()
     await expect(page.getByText('One-to-many associations should be bidirectional or join-column based')).toBeVisible()

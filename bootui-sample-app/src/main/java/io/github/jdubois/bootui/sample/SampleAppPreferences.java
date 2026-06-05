@@ -23,7 +23,7 @@ public class SampleAppPreferences {
 
     private String owner;
 
-    // Intentionally fetched eagerly to trigger HIB-FETCH-006 (@ElementCollection should default to LAZY).
+    // Intentionally fetched eagerly to trigger HIB-FETCH-001 (eager fetching should stay explicit).
     @ElementCollection(fetch = FetchType.EAGER)
     private List<String> enabledFeatures = new ArrayList<>();
 
