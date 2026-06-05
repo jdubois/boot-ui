@@ -76,8 +76,57 @@ Panel settings are consistent across the UI and API:
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`      |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                  |
 | Developer tools | Claude Code               | `claude-code`               | `bootui.panels.claude-code.enabled`               | Not applicable; view-only.                  |
+| Developer tools | Fix with Copilot          | `copilot-fix`               | `bootui.panels.copilot-fix.enabled`               | `bootui.copilot-fix.enabled` (default off). |
 
 ## Per-panel action details
+
+### Fix with Copilot
+
+The "Fix with Copilot" panel is an **opt-in, local-only, dev-only** capability. It drafts a
+remediation for a single scanner finding (starting with the Vulnerabilities panel) on a **dedicated,
+throwaway git branch** using the GitHub Copilot SDK for Java, then shows the resulting diff for
+review. It never edits the branch you currently have checked out and never pushes or opens a pull
+request on your behalf.
+
+It activates only when **all** of the following hold:
+
+1. `bootui.copilot-fix.enabled` is `ON` (or `AUTO`); it is `OFF` by default.
+2. The GitHub Copilot SDK for Java is on the application classpath (BootUI never depends on it
+   directly — add it yourself; see below).
+3. A GitHub token is resolvable from `GITHUB_TOKEN`/`GH_TOKEN` or the `gh` CLI (the same credential
+   the GitHub panel uses). The token is handed to the agent only; it is never logged, stored on a
+   run, or returned to the browser.
+
+| Property                            | Default       | Description                                                                                  |
+| ----------------------------------- | ------------- | -------------------------------------------------------------------------------------------- |
+| `bootui.panels.copilot-fix.enabled` | `true`        | Show the Fix with Copilot panel (subject to the capability being available).                 |
+| `bootui.copilot-fix.enabled`        | `OFF`         | Capability mode. `OFF` disables runs; `ON`/`AUTO` allow runs when the SDK and a token exist. |
+| `bootui.copilot-fix.branch-prefix`  | `bootui/fix-` | Prefix for the isolated branch created per run (finding id + short run id are appended).      |
+| `bootui.copilot-fix.model`          | _(SDK default)_ | Model the agent should use; blank uses the SDK default.                                     |
+| `bootui.copilot-fix.run-timeout`    | `10m`         | Maximum wall-clock time a single run may take.                                                |
+| `bootui.copilot-fix.max-events-per-run` | `500`     | Upper bound on progress events retained and replayed per run.                                 |
+
+**Adding the SDK (opt-in).** Because the SDK is large and optional, BootUI does not pull it in. Add
+it to your application yourself, for example:
+
+```xml
+<!-- Opt-in: enables the BootUI "Fix with Copilot" capability when present. -->
+<dependency>
+  <groupId>com.github</groupId>
+  <artifactId>copilot-sdk-java</artifactId>
+  <version><!-- the GA version you have vetted --></version>
+  <optional>true</optional>
+</dependency>
+```
+
+Run a dependency vulnerability check on the version you choose before adding it. Without the SDK on
+the classpath the panel reports itself unavailable and no fix runs are possible.
+
+**Security posture.** Runs are loopback-only and flow through the same `PanelAccessFilter` /
+`LocalhostOnlyFilter` defenses (CSRF token, loopback and DNS-rebind checks) as every other mutating
+BootUI action. Edits are isolated on a separate git worktree and branch, captured as a diff for you
+to review, and only your explicit follow-up (pushing the branch / opening a pull request) shares
+them. Concurrency, run lifetime, and the captured diff size are bounded.
 
 ### Startup Timeline
 

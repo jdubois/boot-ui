@@ -542,3 +542,21 @@ under `~/.claude/`. Because Claude Code writes sessions inside per-project subdi
 through the shared visibility-aware auto-refresh polling used by the other live data panels.
 
 ![BootUI Claude Code panel](./images/bootui-claude-code.png)
+
+### Fix with Copilot
+
+The Fix with Copilot panel is an **opt-in, local-only** capability that drafts a remediation for a
+single scanner finding (starting with the [Vulnerabilities](#vulnerabilities) panel) using the
+GitHub Copilot SDK for Java. Each finding card gains a **Fix it with Copilot** button when the
+capability is available; clicking it opens this panel, seeds a constrained prompt from the finding
+(advisory id, summary, affected dependency, severity), and runs a Copilot agent session against a
+**dedicated, throwaway git branch** created via `git worktree`. Progress streams live over
+server-sent events, and the resulting diff is shown for review.
+
+The capability is disabled by default and never edits the branch you currently have checked out,
+never auto-approves file writes, and never pushes or opens a pull request automatically — you review
+the diff and explicitly push the branch or open a draft pull request yourself. It activates only
+when `bootui.copilot-fix.enabled=ON`, the Copilot SDK is on the classpath, and a GitHub token is
+available. The token is handed to the agent only and is never logged or returned to the browser. See
+[Properties](PROPERTIES.md#fix-with-copilot) for the full opt-in dependency, configuration, and
+security posture.

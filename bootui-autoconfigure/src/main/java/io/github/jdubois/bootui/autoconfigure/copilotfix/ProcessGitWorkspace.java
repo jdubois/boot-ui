@@ -65,7 +65,8 @@ final class ProcessGitWorkspace implements GitWorkspace {
         // git worktree add -b <branch> <dir> HEAD creates the branch and checks it out in <dir>.
         Exec add = run(repoRoot, "worktree", "add", "-b", branch, directory.toString(), "HEAD");
         if (!add.success()) {
-            throw new GitWorkspaceException("Could not create isolated worktree: " + add.stderr().trim());
+            throw new GitWorkspaceException(
+                    "Could not create isolated worktree: " + add.stderr().trim());
         }
         return new Isolated(directory, branch);
     }

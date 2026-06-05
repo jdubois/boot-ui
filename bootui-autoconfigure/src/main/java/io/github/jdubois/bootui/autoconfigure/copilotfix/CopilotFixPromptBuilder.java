@@ -29,11 +29,15 @@ final class CopilotFixPromptBuilder {
         sb.append("Fix the following ")
                 .append(safe(descriptor.source(), "scanner"))
                 .append(" finding.\n\n");
-        sb.append("Finding id: ").append(safe(descriptor.findingId(), "(unknown)")).append('\n');
+        sb.append("Finding id: ")
+                .append(safe(descriptor.findingId(), "(unknown)"))
+                .append('\n');
         sb.append("Title: ").append(safe(descriptor.title(), "(none)")).append('\n');
         sb.append("Severity: ").append(safe(descriptor.severity(), "(unknown)")).append('\n');
         if (descriptor.targets() != null && !descriptor.targets().isEmpty()) {
-            sb.append("Affected: ").append(String.join(", ", descriptor.targets())).append('\n');
+            sb.append("Affected: ")
+                    .append(String.join(", ", descriptor.targets()))
+                    .append('\n');
         }
         String summary = descriptor.summary();
         if (summary != null && !summary.isBlank()) {

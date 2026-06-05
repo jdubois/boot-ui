@@ -8,7 +8,6 @@ import io.github.jdubois.bootui.core.dto.CopilotFixAvailabilityDto;
 import io.github.jdubois.bootui.core.dto.CopilotFixDescriptorDto;
 import io.github.jdubois.bootui.core.dto.CopilotFixRunDto;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
@@ -66,7 +65,12 @@ class CopilotFixServiceTests {
         BootUiProperties properties = propertiesEnabled();
         FakeGitWorkspace workspace = new FakeGitWorkspace(true, new GitWorkspace.Diff("", 0));
         CopilotFixService service = new CopilotFixService(
-                properties, tokenProvider(null), (context, listener) -> {}, root -> workspace, Path.of("."), Runnable::run);
+                properties,
+                tokenProvider(null),
+                (context, listener) -> {},
+                root -> workspace,
+                Path.of("."),
+                Runnable::run);
 
         CopilotFixRun run = service.start(descriptor());
 
@@ -80,7 +84,12 @@ class CopilotFixServiceTests {
         BootUiProperties properties = propertiesEnabled();
         FakeGitWorkspace workspace = new FakeGitWorkspace(false, new GitWorkspace.Diff("", 0));
         CopilotFixService service = new CopilotFixService(
-                properties, tokenProvider(SECRET), (context, listener) -> {}, root -> workspace, Path.of("."), Runnable::run);
+                properties,
+                tokenProvider(SECRET),
+                (context, listener) -> {},
+                root -> workspace,
+                Path.of("."),
+                Runnable::run);
 
         CopilotFixRun run = service.start(descriptor());
 
@@ -153,8 +162,7 @@ class CopilotFixServiceTests {
                 Runnable::run);
 
         assertThat(service.enabled()).isFalse();
-        org.junit.jupiter.api.Assertions.assertThrows(
-                IllegalStateException.class, () -> service.start(descriptor()));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> service.start(descriptor()));
         service.stop();
     }
 

@@ -20,12 +20,7 @@ import java.util.List;
  *     file paths the fix should focus on
  */
 public record CopilotFixDescriptorDto(
-        String findingId,
-        String source,
-        String title,
-        String summary,
-        String severity,
-        List<String> targets) {
+        String findingId, String source, String title, String summary, String severity, List<String> targets) {
 
     public CopilotFixDescriptorDto {
         targets = targets == null ? List.of() : List.copyOf(targets);

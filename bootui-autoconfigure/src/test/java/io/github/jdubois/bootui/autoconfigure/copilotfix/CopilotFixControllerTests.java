@@ -63,10 +63,11 @@ class CopilotFixControllerTests {
     @Test
     void runStartsAndReturnsAccepted() throws Exception {
         mvc(true)
-                .perform(post("/bootui/api/copilot-fix/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(
-                                "{\"descriptor\":{\"findingId\":\"GHSA-1\",\"source\":\"vulnerabilities\",\"title\":\"t\",\"summary\":\"s\",\"severity\":\"HIGH\",\"targets\":[\"a:b:1\"]}}"))
+                .perform(
+                        post("/bootui/api/copilot-fix/run")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"descriptor\":{\"findingId\":\"GHSA-1\",\"source\":\"vulnerabilities\",\"title\":\"t\",\"summary\":\"s\",\"severity\":\"HIGH\",\"targets\":[\"a:b:1\"]}}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.findingId").value("GHSA-1"))
                 .andExpect(jsonPath("$.status").value("SUCCEEDED"));

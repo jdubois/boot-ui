@@ -114,8 +114,7 @@ public class CopilotFixService {
         } else if (!tokenPresent) {
             reason = "No GitHub token found. Set GITHUB_TOKEN/GH_TOKEN or run 'gh auth login'.";
         }
-        return new CopilotFixAvailabilityDto(
-                available, reason, enabled, sdkPresent, tokenPresent, tokenSource, model);
+        return new CopilotFixAvailabilityDto(available, reason, enabled, sdkPresent, tokenPresent, tokenSource, model);
     }
 
     /**
@@ -128,13 +127,15 @@ public class CopilotFixService {
         if (!enabled()) {
             throw new IllegalStateException("The Fix it with Copilot capability is disabled");
         }
-        if (descriptor == null || descriptor.findingId() == null || descriptor.findingId().isBlank()) {
+        if (descriptor == null
+                || descriptor.findingId() == null
+                || descriptor.findingId().isBlank()) {
             throw new IllegalArgumentException("A finding id is required");
         }
         BootUiProperties.CopilotFix settings = properties.getCopilotFix();
         String runId = Long.toHexString(System.nanoTime());
-        CopilotFixRun run =
-                new CopilotFixRun(runId, descriptor.findingId(), System.currentTimeMillis(), settings.getMaxEventsPerRun());
+        CopilotFixRun run = new CopilotFixRun(
+                runId, descriptor.findingId(), System.currentTimeMillis(), settings.getMaxEventsPerRun());
         register(run);
         run.setStatus("RUNNING", "Starting");
         executor.execute(() -> execute(run, descriptor));

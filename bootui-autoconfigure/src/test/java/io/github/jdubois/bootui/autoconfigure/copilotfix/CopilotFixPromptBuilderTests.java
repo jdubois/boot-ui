@@ -38,8 +38,7 @@ class CopilotFixPromptBuilderTests {
 
     @Test
     void userPromptToleratesMissingFields() {
-        CopilotFixDescriptorDto descriptor =
-                new CopilotFixDescriptorDto("SEC-001", null, null, null, null, null);
+        CopilotFixDescriptorDto descriptor = new CopilotFixDescriptorDto("SEC-001", null, null, null, null, null);
 
         String prompt = CopilotFixPromptBuilder.userPrompt(descriptor);
 

@@ -37,7 +37,8 @@ public class CopilotFixController {
     static final int MAX_CONCURRENT_STREAMS = 20;
 
     private final Supplier<CopilotFixService> service;
-    private final java.util.concurrent.atomic.AtomicInteger activeStreams = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger activeStreams =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     @Autowired
     public CopilotFixController(
@@ -62,11 +63,12 @@ public class CopilotFixController {
     public ResponseEntity<CopilotFixRunDto> run(@RequestBody CopilotFixRunRequestDto request) {
         CopilotFixService service = service();
         if (!service.enabled()) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT, "The Fix it with Copilot capability is disabled");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "The Fix it with Copilot capability is disabled");
         }
         CopilotFixDescriptorDto descriptor = request == null ? null : request.descriptor();
-        if (descriptor == null || descriptor.findingId() == null || descriptor.findingId().isBlank()) {
+        if (descriptor == null
+                || descriptor.findingId() == null
+                || descriptor.findingId().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A finding descriptor with an id is required");
         }
         CopilotFixRun run = service.start(descriptor);
