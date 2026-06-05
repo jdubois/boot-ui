@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
+import io.github.jdubois.bootui.autoconfigure.copilotfix.CopilotFixController;
+import io.github.jdubois.bootui.autoconfigure.copilotfix.CopilotFixService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernateadvisor.HibernateAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
@@ -107,6 +109,7 @@ import org.springframework.core.env.Environment;
     OtlpReceiverController.class,
     CopilotController.class,
     ClaudeCodeController.class,
+    CopilotFixController.class,
     GraalVmController.class,
     ThreadDumpController.class,
     BootUiIndexController.class,
@@ -124,6 +127,7 @@ public class BootUiAutoConfiguration {
             HibernateAdvisorController.class.getName(),
             SpringCacheController.class.getName(),
             ClaudeCodeController.class.getName(),
+            CopilotFixController.class.getName(),
             ConditionsController.class.getName(),
             ConfigController.class.getName(),
             CopilotController.class.getName(),
@@ -298,6 +302,12 @@ public class BootUiAutoConfiguration {
             store.start();
         }
         return store;
+    }
+
+    @Bean(destroyMethod = "stop")
+    @Lazy
+    public CopilotFixService bootUiCopilotFixService(BootUiProperties properties) {
+        return new CopilotFixService(properties);
     }
 
     @Bean

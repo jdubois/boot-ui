@@ -59,7 +59,8 @@ class PanelsControllerTests {
             BootUiPanels.CLAUDE_CODE,
             BootUiPanels.FLYWAY,
             BootUiPanels.LIQUIBASE,
-            BootUiPanels.GITHUB);
+            BootUiPanels.GITHUB,
+            BootUiPanels.COPILOT_FIX);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {

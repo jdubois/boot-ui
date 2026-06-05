@@ -6,9 +6,14 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-interface GitHubTokenProvider {
+public interface GitHubTokenProvider {
 
     Token token(Duration timeout);
+
+    /** Returns the default provider, which reads {@code GITHUB_TOKEN}/{@code GH_TOKEN} or the gh CLI. */
+    static GitHubTokenProvider defaultProvider() {
+        return new DefaultGitHubTokenProvider();
+    }
 
     record Token(String value, String source) {}
 }

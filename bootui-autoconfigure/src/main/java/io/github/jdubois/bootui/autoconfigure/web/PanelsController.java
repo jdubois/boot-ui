@@ -147,6 +147,7 @@ public class PanelsController {
                 availability(
                         cliSessionPanelAvailable(properties.getClaudeCode()),
                         cliSessionUnavailableReason(properties.getClaudeCode()));
+            case BootUiPanels.COPILOT_FIX -> availability(copilotFixAvailable(), copilotFixUnavailableReason());
             default -> availability(false, "Unknown BootUI panel");
         };
     }
@@ -351,6 +352,18 @@ public class PanelsController {
         }
         return settings.getSessionSourceName() + " session directory not found at "
                 + AgentSessionStore.resolveDir(settings);
+    }
+
+    private boolean copilotFixAvailable() {
+        return properties.getCopilotFix().getEnabled() != BootUiProperties.Mode.OFF
+                && io.github.jdubois.bootui.autoconfigure.copilotfix.CopilotFixDetector.isSdkPresent();
+    }
+
+    private String copilotFixUnavailableReason() {
+        if (properties.getCopilotFix().getEnabled() == BootUiProperties.Mode.OFF) {
+            return "Fix with Copilot is disabled. Set bootui.copilot-fix.enabled=ON to enable it.";
+        }
+        return "The GitHub Copilot SDK for Java is not on the application classpath";
     }
 
     private record Availability(boolean available, String unavailableReason) {}

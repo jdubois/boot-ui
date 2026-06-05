@@ -122,6 +122,10 @@ public class BootUiProperties {
      * Claude Code panel settings.
      */
     private ClaudeCode claudeCode = new ClaudeCode();
+    /**
+     * "Fix it with Copilot" capability settings.
+     */
+    private CopilotFix copilotFix = new CopilotFix();
 
     public Mode getEnabled() {
         return enabled;
@@ -354,6 +358,14 @@ public class BootUiProperties {
 
     public void setClaudeCode(ClaudeCode claudeCode) {
         this.claudeCode = claudeCode;
+    }
+
+    public CopilotFix getCopilotFix() {
+        return copilotFix;
+    }
+
+    public void setCopilotFix(CopilotFix copilotFix) {
+        this.copilotFix = copilotFix == null ? new CopilotFix() : copilotFix;
     }
 
     /**
@@ -1071,6 +1083,87 @@ public class BootUiProperties {
         @Override
         public boolean isProjectSessionDirectoryLayout() {
             return true;
+        }
+    }
+
+    /**
+     * Settings for the opt-in "Fix it with Copilot" capability, which uses the GitHub Copilot SDK
+     * for Java to draft a remediation for a scanner finding on an isolated branch.
+     *
+     * <p>The capability is disabled by default. Even when enabled it activates only when the
+     * Copilot SDK is on the classpath and a GitHub token can be resolved locally. It is strictly a
+     * local developer tool: edits are isolated on a dedicated branch and surfaced as a diff for
+     * review - nothing is committed to the current branch or pushed automatically.
+     */
+    public static class CopilotFix {
+
+        /**
+         * Enable the "Fix it with Copilot" capability. Defaults to {@link Mode#OFF}; set to
+         * {@code ON} (or {@code AUTO}) to allow runs when the SDK and a token are available.
+         */
+        private Mode enabled = Mode.OFF;
+
+        /**
+         * Prefix used for the isolated branch created for each run. The finding id and a short run
+         * id are appended, e.g. {@code bootui/fix-GHSA-xxxx-1a2b3c}.
+         */
+        private String branchPrefix = "bootui/fix-";
+
+        /**
+         * Model the agent should use. When {@code null} or blank the SDK default is used.
+         */
+        private String model;
+
+        /**
+         * Maximum wall-clock time a single run may take before it is abandoned.
+         */
+        private Duration runTimeout = Duration.ofMinutes(10);
+
+        /**
+         * Upper bound on the number of progress events retained (and replayed) per run.
+         */
+        private int maxEventsPerRun = 500;
+
+        public Mode getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(Mode enabled) {
+            this.enabled = enabled == null ? Mode.OFF : enabled;
+        }
+
+        public String getBranchPrefix() {
+            return branchPrefix;
+        }
+
+        public void setBranchPrefix(String branchPrefix) {
+            this.branchPrefix = (branchPrefix == null || branchPrefix.isBlank()) ? "bootui/fix-" : branchPrefix;
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(String model) {
+            this.model = model;
+        }
+
+        public Duration getRunTimeout() {
+            return runTimeout;
+        }
+
+        public void setRunTimeout(Duration runTimeout) {
+            this.runTimeout = (runTimeout == null || runTimeout.isNegative() || runTimeout.isZero())
+                    ? Duration.ofMinutes(10)
+                    : runTimeout;
+        }
+
+        public int getMaxEventsPerRun() {
+            return maxEventsPerRun;
+        }
+
+        public void setMaxEventsPerRun(int maxEventsPerRun) {
+            this.maxEventsPerRun = Math.max(1, maxEventsPerRun);
         }
     }
 }
