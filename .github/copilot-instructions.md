@@ -42,6 +42,34 @@ read those before changing public behavior or visible panel behavior.
 ./mvnw -B -ntp -Prelease clean deploy
 ```
 
+### Inner loop: prefer the reactor over `install`, and isolate worktrees
+
+When iterating against the sample app, you do **not** need to `install` the other modules into the local Maven
+repository first. Use the reactor with `-am` (also-make) so Maven builds the upstream modules in the *same* invocation
+and resolves them from their `target/` output instead of `~/.m2`:
+
+```bash
+# Run the sample app, rebuilding the modules it depends on in one reactor pass (no install step).
+./mvnw -pl bootui-sample-app -am spring-boot:run -Dspring-boot.run.profiles=dev
+
+# Test the sample app the same way.
+./mvnw -pl bootui-sample-app -am test
+```
+
+This is faster than separate `install` runs and avoids stale-artifact bugs. Add `-o` (offline), `-T1C` (parallel
+modules), and/or `-DskipTests` to speed up the loop further; skip the `bootui-ui` frontend build when you have not
+touched the Vue app, since the npm build is the slow part regardless.
+
+When working from **multiple git worktrees in parallel**, avoid `install`: every worktree builds the same
+`com.julien-dubois.bootui:*` version, so installing overwrites the others in the shared `~/.m2/repository`. The reactor
+approach above sidesteps this because nothing is written to the local repo between modules. If you still need hard
+isolation, give each worktree its own local repository:
+
+```bash
+# Per-invocation, or set in a per-worktree (git-ignored) .mvn/maven.config file: -Dmaven.repo.local=.m2
+./mvnw -Dmaven.repo.local=.m2 -pl bootui-sample-app -am spring-boot:run
+```
+
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17, which includes the frontend Vitest
 suite through Maven, installs Playwright Chromium, and runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers
 Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow (`.github/workflows/release.yml`)
