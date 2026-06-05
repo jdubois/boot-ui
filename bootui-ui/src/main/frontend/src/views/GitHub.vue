@@ -600,11 +600,11 @@ function securitySignalUrl(signal) {
 
         <template v-else-if="activeDrawer === 'issues'">
           <div v-if="issueBuckets.length" class="card-body pb-0">
-            <div class="row g-3">
-              <div v-for="bucket in issueBuckets" :key="bucket.label" class="col-sm-6 col-lg-3">
-                <div class="border rounded p-3 h-100">
+            <div class="row g-2">
+              <div v-for="bucket in issueBuckets" :key="bucket.label" class="col-6 col-lg-3">
+                <div class="border rounded px-3 py-2 h-100">
                   <div class="text-muted small">{{ bucket.label }}</div>
-                  <div class="display-6">{{ formatNumber(bucket.count) }}</div>
+                  <div class="fs-5 fw-semibold">{{ formatNumber(bucket.count) }}</div>
                 </div>
               </div>
             </div>
