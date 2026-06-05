@@ -118,6 +118,142 @@ class LocalhostOnlyFilterTests {
         assertThat(response.getStatus()).isEqualTo(403);
     }
 
+    @Test
+    void rejectsRebindingHostHeader() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "127.0.0.1");
+        request.addHeader("Host", "attacker.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Host");
+    }
+
+    @Test
+    void allowsLoopbackHostHeaderWithPort() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "127.0.0.1");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void allowsBracketedIpv6HostHeader() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "::1");
+        request.addHeader("Host", "[::1]:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void allowsConfiguredAllowedHost() throws Exception {
+        properties.setAllowedHosts(new String[] {"app.local"});
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "127.0.0.1");
+        request.addHeader("Host", "app.local:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void rejectsCrossSiteOriginOnStateChangingRequest() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/bootui/api/config");
+        request.setRequestURI("/bootui/api/config");
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("Host", "localhost:8080");
+        request.addHeader("Origin", "http://evil.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("cross-site");
+    }
+
+    @Test
+    void allowsSameOriginStateChangingRequest() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/bootui/api/config");
+        request.setRequestURI("/bootui/api/config");
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("Host", "localhost:8080");
+        request.addHeader("Origin", "http://localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void allowsStateChangingRequestWithoutOrigin() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/bootui/api/config");
+        request.setRequestURI("/bootui/api/config");
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void rejectsSecFetchSiteCrossSiteOnStateChangingRequest() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/bootui/api/config");
+        request.setRequestURI("/bootui/api/config");
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("Host", "localhost:8080");
+        request.addHeader("Sec-Fetch-Site", "cross-site");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void allowsCrossSiteOriginOnSafeMethod() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "127.0.0.1");
+        request.addHeader("Host", "localhost:8080");
+        request.addHeader("Origin", "http://evil.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void allowsBlankHostHeader() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "127.0.0.1");
+        request.addHeader("Host", "   ");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void allowsHostHeaderCaseInsensitively() throws Exception {
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "127.0.0.1");
+        request.addHeader("Host", "LocalHost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
     private MockHttpServletRequest bootUiRequest(String uri, String remoteAddr) {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", uri);
         request.setRequestURI(uri);

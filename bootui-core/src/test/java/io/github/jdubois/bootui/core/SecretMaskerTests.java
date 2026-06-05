@@ -30,4 +30,20 @@ class SecretMaskerTests {
         assertThat(masker.mask("server.port", 8080)).isEqualTo(8080);
         assertThat(masker.mask("spring.datasource.password", null)).isNull();
     }
+
+    @Test
+    void masksSecretLookingValuesUnderInnocuousKeys() {
+        assertThat(masker.mask("spring.datasource.url", "jdbc:postgresql://alice:s3cret@db:5432/app"))
+                .isEqualTo(SecretMasker.MASKED_VALUE);
+        assertThat(masker.shouldMask("app.endpoint", "jdbc:postgresql://alice:s3cret@db/app"))
+                .isTrue();
+    }
+
+    @Test
+    void doesNotMaskBenignValuesUnderInnocuousKeys() {
+        assertThat(masker.mask("spring.datasource.url", "jdbc:postgresql://db:5432/app"))
+                .isEqualTo("jdbc:postgresql://db:5432/app");
+        assertThat(masker.shouldMask("server.port", 8080)).isFalse();
+        assertThat(masker.shouldMask("app.name", "checkout-service")).isFalse();
+    }
 }

@@ -61,7 +61,7 @@ public class ProfileController {
             for (String key : enumerable.getPropertyNames()) {
                 Object rawValue = enumerable.getProperty(key);
                 String strValue = rawValue == null ? null : rawValue.toString();
-                boolean masked = shouldMask(key, valueExposure, maskSecrets);
+                boolean masked = shouldMask(key, strValue, valueExposure, maskSecrets);
                 String displayValue = displayValue(key, strValue, valueExposure, maskSecrets);
                 props.add(new ConfigPropertyDto(key, displayValue, source.getName(), null, masked, false, null, null));
             }
@@ -82,8 +82,8 @@ public class ProfileController {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private boolean shouldMask(String key, ValueExposure valueExposure, boolean maskSecrets) {
-        return valueExposure == ValueExposure.MASKED && maskSecrets && masker.isSecret(key);
+    private boolean shouldMask(String key, String value, ValueExposure valueExposure, boolean maskSecrets) {
+        return valueExposure == ValueExposure.MASKED && maskSecrets && masker.shouldMask(key, value);
     }
 
     private String displayValue(String key, String value, ValueExposure valueExposure, boolean maskSecrets) {
@@ -93,7 +93,7 @@ public class ProfileController {
         if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (shouldMask(key, valueExposure, maskSecrets)) {
+        if (shouldMask(key, value, valueExposure, maskSecrets)) {
             return SecretMasker.MASKED_VALUE;
         }
         return value;
