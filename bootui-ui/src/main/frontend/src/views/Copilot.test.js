@@ -17,6 +17,8 @@ function dashboard(overrides = {}) {
     sessionCount: 1,
     eventCount: 2,
     turnCount: 1,
+    totalInputTokens: 123,
+    totalOutputTokens: 45,
     errorCount: 0,
     activeLast24Hours: 1,
     activeLast7Days: 1,
@@ -86,6 +88,9 @@ describe('Copilot', () => {
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
     expect(wrapper.get('button[title="Refresh"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Auto-refresh')
+    expect(wrapper.text()).toContain('168')
+    expect(wrapper.text()).toContain('123 in · 45 out')
+    expect(wrapper.get('#activity-mode-tokens').element.checked).toBe(true)
     expect(wrapper.text()).not.toContain('Live')
     expect(eventSource).not.toHaveBeenCalled()
 
@@ -115,5 +120,35 @@ describe('Copilot', () => {
     expect(wrapper.findComponent(AutoRefreshToggle).exists()).toBe(true)
     expect(fetch).toHaveBeenCalledWith('api/claude-code/dashboard', expect.anything())
     expect(fetch).toHaveBeenCalledWith('api/claude-code/sessions', expect.anything())
+  })
+
+  it('renders activity tooltips for token and event modes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      fetchForPanel(
+        'api/copilot',
+        dashboard({
+          activityBuckets: [
+            {
+              startEpochMillis: Date.now() - 60_000,
+              endEpochMillis: Date.now(),
+              eventCount: 4,
+              errorCount: 1,
+              inputTokens: 25543,
+              outputTokens: 2435432
+            }
+          ]
+        })
+      )
+    )
+
+    wrapper = mount(Copilot)
+    await flushPromises()
+
+    expect(wrapper.get('.activity-tooltip').text()).toBe('Input tokens: 25,54k · Output tokens: 2,43m')
+
+    await wrapper.get('#activity-mode-events').setValue(true)
+
+    expect(wrapper.get('.activity-tooltip').text()).toBe('Events: 4 · Failures: 1')
   })
 })

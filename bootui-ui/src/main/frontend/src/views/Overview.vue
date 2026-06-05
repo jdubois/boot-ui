@@ -1,111 +1,213 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, inject, ref} from 'vue'
+import {computed, inject, onMounted, reactive, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
-import PanelSkeleton from './components/PanelSkeleton.vue'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
-import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
+import {overallScore, scoreBandLabel, scoreBandTone, scoreFromSeverityCounts} from '../utils/scannerScore.js'
+import ScannerScoreCard from './components/ScannerScoreCard.vue'
+import OverviewHealthCard from './components/OverviewHealthCard.vue'
+import OverviewMemoryCard from './components/OverviewMemoryCard.vue'
 
-const injectedOverview = inject('overview', null)
-const data = ref(null)
-const error = ref(null)
-
-async function fetchOverview() {
-  if (injectedOverview?.value && !data.value) {
-    error.value = null
-    data.value = injectedOverview.value
-    return
-  }
-  error.value = null
-  try {
-    const res = await apiFetch('api/overview')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
-  } catch (e) {
-    error.value = describeLoadError(e, 'Unable to load overview')
-  }
-}
-
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchOverview)
-
-const activeProfiles = computed(() => data.value?.activeProfiles ?? [])
-const defaultProfiles = computed(() => data.value?.defaultProfiles ?? [])
-const warningCount = computed(() => data.value?.activation?.warnings?.length ?? 0)
+const injectedPanels = inject('panels', null)
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
-const stats = computed(() => {
-  if (!data.value) return []
-  return [
-    {
-      label: 'Application',
-      value: data.value.applicationName,
-      detail: data.value.webApplicationType,
-      icon: 'bi-window-sidebar',
-      tone: 'success'
-    },
-    {
-      label: 'Runtime',
-      value: `Java ${data.value.javaVersion}`,
-      detail: data.value.javaVendor,
-      icon: 'bi-cpu',
-      tone: 'primary'
-    },
-    {
-      label: 'Spring Boot',
-      value: data.value.springBootVersion,
-      detail: `BootUI ${data.value.bootUiVersion}`,
-      icon: 'bi-leaf',
-      tone: 'info'
-    },
-    {
-      label: 'Access',
-      value: data.value.activation.localhostOnly ? 'Loopback only' : 'Relaxed',
-      detail: data.value.activation.reason,
-      icon: data.value.activation.localhostOnly ? 'bi-shield-check' : 'bi-shield-exclamation',
-      tone: data.value.activation.localhostOnly ? 'success' : 'warning'
-    }
-  ]
+
+// Locally fetched panel availability when the shell has not provided it yet.
+const localPanels = ref(null)
+const panelLookup = computed(() => {
+  const source = injectedPanels?.value?.panels ?? localPanels.value?.panels ?? []
+  return new Map(source.map((panel) => [panel.id, panel]))
 })
 
-const quickLinks = [
+function panelAvailable(id) {
+  const panel = panelLookup.value.get(id)
+  // Treat unknown panels as available so the dashboard degrades gracefully.
+  return !panel || panel.available !== false
+}
+
+// Severity-based scanners share the same {severityCounts, scan.status} contract.
+const scannerDefs = [
   {
-    to: '/beans',
-    title: 'Trace bean wiring',
-    detail: 'Find controllers, services, repositories, and dependencies.',
-    icon: 'bi-diagram-3'
+    id: 'architecture',
+    title: 'Architecture',
+    icon: 'bi-diagram-2',
+    tone: 'primary',
+    to: '/architecture',
+    endpoint: 'api/architecture/scan'
   },
   {
-    to: '/config',
-    title: 'Audit configuration',
-    detail: 'Inspect effective values, sources, masking, and overrides.',
-    icon: 'bi-sliders'
+    id: 'hibernate-advisor',
+    title: 'Hibernate Advisor',
+    icon: 'bi-database-gear',
+    tone: 'info',
+    to: '/hibernate-advisor',
+    endpoint: 'api/hibernate-advisor/scan'
   },
   {
-    to: '/mappings',
-    title: 'Map HTTP routes',
-    detail: 'Understand handlers and request mappings in one place.',
-    icon: 'bi-signpost-2'
+    id: 'security-advisor',
+    title: 'Security Advisor',
+    icon: 'bi-shield-check',
+    tone: 'success',
+    to: '/security-advisor',
+    endpoint: 'api/security-advisor/scan'
   },
   {
-    to: '/health',
-    title: 'Check app health',
-    detail: 'Drill into health components without leaving the app.',
-    icon: 'bi-heart-pulse'
+    id: 'vulnerabilities',
+    title: 'Vulnerabilities',
+    icon: 'bi-bug',
+    tone: 'danger',
+    to: '/vulnerabilities',
+    endpoint: 'api/dependencies/scan'
+  },
+  {
+    id: 'pentest',
+    title: 'Pentesting',
+    icon: 'bi-shield-exclamation',
+    tone: 'warning',
+    to: '/pentest',
+    endpoint: 'api/pentest/scan'
   }
 ]
 
-function portText(port, fallback) {
-  return port ?? fallback
+function newScannerState() {
+  return {state: 'idle', score: null, severityCounts: [], statusLabel: null, statusTone: 'secondary', error: null}
 }
+
+const scanners = reactive(Object.fromEntries(scannerDefs.map((def) => [def.id, newScannerState()])))
+
+const visibleScanners = computed(() => scannerDefs.filter((def) => panelAvailable(def.id)))
+
+async function runScanner(def) {
+  const state = scanners[def.id]
+  state.state = 'running'
+  state.error = null
+  try {
+    const res = await apiFetch(def.endpoint, {method: 'POST'})
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const report = await res.json()
+    state.severityCounts = report.severityCounts ?? []
+    state.score = scoreFromSeverityCounts(state.severityCounts)
+    const status = report.scan?.status
+    state.statusLabel = scanStatusLabel(status)
+    state.statusTone = scanStatusBadgeClass(status)
+    state.state = 'done'
+  } catch (e) {
+    state.state = 'error'
+    state.error = describeLoadError(e, `Unable to run ${def.title}`).message
+  }
+}
+
+// GitHub is not a severity scanner; it is included in the overall score only
+// when the repository is available and the credential is authenticated.
+const github = reactive({
+  state: 'idle',
+  connected: false,
+  authenticated: false,
+  available: true,
+  score: null,
+  severityCounts: [],
+  statusLabel: null,
+  statusTone: 'secondary',
+  error: null
+})
+
+const githubVisible = computed(() => panelAvailable('github'))
+
+function githubSeverityCounts(report) {
+  const alerts = (report.securitySignals ?? [])
+    .filter((signal) => signal.status === 'AVAILABLE')
+    .reduce((total, signal) => total + (Number(signal.count) || 0), 0)
+  return alerts > 0 ? [{severity: 'HIGH', count: alerts}] : []
+}
+
+async function connectGithub() {
+  github.state = 'running'
+  github.error = null
+  try {
+    const res = await apiFetch('api/github/refresh', {method: 'POST'})
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const report = await res.json()
+    github.available = report.available !== false
+    github.connected = report.connected === true
+    github.authenticated = report.credential?.authenticated === true
+    github.statusLabel = report.status
+    github.statusTone = 'text-bg-secondary'
+    if (github.connected && github.authenticated) {
+      github.severityCounts = githubSeverityCounts(report)
+      github.score = scoreFromSeverityCounts(github.severityCounts)
+    } else {
+      github.severityCounts = []
+      github.score = null
+    }
+    github.state = 'done'
+  } catch (e) {
+    github.state = 'error'
+    github.error = describeLoadError(e, 'Unable to connect to GitHub').message
+  }
+}
+
+const githubScored = computed(
+  () => github.state === 'done' && github.connected && github.authenticated && Number.isFinite(github.score)
+)
+
+const overall = computed(() => {
+  const scores = visibleScanners.value
+    .map((def) => scanners[def.id])
+    .filter((state) => state.state === 'done' && Number.isFinite(state.score))
+    .map((state) => state.score)
+  if (githubVisible.value && githubScored.value) scores.push(github.score)
+  return overallScore(scores)
+})
+
+const scoredCount = computed(() => {
+  let count = visibleScanners.value.filter((def) => scanners[def.id].state === 'done').length
+  if (githubVisible.value && githubScored.value) count += 1
+  return count
+})
+
+const totalCount = computed(() => visibleScanners.value.length + (githubVisible.value ? 1 : 0))
+
+const anyRunning = computed(
+  () => github.state === 'running' || visibleScanners.value.some((def) => scanners[def.id].state === 'running')
+)
+
+const overallBandLabel = computed(() => (Number.isFinite(overall.value) ? scoreBandLabel(overall.value) : 'Not scored'))
+const overallBandTone = computed(() => (Number.isFinite(overall.value) ? scoreBandTone(overall.value) : 'secondary'))
+
+const overallContributions = computed(() => {
+  const items = visibleScanners.value
+    .map((def) => ({title: def.title, score: scanners[def.id].score, state: scanners[def.id].state}))
+    .filter((item) => item.state === 'done' && Number.isFinite(item.score))
+  if (githubVisible.value && githubScored.value) items.push({title: 'GitHub', score: github.score, state: 'done'})
+  return items
+    .map((item) => ({title: item.title, deduction: item.score - 100}))
+    .sort((a, b) => a.deduction - b.deduction)
+})
+
+async function runAll() {
+  const tasks = visibleScanners.value
+    .filter((def) => scanners[def.id].state !== 'running')
+    .map((def) => runScanner(def))
+  if (githubVisible.value && github.state === 'idle') tasks.push(connectGithub())
+  await Promise.allSettled(tasks)
+}
+
+async function ensurePanels() {
+  if (injectedPanels?.value?.panels || localPanels.value) return
+  try {
+    const res = await apiFetch('api/panels')
+    if (res.ok) localPanels.value = await res.json()
+  } catch {
+    // Availability is best-effort; missing data simply shows every scanner card.
+  }
+}
+
+onMounted(ensurePanels)
 </script>
 
 <template>
   <div>
     <div class="overview-hero mb-4">
       <div class="hero-copy">
-        <span class="hero-kicker">
-          <i class="bi bi-stars me-1"></i>
-          Runtime command center
-        </span>
         <h2>Overview</h2>
         <p class="hero-lead">Understand your Spring Boot app in minutes.</p>
         <p>
@@ -116,196 +218,187 @@ function portText(port, fallback) {
       <div class="hero-actions">
         <a class="btn btn-outline-light" href="/">
           <i class="bi bi-house-door me-1"></i>
-          Back to homepage
+          Application homepage
         </a>
         <a :href="githubProjectUrl" class="btn btn-outline-light" rel="noopener noreferrer" target="_blank">
           <i class="bi bi-github me-1"></i>
           BootUI GitHub project
         </a>
-        <div class="d-flex align-items-center gap-3 ms-2">
-          <AutoRefreshToggle v-model="autoRefresh" />
-          <button :disabled="loading" class="btn btn-light hero-refresh" @click="load">
-            <i :class="{spin: loading}" class="bi bi-arrow-clockwise me-1"></i>
-            Refresh snapshot
-          </button>
-        </div>
       </div>
     </div>
 
-    <PanelSkeleton v-if="initialLoading" />
-    <div
-      v-else-if="error && !data"
-      :class="['alert', error.serverUnreachable ? 'alert-warning' : 'alert-danger']"
-      class="d-flex align-items-start gap-2 mb-3 shadow-sm"
-      role="alert"
-    >
-      <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1"></i>
-      <span class="flex-grow-1">
-        <strong class="d-block">{{ error.title }}</strong>
-        <span class="small">{{ error.message }}</span>
-      </span>
-      <button
-        :class="error.serverUnreachable ? 'btn-outline-warning' : 'btn-outline-danger'"
-        class="btn btn-sm flex-shrink-0"
-        @click="load"
-      >
-        <i class="bi bi-arrow-clockwise me-1"></i>Retry
-      </button>
+    <div class="row gx-3 gy-4 mb-4">
+      <div class="col-lg-4">
+        <OverviewHealthCard />
+      </div>
+      <div class="col-lg-8">
+        <OverviewMemoryCard />
+      </div>
     </div>
-    <template v-else-if="data">
-      <div class="row g-3 mb-4">
-        <div v-for="(stat, index) in stats" :key="stat.label" class="col-xl-3 col-md-6">
-          <div :style="{animationDelay: `${index * 70}ms`}" class="metric-card h-100">
-            <span :class="['metric-icon', `metric-${stat.tone}`]">
-              <i :class="['bi', stat.icon]"></i>
-            </span>
-            <div>
-              <div class="metric-label">{{ stat.label }}</div>
-              <div class="metric-value">{{ stat.value }}</div>
-              <div class="metric-detail">{{ stat.detail }}</div>
+
+    <div class="row gx-3 gy-4 mb-4">
+      <div class="col-12">
+        <div class="card overall-card">
+          <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center gap-4">
+            <div class="flex-shrink-0 min-w-0">
+              <div class="text-uppercase text-muted fw-bold small">Overall score</div>
+              <div class="d-flex align-items-center gap-3 mt-2">
+                <div :class="['overall-gauge', `overall-gauge--${overallBandTone}`]">
+                  <span class="overall-gauge__value">{{ Number.isFinite(overall) ? overall : '—' }}</span>
+                  <span class="overall-gauge__max">/ 100</span>
+                </div>
+                <div class="min-w-0">
+                  <span
+                    :class="[
+                      'badge',
+                      `text-bg-${overallBandTone}`,
+                      'fs-6',
+                      'text-truncate',
+                      'd-inline-block',
+                      'mw-100'
+                    ]"
+                    >{{ overallBandLabel }}</span
+                  >
+                  <div class="text-muted small mt-2 text-truncate">
+                    {{ scoredCount }} of {{ totalCount }} scanners scored
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex-grow-1 min-w-0">
+              <div v-if="overallContributions.length" class="row g-2">
+                <div
+                  v-for="item in overallContributions"
+                  :key="item.title"
+                  class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small min-w-0"
+                >
+                  <span class="text-muted text-truncate me-2">{{ item.title }}</span>
+                  <span
+                    :class="[
+                      'flex-shrink-0',
+                      item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'
+                    ]"
+                  >
+                    {{ item.deduction < 0 ? item.deduction : '0' }}
+                  </span>
+                </div>
+              </div>
+              <p v-else class="text-muted small mb-0">
+                Run the scanners to compute an overall security & health score.
+              </p>
+            </div>
+
+            <div class="flex-shrink-0 mt-3 mt-lg-0 min-w-0">
+              <button class="btn btn-primary" type="button" :disabled="anyRunning || totalCount === 0" @click="runAll">
+                <span v-if="anyRunning" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                {{ anyRunning ? 'Running scanners…' : 'Run all scanners' }}
+              </button>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="row g-4">
-        <div class="col-lg-7">
-          <div class="card h-100 app-map-card">
-            <div class="card-body p-4">
-              <div class="d-flex justify-content-between gap-3 flex-wrap mb-4">
-                <div>
-                  <div class="text-uppercase text-muted fw-bold small">Application snapshot</div>
-                  <h3 class="h4 fw-bold mb-1">{{ data.applicationName }}</h3>
-                  <div class="text-muted">{{ data.webApplicationType }} · context {{ data.contextPath || '/' }}</div>
-                </div>
-                <span :class="{disabled: !data.activation.enabled}" class="activation-badge">
-                  <i :class="['bi', data.activation.enabled ? 'bi-lightning-charge-fill' : 'bi-power']"></i>
-                  {{ data.activation.enabled ? 'Enabled' : 'Disabled' }}
+    <div class="row gx-3 gy-4">
+      <div v-if="githubVisible" class="col-md-6 col-lg-4">
+        <ScannerScoreCard
+          title="GitHub"
+          icon="bi-github"
+          tone="primary"
+          to="/github"
+          open-label="Open GitHub"
+          :state="github.state"
+          :score="github.score"
+          :severity-counts="github.severityCounts"
+          :status-label="github.statusLabel"
+          :status-tone="github.statusTone"
+          :error-message="github.error"
+        >
+          <template #score>
+            <template v-if="github.state === 'running'">
+              <div class="d-flex align-items-center gap-2 text-muted">
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                <span>Connecting…</span>
+              </div>
+            </template>
+            <template v-else-if="github.state === 'error'">
+              <div class="text-danger small">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ github.error }}
+              </div>
+            </template>
+            <template v-else-if="githubScored">
+              <div class="d-flex align-items-baseline gap-2">
+                <span :class="['scanner-score', `scanner-score--${scoreBandTone(github.score)}`]">
+                  {{ github.score }}
+                </span>
+                <span class="text-muted small">/ 100</span>
+                <span :class="['badge', `text-bg-${scoreBandTone(github.score)}`, 'ms-auto']">
+                  {{ scoreBandLabel(github.score) }}
                 </span>
               </div>
-
-              <div class="runtime-grid">
-                <div>
-                  <span>Server port</span>
-                  <strong>{{ portText(data.serverPort, '—') }}</strong>
-                </div>
-                <div>
-                  <span>Management port</span>
-                  <strong>{{ portText(data.managementPort, '(same)') }}</strong>
-                </div>
-                <div>
-                  <span>Spring Boot</span>
-                  <strong>{{ data.springBootVersion }}</strong>
-                </div>
-                <div>
-                  <span>BootUI</span>
-                  <strong>v{{ data.bootUiVersion }}</strong>
-                </div>
+              <div v-if="github.severityCounts.length" class="d-flex flex-wrap gap-1 mt-2">
+                <span v-for="entry in github.severityCounts" :key="entry.severity" class="badge text-bg-danger">
+                  {{ entry.count }} security alert(s)
+                </span>
               </div>
-
-              <div class="profile-panel mt-4">
-                <div>
-                  <div class="text-uppercase text-muted fw-bold small">Active profiles</div>
-                  <div v-if="activeProfiles.length" class="d-flex flex-wrap gap-2 mt-2">
-                    <span v-for="p in activeProfiles" :key="p" class="profile-pill">{{ p }}</span>
-                  </div>
-                  <span v-else class="text-muted small">No active profiles</span>
-                </div>
-                <div>
-                  <div class="text-uppercase text-muted fw-bold small">Default profiles</div>
-                  <div v-if="defaultProfiles.length" class="d-flex flex-wrap gap-2 mt-2">
-                    <span v-for="p in defaultProfiles" :key="p" class="profile-pill muted">{{ p }}</span>
-                  </div>
-                  <span v-else class="text-muted small">None reported</span>
-                </div>
+              <div v-else class="text-success small mt-2">
+                <i class="bi bi-check-circle me-1"></i>No open security alerts
               </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-lg-5">
-          <div class="card h-100">
-            <div class="card-body p-4">
-              <div class="d-flex align-items-center gap-3 mb-3">
-                <span class="timeline-icon"><i class="bi bi-shield-lock"></i></span>
-                <div>
-                  <h3 class="h5 fw-bold mb-0">Safety posture</h3>
-                  <div class="text-muted small">{{ data.activation.reason }}</div>
-                </div>
+            </template>
+            <template v-else-if="github.state === 'done'">
+              <div class="text-muted small">
+                <i class="bi bi-cloud-arrow-down me-1"></i>
+                Connect to GitHub to load live security metrics.
               </div>
+            </template>
+            <template v-else>
+              <div class="text-muted small">Connect to GitHub to score repository security signals.</div>
+            </template>
+          </template>
 
-              <div class="safety-timeline">
-                <div class="timeline-item complete">
-                  <span></span>
-                  <div>
-                    <strong>Development activation</strong>
-                    <p>
-                      {{
-                        data.activation.enabled
-                          ? 'BootUI is available for this runtime.'
-                          : 'BootUI reports disabled state for this runtime.'
-                      }}
-                    </p>
-                  </div>
-                </div>
-                <div :class="{complete: data.activation.localhostOnly}" class="timeline-item">
-                  <span></span>
-                  <div>
-                    <strong>Loopback enforcement</strong>
-                    <p>
-                      {{
-                        data.activation.localhostOnly
-                          ? 'Non-local requests are rejected by default.'
-                          : 'Non-local access is explicitly allowed.'
-                      }}
-                    </p>
-                  </div>
-                </div>
-                <div :class="{warning: warningCount}" class="timeline-item">
-                  <span></span>
-                  <div>
-                    <strong>Warnings</strong>
-                    <p>
-                      {{
-                        warningCount ? `${warningCount} warning(s) need review.` : 'No activation warnings reported.'
-                      }}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="data.activation.warnings.length" class="alert alert-warning small mt-3 mb-0">
-                <div v-for="w in data.activation.warnings" :key="w">{{ w }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
+          <template #actions>
+            <button
+              class="btn btn-sm btn-primary"
+              type="button"
+              :disabled="github.state === 'running'"
+              @click="connectGithub"
+            >
+              <span
+                v-if="github.state === 'running'"
+                class="spinner-border spinner-border-sm me-1"
+                aria-hidden="true"
+              ></span>
+              <i v-else class="bi bi-github me-1"></i>
+              {{ githubScored ? 'Refresh' : 'Connect to GitHub' }}
+            </button>
+            <router-link to="/github" class="btn btn-sm btn-outline-secondary ms-auto">
+              Open GitHub<i class="bi bi-arrow-right-short"></i>
+            </router-link>
+          </template>
+        </ScannerScoreCard>
       </div>
 
-      <div class="row g-3 mt-1">
-        <div v-for="link in quickLinks" :key="link.to" class="col-xl-3 col-md-6">
-          <router-link :to="link.to" class="quick-link-card text-decoration-none">
-            <span><i :class="['bi', link.icon]"></i></span>
-            <div>
-              <strong>{{ link.title }}</strong>
-              <p>{{ link.detail }}</p>
-            </div>
-            <i class="bi bi-arrow-right-short ms-auto"></i>
-          </router-link>
-        </div>
+      <div v-for="def in visibleScanners" :key="def.id" class="col-md-6 col-lg-4">
+        <ScannerScoreCard
+          :title="def.title"
+          :icon="def.icon"
+          :tone="def.tone"
+          :to="def.to"
+          :state="scanners[def.id].state"
+          :score="scanners[def.id].score"
+          :severity-counts="scanners[def.id].severityCounts"
+          :status-label="scanners[def.id].statusLabel"
+          :status-tone="scanners[def.id].statusTone"
+          :error-message="scanners[def.id].error"
+          @run="runScanner(def)"
+        />
       </div>
 
-      <div v-if="data.openApiUrl" class="openapi-card mt-4">
-        <div>
-          <strong><i class="bi bi-file-earmark-code me-1"></i>OpenAPI detected</strong>
-          <span>Jump from BootUI diagnostics to Swagger UI.</span>
-        </div>
-        <a :href="data.openApiUrl" class="btn btn-outline-primary" rel="noopener" target="_blank">
-          Open Swagger UI
-          <i class="bi bi-box-arrow-up-right ms-1"></i>
-        </a>
+      <div v-if="totalCount === 0" class="col-12">
+        <div class="alert alert-secondary mb-0">No technology scanners were detected for this application.</div>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -389,287 +482,83 @@ function portText(port, fallback) {
   font-weight: 700;
 }
 
-.hero-refresh {
-  box-shadow: 0 0.8rem 1.8rem rgba(0, 0, 0, 0.14);
-}
-
-.spin {
-  animation: spin 900ms linear infinite;
-}
-
-.metric-card {
-  animation: fade-up 360ms ease both;
-  background: rgba(255, 255, 255, 0.82);
+.overall-card {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78)),
+    radial-gradient(circle at top right, rgba(13, 110, 253, 0.12), transparent 16rem);
   border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 1.15rem;
-  box-shadow: 0 1rem 2.4rem rgba(15, 23, 42, 0.07);
-  display: flex;
-  gap: 0.85rem;
-  padding: 1rem;
-  transition:
-    transform 180ms ease,
-    box-shadow 180ms ease;
+  border-radius: 1.2rem;
+  box-shadow: 0 1rem 2.6rem rgba(15, 23, 42, 0.08);
 }
 
-.metric-card > div {
-  min-width: 0;
-}
-
-.metric-card:hover {
-  box-shadow: 0 1.25rem 2.8rem rgba(15, 23, 42, 0.12);
-  transform: translateY(-3px);
-}
-
-.metric-icon,
-.timeline-icon {
+.overall-gauge {
   align-items: center;
-  border-radius: 1rem;
-  display: inline-flex;
-  flex-shrink: 0;
-  font-size: 1.15rem;
-  height: 2.7rem;
+  border: 0.4rem solid;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  height: 6.5rem;
   justify-content: center;
-  width: 2.7rem;
+  width: 6.5rem;
 }
 
-.metric-success {
-  background: rgba(25, 135, 84, 0.12);
+.overall-gauge__value {
+  font-size: 2rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.overall-gauge__max {
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.overall-gauge--success {
+  border-color: #198754;
   color: #198754;
 }
 
-.metric-primary {
-  background: rgba(13, 110, 253, 0.12);
-  color: #0d6efd;
-}
-
-.metric-info {
-  background: rgba(13, 202, 240, 0.16);
-  color: #087990;
-}
-
-.metric-warning {
-  background: rgba(255, 193, 7, 0.18);
+.overall-gauge--warning {
+  border-color: #ffc107;
   color: #997404;
 }
 
-.metric-label {
-  color: #64748b;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.overall-gauge--danger {
+  border-color: #dc3545;
+  color: #dc3545;
 }
 
-.metric-value {
-  font-size: 1.12rem;
+.overall-gauge--secondary {
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+.overall-contributions {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.scanner-score {
+  font-size: 2.1rem;
   font-weight: 850;
-  overflow-wrap: anywhere;
+  line-height: 1;
 }
 
-.metric-detail {
-  color: #64748b;
-  font-size: 0.82rem;
-  overflow-wrap: anywhere;
-}
-
-.app-map-card {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74)),
-    radial-gradient(circle at top right, rgba(25, 135, 84, 0.12), transparent 18rem);
-}
-
-.activation-badge {
-  align-items: center;
-  background: rgba(25, 135, 84, 0.12);
-  border-radius: 999px;
-  color: #146c43;
-  display: inline-flex;
-  font-weight: 800;
-  gap: 0.4rem;
-  padding: 0.55rem 0.8rem;
-}
-
-.activation-badge.disabled {
-  background: rgba(100, 116, 139, 0.12);
-  color: #475569;
-}
-
-.runtime-grid {
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.runtime-grid div,
-.profile-panel {
-  background: rgba(248, 250, 252, 0.86);
-  border: 1px solid rgba(15, 23, 42, 0.07);
-  border-radius: 1rem;
-  padding: 0.9rem;
-}
-
-.runtime-grid span {
-  color: #64748b;
-  display: block;
-  font-size: 0.78rem;
-}
-
-.runtime-grid strong {
-  display: block;
-  font-size: 1rem;
-  margin-top: 0.2rem;
-}
-
-.profile-panel {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.profile-pill {
-  background: #198754;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 0.82rem;
-  font-weight: 800;
-  padding: 0.35rem 0.65rem;
-}
-
-.profile-pill.muted {
-  background: #e2e8f0;
-  color: #334155;
-}
-
-.timeline-icon {
-  background: rgba(25, 135, 84, 0.12);
+.scanner-score--success {
   color: #198754;
 }
 
-.safety-timeline {
-  display: grid;
-  gap: 0.95rem;
+.scanner-score--warning {
+  color: #997404;
 }
 
-.timeline-item {
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: 1rem 1fr;
+.scanner-score--danger {
+  color: #dc3545;
 }
 
-.timeline-item > span {
-  background: #cbd5e1;
-  border-radius: 999px;
-  height: 0.75rem;
-  margin-top: 0.25rem;
-  position: relative;
-  width: 0.75rem;
-}
-
-.timeline-item.complete > span {
-  background: #198754;
-  box-shadow: 0 0 0 0.35rem rgba(25, 135, 84, 0.12);
-}
-
-.timeline-item.warning > span {
-  background: #ffc107;
-  box-shadow: 0 0 0 0.35rem rgba(255, 193, 7, 0.15);
-}
-
-.timeline-item strong {
-  display: block;
-}
-
-.timeline-item p {
+.scanner-score--secondary {
   color: #64748b;
-  font-size: 0.88rem;
-  margin: 0.15rem 0 0;
-}
-
-.quick-link-card {
-  align-items: center;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 1.05rem;
-  color: inherit;
-  display: flex;
-  gap: 0.85rem;
-  height: 100%;
-  padding: 1rem;
-  transition:
-    background 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
-}
-
-.quick-link-card:hover {
-  background: #fff;
-  box-shadow: 0 1rem 2.2rem rgba(15, 23, 42, 0.1);
-  transform: translateY(-3px);
-}
-
-.quick-link-card > span {
-  align-items: center;
-  background: rgba(13, 110, 253, 0.1);
-  border-radius: 0.9rem;
-  color: #0d6efd;
-  display: inline-flex;
-  flex-shrink: 0;
-  height: 2.5rem;
-  justify-content: center;
-  width: 2.5rem;
-}
-
-.quick-link-card p {
-  color: #64748b;
-  font-size: 0.82rem;
-  margin: 0.15rem 0 0;
-}
-
-.openapi-card {
-  align-items: center;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(13, 110, 253, 0.16);
-  border-radius: 1.1rem;
-  display: flex;
-  gap: 1rem;
-  justify-content: space-between;
-  padding: 1rem;
-}
-
-.openapi-card strong,
-.openapi-card span {
-  display: block;
-}
-
-.openapi-card span {
-  color: #64748b;
-  font-size: 0.88rem;
-}
-
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(0.75rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes pulse {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes sweep {
@@ -687,20 +576,12 @@ function portText(port, fallback) {
 }
 
 @media (max-width: 991.98px) {
-  .overview-hero,
-  .openapi-card {
+  .overview-hero {
     flex-direction: column;
   }
 
   .hero-actions {
     flex-wrap: wrap;
-  }
-}
-
-@media (max-width: 575.98px) {
-  .runtime-grid,
-  .profile-panel {
-    grid-template-columns: 1fr;
   }
 }
 

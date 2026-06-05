@@ -245,11 +245,14 @@ class CopilotControllerTests {
         Files.writeString(firstSession.resolve("events.jsonl"), """
                 {"id":"s1-start","type":"session.start","timestamp":"2026-05-28T10:00:00Z","data":{"model":"gpt-5.5","context":{"cwd":"/work/one"}}}
                 {"id":"s1-edit","type":"tool.execution_start","timestamp":"2026-05-28T10:15:00Z","data":{"toolName":"apply_patch","success":true}}
+                {"id":"s1-message","type":"assistant.message","timestamp":"2026-05-28T10:30:00Z","data":{"turnId":"turn-1","outputTokens":9,"content":"hidden"}}
                 {"id":"s1-search","type":"tool.execution_complete","timestamp":"2026-05-28T11:00:00Z","data":{"toolName":"grep","success":false}}
+                {"id":"s1-shutdown","type":"session.shutdown","timestamp":"2026-05-28T11:30:00Z","data":{"tokenDetails":{"input":{"tokenCount":334},"cache_read":{"tokenCount":800},"cache_write":{"tokenCount":100},"output":{"tokenCount":15}},"modelMetrics":{"gpt-5.5":{"usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":900}}}}}
                 """);
         Files.writeString(secondSession.resolve("events.jsonl"), """
                 {"id":"s2-start","type":"session.start","timestamp":"2026-05-27T12:30:00Z","data":{"model":"gpt-4o","context":{"cwd":"/work/two"}}}
                 {"id":"s2-mcp","type":"tool.execution_start","timestamp":"2026-05-27T13:00:00Z","data":{"toolName":"mcp.fetch","success":true}}
+                {"id":"s2-message","type":"assistant.message","timestamp":"2026-05-27T13:15:00Z","data":{"turnId":"turn-1","outputTokens":7,"content":"hidden"}}
                 """);
         BootUiProperties props = propertiesFor(tempDir);
         Clock clock = Clock.fixed(Instant.parse("2026-05-28T12:00:00Z"), ZoneOffset.UTC);
@@ -260,21 +263,38 @@ class CopilotControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(true))
                 .andExpect(jsonPath("$.sessionCount").value(2))
-                .andExpect(jsonPath("$.eventCount").value(5))
+                .andExpect(jsonPath("$.eventCount").value(6))
+                .andExpect(jsonPath("$.totalInputTokens").value(1234))
+                .andExpect(jsonPath("$.totalOutputTokens").value(22))
                 .andExpect(jsonPath("$.errorCount").value(1))
                 .andExpect(jsonPath("$.activeLast24Hours").value(2))
                 .andExpect(jsonPath("$.activeLast7Days").value(2))
                 .andExpect(jsonPath("$.sessionsWithSchemaDrift").value(0))
                 .andExpect(jsonPath("$.categoryCounts[0].label").value("OTHER"))
-                .andExpect(jsonPath("$.categoryCounts[0].count").value(2))
+                .andExpect(jsonPath("$.categoryCounts[0].count").value(3))
                 .andExpect(jsonPath("$.topTools[0].label").value("apply_patch"))
                 .andExpect(jsonPath("$.modelCounts[0].count").value(1))
                 .andExpect(jsonPath("$.activityBuckets.length()").value(24))
+                .andExpect(jsonPath("$.activityBuckets[0].outputTokens").value(7))
+                .andExpect(jsonPath("$.activityBuckets[22].inputTokens").value(1234))
+                .andExpect(jsonPath("$.activityBuckets[22].outputTokens").value(15))
                 .andExpect(jsonPath("$.dailyActivityBuckets.length()").value(7))
                 .andExpect(jsonPath("$.dailyActivityBuckets[5].eventCount").value(2))
-                .andExpect(jsonPath("$.dailyActivityBuckets[6].eventCount").value(3))
+                .andExpect(jsonPath("$.dailyActivityBuckets[5].outputTokens").value(7))
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].eventCount").value(4))
                 .andExpect(jsonPath("$.dailyActivityBuckets[6].errorCount").value(1))
-                .andExpect(jsonPath("$.recentSessions.length()").value(2));
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].inputTokens").value(1234))
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].outputTokens").value(15))
+                .andExpect(jsonPath("$.recentSessions.length()").value(2))
+                .andExpect(jsonPath("$.recentSessions[0].inputTokens").value(1234))
+                .andExpect(jsonPath("$.recentSessions[0].outputTokens").value(15))
+                .andExpect(jsonPath("$.recentSessions[1].outputTokens").value(7));
+
+        mvc.perform(get("/bootui/api/copilot/sessions/s1").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.inputTokens").value(1234))
+                .andExpect(jsonPath("$.summary.outputTokens").value(15))
+                .andExpect(jsonPath("$.turns[1].outputTokens").value(9));
     }
 
     @Test

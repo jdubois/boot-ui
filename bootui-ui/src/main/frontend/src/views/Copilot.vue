@@ -5,7 +5,6 @@ import {useRoute} from 'vue-router'
 import {formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -45,6 +44,7 @@ const detail = ref(null)
 const categoryFilter = ref('ALL')
 const textFilter = ref('')
 const activeDetailTab = ref('activity')
+const activityMode = ref('tokens')
 const activeSessionWindow = ref(null)
 const detailLoading = ref(false)
 const error = ref(null)
@@ -86,12 +86,42 @@ const sessionWarnings = computed(() =>
 const totalEvents = computed(
   () => dashboard.value?.eventCount ?? sessions.value.reduce((sum, item) => sum + item.eventCount, 0)
 )
+const totalInputTokens = computed(() => dashboard.value?.totalInputTokens)
+const totalOutputTokens = computed(() => dashboard.value?.totalOutputTokens)
 const maxBucketEvents = computed(() =>
   Math.max(0, ...(dashboard.value?.activityBuckets ?? []).map((bucket) => bucket.eventCount))
 )
 const maxDailyBucketEvents = computed(() =>
   Math.max(0, ...(dashboard.value?.dailyActivityBuckets ?? []).map((bucket) => bucket.eventCount))
 )
+const maxBucketTokens = computed(() =>
+  Math.max(0, ...(dashboard.value?.activityBuckets ?? []).map((bucket) => bucketTokenTotal(bucket)))
+)
+const maxDailyBucketTokens = computed(() =>
+  Math.max(0, ...(dashboard.value?.dailyActivityBuckets ?? []).map((bucket) => bucketTokenTotal(bucket)))
+)
+const activitySummary = computed(() => {
+  if (activityMode.value === 'tokens') {
+    return `${formatKnownTokenTotal(totalInputTokens.value, totalOutputTokens.value)} total tokens`
+  }
+  return `${formatNumber(totalEvents.value)} total events`
+})
+const activityChartAriaLabel = computed(() => {
+  if (activityMode.value === 'tokens') {
+    return `${formatKnownTokenTotal(totalInputTokens.value, totalOutputTokens.value)} ${panelConfig.value.title} tokens across ${
+      dashboard.value?.sessionCount ?? 0
+    } sessions`
+  }
+  return `${formatNumber(totalEvents.value)} sanitized ${panelConfig.value.eventLabel} across ${
+    dashboard.value?.sessionCount ?? 0
+  } sessions`
+})
+const dailyActivityChartAriaLabel = computed(() => {
+  if (activityMode.value === 'tokens') {
+    return `${formatKnownTokenTotal(totalInputTokens.value, totalOutputTokens.value)} ${panelConfig.value.title} tokens summarized across the last 7 days`
+  }
+  return `${formatNumber(totalEvents.value)} sanitized ${panelConfig.value.eventLabel} summarized across the last 7 days`
+})
 
 const dashboardCards = computed(() => [
   {
@@ -107,6 +137,13 @@ const dashboardCards = computed(() => [
     detail: `${formatNumber(dashboard.value?.turnCount ?? 0)} turns observed`,
     icon: 'bi-activity',
     tone: 'text-bg-info'
+  },
+  {
+    label: 'Tokens',
+    value: formatKnownTokenTotal(dashboard.value?.totalInputTokens, dashboard.value?.totalOutputTokens),
+    detail: formatTokenUsage(dashboard.value, 'No token usage recorded'),
+    icon: 'bi-coin',
+    tone: 'text-bg-warning'
   },
   {
     label: 'Failures',
@@ -204,21 +241,93 @@ function metricPercent(count, total) {
   return Math.round((count / total) * 100)
 }
 
+function hasTokenUsage(item) {
+  return (
+    item?.inputTokens != null ||
+    item?.outputTokens != null ||
+    item?.totalInputTokens != null ||
+    item?.totalOutputTokens != null
+  )
+}
+
+function formatTokenUsage(item, fallback = '') {
+  const input = item?.inputTokens ?? item?.totalInputTokens
+  const output = item?.outputTokens ?? item?.totalOutputTokens
+  const parts = []
+  if (input != null) parts.push(`${formatTokenCount(input)} in`)
+  if (output != null) parts.push(`${formatTokenCount(output)} out`)
+  return parts.length ? parts.join(' · ') : fallback
+}
+
+function formatKnownTokenTotal(input, output) {
+  if (input == null && output == null) return '—'
+  return formatTokenCount((input ?? 0) + (output ?? 0))
+}
+
+function formatTokenCount(value) {
+  if (value == null) return '—'
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return '—'
+  const absolute = Math.abs(numeric)
+  if (absolute < 1000) return formatNumber(numeric)
+  const unit = absolute >= 1_000_000 ? 'm' : 'k'
+  const divisor = unit === 'm' ? 1_000_000 : 1000
+  const truncated = Math.trunc((absolute / divisor) * 100) / 100
+  const compact = truncated.toFixed(2).replace('.', ',').replace(/,?0+$/, '')
+  return `${numeric < 0 ? '-' : ''}${compact}${unit}`
+}
+
+function bucketTokenTotal(bucket) {
+  return (bucket?.inputTokens ?? 0) + (bucket?.outputTokens ?? 0)
+}
+
+function scaledHeight(value, max, minPercent = 8) {
+  if (!value || !max) return '0%'
+  return `${Math.max(minPercent, Math.round((value / max) * 100))}%`
+}
+
 function bucketHeight(bucket, max = maxBucketEvents.value) {
   if (!bucket.eventCount || !max) return '4%'
-  return `${Math.max(8, Math.round((bucket.eventCount / max) * 100))}%`
+  return scaledHeight(bucket.eventCount, max)
+}
+
+function tokenBucketHeight(bucket, tokenType, max) {
+  const value = tokenType === 'input' ? bucket.inputTokens : bucket.outputTokens
+  return scaledHeight(value ?? 0, max, 2)
 }
 
 function bucketTitle(bucket) {
+  if (activityMode.value === 'tokens') {
+    return `${formatBucketTime(bucket.startEpochMillis)}: ${formatTokenBucket(bucket)}`
+  }
   return `${formatBucketTime(bucket.startEpochMillis)}: ${formatNumber(bucket.eventCount)} events, ${formatNumber(
     bucket.errorCount
   )} failures`
 }
 
 function dailyBucketTitle(bucket) {
+  if (activityMode.value === 'tokens') {
+    return `${formatBucketDay(bucket.startEpochMillis)}: ${formatTokenBucket(bucket)}`
+  }
   return `${formatBucketDay(bucket.startEpochMillis)}: ${formatNumber(bucket.eventCount)} events, ${formatNumber(
     bucket.errorCount
   )} failures`
+}
+
+function formatTokenBucket(bucket) {
+  if (!bucketTokenTotal(bucket)) return 'no token usage'
+  return `${formatTokenCount(bucketTokenTotal(bucket))} tokens (${formatTokenCount(
+    bucket.inputTokens ?? 0
+  )} in, ${formatTokenCount(bucket.outputTokens ?? 0)} out)`
+}
+
+function bucketTooltip(bucket) {
+  if (activityMode.value === 'tokens') {
+    return `Input tokens: ${formatTokenCount(bucket.inputTokens ?? 0)} · Output tokens: ${formatTokenCount(
+      bucket.outputTokens ?? 0
+    )}`
+  }
+  return `Events: ${formatNumber(bucket.eventCount)} · Failures: ${formatNumber(bucket.errorCount)}`
 }
 
 function bucketWindowLabel(bucket, granularity) {
@@ -391,6 +500,7 @@ function resetPanelState() {
   categoryFilter.value = 'ALL'
   textFilter.value = ''
   activeDetailTab.value = 'activity'
+  activityMode.value = 'tokens'
   activeSessionWindow.value = null
   error.value = null
   lastFetched.value = null
@@ -418,12 +528,9 @@ watch(
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+    />
 
     <PanelSkeleton v-if="initialLoading" />
     <div v-else-if="!available" class="card border-info">
@@ -474,7 +581,7 @@ watch(
           </div>
 
           <div class="row g-3 mb-3">
-            <div v-for="card in dashboardCards" :key="card.label" class="col-sm-6 col-xl-3">
+            <div v-for="card in dashboardCards" :key="card.label" class="col-sm-6 col-xl">
               <div class="card h-100 metric-card">
                 <div class="card-body">
                   <div class="d-flex justify-content-between align-items-start">
@@ -496,16 +603,33 @@ watch(
             <div class="col-xl-8">
               <div class="card h-100">
                 <div class="card-body">
-                  <div class="d-flex justify-content-between align-items-center mb-3">
+                  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                     <h5 class="card-title mb-0">Activity, last 24 hours</h5>
-                    <span class="small text-muted">{{ formatNumber(totalEvents) }} total events</span>
+                    <div class="d-flex align-items-center gap-3">
+                      <div class="btn-group btn-group-sm" role="group" aria-label="Activity chart mode">
+                        <input
+                          id="activity-mode-tokens"
+                          v-model="activityMode"
+                          class="btn-check"
+                          type="radio"
+                          value="tokens"
+                          autocomplete="off"
+                        />
+                        <label class="btn btn-outline-primary" for="activity-mode-tokens">Tokens</label>
+                        <input
+                          id="activity-mode-events"
+                          v-model="activityMode"
+                          class="btn-check"
+                          type="radio"
+                          value="events"
+                          autocomplete="off"
+                        />
+                        <label class="btn btn-outline-primary" for="activity-mode-events">Events</label>
+                      </div>
+                      <span class="small text-muted">{{ activitySummary }}</span>
+                    </div>
                   </div>
-                  <div
-                    class="activity-chart"
-                    :aria-label="`${formatNumber(totalEvents)} sanitized ${panelConfig.eventLabel} across ${
-                      dashboard?.sessionCount ?? 0
-                    } sessions`"
-                  >
+                  <div class="activity-chart" :aria-label="activityChartAriaLabel">
                     <button
                       v-for="bucket in dashboard?.activityBuckets ?? []"
                       :key="bucket.startEpochMillis"
@@ -519,7 +643,19 @@ watch(
                       @keydown.enter.prevent="selectActivityWindow(bucket, 'hour')"
                       @keydown.space.prevent="selectActivityWindow(bucket, 'hour')"
                     >
-                      <div class="activity-bars">
+                      <div v-if="activityMode === 'tokens'" class="activity-bars activity-bars--tokens">
+                        <div
+                          v-if="bucket.inputTokens"
+                          class="activity-bar activity-bar-token-input bg-primary"
+                          :style="{height: tokenBucketHeight(bucket, 'input', maxBucketTokens)}"
+                        ></div>
+                        <div
+                          v-if="bucket.outputTokens"
+                          class="activity-bar activity-bar-token-output bg-danger"
+                          :style="{height: tokenBucketHeight(bucket, 'output', maxBucketTokens)}"
+                        ></div>
+                      </div>
+                      <div v-else class="activity-bars">
                         <div class="activity-bar bg-primary" :style="{height: bucketHeight(bucket)}"></div>
                         <div
                           v-if="bucket.errorCount"
@@ -527,11 +663,17 @@ watch(
                           :style="{height: bucketHeight({...bucket, eventCount: bucket.errorCount})}"
                         ></div>
                       </div>
+                      <span class="activity-tooltip" aria-hidden="true">{{ bucketTooltip(bucket) }}</span>
                       <div class="activity-label">{{ formatBucketTime(bucket.startEpochMillis) }}</div>
                     </button>
                   </div>
                   <div class="small text-muted mt-2">
-                    Blue bars show sanitized activity; red overlays show failures in the same hour.
+                    <template v-if="activityMode === 'tokens'">
+                      Blue bars show input tokens; red bars show output tokens in the same hour.
+                    </template>
+                    <template v-else>
+                      Blue bars show sanitized activity; red overlays show failures in the same hour.
+                    </template>
                   </div>
 
                   <div class="border-top mt-4 pt-3">
@@ -541,10 +683,7 @@ watch(
                         >{{ formatNumber(dashboard?.activeLast7Days ?? 0) }} active sessions</span
                       >
                     </div>
-                    <div
-                      class="activity-chart activity-chart--weekly"
-                      :aria-label="`${formatNumber(totalEvents)} sanitized ${panelConfig.eventLabel} summarized across the last 7 days`"
-                    >
+                    <div class="activity-chart activity-chart--weekly" :aria-label="dailyActivityChartAriaLabel">
                       <button
                         v-for="bucket in dashboard?.dailyActivityBuckets ?? []"
                         :key="bucket.startEpochMillis"
@@ -558,24 +697,41 @@ watch(
                         @keydown.enter.prevent="selectActivityWindow(bucket, 'day')"
                         @keydown.space.prevent="selectActivityWindow(bucket, 'day')"
                       >
-                        <div class="activity-bars">
-                          <div
-                            class="activity-bar bg-primary"
-                            :style="{height: bucketHeight(bucket, maxDailyBucketEvents)}"
-                          ></div>
-                          <div
-                            v-if="bucket.errorCount"
-                            class="activity-bar-error bg-danger"
-                            :style="{
-                              height: bucketHeight({...bucket, eventCount: bucket.errorCount}, maxDailyBucketEvents)
-                            }"
-                          ></div>
+                        <div class="activity-bars" :class="{'activity-bars--tokens': activityMode === 'tokens'}">
+                          <template v-if="activityMode === 'tokens'">
+                            <div
+                              v-if="bucket.inputTokens"
+                              class="activity-bar activity-bar-token-input bg-primary"
+                              :style="{height: tokenBucketHeight(bucket, 'input', maxDailyBucketTokens)}"
+                            ></div>
+                            <div
+                              v-if="bucket.outputTokens"
+                              class="activity-bar activity-bar-token-output bg-danger"
+                              :style="{height: tokenBucketHeight(bucket, 'output', maxDailyBucketTokens)}"
+                            ></div>
+                          </template>
+                          <template v-else>
+                            <div
+                              class="activity-bar bg-primary"
+                              :style="{height: bucketHeight(bucket, maxDailyBucketEvents)}"
+                            ></div>
+                            <div
+                              v-if="bucket.errorCount"
+                              class="activity-bar-error bg-danger"
+                              :style="{
+                                height: bucketHeight({...bucket, eventCount: bucket.errorCount}, maxDailyBucketEvents)
+                              }"
+                            ></div>
+                          </template>
                         </div>
+                        <span class="activity-tooltip" aria-hidden="true">{{ bucketTooltip(bucket) }}</span>
                         <div class="activity-label">{{ formatBucketDay(bucket.startEpochMillis) }}</div>
                       </button>
                     </div>
                     <div class="small text-muted mt-2">
-                      Daily buckets use the same sanitized event stream as the 24-hour chart.
+                      Daily buckets use the same
+                      {{ activityMode === 'tokens' ? 'token usage' : 'sanitized event stream' }}
+                      as the 24-hour chart.
                     </div>
                   </div>
                 </div>
@@ -667,6 +823,7 @@ watch(
                       </div>
                       <div class="small text-muted">
                         {{ formatNumber(session.eventCount) }} events
+                        <span v-if="hasTokenUsage(session)">· {{ formatTokenUsage(session) }}</span>
                         <span v-if="session.errorCount">· {{ formatNumber(session.errorCount) }} failures</span>
                       </div>
                     </button>
@@ -753,6 +910,9 @@ watch(
                         >
                           {{ formatNumber(session.errorCount) }} errors
                         </button>
+                        <span v-if="hasTokenUsage(session)" class="badge text-bg-warning ms-1">
+                          {{ formatTokenUsage(session) }}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -808,6 +968,9 @@ watch(
                       >
                         {{ formatNumber(detail.summary.turnCount) }} turns
                       </button>
+                      <span v-if="hasTokenUsage(detail.summary)" class="badge text-bg-warning">
+                        tokens · {{ formatTokenUsage(detail.summary) }}
+                      </span>
                       <button
                         v-if="detail.counts.errors > 0"
                         class="badge text-bg-danger border-0"
@@ -938,7 +1101,10 @@ watch(
                         <div class="d-flex justify-content-between align-items-start">
                           <div>
                             <div class="fw-semibold">{{ turn.summary || 'Turn ' + (turn.index + 1) }}</div>
-                            <div class="small text-muted">{{ formatNumber(turn.eventCount) }} events</div>
+                            <div class="small text-muted">
+                              {{ formatNumber(turn.eventCount) }} events
+                              <span v-if="hasTokenUsage(turn)">· {{ formatTokenUsage(turn) }}</span>
+                            </div>
                           </div>
                           <div class="small text-muted">
                             <span v-if="turn.startedAtEpochMillis">{{ formatTime(turn.startedAtEpochMillis) }}</span>
@@ -1009,6 +1175,7 @@ watch(
   justify-content: flex-end;
   min-width: 1.75rem;
   padding: 0;
+  position: relative;
 }
 
 .activity-column:hover .activity-bar,
@@ -1023,6 +1190,32 @@ watch(
 
 .activity-column > * {
   pointer-events: none;
+}
+
+.activity-tooltip {
+  background: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.35rem;
+  box-shadow: var(--bs-box-shadow-sm);
+  color: var(--bs-body-color);
+  font-size: 0.75rem;
+  left: 50%;
+  opacity: 0;
+  padding: 0.25rem 0.5rem;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%) translateY(-0.25rem);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.activity-column:hover .activity-tooltip,
+.activity-column:focus-visible .activity-tooltip {
+  opacity: 1;
+  transform: translateX(-50%);
 }
 
 .activity-bars {
@@ -1046,6 +1239,26 @@ watch(
   opacity: 0.8;
   position: absolute;
   width: 34%;
+}
+
+.activity-bars--tokens {
+  align-items: center;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+}
+
+.activity-bars--tokens .activity-bar {
+  border-radius: 0;
+  min-height: 0;
+  width: 70%;
+}
+
+.activity-bars--tokens .activity-bar-token-input {
+  border-radius: 0 0 0.35rem 0.35rem;
+}
+
+.activity-bars--tokens .activity-bar-token-output {
+  border-radius: 0.35rem 0.35rem 0 0;
 }
 
 .activity-label {

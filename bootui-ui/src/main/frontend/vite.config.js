@@ -6,6 +6,14 @@ import vue from '@vitejs/plugin-vue'
 // classpath resource at META-INF/resources/bootui/index.html can serve them.
 export default defineConfig({
   base: '/bootui/',
+  server: {
+    proxy: {
+      '/bootui/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      }
+    }
+  },
   plugins: [vue()],
   build: {
     outDir: 'dist',

@@ -128,10 +128,10 @@ to stage for manual publishing instead.
 
 To prepare and publish a release, run the **Release** GitHub Actions workflow
 from the branch you want to release, usually `main`, and enter the target version
-without the leading `v`, for example `0.5.0`. The workflow updates all Maven
-module versions, refreshes the README dependency example, optionally verifies
+without the leading `v`, for example `1.0.0`. The workflow updates all Maven
+module versions, refreshes the documentation dependency examples, optionally verifies
 with the `release` Maven profile, commits the release, creates an annotated
-`v0.5.0` tag, pushes the branch plus tag, and publishes to Maven Central in the
+`v1.0.0` tag, pushes the branch plus tag, and publishes to Maven Central in the
 same run. The selected branch must allow `github-actions[bot]` to push the
 release commit and tag.
 

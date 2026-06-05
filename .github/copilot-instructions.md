@@ -21,8 +21,10 @@ read those before changing public behavior or visible panel behavior.
 # Backend-only iteration loop (skips the Vue build).
 ./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
 
-# Run the sample app (smoke-test path: http://localhost:8080/bootui).
-./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
+# Fastest sample app launch (smoke-test path: http://localhost:8080/bootui).
+./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+# If offline mode misses a dependency, drop -o once:
+./mvnw -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
 
 # Single test class / single test method.
 ./mvnw -pl bootui-core test -Dtest=SecretMaskerTests
@@ -40,6 +42,35 @@ read those before changing public behavior or visible panel behavior.
 
 # Maven Central release path for non-SNAPSHOT versions.
 ./mvnw -B -ntp -Prelease clean deploy
+```
+
+### Inner loop: launch the sample app fast, and isolate worktrees
+
+For the fastest sample-app launch, run only the sample module and skip test resources/compilation:
+
+```bash
+./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+# If offline mode misses a dependency, drop -o once.
+./mvnw -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+Do **not** add `-am` to `spring-boot:run`: Maven applies the goal to every selected reactor project, including the
+parent/core/UI modules, and those modules have no main class. Use `-am` for build/test reactor work instead:
+
+```bash
+# Test the sample app the same way.
+./mvnw -pl bootui-sample-app -am test
+```
+
+When working from **multiple git worktrees in parallel**, avoid a shared `install`: every worktree builds the same
+`com.julien-dubois.bootui:*` version, so installing overwrites the others in the shared `~/.m2/repository`. If you need
+to launch the sample app against local upstream module changes, install into an isolated local repository and run from
+that same repo:
+
+```bash
+# Per-invocation, or set in a per-worktree (git-ignored) .mvn/maven.config file: -Dmaven.repo.local=.m2
+./mvnw -Dmaven.repo.local=.m2 -ntp -pl bootui-sample-app -am -DskipTests install
+./mvnw -Dmaven.repo.local=.m2 -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17, which includes the frontend Vitest

@@ -3,7 +3,6 @@ import {apiFetch} from '../api.js'
 import {computed, ref, watch} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
@@ -171,12 +170,10 @@ watch(
       :error="endpointAvailable ? error : null"
       :last-fetched="lastUpdated"
       :refreshable="endpointAvailable"
+      :auto-refreshable="endpointAvailable"
+      v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    >
-      <template #actions>
-        <AutoRefreshToggle v-if="endpointAvailable" v-model="autoRefresh" />
-      </template>
-    </PanelHeader>
+    />
 
     <PanelSkeleton v-if="!panelStatusKnown || initialLoading" />
 

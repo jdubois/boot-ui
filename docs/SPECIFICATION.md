@@ -19,7 +19,7 @@ BootUI currently targets:
 - Maven-based applications first.
 - Servlet web applications first.
 
-Out of scope for the current pre-1.0 line:
+Out of scope for the current 1.x line:
 
 - Spring Boot 3.x compatibility.
 - Spring Framework 6 / Boot 3 compatibility shims.
@@ -759,10 +759,14 @@ Data sources:
 - `Flyway` beans discovered in the application context.
 - Each bean's `Flyway.info().all()` migration metadata (version, description, type, script, state, installed-by,
   installed-on, installed-rank, execution time, checksum).
+- Spring Modulith module identifiers and module-aware Flyway strategy presence, when available, to read the root and
+  module-specific history tables that Spring Modulith derives from a registered `Flyway` bean.
 
 Features:
 
 - List each `Flyway` bean as a database, with its current applied version plus applied and pending counts.
+- When Spring Modulith module-aware Flyway migrations are active, list the root and module-specific Flyway history tables
+  as read-only entries instead of only the registered base Flyway bean.
 - For each migration, show version, description, type, script, state, installed-by, installed-on, execution time, and
   checksum.
 - Allow a confirmed `migrate` action unless the app or Flyway panel is read-only.
@@ -779,6 +783,8 @@ Acceptance criteria:
 - When Flyway is present but no `Flyway` beans exist, the panel shows a clear empty state.
 - Opening the panel only reads already-computed migration metadata; no Flyway command is executed as a side effect.
 - Mutating Flyway actions require browser confirmation and a non-read-only app and panel.
+- Mutating Flyway actions are blocked while Spring Modulith module-aware Flyway is active so BootUI does not bypass
+  Spring Modulith's migration strategy or target the wrong module-specific history table.
 
 ### 5.17.3 Liquibase Panel
 
@@ -874,7 +880,7 @@ Features:
 - Skip lazy, prototype, abstract, or otherwise uninitialized service beans instead of creating them from a read-only
   panel request, and show a warning that explains why they were skipped.
 
-Status: implemented and supported for the current pre-1.0 release surface.
+Status: implemented and supported for the 1.0 release surface.
 
 Acceptance criteria:
 
@@ -910,7 +916,7 @@ Features:
 - Offer a confirmation-gated raw text thread dump download as a mutating `POST` that is blocked when the panel is
   read-only.
 
-Status: implemented and supported for the current pre-1.0 release surface.
+Status: implemented and supported for the 1.0 release surface.
 
 Acceptance criteria:
 
@@ -1056,6 +1062,7 @@ Initial endpoints:
 | Endpoint                                     | Method | Purpose                                                                                |
 | -------------------------------------------- | ------ | -------------------------------------------------------------------------------------- |
 | `/bootui/api/overview`                       | GET    | App, runtime, Spring Boot, profile, and BootUI status                                  |
+| `/bootui/api/panels`                         | GET    | Panel availability, enabled state, and read-only state                                 |
 | `/bootui/api/github`                         | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot                  |
 | `/bootui/api/github/refresh`                 | POST   | Explicit bounded GitHub API refresh for project metrics and quotas                     |
 | `/bootui/api/beans`                          | GET    | Searchable bean summary                                                                |
@@ -1076,6 +1083,8 @@ Initial endpoints:
 | `/bootui/api/threads/download`               | POST   | Confirmation-gated raw text thread dump download                                       |
 | `/bootui/api/metrics`                        | GET    | Browseable Micrometer meter list                                                       |
 | `/bootui/api/metrics/detail`                 | GET    | Micrometer meter detail and live measurements                                          |
+| `/bootui/api/database-connection-pools/pools` | GET    | JDBC connection pool metadata                                                          |
+| `/bootui/api/database-connection-pools/pools/{name}/snapshot` | GET | Live connection pool utilization snapshot                                   |
 | `/bootui/api/dependencies`                   | GET    | Runtime Maven dependency inventory without external scanning                           |
 | `/bootui/api/dependencies/scan`              | POST   | Explicit on-demand OSV.dev vulnerability scan                                          |
 | `/bootui/api/devtools`                       | GET    | Spring Boot DevTools status                                                            |
@@ -1083,10 +1092,23 @@ Initial endpoints:
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
 | `/bootui/api/memory`                         | GET    | JVM memory report                                                                      |
 | `/bootui/api/tuning-advisor`                 | GET    | JVM tuning advisor report                                                              |
+| `/bootui/api/heap-dump`                      | GET    | Heap dump capture inventory and latest value-free histogram report                     |
+| `/bootui/api/heap-dump/capture`              | POST   | Capture a local heap dump after explicit confirmation                                  |
+| `/bootui/api/heap-dump/analyze`              | POST   | Analyze the latest heap dump class histogram                                           |
+| `/bootui/api/heap-dump/delete`               | POST   | Delete a retained heap dump                                                            |
+| `/bootui/api/heap-dump/download`             | GET    | Download a raw heap dump only when explicitly enabled                                  |
 | `/bootui/api/scheduled`                      | GET    | Scheduled tasks                                                                        |
 | `/bootui/api/probe`                          | POST   | Local HTTP probe                                                                       |
 | `/bootui/api/logs/recent`                    | GET    | Recent log lines                                                                       |
 | `/bootui/api/logs/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
+| `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
+| `/bootui/api/traces/{traceId}`               | GET    | Trace waterfall detail                                                                 |
+| `/bootui/api/traces`                         | DELETE | Clear retained local traces when not read-only                                         |
+| `/bootui/api/otlp/v1/traces`                 | POST   | Embedded local OTLP/HTTP trace receiver                                                |
+| `/bootui/api/ai/overview`                    | GET    | AI telemetry summary from local spans                                                  |
+| `/bootui/api/ai/chats`                       | GET    | Recent AI chat span groups                                                             |
+| `/bootui/api/ai/chats/{spanId}`              | GET    | AI chat span detail                                                                    |
+| `/bootui/api/ai/tokens`                      | GET    | AI token usage time series                                                             |
 | `/bootui/api/profiles`                       | GET    | Profile-specific property sources                                                      |
 | `/bootui/api/dev-services`                   | GET    | Docker Compose, Testcontainers, and service connection entries                         |
 | `/bootui/api/dev-services/{id}/logs`         | GET    | Bounded log tail for a bean-backed service when available                              |
@@ -1095,9 +1117,14 @@ Initial endpoints:
 | `/bootui/api/data/repositories/{name}`       | GET    | Spring Data repository detail with query methods                                       |
 | `/bootui/api/hibernate-advisor`              | GET    | Latest Hibernate/JPA advisor report                                                    |
 | `/bootui/api/hibernate-advisor/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
+| `/bootui/api/architecture`                   | GET    | Latest Architecture scan report                                                        |
+| `/bootui/api/architecture/scan`              | POST   | Run explicit ArchUnit hygiene checks                                                   |
+| `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
+| `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
+| `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
 | `/bootui/api/flyway/migrations`              | GET    | Flyway migration state and action availability per database                            |
-| `/bootui/api/flyway/migrate`                 | POST   | Run pending Flyway migrations only when confirmed and not read-only                    |
-| `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, and not read-only |
+| `/bootui/api/flyway/migrate`                 | POST   | Run pending Flyway migrations only when confirmed, not read-only, and not Modulith-managed |
+| `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, not read-only, and not Modulith-managed |
 | `/bootui/api/liquibase/changesets`           | GET    | Applied/pending Liquibase change sets and action availability per database             |
 | `/bootui/api/liquibase/update`               | POST   | Apply pending Liquibase change sets only when confirmed and not read-only              |
 | `/bootui/api/spring-cache`                   | GET    | Spring Cache managers, caches, metrics, and annotation operations                      |
@@ -1106,10 +1133,12 @@ Initial endpoints:
 | `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
+| `/bootui/api/security-advisor`               | GET    | Latest Spring Security Advisor report                                                  |
+| `/bootui/api/security-advisor/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
 | `/bootui/api/pentest`                        | GET    | Latest local OWASP hygiene report                                                      |
 | `/bootui/api/pentest/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
-| `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, explorer, raw reveal, SSE              |
-| `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, explorer, raw reveal, SSE                 |
+| `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
+| `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, token usage, explorer, raw reveal, SSE    |
 
 ### 6.5 Configuration properties
 
@@ -1350,9 +1379,9 @@ Future compatibility:
 - Masked values stay masked.
 - Empty states are readable.
 
-## 10. Acceptance criteria for the current pre-1.0 release surface
+## 10. Acceptance criteria for the 1.0 release surface
 
-BootUI's current pre-1.0 release surface is complete when:
+BootUI's 1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
@@ -1369,11 +1398,11 @@ BootUI's current pre-1.0 release surface is complete when:
 
 ## 11. Release decisions
 
-Resolved for `0.1.0` and carried forward through `0.2.0`:
+Resolved for `1.0.0`:
 
-1. Harden every visible panel and ship the full current route set as supported local-development functionality.
+1. Harden every visible panel and ship the full current route set as supported stable local-development functionality.
 2. Publish release artifacts to Maven Central through the Release workflow so module versions, the README install
    snippet, tags, release notes, and Central publishing stay synchronized.
 3. Keep optional panels visible and show clear unavailable/empty states when their classpath or data source is absent.
-4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for the pre-1.0 line; revisit broader
-   metadata abstractions after the current starter surface stabilizes.
+4. Continue using in-process Actuator endpoint beans and Spring-managed metadata for the 1.x line; revisit broader
+   metadata abstractions after the stable starter surface settles.

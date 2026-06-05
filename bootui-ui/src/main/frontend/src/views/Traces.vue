@@ -5,7 +5,6 @@ import {formatDuration, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -146,9 +145,10 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
+      v-model:auto-refresh="autoRefresh"
+      @refresh="load"
     >
       <template #actions>
-        <AutoRefreshToggle v-model="autoRefresh" />
         <button
           :disabled="!report || readOnly || report.retained === 0 || busy"
           class="btn btn-sm btn-outline-danger"

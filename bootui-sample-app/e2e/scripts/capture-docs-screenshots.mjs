@@ -1789,65 +1789,73 @@ const copilotDashboard = {
   available: true,
   unavailableReason: null,
   sessionStateDir: '~/.copilot/session-state',
-  sessionCount: 24,
-  eventCount: 1847,
-  turnCount: 312,
-  errorCount: 5,
-  activeLast24Hours: 3,
-  activeLast7Days: 11,
+  sessionCount: 85,
+  eventCount: 69032,
+  turnCount: 8764,
+  totalInputTokens: 423543210,
+  totalOutputTokens: 17156790,
+  errorCount: 284,
+  activeLast24Hours: 17,
+  activeLast7Days: 42,
   sessionsWithSchemaDrift: 0,
-  lastActivityEpochMillis: nowMillis - 4 * 60 * 1000,
+  lastActivityEpochMillis: nowMillis - 26 * 1000,
   categoryCounts: [
-    {label: 'FILE_EDIT', count: 412},
-    {label: 'FILE_READ', count: 389},
-    {label: 'SEARCH', count: 276},
-    {label: 'SHELL', count: 198},
-    {label: 'WEB', count: 87},
-    {label: 'MCP', count: 64},
-    {label: 'HOOK', count: 42},
-    {label: 'ASK', count: 31},
-    {label: 'OTHER', count: 348}
+    {label: 'FILE_EDIT', count: 18840},
+    {label: 'FILE_READ', count: 14390},
+    {label: 'SEARCH', count: 10580},
+    {label: 'SHELL', count: 8840},
+    {label: 'WEB', count: 4620},
+    {label: 'MCP', count: 3162},
+    {label: 'HOOK', count: 1875},
+    {label: 'ASK', count: 925},
+    {label: 'OTHER', count: 5800}
   ],
   modelCounts: [
-    {label: 'claude-sonnet-4.6', count: 18},
-    {label: 'claude-opus-4.7', count: 6}
+    {label: 'claude-sonnet-4.6', count: 61},
+    {label: 'claude-opus-4.7', count: 24}
   ],
   topTools: [
-    {label: 'edit', count: 412},
-    {label: 'view', count: 389},
-    {label: 'grep', count: 218},
-    {label: 'bash', count: 198},
-    {label: 'glob', count: 58}
+    {label: 'edit', count: 18840},
+    {label: 'view', count: 14390},
+    {label: 'grep', count: 10580},
+    {label: 'bash', count: 8840},
+    {label: 'glob', count: 4200}
   ],
-  otherToolEventCount: 572,
+  otherToolEventCount: 12182,
   activityBuckets: Array.from({length: 24}, (_, i) => {
     const hour = i
     const base = [0, 0, 0, 0, 0, 0, 0, 2, 18, 42, 67, 88, 54, 0, 0, 0, 0, 31, 76, 112, 98, 63, 34, 12][i]
     return {
       startEpochMillis: nowMillis - (23 - i) * 3600 * 1000,
       endEpochMillis: nowMillis - (22 - i) * 3600 * 1000,
-      eventCount: base + Math.round(hour * 0.4),
-      errorCount: base > 0 ? Math.min(2, Math.floor(base * 0.02)) : 0
+      eventCount: base > 0 ? base * 83 + Math.round(hour * 7) : 0,
+      errorCount: base > 0 ? Math.min(28, Math.floor(base * 0.3)) : 0,
+      inputTokens: base > 0 ? base * 1240000 + i * 95000 : 0,
+      outputTokens: base > 0 ? base * 58000 + i * 4200 : 0
     }
   }),
   dailyActivityBuckets: Array.from({length: 7}, (_, i) => ({
     startEpochMillis: nowMillis - (6 - i) * 86400 * 1000,
     endEpochMillis: nowMillis - (5 - i) * 86400 * 1000,
-    eventCount: [0, 42, 218, 312, 189, 401, 685][i],
-    errorCount: [0, 0, 1, 2, 0, 1, 1][i]
+    eventCount: [5200, 8700, 11932, 10450, 9875, 11750, 11125][i],
+    errorCount: [12, 26, 48, 41, 36, 57, 64][i],
+    inputTokens: [31200000, 52800000, 73500000, 64900000, 58300000, 75400000, 67443210][i],
+    outputTokens: [1100000, 2050000, 2960000, 2470000, 2210000, 3090000, 3276790][i]
   })),
   recentSessions: [
     {
       id: copilotSessionId,
       filename: 'laughing-succotash',
       startedAtEpochMillis: nowMillis - 45 * 60 * 1000,
-      updatedAtEpochMillis: nowMillis - 4 * 60 * 1000,
+      updatedAtEpochMillis: nowMillis - 26 * 1000,
       model: 'claude-sonnet-4.6',
       workingDirectory: '/workspace/BootUI/jdubois-laughing-succotash',
       status: 'active',
-      eventCount: 284,
-      turnCount: 47,
-      errorCount: 0,
+      eventCount: 4284,
+      turnCount: 547,
+      inputTokens: 47543210,
+      outputTokens: 1945432,
+      errorCount: 13,
       lastActivitySummary: 'Updated docs and screenshot script',
       schemaDrift: false
     },
@@ -1859,9 +1867,11 @@ const copilotDashboard = {
       model: 'claude-sonnet-4.6',
       workingDirectory: '/workspace/BootUI/jdubois-crispy-broccoli',
       status: 'complete',
-      eventCount: 198,
-      turnCount: 31,
-      errorCount: 2,
+      eventCount: 3198,
+      turnCount: 431,
+      inputTokens: 29111100,
+      outputTokens: 955432,
+      errorCount: 22,
       lastActivitySummary: 'Added Copilot panel backend and tests',
       schemaDrift: false
     }
@@ -1873,8 +1883,8 @@ const copilotSessions = {
   available: true,
   unavailableReason: null,
   sessionStateDir: '~/.copilot/session-state',
-  total: 24,
-  returned: 24,
+  total: 85,
+  returned: 85,
   maxSessions: 100,
   sessions: copilotDashboard.recentSessions,
   warnings: []
@@ -1883,7 +1893,7 @@ const copilotSessions = {
 const copilotSessionDetail = {
   summary: copilotDashboard.recentSessions[0],
   counts: {
-    total: 284,
+    total: 4284,
     byCategory: {
       FILE_EDIT: 72,
       FILE_READ: 68,
@@ -1895,8 +1905,8 @@ const copilotSessionDetail = {
       ASK: 7,
       OTHER: 3
     },
-    errors: 0,
-    lastActivityEpochMillis: nowMillis - 4 * 60 * 1000
+    errors: 13,
+    lastActivityEpochMillis: nowMillis - 26 * 1000
   },
   turns: [
     {
@@ -1904,28 +1914,32 @@ const copilotSessionDetail = {
       startedAtEpochMillis: nowMillis - 45 * 60 * 1000,
       durationMillis: 12400,
       summary: 'Exploring repository structure and docs',
-      eventCount: 14
+      eventCount: 14,
+      outputTokens: 3210
     },
     {
       index: 1,
       startedAtEpochMillis: nowMillis - 40 * 60 * 1000,
       durationMillis: 28700,
       summary: 'Reading PLAN.md, FEATURES.md, README, and copilot instructions',
-      eventCount: 22
+      eventCount: 22,
+      outputTokens: 8420
     },
     {
       index: 2,
       startedAtEpochMillis: nowMillis - 30 * 60 * 1000,
       durationMillis: 54200,
       summary: 'Updating screenshot script with Copilot fixture data',
-      eventCount: 38
+      eventCount: 38,
+      outputTokens: 12640
     },
     {
       index: 3,
       startedAtEpochMillis: nowMillis - 10 * 60 * 1000,
       durationMillis: 18900,
       summary: 'Patching FEATURES.md, PLAN.md, and copilot instructions',
-      eventCount: 21
+      eventCount: 21,
+      outputTokens: 6850
     }
   ],
   recentEvents: [
@@ -1985,7 +1999,17 @@ const copilotSessionDetail = {
 }
 
 const screenshots = [
-  ['overview', 'Overview', 'bootui-overview.png', waitForText('Understand your Spring Boot app')],
+  [
+    'overview',
+    'Overview',
+    'bootui-overview.png',
+    async (page) => {
+      await page.getByText('Understand your Spring Boot app').waitFor()
+      await page.getByRole('button', {name: /Run all scanners/}).click()
+      await page.getByText('6 of 6 scanners scored').waitFor()
+      await page.getByText('1 security alert(s)').waitFor()
+    }
+  ],
   ['github', 'GitHub', 'bootui-github.png', waitForText('Open pull requests')],
   ['health', 'Health', 'bootui-health.png', waitForText('Component tree')],
   [
@@ -2135,65 +2159,73 @@ const claudeCodeDashboard = {
   available: true,
   unavailableReason: null,
   sessionStateDir: '~/.claude/projects',
-  sessionCount: 18,
-  eventCount: 1264,
-  turnCount: 247,
-  errorCount: 3,
-  activeLast24Hours: 2,
-  activeLast7Days: 9,
+  sessionCount: 85,
+  eventCount: 69032,
+  turnCount: 8764,
+  totalInputTokens: 423543210,
+  totalOutputTokens: 17156790,
+  errorCount: 284,
+  activeLast24Hours: 17,
+  activeLast7Days: 42,
   sessionsWithSchemaDrift: 0,
-  lastActivityEpochMillis: nowMillis - 6 * 60 * 1000,
+  lastActivityEpochMillis: nowMillis - 26 * 1000,
   categoryCounts: [
-    {label: 'FILE_EDIT', count: 318},
-    {label: 'FILE_READ', count: 281},
-    {label: 'SEARCH', count: 196},
-    {label: 'SHELL', count: 152},
-    {label: 'WEB', count: 64},
-    {label: 'MCP', count: 38},
-    {label: 'ASK', count: 27},
-    {label: 'SKILL', count: 14},
-    {label: 'OTHER', count: 174}
+    {label: 'FILE_EDIT', count: 18840},
+    {label: 'FILE_READ', count: 14390},
+    {label: 'SEARCH', count: 10580},
+    {label: 'SHELL', count: 8840},
+    {label: 'WEB', count: 4620},
+    {label: 'MCP', count: 3162},
+    {label: 'ASK', count: 1875},
+    {label: 'SKILL', count: 925},
+    {label: 'OTHER', count: 5800}
   ],
   modelCounts: [
-    {label: 'claude-sonnet-4-20250514', count: 14},
-    {label: 'claude-opus-4-1-20250915', count: 4}
+    {label: 'claude-sonnet-4-20250514', count: 61},
+    {label: 'claude-opus-4-1-20250915', count: 24}
   ],
   topTools: [
-    {label: 'Edit', count: 248},
-    {label: 'Read', count: 281},
-    {label: 'Bash', count: 152},
-    {label: 'Grep', count: 124},
-    {label: 'Glob', count: 72}
+    {label: 'Edit', count: 18840},
+    {label: 'Read', count: 14390},
+    {label: 'Bash', count: 8840},
+    {label: 'Grep', count: 10580},
+    {label: 'Glob', count: 4200}
   ],
-  otherToolEventCount: 387,
+  otherToolEventCount: 12182,
   activityBuckets: Array.from({length: 24}, (_, i) => {
     const hour = i
     const base = [0, 0, 0, 0, 0, 0, 0, 0, 12, 36, 58, 74, 41, 0, 0, 0, 0, 22, 64, 96, 82, 51, 27, 8][i]
     return {
       startEpochMillis: nowMillis - (23 - i) * 3600 * 1000,
       endEpochMillis: nowMillis - (22 - i) * 3600 * 1000,
-      eventCount: base + Math.round(hour * 0.3),
-      errorCount: base > 0 ? Math.min(1, Math.floor(base * 0.015)) : 0
+      eventCount: base > 0 ? base * 83 + Math.round(hour * 7) : 0,
+      errorCount: base > 0 ? Math.min(28, Math.floor(base * 0.3)) : 0,
+      inputTokens: base > 0 ? base * 1240000 + i * 95000 : 0,
+      outputTokens: base > 0 ? base * 58000 + i * 4200 : 0
     }
   }),
   dailyActivityBuckets: Array.from({length: 7}, (_, i) => ({
     startEpochMillis: nowMillis - (6 - i) * 86400 * 1000,
     endEpochMillis: nowMillis - (5 - i) * 86400 * 1000,
-    eventCount: [0, 28, 167, 241, 142, 312, 482][i],
-    errorCount: [0, 0, 0, 1, 0, 1, 1][i]
+    eventCount: [5200, 8700, 11932, 10450, 9875, 11750, 11125][i],
+    errorCount: [12, 26, 48, 41, 36, 57, 64][i],
+    inputTokens: [31200000, 52800000, 73500000, 64900000, 58300000, 75400000, 67443210][i],
+    outputTokens: [1100000, 2050000, 2960000, 2470000, 2210000, 3090000, 3276790][i]
   })),
   recentSessions: [
     {
       id: claudeCodeSessionId,
       filename: `${claudeCodeProjectSlug}/${claudeCodeSessionId}.jsonl`,
       startedAtEpochMillis: nowMillis - 38 * 60 * 1000,
-      updatedAtEpochMillis: nowMillis - 6 * 60 * 1000,
+      updatedAtEpochMillis: nowMillis - 26 * 1000,
       model: 'claude-sonnet-4-20250514',
       workingDirectory: '/workspace/BootUI/jdubois-laughing-succotash',
       status: 'active',
-      eventCount: 214,
-      turnCount: 36,
-      errorCount: 0,
+      eventCount: 4214,
+      turnCount: 536,
+      inputTokens: 47543210,
+      outputTokens: 1945432,
+      errorCount: 13,
       lastActivitySummary: 'FILE_EDIT · MultiEdit refactor',
       schemaDrift: false
     },
@@ -2205,9 +2237,11 @@ const claudeCodeDashboard = {
       model: 'claude-opus-4-1-20250915',
       workingDirectory: '/workspace/BootUI/jdubois-crispy-broccoli',
       status: 'complete',
-      eventCount: 154,
-      turnCount: 23,
-      errorCount: 1,
+      eventCount: 3154,
+      turnCount: 423,
+      inputTokens: 29111100,
+      outputTokens: 955432,
+      errorCount: 22,
       lastActivitySummary: 'SHELL · Bash · failed',
       schemaDrift: false
     }
@@ -2219,8 +2253,8 @@ const claudeCodeSessions = {
   available: true,
   unavailableReason: null,
   sessionStateDir: '~/.claude/projects',
-  total: 18,
-  returned: 18,
+  total: 85,
+  returned: 85,
   maxSessions: 100,
   sessions: claudeCodeDashboard.recentSessions,
   warnings: []
@@ -2229,7 +2263,7 @@ const claudeCodeSessions = {
 const claudeCodeSessionDetail = {
   summary: claudeCodeDashboard.recentSessions[0],
   counts: {
-    total: 214,
+    total: 4214,
     byCategory: {
       FILE_EDIT: 58,
       FILE_READ: 51,
@@ -2241,8 +2275,8 @@ const claudeCodeSessionDetail = {
       SKILL: 4,
       OTHER: 10
     },
-    errors: 0,
-    lastActivityEpochMillis: nowMillis - 6 * 60 * 1000
+    errors: 13,
+    lastActivityEpochMillis: nowMillis - 26 * 1000
   },
   turns: [
     {
@@ -2250,28 +2284,36 @@ const claudeCodeSessionDetail = {
       startedAtEpochMillis: nowMillis - 38 * 60 * 1000,
       durationMillis: 9800,
       summary: 'Exploring project structure with Glob',
-      eventCount: 11
+      eventCount: 11,
+      inputTokens: 18420,
+      outputTokens: 920
     },
     {
       index: 1,
       startedAtEpochMillis: nowMillis - 32 * 60 * 1000,
       durationMillis: 21400,
       summary: 'Reading source files: CopilotSessionStore, BootUiProperties',
-      eventCount: 19
+      eventCount: 19,
+      inputTokens: 32600,
+      outputTokens: 1840
     },
     {
       index: 2,
       startedAtEpochMillis: nowMillis - 22 * 60 * 1000,
       durationMillis: 48700,
       summary: 'Refactor to AgentSessionStore with Edit and MultiEdit',
-      eventCount: 27
+      eventCount: 27,
+      inputTokens: 41280,
+      outputTokens: 3120
     },
     {
       index: 3,
       startedAtEpochMillis: nowMillis - 8 * 60 * 1000,
       durationMillis: 14600,
       summary: 'Running ./mvnw test to verify the refactor',
-      eventCount: 16
+      eventCount: 16,
+      inputTokens: 22450,
+      outputTokens: 1160
     }
   ],
   recentEvents: [

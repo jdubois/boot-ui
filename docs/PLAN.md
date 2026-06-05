@@ -5,10 +5,11 @@
 BootUI ships as a **Spring Boot 4 starter** that adds a safe, local-only developer console to a running application. The
 released surface already covers runtime introspection, configuration, database migrations, services, diagnostics, project
 health, and developer tooling, including the recently shipped Threads, HTTP Exchanges, Flyway, Liquibase,
-Hibernate Advisor, HTTP Sessions, and GitHub panels. This plan describes the **next merged feature workstream**: it keeps
-the remaining roadmap items and the one capture-oriented addition chosen to close the clearest gaps against comparable
-developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire,
-Symfony Web Profiler) while staying inside BootUI's read-mostly, fail-closed safety model.
+Hibernate Advisor, HTTP Sessions, GitHub, Security Advisor, and Overview scanner dashboard panels. This plan describes the
+**next merged feature workstream** after the `1.0.0` release: it keeps the remaining roadmap items and the one
+capture-oriented addition chosen to close the clearest gaps against comparable developer dashboards (Spring Boot Admin,
+Quarkus Dev UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire, Symfony Web Profiler) while staying inside
+BootUI's read-mostly, fail-closed safety model.
 
 The priorities for every item below remain unchanged:
 
@@ -17,6 +18,17 @@ The priorities for every item below remain unchanged:
 3. Useful runtime explanations.
 4. A polished but simple UI.
 5. Testable architecture.
+
+### Completed for 1.0.0
+
+- Promoted the current grouped sidebar surface to the stable `1.0.0` release line.
+- Added the Security Advisor panel, `/bootui/api/security-advisor` API, panel availability/read-only wiring, tests, feature
+  documentation, rule catalogue, and screenshot.
+- Redesigned Overview into an on-demand security & health scoring dashboard that aggregates the available scanner panels.
+- Added token-first activity charts to the Copilot and Claude Code dashboards and refreshed their screenshots.
+- Published the VuePress documentation site with GitHub Pages deployment, setup/sample-app pages, and fixed markdown links.
+- Fixed Spring Modulith Flyway reporting and proxied Hikari datasource discovery so the existing Database panels better
+  match real applications.
 
 Each new panel must:
 

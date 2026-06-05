@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version to prepare, for example 0.2.0. Leave empty to publish the selected tagged ref.
+        description: Release version to prepare, for example 1.0.0. Leave empty to publish the selected tagged ref.
         required: false
         type: string
         default: ''
@@ -104,14 +104,14 @@ jobs:
             -DgenerateBackupPoms=false
 
           export CURRENT_VERSION VERSION
-          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)\Q$ENV{CURRENT_VERSION}\E(</version>)}{$1$ENV{VERSION}$2}g' README.md
+          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)\Q$ENV{CURRENT_VERSION}\E(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
 
           if [[ "$SKIP_BUILD" != "true" ]]; then
             ./mvnw -B -ntp -Prelease clean verify -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
           fi
 
           if [[ -n "$(git status --porcelain)" ]]; then
-            git add pom.xml */pom.xml README.md
+            git add pom.xml */pom.xml README.md docs/SETUP.md
             git commit -m "Release $TAG"
           else
             echo "Project files already declare version $VERSION; tagging current HEAD."

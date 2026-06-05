@@ -320,7 +320,7 @@ describe('GitHub', () => {
     expect(wrapper.text()).toContain('jdubois/boot-ui')
     expect(wrapper.text()).toContain('Auto-refresh')
     expect(wrapper.text()).not.toContain('Refresh now')
-    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(false)
+    expect(wrapper.find('button[title="Refresh"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('GitHub dashboard refreshed.')
     expect(wrapper.find('a.github-link-chip--primary').text()).toContain('jdubois/boot-ui')
     expect(wrapper.find('a.github-link-chip--primary .bi-box-arrow-up-right').exists()).toBe(false)

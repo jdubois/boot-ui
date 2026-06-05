@@ -2,13 +2,13 @@
 
 ## Supported versions
 
-BootUI is currently pre-1.0. Only the latest released version receives
-security fixes; older releases do not.
+BootUI's latest stable release line receives security fixes; older pre-1.0
+releases do not.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.5.x   | ✅        |
-| < 0.5   | ❌        |
+| 1.0.x   | ✅        |
+| < 1.0   | ❌        |
 
 ## Reporting a vulnerability
 

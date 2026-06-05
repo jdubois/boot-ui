@@ -62,6 +62,10 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
     private static final String SIMPLE_GRANTED_AUTHORITY =
             "org.springframework.security.core.authority.SimpleGrantedAuthority";
 
+    /** Spring Modulith identifiers whose {@code stream()} is invoked reflectively by {@code FlywayController}. */
+    private static final String MODULITH_APPLICATION_MODULE_IDENTIFIERS =
+            "org.springframework.modulith.core.ApplicationModuleIdentifiers";
+
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
         hints.resources()
@@ -82,6 +86,13 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         hints.reflection().registerTypeIfPresent(classLoader, GRANTED_AUTHORITY, MemberCategory.INVOKE_PUBLIC_METHODS);
         hints.reflection()
                 .registerTypeIfPresent(classLoader, SIMPLE_GRANTED_AUTHORITY, MemberCategory.INVOKE_PUBLIC_METHODS);
+
+        // Flyway panel: when Spring Modulith module-aware migrations are active, BootUI
+        // reflectively reads ApplicationModuleIdentifiers#stream without requiring
+        // Spring Modulith as a starter dependency.
+        hints.reflection()
+                .registerTypeIfPresent(
+                        classLoader, MODULITH_APPLICATION_MODULE_IDENTIFIERS, MemberCategory.INVOKE_PUBLIC_METHODS);
     }
 
     private void registerDtoBindingHints(RuntimeHints hints, ClassLoader classLoader) {

@@ -10,7 +10,6 @@ import io.github.jdubois.bootui.core.dto.HikariPoolDto;
 import io.github.jdubois.bootui.core.dto.HikariPoolSnapshotDto;
 import io.github.jdubois.bootui.core.dto.HikariPoolsReport;
 import jakarta.annotation.Nullable;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -62,7 +61,7 @@ public class HikariController {
 
     @GetMapping("/pools")
     public HikariPoolsReport pools() {
-        List<PoolEntry> entries = discover();
+        List<HikariDataSourceDiscovery.PoolEntry> entries = discover();
         List<HikariPoolDto> pools = entries.stream()
                 .map(this::toDto)
                 .sorted(Comparator.comparing(HikariPoolDto::poolName, Comparator.nullsLast(String::compareTo)))
@@ -72,7 +71,7 @@ public class HikariController {
 
     @GetMapping("/pools/{name}/snapshot")
     public ResponseEntity<HikariPoolSnapshotDto> snapshot(@PathVariable String name) {
-        for (PoolEntry entry : discover()) {
+        for (HikariDataSourceDiscovery.PoolEntry entry : discover()) {
             if (matches(entry, name)) {
                 HikariPoolSnapshotDto snapshot = snapshotOf(entry.dataSource());
                 if (snapshot == null) {
@@ -84,26 +83,15 @@ public class HikariController {
         return ResponseEntity.notFound().build();
     }
 
-    private List<PoolEntry> discover() {
+    private List<HikariDataSourceDiscovery.PoolEntry> discover() {
         ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
         if (factory == null) {
             return List.of();
         }
-        String[] beanNames = factory.getBeanNamesForType(HikariDataSource.class);
-        List<PoolEntry> entries = new ArrayList<>(beanNames.length);
-        for (String beanName : beanNames) {
-            HikariDataSource dataSource;
-            try {
-                dataSource = factory.getBean(beanName, HikariDataSource.class);
-            } catch (Exception ex) {
-                continue;
-            }
-            entries.add(new PoolEntry(strip(beanName), dataSource));
-        }
-        return entries;
+        return HikariDataSourceDiscovery.discover(factory);
     }
 
-    private boolean matches(PoolEntry entry, String name) {
+    private boolean matches(HikariDataSourceDiscovery.PoolEntry entry, String name) {
         if (name == null) {
             return false;
         }
@@ -117,7 +105,7 @@ public class HikariController {
         }
     }
 
-    private HikariPoolDto toDto(PoolEntry entry) {
+    private HikariPoolDto toDto(HikariDataSourceDiscovery.PoolEntry entry) {
         HikariDataSource dataSource = entry.dataSource();
         String poolName = safeString(dataSource::getPoolName);
         String jdbcUrl = maskUrl(safeString(dataSource::getJdbcUrl));
@@ -255,10 +243,4 @@ public class HikariController {
             return false;
         }
     }
-
-    private String strip(String beanName) {
-        return beanName.startsWith("&") ? beanName.substring(1) : beanName;
-    }
-
-    private record PoolEntry(String beanName, HikariDataSource dataSource) {}
 }

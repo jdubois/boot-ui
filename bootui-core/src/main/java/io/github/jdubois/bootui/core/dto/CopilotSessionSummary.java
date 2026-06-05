@@ -13,6 +13,8 @@ public record CopilotSessionSummary(
         String status,
         int eventCount,
         int turnCount,
+        Long inputTokens,
+        Long outputTokens,
         int errorCount,
         String lastActivitySummary,
         boolean schemaDrift) {}
