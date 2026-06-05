@@ -1,0 +1,48 @@
+# Configuration for the GitHub Copilot app.
+#
+# `scripts` are commands the app can run for a session. A script with a
+# `session.create` trigger runs automatically when a new session (worktree) is
+# created; scripts without triggers show up as manual "run" buttons. Run
+# scripts execute from the repository root and receive helper env vars such as
+# $COPILOT_PORT (a free port unique to the session).
+#
+# `server_ready_pattern` is matched against each run script's output; capture
+# group 1 must be the server URL (or a bare port). When a URL is detected and
+# `auto_open_in_browser` is true, the app opens it in the in-app browser panel.
+
+scripts:
+  # Runs once when the session is created: download dependencies, build and
+  # install the BootUI modules into the local Maven repo (this also bundles the
+  # Vue UI), and install the root npm dependencies used by the VuePress docs.
+  - name: Setup
+    command: >-
+      ./mvnw -B -ntp -pl bootui-sample-app -am -DskipTests install
+      && npm install
+    triggers:
+      - session.create
+
+  # Spring Boot sample app: the full, bundled BootUI console at /bootui.
+  # Rebuilds the core/autoconfigure/ui/starter modules first so the app always
+  # reflects local changes, then launches offline. Requires Docker (Spring Boot
+  # auto-starts the Postgres/Redis/Ollama Compose services). On startup it logs
+  # "BootUI is available at http://localhost:8080/bootui", which is auto-opened.
+  - name: Dev server (sample app)
+    command: >-
+      ./mvnw -o -ntp -pl bootui-sample-app -am -DskipTests install
+      && ./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true
+      spring-boot:run -Dspring-boot.run.profiles=dev
+
+  # Vite dev server for the Vue UI (hot-module reload) at
+  # http://localhost:5173/bootui/. It proxies /bootui/api to a sample app on
+  # :8080, so run "Dev server (sample app)" alongside it for live API data.
+  - name: Vite UI dev server
+    command: cd bootui-ui/src/main/frontend && npm run dev
+
+  # VuePress documentation site at http://127.0.0.1:8090/.
+  - name: VuePress docs server
+    command: npm run docs:dev
+
+# Spring Boot logs "BootUI is available at <url>"; Vite and VuePress both print
+# Vite's "Local:   <url>" banner. Group 1 captures the URL in each case.
+server_ready_pattern: '(?i)(?:BootUI is available at|Local:)\s+(https?://[^\s)]+)'
+auto_open_in_browser: true
