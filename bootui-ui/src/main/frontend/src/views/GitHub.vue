@@ -874,7 +874,7 @@ function securitySignalUrl(signal) {
 }
 
 .metric-card-button--quota {
-  background: var(--github-quota-card-bg);
+  background: var(--github-quota-card-bg) !important;
   border-color: var(--github-quota-card-bg) !important;
   color: var(--github-quota-card-color) !important;
 }
