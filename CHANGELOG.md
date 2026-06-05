@@ -7,6 +7,37 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [1.0.0] - 2026-06-05
+
+First stable BootUI release, focused on promoting the current local developer-console surface to `1.0.0`, adding the
+Spring Security Advisor, and publishing the redesigned documentation site.
+
+### Added
+
+- Security Advisor panel with explicit Spring Security hardening checks for authentication, authorization, CSRF, sessions,
+  headers, CORS, method security, actuator exposure, OAuth2 resource-server validation, and security configuration hygiene,
+  plus the `docs/SECURITY-ADVISOR-CHECKS.md` rule catalogue.
+- Overview security & health scoring dashboard that can run the available Architecture, Hibernate Advisor, Security
+  Advisor, Vulnerabilities, Pentesting, and GitHub scanners individually or together.
+- VuePress documentation site, GitHub Pages workflow, repository documentation, and setup/sample-app pages for the public
+  docs at `julien-dubois.com/boot-ui`.
+
+### Changed
+
+- Copilot and Claude Code dashboards now emphasize input/output token usage charts while retaining event and failure
+  views for sanitized local agent activity.
+- Refreshed release-facing screenshots for the 1.0 surface, including Overview, Security Advisor, Copilot, and Claude Code,
+  and verified the screenshot set against the routed panel list.
+- Updated the implementation roadmap so completed 1.0 work is separated from the next workstream for trace/log/request
+  correlation, bean graph visualization, and an e-mail viewer.
+
+### Fixed
+
+- Detected proxied Hikari data sources in the Database Connection Pools panel.
+- Corrected Spring Modulith Flyway migration reporting so module-specific history tables remain visible and read-only.
+- Fixed VuePress markdown links, homepage setup navigation, GitHub Pages Node 24 configuration, and sample quick-start
+  script UI bundling.
+
 ## [0.5.1] - 2026-06-04
 
 Patch release focused on preserving BootUI startup in applications that do not include Spring Security Core while
@@ -303,7 +334,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/jdubois/boot-ui/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/jdubois/boot-ui/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jdubois/boot-ui/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jdubois/boot-ui/compare/v0.3.0...v0.4.0
