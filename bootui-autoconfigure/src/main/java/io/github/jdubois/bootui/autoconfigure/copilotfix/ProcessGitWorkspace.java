@@ -20,7 +20,7 @@ final class ProcessGitWorkspace implements GitWorkspace {
 
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(30);
 
-    /** Hard cap on captured diff size so a runaway change cannot exhaust memory. */
+    /** Hard cap on captured diff size (characters) so a runaway change cannot exhaust memory. */
     private static final int MAX_DIFF_CHARS = 200_000;
 
     private final Path repoRoot;

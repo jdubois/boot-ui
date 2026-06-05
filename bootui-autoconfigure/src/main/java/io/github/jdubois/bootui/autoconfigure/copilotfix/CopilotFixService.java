@@ -34,6 +34,9 @@ public class CopilotFixService {
     /** Number of recent runs retained for polling/streaming after they finish. */
     private static final int MAX_RETAINED_RUNS = 20;
 
+    /** Maximum length of a sanitized branch segment so generated branch names stay manageable. */
+    private static final int MAX_BRANCH_SEGMENT_LENGTH = 60;
+
     private final BootUiProperties properties;
     private final GitHubTokenProvider tokenProvider;
     private final CopilotFixAgent agent;
@@ -256,7 +259,7 @@ public class CopilotFixService {
         if (cleaned.isBlank()) {
             cleaned = "finding";
         }
-        return cleaned.length() > 60 ? cleaned.substring(0, 60) : cleaned;
+        return cleaned.length() > MAX_BRANCH_SEGMENT_LENGTH ? cleaned.substring(0, MAX_BRANCH_SEGMENT_LENGTH) : cleaned;
     }
 
     @Nullable

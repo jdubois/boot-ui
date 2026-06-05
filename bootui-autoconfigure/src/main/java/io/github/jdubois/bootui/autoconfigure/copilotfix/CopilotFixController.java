@@ -33,7 +33,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/bootui/api/copilot-fix")
 public class CopilotFixController {
 
-    /** Upper bound on simultaneous activity streams; this is a local dev tool, not a fan-out hub. */
+    /**
+     * Upper bound on simultaneous activity streams; this is a local dev tool, not a fan-out hub, so
+     * a small cap is enough to keep one developer's concurrent runs flowing while bounding emitters.
+     */
     static final int MAX_CONCURRENT_STREAMS = 20;
 
     private final Supplier<CopilotFixService> service;
