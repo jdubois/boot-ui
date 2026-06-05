@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.securityadvisor;
 
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.FilterChainModel;
+import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.PasswordEncoderModel;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
@@ -15,7 +16,7 @@ import org.springframework.core.env.PropertySource;
  */
 record SecurityAdvisorContext(
         List<FilterChainModel> chains,
-        List<String> passwordEncoderTypes,
+        List<PasswordEncoderModel> passwordEncoders,
         List<CorsConfigModel> corsConfigs,
         boolean corsSourcePresent,
         List<String> jwtDecoderTypes,
@@ -28,9 +29,14 @@ record SecurityAdvisorContext(
 
     SecurityAdvisorContext {
         chains = List.copyOf(chains);
-        passwordEncoderTypes = List.copyOf(passwordEncoderTypes);
+        passwordEncoders = List.copyOf(passwordEncoders);
         corsConfigs = List.copyOf(corsConfigs);
         jwtDecoderTypes = List.copyOf(jwtDecoderTypes);
+    }
+
+    /** The fully-qualified type names of the discovered {@code PasswordEncoder} beans. */
+    List<String> passwordEncoderTypes() {
+        return passwordEncoders.stream().map(PasswordEncoderModel::type).toList();
     }
 
     boolean hasFormOrBasicChain() {

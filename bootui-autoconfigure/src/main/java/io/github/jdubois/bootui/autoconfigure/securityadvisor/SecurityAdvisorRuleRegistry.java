@@ -9,6 +9,7 @@ final class SecurityAdvisorRuleRegistry {
             new NoOpPasswordEncoderRule(),
             new WeakPasswordEncoderRule(),
             new MissingPasswordEncoderRule(),
+            new WeakBcryptStrengthRule(),
             new DefaultInMemoryUserRule(),
             new DefaultLoginPageProductionRule(),
             // Authorization
@@ -26,11 +27,14 @@ final class SecurityAdvisorRuleRegistry {
             new SessionCookieSameSiteRule(),
             new SessionTimeoutRule(),
             new BearerTokenStatefulRule(),
+            new ConcurrentSessionControlRule(),
             // Transport & security headers
             new HstsHeaderRule(),
             new FrameOptionsRule(),
             new ContentSecurityPolicyRule(),
             new ContentTypeOptionsRule(),
+            new ReferrerPolicyHeaderRule(),
+            new PermissionsPolicyHeaderRule(),
             // CORS
             new CorsWildcardOriginRule(),
             new CorsWildcardWithCredentialsRule(),
@@ -55,7 +59,8 @@ final class SecurityAdvisorRuleRegistry {
             new H2ConsoleFrameOptionsRule(),
             new WebSecurityConfigurerAdapterRule(),
             new WebIgnoringRule(),
-            new ErrorResponseDisclosureRule());
+            new ErrorResponseDisclosureRule(),
+            new HttpsEnforcementRule());
 
     private SecurityAdvisorRuleRegistry() {}
 

@@ -134,4 +134,14 @@ final class SecurityAdvisorModel {
             return path + " allows origins " + origins;
         }
     }
+
+    /**
+     * One resolved {@code PasswordEncoder} bean: its fully-qualified type plus, when the encoder is a
+     * {@code BCryptPasswordEncoder}, the configured work factor.
+     *
+     * @param bcryptStrength the BCrypt {@code strength} field when it could be read, {@code null}
+     *     otherwise (non-BCrypt encoder or strength not introspectable). A value of {@code -1}
+     *     represents the framework default (effective strength 10).
+     */
+    record PasswordEncoderModel(String type, Integer bcryptStrength) {}
 }

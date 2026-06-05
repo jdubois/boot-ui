@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.FilterChainModel;
+import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.SecurityAdvisorReport;
 import io.github.jdubois.bootui.core.dto.SecurityAdvisorRuleResultDto;
 import java.time.Clock;
@@ -21,7 +22,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityAdvisorScannerTests {
 
-    private static final int RULE_COUNT = 41;
+    private static final int RULE_COUNT = 46;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -72,6 +73,8 @@ class SecurityAdvisorScannerTests {
                         "SEC-CSRF-001",
                         "SEC-SESSION-001",
                         "SEC-HEAD-002",
+                        "SEC-HEAD-005",
+                        "SEC-HEAD-006",
                         "SEC-CORS-002",
                         "SEC-CORS-003",
                         "SEC-ACT-001",
@@ -98,13 +101,16 @@ class SecurityAdvisorScannerTests {
                         "HstsHeaderWriter",
                         "XFrameOptionsHeaderWriter",
                         "XContentTypeOptionsHeaderWriter",
-                        "ContentSecurityPolicyHeaderWriter"));
+                        "ContentSecurityPolicyHeaderWriter",
+                        "ReferrerPolicyHeaderWriter",
+                        "PermissionsPolicyHeaderWriter"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
         SecurityAdvisorContext context = new SecurityAdvisorContext(
                 List.of(chain),
-                List.of("org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder"),
+                List.of(new PasswordEncoderModel(
+                        "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", null)),
                 List.of(),
                 false,
                 List.of(),
@@ -139,7 +145,9 @@ class SecurityAdvisorScannerTests {
                         "HstsHeaderWriter",
                         "XFrameOptionsHeaderWriter",
                         "XContentTypeOptionsHeaderWriter",
-                        "ContentSecurityPolicyHeaderWriter"));
+                        "ContentSecurityPolicyHeaderWriter",
+                        "ReferrerPolicyHeaderWriter",
+                        "PermissionsPolicyHeaderWriter"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
@@ -147,7 +155,8 @@ class SecurityAdvisorScannerTests {
         ConfigurationPropertySources.attach(environment);
         SecurityAdvisorContext context = new SecurityAdvisorContext(
                 List.of(chain),
-                List.of("org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder"),
+                List.of(new PasswordEncoderModel(
+                        "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", null)),
                 List.of(),
                 false,
                 List.of(),
@@ -182,7 +191,9 @@ class SecurityAdvisorScannerTests {
                         "HstsHeaderWriter",
                         "XFrameOptionsHeaderWriter",
                         "XContentTypeOptionsHeaderWriter",
-                        "ContentSecurityPolicyHeaderWriter"));
+                        "ContentSecurityPolicyHeaderWriter",
+                        "ReferrerPolicyHeaderWriter",
+                        "PermissionsPolicyHeaderWriter"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
                 .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui")
@@ -192,7 +203,8 @@ class SecurityAdvisorScannerTests {
         ConfigurationPropertySources.attach(environment);
         SecurityAdvisorContext context = new SecurityAdvisorContext(
                 List.of(chain),
-                List.of("org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder"),
+                List.of(new PasswordEncoderModel(
+                        "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder", null)),
                 List.of(),
                 false,
                 List.of(),
@@ -257,6 +269,151 @@ class SecurityAdvisorScannerTests {
         assertThat(SecurityAdvisorRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
                 .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void flagsBcryptEncoderConfiguredBelowRecommendedStrength() {
+        SecurityAdvisorContext context =
+                hardenedContext(List.of(new PasswordEncoderModel(BCRYPT, 4)), resourceServerEnvironment());
+
+        SecurityAdvisorReport report = new SecurityAdvisorScanner(context, CLOCK).scan();
+
+        assertThat(report.results())
+                .extracting(SecurityAdvisorRuleResultDto::id)
+                .contains("SEC-AUTH-006");
+    }
+
+    @Test
+    void doesNotFlagBcryptEncoderUsingDefaultOrAdequateStrength() {
+        SecurityAdvisorContext context = hardenedContext(
+                List.of(new PasswordEncoderModel(BCRYPT, -1), new PasswordEncoderModel(BCRYPT, 12)),
+                resourceServerEnvironment());
+
+        SecurityAdvisorReport report = new SecurityAdvisorScanner(context, CLOCK).scan();
+
+        assertThat(report.violationsFound()).isZero();
+        assertThat(report.results()).isEmpty();
+    }
+
+    @Test
+    void flagsInteractiveLoginChainWithoutConcurrentSessionControl() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextHolderFilter",
+                        "UsernamePasswordAuthenticationFilter",
+                        "SessionManagementFilter",
+                        "AuthorizationFilter"),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                List.of());
+
+        SecurityAdvisorReport report =
+                new SecurityAdvisorScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
+
+        assertThat(report.results())
+                .extracting(SecurityAdvisorRuleResultDto::id)
+                .contains("SEC-SESSION-007");
+    }
+
+    @Test
+    void doesNotFlagConcurrentSessionControlWhenConfigured() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextHolderFilter",
+                        "UsernamePasswordAuthenticationFilter",
+                        "SessionManagementFilter",
+                        "ConcurrentSessionFilter",
+                        "AuthorizationFilter"),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                List.of());
+
+        SecurityAdvisorReport report =
+                new SecurityAdvisorScanner(contextWith(chain, new MockEnvironment()), CLOCK).scan();
+
+        assertThat(report.results())
+                .extracting(SecurityAdvisorRuleResultDto::id)
+                .doesNotContain("SEC-SESSION-007");
+    }
+
+    @Test
+    void flagsMissingHttpsEnforcementInProduction() {
+        MockEnvironment environment = resourceServerEnvironment();
+        environment.setActiveProfiles("prod");
+        SecurityAdvisorContext context = hardenedContext(List.of(), environment);
+
+        SecurityAdvisorReport report = new SecurityAdvisorScanner(context, CLOCK).scan();
+
+        assertThat(report.results())
+                .extracting(SecurityAdvisorRuleResultDto::id)
+                .contains("SEC-CONFIG-006");
+    }
+
+    @Test
+    void doesNotFlagHttpsEnforcementWhenForwardedHeadersAreConfigured() {
+        MockEnvironment environment = resourceServerEnvironment();
+        environment.setActiveProfiles("prod");
+        environment.withProperty("server.forward-headers-strategy", "framework");
+        SecurityAdvisorContext context = hardenedContext(List.of(), environment);
+
+        SecurityAdvisorReport report = new SecurityAdvisorScanner(context, CLOCK).scan();
+
+        assertThat(report.results())
+                .extracting(SecurityAdvisorRuleResultDto::id)
+                .doesNotContain("SEC-CONFIG-006");
+    }
+
+    private static final String BCRYPT = "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder";
+
+    private static FilterChainModel hardenedChain() {
+        return new FilterChainModel(
+                0,
+                "any request",
+                List.of(
+                        "SecurityContextHolderFilter",
+                        "CsrfFilter",
+                        "HeaderWriterFilter",
+                        "BearerTokenAuthenticationFilter",
+                        "AuthorizationFilter"),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                List.of(
+                        "HstsHeaderWriter",
+                        "XFrameOptionsHeaderWriter",
+                        "XContentTypeOptionsHeaderWriter",
+                        "ContentSecurityPolicyHeaderWriter",
+                        "ReferrerPolicyHeaderWriter",
+                        "PermissionsPolicyHeaderWriter"));
+    }
+
+    private static MockEnvironment resourceServerEnvironment() {
+        return new MockEnvironment()
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com")
+                .withProperty("spring.security.oauth2.resourceserver.jwt.audiences", "bootui");
+    }
+
+    private static SecurityAdvisorContext hardenedContext(
+            List<PasswordEncoderModel> encoders, MockEnvironment environment) {
+        return new SecurityAdvisorContext(
+                List.of(hardenedChain()),
+                encoders,
+                List.of(),
+                false,
+                List.of(),
+                true,
+                false,
+                false,
+                false,
+                environment);
+    }
+
+    private static SecurityAdvisorContext contextWith(FilterChainModel chain, MockEnvironment environment) {
+        return new SecurityAdvisorContext(
+                List.of(chain), List.of(), List.of(), false, List.of(), true, false, false, false, environment);
     }
 
     private static MapPropertySource bootUiActuatorDefaultsPropertySource() {
