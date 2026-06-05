@@ -2,7 +2,7 @@
 import {isPlainObject} from '../utils/format.js'
 import HealthDetails from './HealthDetails.vue'
 
-const props = defineProps({
+defineProps({
   node: {type: Object, required: true},
   depth: {type: Number, default: 0}
 })
