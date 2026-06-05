@@ -759,10 +759,14 @@ Data sources:
 - `Flyway` beans discovered in the application context.
 - Each bean's `Flyway.info().all()` migration metadata (version, description, type, script, state, installed-by,
   installed-on, installed-rank, execution time, checksum).
+- Spring Modulith module identifiers and module-aware Flyway strategy presence, when available, to read the root and
+  module-specific history tables that Spring Modulith derives from a registered `Flyway` bean.
 
 Features:
 
 - List each `Flyway` bean as a database, with its current applied version plus applied and pending counts.
+- When Spring Modulith module-aware Flyway migrations are active, list the root and module-specific Flyway history tables
+  as read-only entries instead of only the registered base Flyway bean.
 - For each migration, show version, description, type, script, state, installed-by, installed-on, execution time, and
   checksum.
 - Allow a confirmed `migrate` action unless the app or Flyway panel is read-only.
@@ -779,6 +783,8 @@ Acceptance criteria:
 - When Flyway is present but no `Flyway` beans exist, the panel shows a clear empty state.
 - Opening the panel only reads already-computed migration metadata; no Flyway command is executed as a side effect.
 - Mutating Flyway actions require browser confirmation and a non-read-only app and panel.
+- Mutating Flyway actions are blocked while Spring Modulith module-aware Flyway is active so BootUI does not bypass
+  Spring Modulith's migration strategy or target the wrong module-specific history table.
 
 ### 5.17.3 Liquibase Panel
 
@@ -1096,8 +1102,8 @@ Initial endpoints:
 | `/bootui/api/hibernate-advisor`              | GET    | Latest Hibernate/JPA advisor report                                                    |
 | `/bootui/api/hibernate-advisor/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
 | `/bootui/api/flyway/migrations`              | GET    | Flyway migration state and action availability per database                            |
-| `/bootui/api/flyway/migrate`                 | POST   | Run pending Flyway migrations only when confirmed and not read-only                    |
-| `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, and not read-only |
+| `/bootui/api/flyway/migrate`                 | POST   | Run pending Flyway migrations only when confirmed, not read-only, and not Modulith-managed |
+| `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, not read-only, and not Modulith-managed |
 | `/bootui/api/liquibase/changesets`           | GET    | Applied/pending Liquibase change sets and action availability per database             |
 | `/bootui/api/liquibase/update`               | POST   | Apply pending Liquibase change sets only when confirmed and not read-only              |
 | `/bootui/api/spring-cache`                   | GET    | Spring Cache managers, caches, metrics, and annotation operations                      |
