@@ -16,34 +16,33 @@ scripts:
   # root npm dependencies used by the VuePress docs. Builds into a per-worktree
   # Maven repository (.m2/ at the worktree root) so concurrent sessions never
   # clash in the shared ~/.m2 registry.
-  #
-  # The extra `spring-boot:help` invocation primes spring-boot-maven-plugin into
-  # the per-worktree .m2/. The sample app declares the plugin without executions
-  # and does not inherit spring-boot-starter-parent, so `install` never resolves
-  # it; without this online prime the later offline `spring-boot:run` in the dev
-  # server fails with "No plugin found for prefix 'spring-boot'".
   - name: Setup
     command: >-
       ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app -am
       -DskipTests install
-      && ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app
-      spring-boot:help
       && npm install
     triggers:
       - session.create
 
   # Spring Boot sample app: the full, bundled BootUI console at /bootui.
-  # Rebuilds the core/autoconfigure/ui/starter modules first (from the
+  # Rebuilds the core/autoconfigure/ui/starter modules first (into the
   # per-worktree .m2/) so the app always reflects local changes, then launches
   # on $COPILOT_PORT -- a free port unique to this session -- so concurrent
   # sessions never collide on the HTTP port. Requires Docker (Spring Boot
   # auto-starts the Postgres/Redis/Ollama Compose services). On startup it logs
   # "BootUI is available at http://localhost:<port>/bootui", which is auto-opened.
+  #
+  # Runs online (no -o) so it is self-healing: if the "Setup" script has not yet
+  # finished populating the per-worktree .m2/ (e.g. launched during or before
+  # Setup, or in a worktree where Setup never ran), Maven downloads whatever is
+  # missing -- such as the spring-boot-dependencies BOM or spring-boot-maven-plugin
+  # -- instead of failing with "Cannot access central in offline mode".
+  # -Dmaven.repo.local=.m2 still keeps the build isolated from the shared ~/.m2.
   - name: Dev server (sample app)
     command: >-
-      ./mvnw -o -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app -am
+      ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app -am
       -DskipTests install
-      && ./mvnw -o -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app
+      && ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app
       -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
       -Dspring-boot.run.arguments=--server.port=$COPILOT_PORT
 
