@@ -235,17 +235,8 @@ public class PanelsController {
     }
 
     private boolean hikariAvailable() {
-        return classPresent("com.zaxxer.hikari.HikariDataSource") && hikariDataSourceBeanPresent();
-    }
-
-    private boolean hikariDataSourceBeanPresent() {
-        try {
-            Class<?> type = ClassUtils.forName(
-                    "com.zaxxer.hikari.HikariDataSource", getClass().getClassLoader());
-            return beanPresent(type);
-        } catch (ClassNotFoundException ex) {
-            return false;
-        }
+        return classPresent("com.zaxxer.hikari.HikariDataSource")
+                && HikariDataSourceDiscovery.hasAny(applicationContext);
     }
 
     private String hikariUnavailableReason() {

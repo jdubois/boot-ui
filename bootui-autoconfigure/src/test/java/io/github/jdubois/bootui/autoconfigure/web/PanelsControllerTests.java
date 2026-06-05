@@ -1,16 +1,20 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import java.util.List;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -159,6 +163,28 @@ class PanelsControllerTests {
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.LIQUIBASE) + ".unavailableReason")
                             .value("No Liquibase beans are available"));
+        }
+    }
+
+    @Test
+    void panelsMarksDatabaseConnectionPoolsAvailableForProxiedHikariDataSource() throws Exception {
+        HikariDataSource target = mock(HikariDataSource.class);
+        ProxyFactory proxyFactory = new ProxyFactory();
+        proxyFactory.setInterfaces(DataSource.class);
+        proxyFactory.setTarget(target);
+        DataSource proxy = (DataSource) proxyFactory.getProxy();
+
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> proxy);
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".available")
+                            .value(true));
         }
     }
 

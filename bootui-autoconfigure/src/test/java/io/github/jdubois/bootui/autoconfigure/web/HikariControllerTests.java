@@ -11,7 +11,9 @@ import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
@@ -44,6 +46,14 @@ class HikariControllerTests {
         return factory;
     }
 
+    private static ListableBeanFactory beanFactoryWithProxiedDataSource(String beanName, DataSource dataSource) {
+        ListableBeanFactory factory = mock(ListableBeanFactory.class);
+        when(factory.getBeanNamesForType(HikariDataSource.class)).thenReturn(new String[0]);
+        when(factory.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {beanName});
+        when(factory.getBean(beanName, DataSource.class)).thenReturn(dataSource);
+        return factory;
+    }
+
     private static HikariDataSource runningDataSource() {
         HikariDataSource dataSource = mock(HikariDataSource.class);
         when(dataSource.getPoolName()).thenReturn("HikariPool-1");
@@ -69,6 +79,13 @@ class HikariControllerTests {
         return dataSource;
     }
 
+    private static DataSource proxyFor(HikariDataSource target) {
+        ProxyFactory proxyFactory = new ProxyFactory();
+        proxyFactory.setInterfaces(DataSource.class);
+        proxyFactory.setTarget(target);
+        return (DataSource) proxyFactory.getProxy();
+    }
+
     @Test
     void poolsReturnsMaskedMetadataAndSnapshot() throws Exception {
         ListableBeanFactory factory = beanFactoryWith("dataSource", runningDataSource());
@@ -91,6 +108,27 @@ class HikariControllerTests {
                 .andExpect(jsonPath("$.pools[0].snapshot.idle").value(2))
                 .andExpect(jsonPath("$.pools[0].snapshot.total").value(5))
                 .andExpect(jsonPath("$.pools[0].snapshot.pending").value(1));
+    }
+
+    @Test
+    void poolsDiscoverWrappedHikariDataSourceProxy() throws Exception {
+        HikariDataSource target = runningDataSource();
+        ListableBeanFactory factory = beanFactoryWithProxiedDataSource("dataSource", proxyFor(target));
+        MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/database-connection-pools/pools"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hikariPresent").value(true))
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.pools[0].beanName").value("dataSource"))
+                .andExpect(jsonPath("$.pools[0].poolName").value("HikariPool-1"))
+                .andExpect(jsonPath("$.pools[0].available").value(true))
+                .andExpect(jsonPath("$.pools[0].snapshot.active").value(3));
+
+        mvc.perform(get("/bootui/api/database-connection-pools/pools/HikariPool-1/snapshot"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(3));
     }
 
     @Test
