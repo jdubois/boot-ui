@@ -1,7 +1,9 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import {viteBundler} from '@vuepress/bundler-vite'
 import {defaultTheme} from '@vuepress/theme-default'
 import {defineUserConfig} from 'vuepress'
+import {inferRoutePath} from 'vuepress/shared'
 import {toDocLink} from './doc-links.js'
 import {createDocsSidebar} from './sidebar.js'
 
@@ -20,7 +22,7 @@ export default defineUserConfig({
     ['meta', {property: 'og:description', content: 'A local-only developer console for Spring Boot 4 applications.'}]
   ],
   bundler: viteBundler(),
-  plugins: [cleanDocsPermalinksPlugin()],
+  plugins: [cleanDocsPermalinksPlugin(), cleanMarkdownDocLinksPlugin()],
   theme: defaultTheme({
     hostname: 'https://www.julien-dubois.com',
     themePlugins: {
@@ -89,4 +91,72 @@ function cleanDocsPermalinksPlugin() {
       }
     }
   }
+}
+
+function cleanMarkdownDocLinksPlugin() {
+  return {
+    name: 'bootui-clean-markdown-doc-links',
+    extendsMarkdown(markdown, app) {
+      const cleanRouteByInferredRoute = createCleanRouteByInferredRoute(app.dir.source())
+      const rawLinkOpenRule =
+        markdown.renderer.rules.link_open ??
+        ((tokens, index, options, _env, self) => self.renderToken(tokens, index, options))
+
+      markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
+        rawLinkOpenRule(tokens, index, options, env, self)
+        rewriteMarkdownDocLink(tokens[index], cleanRouteByInferredRoute)
+        return self.renderToken(tokens, index, options)
+      }
+    }
+  }
+}
+
+function createCleanRouteByInferredRoute(docsRoot) {
+  return listMarkdownFiles(docsRoot).reduce((cleanRouteByInferredRoute, file) => {
+    const normalizedFile = file.replaceAll(path.sep, '/')
+    cleanRouteByInferredRoute.set(inferRoutePath(`/${normalizedFile}`).toLowerCase(), toDocLink(normalizedFile))
+    return cleanRouteByInferredRoute
+  }, new Map())
+}
+
+function listMarkdownFiles(root, directory = '') {
+  return fs.readdirSync(path.join(root, directory), {withFileTypes: true}).flatMap((entry) => {
+    if (entry.name === '.vuepress') {
+      return []
+    }
+
+    const relativePath = path.join(directory, entry.name)
+    if (entry.isDirectory()) {
+      return listMarkdownFiles(root, relativePath)
+    }
+
+    return entry.isFile() && entry.name.endsWith('.md') ? [relativePath] : []
+  })
+}
+
+function rewriteMarkdownDocLink(token, cleanRouteByInferredRoute) {
+  const routeAttrIndex = token.attrIndex('to')
+  const hrefAttrIndex = token.attrIndex('href')
+  const attrIndex = routeAttrIndex >= 0 ? routeAttrIndex : hrefAttrIndex
+
+  if (attrIndex < 0) {
+    return
+  }
+
+  const attr = token.attrs[attrIndex]
+  const cleanRoute = toCleanMarkdownDocRoute(attr[1], cleanRouteByInferredRoute)
+  if (cleanRoute) {
+    attr[1] = cleanRoute
+  }
+}
+
+function toCleanMarkdownDocRoute(route, cleanRouteByInferredRoute) {
+  const match = route.match(/^([^#?]*)([#?].*)?$/)
+  if (!match) {
+    return null
+  }
+
+  const [, pathname, hashAndQuery = ''] = match
+  const cleanRoute = cleanRouteByInferredRoute.get(pathname.toLowerCase())
+  return cleanRoute ? `${cleanRoute}${hashAndQuery}` : null
 }
