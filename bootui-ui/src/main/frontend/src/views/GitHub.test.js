@@ -223,6 +223,18 @@ function connectedReport() {
       }
     ],
     issueBuckets: [{label: 'Open issues', count: 2, tone: 'primary'}],
+    issues: [
+      {
+        number: 7,
+        title: 'Investigate flaky test',
+        author: 'carol',
+        htmlUrl: 'https://github.com/jdubois/boot-ui/issues/7',
+        createdAt: 1780300000000,
+        updatedAt: 1780561800000,
+        comments: 3,
+        labels: ['bug']
+      }
+    ],
     securitySignals: [
       {label: 'Dependabot alerts', status: 'AVAILABLE', count: 0, unavailableReason: null},
       {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null},
@@ -355,6 +367,16 @@ describe('GitHub', () => {
     await flushPromises()
 
     expect(wrapper.find('.details-drawer').exists()).toBe(false)
+
+    await metricButton(wrapper, 'Open issues').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.details-drawer').text()).toContain('1 issue returned by this refresh')
+    expect(wrapper.find('.details-drawer').text()).toContain('#7 Investigate flaky test')
+    expect(wrapper.find('.details-drawer a.github-link-chip').attributes('href')).toBe(
+      'https://github.com/jdubois/boot-ui/issues/7'
+    )
+    expect(wrapper.find('.details-drawer').text()).not.toContain('#42 Add dashboard')
 
     await metricButton(wrapper, 'Workflow failures').trigger('click')
     await flushPromises()

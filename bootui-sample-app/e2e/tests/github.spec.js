@@ -72,6 +72,28 @@ function connectedDashboard() {
       {label: 'Open issues', count: 9, tone: 'primary'},
       {label: 'Bug', count: 2, tone: 'danger'}
     ],
+    issues: [
+      {
+        number: 188,
+        title: 'Flaky Playwright run on slow CI agents',
+        author: 'julien',
+        htmlUrl: 'https://github.com/jdubois/boot-ui/issues/188',
+        createdAt: now - 3 * 24 * 60 * 60 * 1000,
+        updatedAt: now - 35 * 60 * 1000,
+        comments: 4,
+        labels: ['bug', 'ci']
+      },
+      {
+        number: 184,
+        title: 'Document the GitHub issues drawer',
+        author: 'octocat',
+        htmlUrl: 'https://github.com/jdubois/boot-ui/issues/184',
+        createdAt: now - 5 * 24 * 60 * 60 * 1000,
+        updatedAt: now - 4 * 60 * 60 * 1000,
+        comments: 1,
+        labels: ['docs']
+      }
+    ],
     securitySignals: [
       {label: 'Dependabot alerts', status: 'AVAILABLE', count: 0, unavailableReason: null},
       {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null},
@@ -132,6 +154,12 @@ test.describe('GitHub view', () => {
     await expect(drawer).toContainText('Open pull requests')
     await expect(drawer).toContainText('#211 Update implementation plan roadmap')
     await expect(drawer).toContainText('#210 Update GitHub Actions execution drawer')
+
+    // The issues card opens a drawer that lists the actual open issues.
+    await page.getByRole('button', {name: /Open issues/}).click()
+    await expect(drawer).toContainText('Open issues')
+    await expect(drawer).toContainText('#188 Flaky Playwright run on slow CI agents')
+    await expect(drawer).toContainText('#184 Document the GitHub issues drawer')
 
     // The trusted panel reached the live data through the POST refresh endpoint.
     expect(refreshMethod).toBe('POST')

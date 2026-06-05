@@ -38,7 +38,7 @@ class GitHubApiClientTests {
                 [{"number":42,"title":"Add dashboard","draft":false,"html_url":"https://github.com/jdubois/boot-ui/pull/42","updated_at":"2026-06-04T08:30:00Z","user":{"login":"alice"},"labels":[{"name":"feature"}]}]
                 """);
         json("/repos/jdubois/boot-ui/issues", """
-                [{"number":7,"title":"Bug","updated_at":"2026-04-01T08:30:00Z","labels":[]},{"number":8,"pull_request":{},"labels":[]}]
+                [{"number":7,"title":"Bug","user":{"login":"carol"},"comments":3,"html_url":"https://github.com/jdubois/boot-ui/issues/7","created_at":"2026-03-30T08:00:00Z","updated_at":"2026-04-01T08:30:00Z","labels":[]},{"number":8,"pull_request":{},"labels":[]}]
                 """);
         json("/repos/jdubois/boot-ui/actions/runs", """
                 {"workflow_runs":[{"id":9,"workflow_id":100,"name":"Build","display_title":"Run tests","run_number":41,"event":"push","status":"completed","conclusion":"failure","head_branch":"main","triggering_actor":{"login":"alice"},"html_url":"https://github.com/jdubois/boot-ui/actions/runs/9","created_at":"2026-06-04T07:00:00Z","run_started_at":"2026-06-04T07:01:00Z","updated_at":"2026-06-04T07:05:00Z"},{"id":10,"workflow_id":100,"name":"Build","display_title":"Run tests","run_number":42,"event":"push","status":"completed","conclusion":"success","head_branch":"main","triggering_actor":{"login":"alice"},"html_url":"https://github.com/jdubois/boot-ui/actions/runs/10","created_at":"2026-06-04T08:00:00Z","run_started_at":"2026-06-04T08:01:00Z","updated_at":"2026-06-04T08:05:00Z"},{"id":11,"workflow_id":200,"name":"Build","display_title":"Manual release","run_number":9,"event":"workflow_dispatch","status":"completed","conclusion":"timed_out","head_branch":"main","actor":{"login":"bob"},"html_url":"https://github.com/jdubois/boot-ui/actions/runs/11","created_at":"2026-06-03T08:00:00Z","run_started_at":"2026-06-03T08:01:00Z","updated_at":"2026-06-03T08:20:00Z"},{"id":12,"workflow_id":200,"name":"Build","display_title":"Feature branch scan","run_number":8,"event":"push","status":"completed","conclusion":"failure","head_branch":"feature/github-dashboard","actor":{"login":"bob"},"html_url":"https://github.com/jdubois/boot-ui/actions/runs/12","created_at":"2026-06-02T08:00:00Z","run_started_at":"2026-06-02T08:01:00Z","updated_at":"2026-06-02T08:20:00Z"}]}
@@ -110,6 +110,13 @@ class GitHubApiClientTests {
                 .singleElement()
                 .extracting("count")
                 .isEqualTo(1);
+        assertThat(report.issues()).singleElement().satisfies(issue -> {
+            assertThat(issue.number()).isEqualTo(7);
+            assertThat(issue.title()).isEqualTo("Bug");
+            assertThat(issue.author()).isEqualTo("carol");
+            assertThat(issue.comments()).isEqualTo(3);
+            assertThat(issue.htmlUrl()).isEqualTo("https://github.com/jdubois/boot-ui/issues/7");
+        });
         assertThat(report.quotas())
                 .extracting("key")
                 .contains(

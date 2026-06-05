@@ -21,6 +21,7 @@ public record GitHubDashboardReport(
         List<GitHubWorkflowRunDto> workflowRuns,
         List<GitHubWorkflowDto> workflows,
         List<GitHubIssueBucketDto> issueBuckets,
+        List<GitHubIssueDto> issues,
         List<GitHubSecuritySignalDto> securitySignals,
         GitHubCopilotUsageDto copilotUsage,
         List<String> warnings) {}

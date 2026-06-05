@@ -127,6 +127,7 @@ class GitHubDashboardServiceTests {
                     List.of(),
                     List.of(),
                     List.of(),
+                    List.of(),
                     new GitHubCopilotUsageDto(
                             "UNAVAILABLE",
                             null,
