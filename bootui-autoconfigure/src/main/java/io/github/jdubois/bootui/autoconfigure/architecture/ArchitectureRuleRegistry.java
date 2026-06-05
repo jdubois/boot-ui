@@ -36,7 +36,11 @@ final class ArchitectureRuleRegistry {
             new AsyncMethodsShouldHaveSupportedSignaturesRule(),
             new ScheduledMethodsShouldHaveSupportedSignaturesRule(),
             new AsyncShouldNotBeUsedInConfigurationClassesRule(),
-            new NoAopContextCurrentProxyRule());
+            new NoAopContextCurrentProxyRule(),
+            new NoPublicMutableStaticFieldsRule(),
+            new UtilityClassesShouldBeFinalWithPrivateConstructorRule(),
+            new ConfigurationPropertiesShouldBeImmutableRule(),
+            new LayeredArchitectureDirectionRule());
 
     private ArchitectureRuleRegistry() {}
 
