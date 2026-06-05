@@ -1985,7 +1985,17 @@ const copilotSessionDetail = {
 }
 
 const screenshots = [
-  ['overview', 'Overview', 'bootui-overview.png', waitForText('Understand your Spring Boot app')],
+  [
+    'overview',
+    'Overview',
+    'bootui-overview.png',
+    async (page) => {
+      await page.getByText('Understand your Spring Boot app').waitFor()
+      await page.getByRole('button', {name: /Run all scanners/}).click()
+      await page.getByText('6 of 6 scanners scored').waitFor()
+      await page.getByText('1 security alert(s)').waitFor()
+    }
+  ],
   ['github', 'GitHub', 'bootui-github.png', waitForText('Open pull requests')],
   ['health', 'Health', 'bootui-health.png', waitForText('Component tree')],
   [
