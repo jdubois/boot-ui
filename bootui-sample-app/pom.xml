@@ -17,6 +17,7 @@
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
         <spring-ai.version>2.0.0-M8</spring-ai.version>
+        <copilot-sdk.version>1.0.0</copilot-sdk.version>
     </properties>
 
     <dependencyManagement>
@@ -35,6 +36,18 @@
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!--
+            Opt-in: the GitHub Copilot SDK for Java enables BootUI's "Fix with Copilot" capability
+            when present on the classpath. BootUI never depends on it directly; the sample app adds
+            it so the panel is available out of the box. Running a fix additionally requires the
+            GitHub Copilot CLI on the PATH and a resolvable GitHub token.
+        -->
+        <dependency>
+            <groupId>com.github</groupId>
+            <artifactId>copilot-sdk-java</artifactId>
+            <version>${copilot-sdk.version}</version>
         </dependency>
 
         <dependency>
