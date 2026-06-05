@@ -4,7 +4,15 @@ import {fileURLToPath} from 'node:url'
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const hiddenDocs = ['README.md']
-const coreDocs = ['TRY-SAMPLE-APP.md', 'SETUP.md', 'FEATURES.md', 'PROPERTIES.md', 'SPECIFICATION.md', 'PLAN.md']
+const coreDocs = [
+  'TRY-SAMPLE-APP.md',
+  'SETUP.md',
+  'FEATURES.md',
+  'PROPERTIES.md',
+  'REPOSITORY.md',
+  'SPECIFICATION.md',
+  'PLAN.md'
+]
 const checkDocs = [
   'ARCHITECTURE-CHECKS.md',
   'GRAALVM-READINESS-CHECKS.md',
