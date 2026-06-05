@@ -53,7 +53,19 @@ class GraalVmReadinessScannerTests {
                 .allSatisfy(finding -> assertThat(finding.status()).isEqualTo("REVIEW"));
         assertThat(report.findings())
                 .extracting(GraalVmFindingDto::id)
-                .contains("GRAAL-REFLECT-001", "GRAAL-PROXY-001", "GRAAL-RES-001", "GRAAL-SER-001", "GRAAL-NATIVE-001");
+                .contains(
+                        "GRAAL-REFLECT-001",
+                        "GRAAL-REFLECT-002",
+                        "GRAAL-REFLECT-003",
+                        "GRAAL-REFLECT-004",
+                        "GRAAL-PROXY-001",
+                        "GRAAL-RES-001",
+                        "GRAAL-RES-002",
+                        "GRAAL-SERVICE-001",
+                        "GRAAL-SER-001",
+                        "GRAAL-INIT-001",
+                        "GRAAL-NATIVE-001",
+                        "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
                 .isSortedAccordingTo(Comparator.comparingInt(GraalVmReadinessScannerTests::severityRank));
         assertThat(report.severityCounts()).extracting("severity").containsExactly("HIGH", "MEDIUM", "LOW", "INFO");

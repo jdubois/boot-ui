@@ -3,9 +3,14 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitCallTarget;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
+import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.domain.JavaModifier;
+import com.tngtech.archunit.core.domain.JavaStaticInitializer;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import java.util.ArrayList;
@@ -262,5 +267,305 @@ final class NativeAccessCheck extends AbstractArchUnitGraalVmCheck {
                 .dependOnClassesThat()
                 .haveFullyQualifiedName("jdk.internal.misc.Unsafe")
                 .as("Classes should not use native access without native-image configuration");
+    }
+}
+
+/**
+ * Flags dynamic class loading through {@code ClassLoader.loadClass}, which resolves types by name at
+ * run time and therefore cannot be discovered by native-image at build time.
+ */
+final class ClassLoaderUsageCheck extends AbstractArchUnitGraalVmCheck {
+
+    ClassLoaderUsageCheck() {
+        super(
+                new GraalVmCheckDefinition(
+                        "GRAAL-REFLECT-002",
+                        "Dynamic class loading may need reflection metadata",
+                        GraalVmCategory.REFLECTION,
+                        "MEDIUM",
+                        "Detects calls to ClassLoader.loadClass, which load classes by name at run time; native-image cannot discover such types statically.",
+                        "Register the dynamically loaded types under reflection in reachability-metadata.json, or replace ClassLoader.loadClass with direct class literals where possible."));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("ClassLoader.loadClass() is called") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        return "loadClass".equals(target.getName())
+                                && target.getOwner().isAssignableTo(ClassLoader.class);
+                    }
+                })
+                .as("Classes should not load classes by name without reflection metadata");
+    }
+}
+
+/**
+ * Flags deep reflection that bypasses access checks: {@code AccessibleObject.setAccessible} /
+ * {@code trySetAccessible} and {@code MethodHandles.privateLookupIn}. Native-image must be told about
+ * the affected members so they stay reachable and (where written) writable.
+ */
+final class DeepReflectionCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> ACCESSIBLE_METHODS = Set.of("setAccessible", "trySetAccessible");
+
+    DeepReflectionCheck() {
+        super(
+                new GraalVmCheckDefinition(
+                        "GRAAL-REFLECT-003",
+                        "Deep reflection (setAccessible / private lookups) may need reflection metadata",
+                        GraalVmCategory.REFLECTION,
+                        "MEDIUM",
+                        "Detects deep reflection that bypasses access checks: AccessibleObject.setAccessible/trySetAccessible and MethodHandles.privateLookupIn, which native-image must be told about to keep the members reachable.",
+                        "Register the accessed members (with allowWrite where needed) under reflection in reachability-metadata.json and ensure the required module opens are configured; prefer public APIs over deep reflection."));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a deep-reflection method is called") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        String owner = target.getOwner().getName();
+                        String name = target.getName();
+                        if ("java.lang.invoke.MethodHandles".equals(owner)) {
+                            return "privateLookupIn".equals(name);
+                        }
+                        return ACCESSIBLE_METHODS.contains(name)
+                                && target.getOwner().isAssignableTo("java.lang.reflect.AccessibleObject");
+                    }
+                })
+                .as("Classes should not use deep reflection without reflection metadata");
+    }
+}
+
+/**
+ * Flags reflective annotation queries on reflected members ({@code Method} / {@code Field} /
+ * {@code Constructor} / {@code Parameter}). Native-image only retains those annotations when the
+ * element is registered for reflection. Reads on {@code java.lang.Class} are intentionally ignored as
+ * too common to be actionable.
+ */
+final class AnnotationReflectionCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> ANNOTATION_LOOKUPS = Set.of(
+            "getAnnotation",
+            "getAnnotations",
+            "getDeclaredAnnotation",
+            "getDeclaredAnnotations",
+            "getAnnotationsByType",
+            "getDeclaredAnnotationsByType",
+            "isAnnotationPresent");
+
+    AnnotationReflectionCheck() {
+        super(
+                new GraalVmCheckDefinition(
+                        "GRAAL-REFLECT-004",
+                        "Reflective annotation access may need reflection metadata",
+                        GraalVmCategory.REFLECTION,
+                        "LOW",
+                        "Detects reflective annotation queries on reflected members (Method, Field, Constructor, Parameter), whose annotations native-image only retains when the element is registered for reflection.",
+                        "Register the inspected members under reflection in reachability-metadata.json so their annotations are available at run time."));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("annotations are read reflectively") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        if (!ANNOTATION_LOOKUPS.contains(target.getName())) {
+                            return false;
+                        }
+                        JavaClass owner = target.getOwner();
+                        if ("java.lang.Class".equals(owner.getName())) {
+                            return false;
+                        }
+                        return owner.isAssignableTo("java.lang.reflect.AnnotatedElement");
+                    }
+                })
+                .as("Classes should not read annotations from reflected members without reflection metadata");
+    }
+}
+
+/**
+ * Flags {@code ResourceBundle.getBundle}, whose localized {@code .properties} files must be embedded
+ * in the native image (with all locale variants) to be available at run time.
+ */
+final class ResourceBundleCheck extends AbstractArchUnitGraalVmCheck {
+
+    ResourceBundleCheck() {
+        super(
+                new GraalVmCheckDefinition(
+                        "GRAAL-RES-002",
+                        "Resource bundle loading may need resource-bundle metadata",
+                        GraalVmCategory.RESOURCES,
+                        "LOW",
+                        "Detects calls to ResourceBundle.getBundle, whose localized .properties files must be registered so native-image embeds them.",
+                        "Register the bundle base names under bundles in reachability-metadata.json so native-image includes every locale variant."));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("ResourceBundle.getBundle() is called") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        return "getBundle".equals(target.getName())
+                                && "java.util.ResourceBundle"
+                                        .equals(target.getOwner().getName());
+                    }
+                })
+                .as("Classes should not load resource bundles without resource-bundle metadata");
+    }
+}
+
+/**
+ * Flags {@code ServiceLoader.load} / {@code loadInstalled}, which discover providers through
+ * {@code META-INF/services} and reflectively instantiate them — both must be reachable in a native
+ * image.
+ */
+final class ServiceLoaderCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> SERVICE_LOADS = Set.of("load", "loadInstalled");
+
+    ServiceLoaderCheck() {
+        super(
+                new GraalVmCheckDefinition(
+                        "GRAAL-SERVICE-001",
+                        "Service loading may need service metadata",
+                        GraalVmCategory.SERVICE_LOADER,
+                        "LOW",
+                        "Detects calls to ServiceLoader.load, which discover providers via META-INF/services; native-image must reach the provider configuration and reflectively instantiate the implementations.",
+                        "Ensure the META-INF/services provider files are on the classpath and register the provider implementations under reflection in reachability-metadata.json."));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("ServiceLoader.load() is called") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        return SERVICE_LOADS.contains(target.getName())
+                                && "java.util.ServiceLoader"
+                                        .equals(target.getOwner().getName());
+                    }
+                })
+                .as("Classes should not load services without service metadata");
+    }
+}
+
+/**
+ * Flags static initializers that perform file I/O or start threads/processes directly. With
+ * build-time class initialization these side effects run during the native build, capturing
+ * build-time state or failing the build. Detection is limited to side effects emitted directly in the
+ * static initializer (helper methods and lambdas are out of scope).
+ */
+final class BuildTimeInitializationCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> FILE_IO_TYPES = Set.of(
+            "java.io.FileInputStream",
+            "java.io.FileOutputStream",
+            "java.io.FileReader",
+            "java.io.FileWriter",
+            "java.io.RandomAccessFile");
+
+    BuildTimeInitializationCheck() {
+        super(
+                new GraalVmCheckDefinition(
+                        "GRAAL-INIT-001",
+                        "Static initializer I/O or thread starts may break build-time initialization",
+                        GraalVmCategory.BUILD_TIME_INIT,
+                        "LOW",
+                        "Detects static initializers that perform file I/O or start threads/processes directly; with build-time class initialization these run during the native build, capturing build-time state or failing the build.",
+                        "Move the side effect out of the static initializer, or initialize the class at run time (e.g. --initialize-at-run-time=<class>) so the I/O or thread starts when the application runs."));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callCodeUnitWhere(
+                        new DescribedPredicate<JavaCall<?>>("a static initializer performs I/O or starts a thread") {
+                            @Override
+                            public boolean test(JavaCall<?> call) {
+                                if (!(call.getOrigin() instanceof JavaStaticInitializer)) {
+                                    return false;
+                                }
+                                CodeUnitCallTarget target = call.getTarget();
+                                JavaClass owner = target.getOwner();
+                                String ownerName = owner.getName();
+                                String name = target.getName();
+                                if ("start".equals(name) && owner.isAssignableTo(Thread.class)) {
+                                    return true;
+                                }
+                                if ("exec".equals(name) && "java.lang.Runtime".equals(ownerName)) {
+                                    return true;
+                                }
+                                if ("start".equals(name) && "java.lang.ProcessBuilder".equals(ownerName)) {
+                                    return true;
+                                }
+                                if ("java.nio.file.Files".equals(ownerName)) {
+                                    return true;
+                                }
+                                return "<init>".equals(name) && FILE_IO_TYPES.contains(ownerName);
+                            }
+                        })
+                .as("Static initializers should not perform I/O or start threads for build-time initialization");
+    }
+}
+
+/**
+ * Flags application classes that declare {@code native} methods. The JNI entry points and the backing
+ * native library must be configured for the native image.
+ */
+final class NativeMethodCheck implements GraalVmCheck {
+
+    private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
+            "GRAAL-NATIVE-002",
+            "Native method declarations may need JNI configuration",
+            GraalVmCategory.NATIVE_ACCESS,
+            "LOW",
+            "Detects application classes that declare native methods; the JNI entry points and their backing native library must be configured for the native image.",
+            "Provide JNI configuration under jni in reachability-metadata.json and ensure the native library is bundled with and loadable by the native image.");
+
+    @Override
+    public GraalVmCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public GraalVmFindingDto evaluate(GraalVmContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                for (JavaMethod method : javaClass.getMethods()) {
+                    if (method.getModifiers().contains(JavaModifier.NATIVE)) {
+                        count++;
+                        if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+                            samples.add(GraalVmCheckSupport.detail(
+                                    javaClass.getName() + " declares native method " + method.getName() + "()"));
+                        }
+                    }
+                }
+            }
+            if (count == 0) {
+                return GraalVmCheckSupport.ok(DEFINITION);
+            }
+            return GraalVmCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
     }
 }
