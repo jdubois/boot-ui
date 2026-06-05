@@ -4,6 +4,7 @@ import {computed, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
+import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -111,14 +112,14 @@ onMounted(load)
       <button class="btn-close" @click="banner = null"></button>
     </div>
 
-    <div v-if="!flywayPresent" class="alert alert-info">
+    <UnavailableState v-if="!flywayPresent" variant="info">
       Flyway is not on the classpath of this application. Add the <code>flyway-core</code> dependency to see schema
       migrations here.
-    </div>
+    </UnavailableState>
 
-    <div v-else-if="report && report.databases.length === 0" class="alert alert-secondary">
+    <UnavailableState v-else-if="report && report.databases.length === 0">
       Flyway is on the classpath, but no Flyway beans were detected in the application context.
-    </div>
+    </UnavailableState>
 
     <template v-else-if="report">
       <div v-if="readOnly" class="alert alert-warning small">
