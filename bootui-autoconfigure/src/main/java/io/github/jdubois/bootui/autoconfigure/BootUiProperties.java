@@ -33,6 +33,12 @@ public class BootUiProperties {
      */
     private boolean allowNonLocalhost = false;
     /**
+     * Additional Host header values accepted by the loopback safety filter, beyond the built-in
+     * loopback names (localhost, 127.0.0.1, ::1). Used to defend against DNS-rebinding attacks while
+     * still allowing custom local hostnames.
+     */
+    private String[] allowedHosts = {};
+    /**
      * Mask secret-like configuration values.
      */
     private boolean maskSecrets = true;
@@ -147,6 +153,14 @@ public class BootUiProperties {
 
     public void setAllowNonLocalhost(boolean allowNonLocalhost) {
         this.allowNonLocalhost = allowNonLocalhost;
+    }
+
+    public String[] getAllowedHosts() {
+        return allowedHosts;
+    }
+
+    public void setAllowedHosts(String[] allowedHosts) {
+        this.allowedHosts = allowedHosts;
     }
 
     public boolean isMaskSecrets() {

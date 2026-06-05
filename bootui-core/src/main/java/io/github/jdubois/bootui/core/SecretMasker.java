@@ -36,6 +36,14 @@ public final class SecretMasker implements MaskingStrategy {
     }
 
     /**
+     * Returns true when either the property name or the value looks like a secret.
+     */
+    @Override
+    public boolean shouldMask(String propertyName, Object value) {
+        return strategy.shouldMask(propertyName, value);
+    }
+
+    /**
      * Returns the original value or {@link #MASKED_VALUE} when the property is
      * detected as sensitive.
      */
