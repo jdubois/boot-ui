@@ -217,6 +217,7 @@ record HibernateAttributeModel(
     private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
     private static final String CACHE = "org.hibernate.annotations.Cache";
     private static final String COLUMN = "jakarta.persistence.Column";
+    private static final String CONVERT = "jakarta.persistence.Convert";
     private static final String ELEMENT_COLLECTION = "jakarta.persistence.ElementCollection";
     private static final String ENUMERATED = "jakarta.persistence.Enumerated";
     private static final String FETCH = "org.hibernate.annotations.Fetch";
@@ -352,6 +353,10 @@ record HibernateAttributeModel(
 
     boolean hasJoinColumn() {
         return annotation(JOIN_COLUMN) != null || annotation(JOIN_COLUMNS) != null;
+    }
+
+    boolean hasConvertAnnotation() {
+        return annotation(CONVERT) != null;
     }
 
     boolean isLob() {
