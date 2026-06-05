@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted} from 'vue'
+import {computed} from 'vue'
 import {useMemoryReport, formatBytes} from '../../utils/memoryReport.js'
 import {useAutoRefresh} from '../../utils/useAutoRefresh.js'
 
