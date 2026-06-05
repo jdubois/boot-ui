@@ -107,6 +107,10 @@ The local development server runs at <http://127.0.0.1:8090>. Before pushing doc
 npm run docs:build
 ```
 
+GitHub Pages is deployed by `.github/workflows/pages.yml` from the `main` branch. In the repository settings, set
+**Pages > Build and deployment > Source** to **GitHub Actions**; the workflow builds VuePress with the `/boot-ui/` base
+path and publishes the site at <https://jdubois.github.io/boot-ui/>.
+
 ## Setup
 
 ### 1) Prerequisites
