@@ -170,7 +170,8 @@ unavailable, the panel shows an empty state instead of failing.
 The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
 readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs a
 curated set of heuristic checks for constructs that native-image cannot resolve at build time — reflection, dynamic
-proxies, runtime resource loading, serialization, and native access. With the _Include dependencies_ toggle on (the
+class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles, service loading,
+serialization, build-time-initialization side effects, and native access. With the _Include dependencies_ toggle on (the
 default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
 `META-INF/native-image/`. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
 (modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
