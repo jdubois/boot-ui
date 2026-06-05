@@ -651,6 +651,11 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateAdvisorRule
 
     @Override
     HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.hasHibernateCollectionFetchPaginationFix()) {
+            return skipped("Hibernate "
+                    + context.hibernateVersionDisplay()
+                    + " is newer than 7.4, where pagination over collection fetch joins was fixed.");
+        }
         if (context.repositories().isEmpty()) {
             return skipped("No Spring Data repository metadata was detected.");
         }
@@ -1948,6 +1953,11 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateAdv
 
     @Override
     HibernateAdvisorRuleResultDto evaluateRule(HibernateAdvisorContext context) {
+        if (context.hasHibernateCollectionFetchPaginationFix()) {
+            return skipped("Hibernate "
+                    + context.hibernateVersionDisplay()
+                    + " is newer than 7.4, where pagination over collection fetch joins was fixed.");
+        }
         if (!context.isPropertyTrue(
                 "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch",
                 "hibernate.query.fail_on_pagination_over_collection_fetch")) {

@@ -57,7 +57,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 - **Severity**: HIGH
 - **Inspects**: Spring Data JPA `@Query` methods with a `Pageable` parameter and resolvable JPQL `JOIN FETCH` paths.
-- **Fires when**: a paged repository query fetch-joins a mapped collection on the repository domain entity.
+- **Fires when**: Hibernate is 7.4 or earlier (or the runtime version cannot be detected) and a paged repository query
+  fetch-joins a mapped collection on the repository domain entity. The check is skipped for Hibernate versions newer than
+  7.4, where this pagination behavior is fixed.
 - **Why it matters**: collection fetch joins duplicate root rows, so pagination may be applied in memory or require a
   more explicit two-step query plan.
 - **Recommendation**: page root identifiers first, then fetch the required collection graph in a second query inside the
@@ -565,7 +567,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 - **Severity**: MEDIUM
 - **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property.
-- **Fires when**: the property is absent, false, or unparseable.
+- **Fires when**: Hibernate is 7.4 or earlier (or the runtime version cannot be detected) and the property is absent,
+  false, or unparseable. The check is skipped for Hibernate versions newer than 7.4, where pagination over collection
+  fetch joins no longer needs this fail-fast guard.
 - **Why it matters**: by default, if a query uses pagination (`setMaxResults()`) and fetches a collection, Hibernate performs the pagination in memory instead of the database. This silently retrieves the entire result set, causing severe memory and performance issues in production.
 - **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to fail fast during development rather than silently suffering memory exhaustion in production.
 
