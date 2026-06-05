@@ -21,8 +21,10 @@ read those before changing public behavior or visible panel behavior.
 # Backend-only iteration loop (skips the Vue build).
 ./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
 
-# Run the sample app (smoke-test path: http://localhost:8080/bootui).
-./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
+# Fastest sample app launch (smoke-test path: http://localhost:8080/bootui).
+./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+# If offline mode misses a dependency, drop -o once:
+./mvnw -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
 
 # Single test class / single test method.
 ./mvnw -pl bootui-core test -Dtest=SecretMaskerTests
@@ -42,32 +44,33 @@ read those before changing public behavior or visible panel behavior.
 ./mvnw -B -ntp -Prelease clean deploy
 ```
 
-### Inner loop: prefer the reactor over `install`, and isolate worktrees
+### Inner loop: launch the sample app fast, and isolate worktrees
 
-When iterating against the sample app, you do **not** need to `install` the other modules into the local Maven
-repository first. Use the reactor with `-am` (also-make) so Maven builds the upstream modules in the *same* invocation
-and resolves them from their `target/` output instead of `~/.m2`:
+For the fastest sample-app launch, run only the sample module and skip test resources/compilation:
 
 ```bash
-# Run the sample app, rebuilding the modules it depends on in one reactor pass (no install step).
-./mvnw -pl bootui-sample-app -am spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+# If offline mode misses a dependency, drop -o once.
+./mvnw -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+```
 
+Do **not** add `-am` to `spring-boot:run`: Maven applies the goal to every selected reactor project, including the
+parent/core/UI modules, and those modules have no main class. Use `-am` for build/test reactor work instead:
+
+```bash
 # Test the sample app the same way.
 ./mvnw -pl bootui-sample-app -am test
 ```
 
-This is faster than separate `install` runs and avoids stale-artifact bugs. Add `-o` (offline), `-T1C` (parallel
-modules), and/or `-DskipTests` to speed up the loop further; skip the `bootui-ui` frontend build when you have not
-touched the Vue app, since the npm build is the slow part regardless.
-
-When working from **multiple git worktrees in parallel**, avoid `install`: every worktree builds the same
-`com.julien-dubois.bootui:*` version, so installing overwrites the others in the shared `~/.m2/repository`. The reactor
-approach above sidesteps this because nothing is written to the local repo between modules. If you still need hard
-isolation, give each worktree its own local repository:
+When working from **multiple git worktrees in parallel**, avoid a shared `install`: every worktree builds the same
+`com.julien-dubois.bootui:*` version, so installing overwrites the others in the shared `~/.m2/repository`. If you need
+to launch the sample app against local upstream module changes, install into an isolated local repository and run from
+that same repo:
 
 ```bash
 # Per-invocation, or set in a per-worktree (git-ignored) .mvn/maven.config file: -Dmaven.repo.local=.m2
-./mvnw -Dmaven.repo.local=.m2 -pl bootui-sample-app -am spring-boot:run
+./mvnw -Dmaven.repo.local=.m2 -ntp -pl bootui-sample-app -am -DskipTests install
+./mvnw -Dmaven.repo.local=.m2 -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17, which includes the frontend Vitest

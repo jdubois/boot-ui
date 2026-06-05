@@ -30,9 +30,30 @@ fi
 require_command java
 require_command docker
 
-echo "Building BootUI with tests skipped..."
-./mvnw -B -ntp install -DskipTests
+MAVEN_RUN_ARGS=(
+  "-ntp"
+  "-pl"
+  "bootui-sample-app"
+  "-Dmaven.test.skip=true"
+  "spring-boot:run"
+  "-Dspring-boot.run.profiles=dev"
+)
 
 echo "Starting the BootUI sample app with PostgreSQL, Redis, and Ollama."
 echo "First startup may also pull the qwen2.5:0.5b chat model. Open http://localhost:8080/bootui after startup."
-./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
+echo "Trying the offline Maven cache first for the fastest startup."
+set +e
+./mvnw -o "${MAVEN_RUN_ARGS[@]}"
+status=$?
+set -e
+
+if [[ "$status" -eq 0 ]]; then
+  exit 0
+fi
+
+if [[ "$status" -eq 130 || "$status" -eq 143 ]]; then
+  exit "$status"
+fi
+
+echo "Offline launch failed; retrying without -o so Maven can resolve missing artifacts."
+./mvnw "${MAVEN_RUN_ARGS[@]}"
