@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -237,6 +238,111 @@ class ArchitectureRulesTests {
                 .anySatisfy(sample -> assertThat(sample).contains("currentProxy"));
     }
 
+    @Test
+    void noPublicMutableStaticFieldsFlagsPublicNonFinalStaticFields() {
+        ArchitectureRuleResultDto result =
+                evaluate(new NoPublicMutableStaticFieldsRule(), PublicMutableStaticFieldHolder.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-014");
+        assertThat(result.violationCount()).isPositive();
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("counter"));
+    }
+
+    @Test
+    void noPublicMutableStaticFieldsPassesForFinalOrNonPublicStaticFields() {
+        ArchitectureRuleResultDto result = evaluate(new NoPublicMutableStaticFieldsRule(), SafeStaticFieldHolder.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void utilityClassesShouldBeFinalWithPrivateConstructorFlagsInstantiableOrSubclassableUtilities() {
+        ArchitectureRuleResultDto result = evaluate(
+                new UtilityClassesShouldBeFinalWithPrivateConstructorRule(),
+                NonFinalUtility.class,
+                UtilityWithPublicConstructor.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-015");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(
+                        sample -> assertThat(sample).contains("NonFinalUtility").contains("not final"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("UtilityWithPublicConstructor")
+                        .contains("non-private constructor"));
+    }
+
+    @Test
+    void utilityClassesShouldBeFinalWithPrivateConstructorPassesForWellFormedUtilities() {
+        ArchitectureRuleResultDto result =
+                evaluate(new UtilityClassesShouldBeFinalWithPrivateConstructorRule(), WellFormedUtility.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void utilityClassesShouldBeFinalWithPrivateConstructorIgnoresClassesWithInstanceMembers() {
+        ArchitectureRuleResultDto result =
+                evaluate(new UtilityClassesShouldBeFinalWithPrivateConstructorRule(), NotAUtilityClass.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void utilityClassesShouldBeFinalWithPrivateConstructorIgnoresSyntheticStaticMembers() {
+        ArchitectureRuleResultDto result =
+                evaluate(new UtilityClassesShouldBeFinalWithPrivateConstructorRule(), ConstantsHolderWithLambda.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void configurationPropertiesShouldBeImmutableFlagsMutableFields() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ConfigurationPropertiesShouldBeImmutableRule(), MutableConfigurationProperties.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-015");
+        assertThat(result.violationCount()).isPositive();
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("name"));
+    }
+
+    @Test
+    void configurationPropertiesShouldBeImmutablePassesForImmutableRecord() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ConfigurationPropertiesShouldBeImmutableRule(), ImmutableConfigurationProperties.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void layeredArchitectureDirectionFlagsWebDependingDirectlyOnPersistence() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LayeredArchitectureDirectionRule(), LayeredController.class, LayeredRepository.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-016");
+        assertThat(result.violationCount()).isPositive();
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("LayeredRepository"));
+    }
+
+    @Test
+    void layeredArchitectureDirectionPassesForCanonicalWebToServiceToRepositoryChain() {
+        ArchitectureRuleResultDto result = evaluate(
+                new LayeredArchitectureDirectionRule(),
+                CompliantController.class,
+                CompliantService.class,
+                CompliantRepository.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
         return rule.evaluate(
@@ -370,4 +476,118 @@ class ArchitectureRulesTests {
             return AopContext.currentProxy();
         }
     }
+
+    private static class PublicMutableStaticFieldHolder {
+
+        public static int counter = 0;
+    }
+
+    private static class SafeStaticFieldHolder {
+
+        public static final int MAX = 10;
+
+        private static int internal = 0;
+
+        int read() {
+            return internal;
+        }
+    }
+
+    private static class NonFinalUtility {
+
+        private NonFinalUtility() {}
+
+        static int tripled(int value) {
+            return value * 3;
+        }
+    }
+
+    private static final class UtilityWithPublicConstructor {
+
+        public UtilityWithPublicConstructor() {}
+
+        static int doubled(int value) {
+            return value * 2;
+        }
+    }
+
+    private static final class WellFormedUtility {
+
+        private WellFormedUtility() {}
+
+        static int squared(int value) {
+            return value * value;
+        }
+    }
+
+    private static final class NotAUtilityClass {
+
+        static int helper(int value) {
+            return value;
+        }
+
+        int instanceMethod() {
+            return 0;
+        }
+    }
+
+    // Not final and has only a static constant, but a non-capturing lambda makes javac emit a synthetic static
+    // method. The rule must ignore that synthetic method so this constants holder is not treated as a utility class.
+    private static class ConstantsHolderWithLambda {
+
+        static final Runnable ACTION = () -> {};
+    }
+
+    @ConfigurationProperties(prefix = "demo.mutable")
+    private static class MutableConfigurationProperties {
+
+        private String name;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+    }
+
+    @ConfigurationProperties(prefix = "demo.immutable")
+    private record ImmutableConfigurationProperties(String name, int size) {}
+
+    @RestController
+    private static class LayeredController {
+
+        LayeredController(LayeredRepository repository) {
+            this.repository = repository;
+        }
+
+        private final LayeredRepository repository;
+    }
+
+    @Repository
+    private static class LayeredRepository {}
+
+    @RestController
+    private static class CompliantController {
+
+        CompliantController(CompliantService service) {
+            this.service = service;
+        }
+
+        private final CompliantService service;
+    }
+
+    @Service
+    private static class CompliantService {
+
+        CompliantService(CompliantRepository repository) {
+            this.repository = repository;
+        }
+
+        private final CompliantRepository repository;
+    }
+
+    @Repository
+    private static class CompliantRepository {}
 }

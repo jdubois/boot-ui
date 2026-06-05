@@ -41,6 +41,10 @@ class ArchitectureRuleRegistryTests {
                         "ARCH-SPRING-011",
                         "ARCH-SPRING-012",
                         "ARCH-SPRING-013",
-                        "ARCH-SPRING-014");
+                        "ARCH-SPRING-014",
+                        "ARCH-CODE-014",
+                        "ARCH-CODE-015",
+                        "ARCH-SPRING-015",
+                        "ARCH-SPRING-016");
     }
 }

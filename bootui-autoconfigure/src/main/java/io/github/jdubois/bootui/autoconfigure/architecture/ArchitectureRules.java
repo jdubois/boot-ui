@@ -4,10 +4,15 @@ import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predica
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
+import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaConstructor;
+import com.tngtech.archunit.core.domain.JavaField;
+import com.tngtech.archunit.core.domain.JavaMember;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
@@ -83,6 +88,8 @@ final class SpringStereotypes {
     static final String ASYNC = "org.springframework.scheduling.annotation.Async";
     static final String CACHEABLE = "org.springframework.cache.annotation.Cacheable";
     static final String SCHEDULED = "org.springframework.scheduling.annotation.Scheduled";
+    static final String CONFIGURATION_PROPERTIES =
+            "org.springframework.boot.context.properties.ConfigurationProperties";
 
     static final DescribedPredicate<CanBeAnnotated> CONTROLLER_ANNOTATED = annotatedWith(CONTROLLER)
             .or(annotatedWith(REST_CONTROLLER))
@@ -117,6 +124,9 @@ final class SpringStereotypes {
 
     static final DescribedPredicate<CanBeAnnotated> SCHEDULED_ANNOTATED =
             annotatedWith(SCHEDULED).as("annotated with @Scheduled");
+
+    static final DescribedPredicate<CanBeAnnotated> CONFIGURATION_PROPERTIES_ANNOTATED =
+            annotatedWith(CONFIGURATION_PROPERTIES).as("annotated with @ConfigurationProperties");
 
     static final DescribedPredicate<CanBeAnnotated> PROXIED_METHOD_ANNOTATED = TRANSACTIONAL_ANNOTATED
             .or(annotatedWith(ASYNC))
@@ -988,5 +998,207 @@ final class NoAopContextCurrentProxyRule extends AbstractArchitectureRule {
                     }
                 })
                 .as("Classes should not call AopContext.currentProxy()");
+    }
+}
+
+/**
+ * Flags {@code public static} fields that are not {@code final}, which expose shared, globally
+ * reachable mutable state.
+ */
+final class NoPublicMutableStaticFieldsRule extends AbstractArchitectureRule {
+
+    NoPublicMutableStaticFieldsRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-014",
+                        "Classes should not have public mutable static fields",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "MEDIUM",
+                        "Detects public static fields that are not final, which expose shared, globally reachable mutable state.",
+                        "Make the field final so it cannot be reassigned, reduce its visibility, or move the mutable state into a managed bean."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noFields()
+                .that()
+                .areStatic()
+                .and()
+                .areNotFinal()
+                .should()
+                .bePublic()
+                .as("Classes should not have public mutable static fields")
+                .allowEmptyShould(true);
+    }
+}
+
+/**
+ * Flags utility classes (classes that expose only static members) that are not {@code final} or that
+ * allow instantiation through a non-private constructor.
+ */
+final class UtilityClassesShouldBeFinalWithPrivateConstructorRule extends AbstractArchitectureRule {
+
+    UtilityClassesShouldBeFinalWithPrivateConstructorRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-CODE-015",
+                        "Utility classes should be final with a private constructor",
+                        ArchitectureCategory.CODING_PRACTICES,
+                        "LOW",
+                        "Detects classes that expose only static members but are not final or can be instantiated through a non-private constructor.",
+                        "Make utility classes final and give them a single private constructor so they cannot be instantiated or subclassed."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(
+                        new ArchCondition<JavaClass>(
+                                "be final with a private constructor when only static members are exposed") {
+                            @Override
+                            public void check(JavaClass javaClass, ConditionEvents events) {
+                                if (!isUtilityClass(javaClass)) {
+                                    return;
+                                }
+                                if (!javaClass.getModifiers().contains(JavaModifier.FINAL)) {
+                                    events.add(SimpleConditionEvent.violated(
+                                            javaClass, "Utility class " + javaClass.getName() + " is not final"));
+                                }
+                                for (JavaConstructor constructor : javaClass.getConstructors()) {
+                                    if (isSynthetic(constructor)) {
+                                        continue;
+                                    }
+                                    if (!constructor.getModifiers().contains(JavaModifier.PRIVATE)) {
+                                        events.add(SimpleConditionEvent.violated(
+                                                constructor,
+                                                "Utility class " + javaClass.getName()
+                                                        + " has a non-private constructor "
+                                                        + constructor.getFullName()));
+                                    }
+                                }
+                            }
+                        })
+                .as("Utility classes should be final with a private constructor");
+    }
+
+    private static boolean isUtilityClass(JavaClass javaClass) {
+        if (javaClass.isInterface()
+                || javaClass.isEnum()
+                || javaClass.isRecord()
+                || javaClass.isAnonymousClass()
+                || javaClass.isLocalClass()
+                || javaClass.getModifiers().contains(JavaModifier.ABSTRACT)) {
+            return false;
+        }
+        if (SpringStereotypes.STEREOTYPE_ANNOTATED.test(javaClass)) {
+            return false;
+        }
+        boolean hasStaticMethod = false;
+        for (JavaMethod method : javaClass.getMethods()) {
+            if (isSynthetic(method)) {
+                continue; // ignore compiler-generated methods such as lambda bodies or bridges
+            }
+            if (method.getModifiers().contains(JavaModifier.STATIC)) {
+                if (method.getName().equals("main")) {
+                    return false; // application/entry-point classes are not utility classes
+                }
+                hasStaticMethod = true;
+            } else {
+                return false; // an instance method means the class is not a pure utility holder
+            }
+        }
+        if (!hasStaticMethod) {
+            return false;
+        }
+        for (JavaField field : javaClass.getFields()) {
+            if (isSynthetic(field)) {
+                continue; // ignore compiler-generated fields such as the synthetic outer-class reference
+            }
+            if (!field.getModifiers().contains(JavaModifier.STATIC)) {
+                return false; // instance state means the class is not a pure utility holder
+            }
+        }
+        return true;
+    }
+
+    private static boolean isSynthetic(JavaMember member) {
+        return member.getModifiers().contains(JavaModifier.SYNTHETIC)
+                || member.getModifiers().contains(JavaModifier.BRIDGE);
+    }
+}
+
+/**
+ * Flags {@code @ConfigurationProperties} classes whose instance fields are not {@code final}, which
+ * makes their bound configuration mutable. Spring Boot favours immutable configuration through
+ * records or constructor binding.
+ */
+final class ConfigurationPropertiesShouldBeImmutableRule extends AbstractArchitectureRule {
+
+    ConfigurationPropertiesShouldBeImmutableRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-015",
+                        "Configuration properties classes should be immutable",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "INFO",
+                        "Detects @ConfigurationProperties classes with non-final instance fields instead of immutable constructor binding or records.",
+                        "Bind configuration through a record or constructor with final fields so configuration state is immutable; Spring Boot favours immutable @ConfigurationProperties."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return fields().that()
+                .areDeclaredInClassesThat(SpringStereotypes.CONFIGURATION_PROPERTIES_ANNOTATED)
+                .and()
+                .areNotStatic()
+                .should()
+                .beFinal()
+                .as("Configuration properties classes should be immutable")
+                .allowEmptyShould(true);
+    }
+}
+
+/**
+ * Flags dependencies among {@code @Controller} / {@code @RestController}, {@code @Service}, and
+ * {@code @Repository} beans that do not follow the canonical web -&gt; service -&gt; repository
+ * direction.
+ *
+ * <p>This is the holistic, slice-based complement to the individual stereotype dependency rules:
+ * each stereotype layer may be accessed only from itself or the layer immediately above it, so the
+ * dependency graph between the three layers stays directed and downward. Only dependencies whose
+ * source and target are both annotated stereotypes are considered, so plain classes never trigger
+ * a violation.</p>
+ */
+final class LayeredArchitectureDirectionRule extends AbstractArchitectureRule {
+
+    LayeredArchitectureDirectionRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-016",
+                        "Layered architecture dependencies should flow from web to service to repository",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects dependencies among @Controller/@RestController, @Service, and @Repository beans that violate the web -> service -> repository direction.",
+                        "Keep dependencies flowing downward: controllers depend on services, services depend on repositories, and lower layers never depend on higher ones."));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return layeredArchitecture()
+                .consideringOnlyDependenciesInLayers()
+                .withOptionalLayers(true)
+                .layer("Web")
+                .definedBy(SpringStereotypes.CONTROLLER_ANNOTATED)
+                .layer("Service")
+                .definedBy(SpringStereotypes.SERVICE_ANNOTATED)
+                .layer("Persistence")
+                .definedBy(SpringStereotypes.REPOSITORY_ANNOTATED)
+                .whereLayer("Web")
+                .mayOnlyBeAccessedByLayers("Web")
+                .whereLayer("Service")
+                .mayOnlyBeAccessedByLayers("Web", "Service")
+                .whereLayer("Persistence")
+                .mayOnlyBeAccessedByLayers("Service", "Persistence")
+                .as("Layered architecture dependencies should flow from web to service to repository");
     }
 }

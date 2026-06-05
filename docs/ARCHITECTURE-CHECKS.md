@@ -173,6 +173,26 @@ a handful of sample detail lines from ArchUnit.
 - **Recommendation**: move assertions, fixtures, containers, and test helpers to test sources; keep production classes
   independent of test APIs.
 
+### ARCH-CODE-014 — Classes should not have public mutable static fields
+
+- **Severity**: MEDIUM
+- **Inspects**: `public static` fields that are not `final`.
+- **Fires when**: a class exposes a public static field that can be reassigned, creating shared, globally reachable
+  mutable state.
+- **Why it matters**: public mutable static state is hard to reason about, is not thread-safe by default, and couples
+  unrelated code through a hidden global.
+- **Recommendation**: make the field `final` so it cannot be reassigned, reduce its visibility, or move the mutable state
+  into a managed bean.
+
+### ARCH-CODE-015 — Utility classes should be final with a private constructor
+
+- **Severity**: LOW
+- **Inspects**: classes that expose only static members (at least one static method, no instance methods, and no instance
+  fields), excluding interfaces, enums, records, abstract classes, and Spring stereotypes.
+- **Fires when**: such a utility class is not `final`, or it can be instantiated through a non-private constructor.
+- **Recommendation**: make utility classes `final` and give them a single private constructor so they cannot be
+  instantiated or subclassed.
+
 ## Spring stereotypes
 
 ### ARCH-SPRING-001 — Classes should not use field injection
@@ -306,3 +326,28 @@ a handful of sample detail lines from ArchUnit.
 - **Why it matters**: Spring documents this as a discouraged last resort because it couples application code to Spring AOP
   internals and requires proxy exposure.
 - **Recommendation**: refactor to avoid self-invocation, or inject a self-reference when a proxy call is truly required.
+
+### ARCH-SPRING-015 — Configuration properties classes should be immutable
+
+- **Severity**: INFO
+- **Inspects**: non-static instance fields declared in classes annotated with `@ConfigurationProperties`.
+- **Fires when**: a `@ConfigurationProperties` class has a non-`final` instance field, i.e. it relies on mutable setter
+  binding instead of immutable constructor binding.
+- **Why it matters**: Spring Boot favours immutable configuration bound through records or constructors; mutable
+  configuration state can be changed after binding and is harder to reason about.
+- **Recommendation**: bind configuration through a record or a constructor with `final` fields so configuration state is
+  immutable.
+
+### ARCH-SPRING-016 — Layered architecture dependencies should flow from web to service to repository
+
+- **Severity**: MEDIUM
+- **Inspects**: dependencies among `@Controller` / `@RestController` (web), `@Service` (service), and `@Repository`
+  (persistence) beans. Only dependencies whose source and target are both stereotype-annotated are considered, so plain
+  classes never trigger a violation.
+- **Fires when**: a dependency runs against the canonical `web → service → repository` direction — for example a
+  controller depending directly on a repository (skipping the service layer), a repository depending on a service, or any
+  lower layer depending on a higher one.
+- **Why it matters**: this is the holistic, slice-based complement to the individual stereotype dependency rules; keeping
+  the three stereotype layers in a single downward direction preserves a clean, testable layering.
+- **Recommendation**: keep dependencies flowing downward — controllers depend on services, services depend on
+  repositories, and lower layers never depend on higher ones.
