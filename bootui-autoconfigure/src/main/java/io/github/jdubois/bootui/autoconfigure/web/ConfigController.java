@@ -126,7 +126,7 @@ public class ConfigController {
         ValueExposure valueExposure = exposure.valueExposure();
         if (valueExposure == ValueExposure.METADATA_ONLY) {
             displayValue = null;
-        } else if (valueExposure == ValueExposure.MASKED && exposure.maskSecrets() && masker.isSecret(name)) {
+        } else if (valueExposure == ValueExposure.MASKED && exposure.maskSecrets() && masker.shouldMask(name, value)) {
             displayValue = SecretMasker.MASKED_VALUE;
             masked = true;
         }

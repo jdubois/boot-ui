@@ -8,7 +8,9 @@ enum GraalVmCategory {
     REFLECTION("Reflection"),
     PROXIES("Dynamic proxies"),
     RESOURCES("Resources"),
+    SERVICE_LOADER("Service loading"),
     SERIALIZATION("Serialization"),
+    BUILD_TIME_INIT("Build-time initialization"),
     NATIVE_ACCESS("Native access");
 
     private final String label;

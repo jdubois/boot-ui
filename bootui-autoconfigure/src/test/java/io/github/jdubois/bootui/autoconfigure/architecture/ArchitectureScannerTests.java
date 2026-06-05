@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.time.Clock;
@@ -74,6 +75,88 @@ class ArchitectureScannerTests {
         assertThat(report.rulesEvaluated()).isZero();
         assertThat(report.results()).isEmpty();
         assertThat(report.violationsFound()).isZero();
+    }
+
+    @Test
+    void ruleEvaluationWrapsRuntimeExceptionAsErrorResult() {
+        ArchitectureRuleResultDto result = new ThrowingRule().evaluate(null);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.ERROR);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).hasSize(1);
+        assertThat(result.sampleViolations().get(0))
+                .contains("Rule could not be evaluated:")
+                .contains("boom");
+    }
+
+    @Test
+    void ruleEvaluationWrapsLinkageErrorAsErrorResult() {
+        ArchitectureRuleResultDto result = new LinkageErrorRule().evaluate(null);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.ERROR);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations().get(0)).contains("missing");
+    }
+
+    @Test
+    void ruleThatIsNotApplicableSurfacesSkippedStatus() {
+        ArchitectureRuleResultDto result = new NotApplicableRule().evaluate(null);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.SKIPPED);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations().get(0)).contains("not applicable");
+    }
+
+    @Test
+    void everyActiveRuleRoutesThroughTheFailClosedBase() {
+        assertThat(ArchitectureRuleRegistry.activeRules())
+                .allSatisfy(rule -> assertThat(rule).isInstanceOf(AbstractArchitectureRule.class));
+    }
+
+    private static ArchitectureRuleDefinition testRuleDefinition() {
+        return new ArchitectureRuleDefinition(
+                "ARCH-TEST-001",
+                "Deliberately failing test rule",
+                ArchitectureCategory.CODING_PRACTICES,
+                "LOW",
+                "Test-only rule used to exercise the fail-closed base.",
+                "No action required.");
+    }
+
+    private static final class ThrowingRule extends AbstractArchitectureRule {
+
+        ThrowingRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        ArchRule rule(ArchitectureContext context) {
+            throw new IllegalStateException("boom");
+        }
+    }
+
+    private static final class LinkageErrorRule extends AbstractArchitectureRule {
+
+        LinkageErrorRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        ArchRule rule(ArchitectureContext context) {
+            throw new NoClassDefFoundError("missing");
+        }
+    }
+
+    private static final class NotApplicableRule extends AbstractArchitectureRule {
+
+        NotApplicableRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        ArchRule rule(ArchitectureContext context) {
+            return null;
+        }
     }
 
     private static int severityRank(String severity) {

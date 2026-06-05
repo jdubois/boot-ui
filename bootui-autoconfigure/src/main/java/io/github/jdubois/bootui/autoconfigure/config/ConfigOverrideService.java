@@ -110,7 +110,7 @@ public class ConfigOverrideService {
         if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (valueExposure == ValueExposure.MASKED && maskSecrets && masker.isSecret(name)) {
+        if (valueExposure == ValueExposure.MASKED && maskSecrets && masker.shouldMask(name, value)) {
             return SecretMasker.MASKED_VALUE;
         }
         return value == null ? null : String.valueOf(value);

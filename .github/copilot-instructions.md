@@ -130,7 +130,7 @@ the release profile:
 ## Module topology
 
 ```
-bootui-core                  Records (BootUiDtos), SecretMasker, BootUiInfo — no Spring dependency
+bootui-core                  DTO records (core/dto/*), SecretMasker, BootUiInfo — no Spring dependency
 bootui-autoconfigure         BootUiAutoConfiguration, @RestController endpoints, safety filter, config overrides, OSV scanning
 bootui-spring-boot-starter   Drop-in dependency: pulls autoconfigure + ui + spring-boot-starter-web + actuator
 bootui-ui                    Vue 3 + Vite SPA; built into META-INF/resources/bootui/ via frontend-maven-plugin
@@ -152,7 +152,10 @@ never need npm.
   in `bootui.enabled-profiles` (`dev`, `local` by default) or `spring-boot-devtools` on the classpath turns BootUI on.
   `bootui.disabled-profiles` (`prod`, `production`) force-off unless `bootui.enabled=ON`.
 - `LocalhostOnlyFilter` is registered with `Integer.MIN_VALUE` order on `/bootui/*` and `/bootui/api/*` and **fails
-  closed** for non-loopback callers. Opt-out is `bootui.allow-non-localhost=true` only.
+  closed** for non-loopback callers. Beyond the loopback source check it also validates the `Host` header against the
+  built-in loopback names plus `bootui.allowed-hosts` (DNS-rebinding defense) and rejects cross-site state-changing
+  requests via `Origin`/`Sec-Fetch-Site` (CSRF defense that works without Spring Security). Opt-out of all of this is
+  `bootui.allow-non-localhost=true` only.
 - BootUI contributes local Actuator defaults via `BootUiActuatorDefaultsEnvironmentPostProcessor` while active. Host
   `management.*` settings must still win over BootUI defaults.
 - Fail-closed mindset: when ambiguous, BootUI should be **disabled and silent**, not exposed.
@@ -160,8 +163,9 @@ never need npm.
 ## API & DTO conventions
 
 - All endpoints live under `/bootui/api/**`. The browser UI is at `/bootui/` (Vite `base: '/bootui/'`, hash router).
-- Never return raw Actuator descriptors. Map them to records in `io.github.jdubois.bootui.core.BootUiDtos` so the UI
-  binds to a stable shape. Add new DTOs there as nested `record`s, not in feature packages.
+- Never return raw Actuator descriptors. Map them to immutable `record` DTOs in the
+  `io.github.jdubois.bootui.core.dto` package so the UI binds to a stable shape. Add each new DTO as its own
+  standalone `record` file in that package (one record per file), not nested in a shared class or in feature packages.
 - Actuator endpoints are consumed in-process via `ObjectProvider<XxxEndpoint>` (see `BeansController`,
   `LoggersController`). Always handle `getIfAvailable() == null` by returning an empty DTO — Actuator may be partially
   disabled.
@@ -228,7 +232,7 @@ Playwright coverage aligned for:
 ## Frontend conventions
 
 - Vue 3 **Composition API with `<script setup>`**, Vue Router 4 with `createWebHashHistory()`, Bootstrap 5.3 +
-  bootstrap-icons. No TypeScript yet (despite the spec; current code is plain `.js` / `.vue`).
+  bootstrap-icons. The codebase is plain JavaScript (`.js` / `.vue`); there is no TypeScript.
 - API calls use **relative** paths (`fetch('api/overview')`) so they resolve against the `/bootui/` SPA base — do not
   hardcode `/bootui/api/...`.
 - New panel = add a `views/Xxx.vue`, register the route in `src/main/frontend/src/routes.js` with an `icon`, `title`,

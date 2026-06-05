@@ -316,6 +316,22 @@ class DevServicesControllerTests {
         assertThat(warnings).anySatisfy(warning -> assertThat(warning).contains("without a name"));
     }
 
+    @Test
+    void listMasksQueryParameterCredentialsInConnectionDetails() throws Exception {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("queryCredConnectionDetails", QueryCredentialConnectionDetails.class);
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.services[0].connectionDetails.jdbcUrl")
+                        .value("jdbc:mysql://localhost:3306/app?user=alice&password=******"));
+
+        context.close();
+    }
+
     static class SampleConnectionDetails implements ConnectionDetails {
 
         public String getJdbcUrl() {
@@ -324,6 +340,13 @@ class DevServicesControllerTests {
 
         public String getPassword() {
             return "secret";
+        }
+    }
+
+    static class QueryCredentialConnectionDetails implements ConnectionDetails {
+
+        public String getJdbcUrl() {
+            return "jdbc:mysql://localhost:3306/app?user=alice&password=s3cret";
         }
     }
 

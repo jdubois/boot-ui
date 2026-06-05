@@ -10,10 +10,17 @@ final class GraalVmCheckRegistry {
 
     private static final List<GraalVmCheck> ACTIVE_CHECKS = List.of(
             new ReflectionUsageCheck(),
+            new ClassLoaderUsageCheck(),
+            new DeepReflectionCheck(),
+            new AnnotationReflectionCheck(),
             new DynamicProxyCheck(),
             new ResourceAccessCheck(),
+            new ResourceBundleCheck(),
+            new ServiceLoaderCheck(),
             new SerializationCheck(),
-            new NativeAccessCheck());
+            new BuildTimeInitializationCheck(),
+            new NativeAccessCheck(),
+            new NativeMethodCheck());
 
     private GraalVmCheckRegistry() {}
 

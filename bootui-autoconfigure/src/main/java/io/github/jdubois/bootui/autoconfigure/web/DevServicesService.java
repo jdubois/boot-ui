@@ -43,6 +43,11 @@ class DevServicesService {
     private static final Pattern URL_CREDENTIALS =
             Pattern.compile("([a-z][a-z0-9+.-]*://)([^:/@\\s]+):([^@\\s]+)@", Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern URL_QUERY_CREDENTIALS =
+            Pattern.compile("(?i)([?&](?:access[-_]?token|refresh[-_]?token"
+                    + "|id[-_]?token|auth[-_]?token|session[-_]?token|client[-_]?secret|secret[-_]?key|api[-_]?key"
+                    + "|access[-_]?key|password|passwd|passphrase|pwd|secret|token|credential)=)[^&\\s]+");
+
     private final ConfigurableApplicationContext applicationContext;
 
     private final BootUiProperties properties;
@@ -346,15 +351,12 @@ class DevServicesService {
         if (masker.isSecret(key)) {
             return SecretMasker.MASKED_VALUE;
         }
-        if (value instanceof CharSequence text && looksLikeUrlKey(key)) {
-            return URL_CREDENTIALS.matcher(text).replaceAll("$1******@");
+        if (value instanceof CharSequence text) {
+            String masked = URL_CREDENTIALS.matcher(text).replaceAll("$1******@");
+            masked = URL_QUERY_CREDENTIALS.matcher(masked).replaceAll("$1******");
+            return masked;
         }
         return value;
-    }
-
-    private boolean looksLikeUrlKey(String key) {
-        String normalized = key.toLowerCase(Locale.ROOT);
-        return normalized.endsWith("url") || normalized.endsWith("uri") || normalized.endsWith("uris");
     }
 
     private List<DevServicePortDto> composePorts(Object ports) {

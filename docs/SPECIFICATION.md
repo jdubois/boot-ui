@@ -1156,6 +1156,7 @@ Initial properties:
 | `bootui.path`                                | `/bootui`                               | UI base path used by the banner and safety filter; `/bootui` is the supported route.              |
 | `bootui.api-path`                            | `/bootui/api`                           | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`.   |
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
+| `bootui.allowed-hosts`                       | _(empty)_                               | Extra `Host` header values accepted by the loopback filter (DNS-rebinding allow-list).            |
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
 | `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                 |
@@ -1219,6 +1220,9 @@ Rules:
 
 - Bind to local development only.
 - Reject non-loopback requests by default.
+- Validate the `Host` header against the built-in loopback names plus `bootui.allowed-hosts` to defend against
+  DNS-rebinding attacks, and reject cross-site state-changing requests (via `Origin`/`Sec-Fetch-Site`) so mutating
+  endpoints stay protected even when Spring Security is absent.
 - If Spring Security is present while BootUI is active, contribute a highest-precedence `/bootui/**` permit-all security
   chain and log a warning so the developer console stays directly reachable. This must not weaken the localhost-only
   servlet filter unless `bootui.allow-non-localhost=true` is explicitly set.

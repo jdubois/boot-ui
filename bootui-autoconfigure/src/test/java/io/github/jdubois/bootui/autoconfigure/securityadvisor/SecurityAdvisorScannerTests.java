@@ -416,6 +416,94 @@ class SecurityAdvisorScannerTests {
                 List.of(chain), List.of(), List.of(), false, List.of(), true, false, false, false, environment);
     }
 
+    @Test
+    void ruleEvaluationWrapsRuntimeExceptionAsErrorResult() {
+        SecurityAdvisorRuleResultDto result = new ThrowingRule().evaluate(emptyContext());
+
+        assertThat(result.status()).isEqualTo(SecurityAdvisorRuleSupport.ERROR);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).hasSize(1);
+        assertThat(result.sampleViolations().get(0))
+                .contains("Rule could not be evaluated:")
+                .contains("boom");
+    }
+
+    @Test
+    void ruleEvaluationWrapsLinkageErrorAsErrorResult() {
+        SecurityAdvisorRuleResultDto result = new LinkageErrorRule().evaluate(emptyContext());
+
+        assertThat(result.status()).isEqualTo(SecurityAdvisorRuleSupport.ERROR);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations().get(0)).contains("missing");
+    }
+
+    @Test
+    void skippedRuleSurfacesSkippedStatusAndReason() {
+        SecurityAdvisorRuleResultDto result = new SkippingRule().evaluate(emptyContext());
+
+        assertThat(result.status()).isEqualTo(SecurityAdvisorRuleSupport.SKIPPED);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).containsExactly("Not applicable in this context.");
+    }
+
+    @Test
+    void everyActiveRuleRoutesThroughTheFailClosedBase() {
+        assertThat(SecurityAdvisorRuleRegistry.activeRules())
+                .allSatisfy(rule -> assertThat(rule).isInstanceOf(AbstractSecurityAdvisorRule.class));
+    }
+
+    private static SecurityAdvisorContext emptyContext() {
+        return new SecurityAdvisorContext(
+                List.of(), List.of(), List.of(), false, List.of(), false, false, false, false, new MockEnvironment());
+    }
+
+    private static SecurityAdvisorRuleDefinition testRuleDefinition() {
+        return new SecurityAdvisorRuleDefinition(
+                "SEC-TEST-001",
+                "Deliberately failing test rule",
+                SecurityAdvisorCategory.CONFIGURATION,
+                "LOW",
+                "Test-only rule used to exercise the fail-closed base.",
+                "No action required.",
+                null);
+    }
+
+    private static final class ThrowingRule extends AbstractSecurityAdvisorRule {
+
+        ThrowingRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+            throw new IllegalStateException("boom");
+        }
+    }
+
+    private static final class LinkageErrorRule extends AbstractSecurityAdvisorRule {
+
+        LinkageErrorRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+            throw new NoClassDefFoundError("missing");
+        }
+    }
+
+    private static final class SkippingRule extends AbstractSecurityAdvisorRule {
+
+        SkippingRule() {
+            super(testRuleDefinition());
+        }
+
+        @Override
+        SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+            return skipped("Not applicable in this context.");
+        }
+    }
+
     private static MapPropertySource bootUiActuatorDefaultsPropertySource() {
         return new MapPropertySource(
                 "bootUiActuatorEndpointDefaults",

@@ -67,8 +67,9 @@ Review the generated file with the tracing agent, then place it under
 Severity reflects the worst plausible impact if the finding is real, not the likelihood:
 
 - **MEDIUM** — a construct GraalVM cannot resolve at build time that will usually fail at run time without metadata
-  (reflection, dynamic proxies).
-- **LOW** — a construct that often needs extra configuration (runtime resource loading, native access).
+  (reflection, dynamic class loading, deep reflection, dynamic proxies).
+- **LOW** — a construct that often needs extra configuration (runtime resource loading, resource bundles, service
+  loading, reflective annotation access, static-initializer side effects, native access, native methods).
 - **INFO** — an informational prompt that only matters if the type is actually used that way (serialization).
 
 The scan evaluates every registered check, but the panel only lists checks that found something to review. Findings are
@@ -87,6 +88,36 @@ detail lines.
 - **Fires when**: an application class reflectively accesses types that GraalVM cannot resolve at build time.
 - **Recommendation**: register the reflectively accessed types under `reflection` in `reachability-metadata.json`, or
   replace reflection with direct calls. Spring AOT already covers Spring-managed beans.
+
+### GRAAL-REFLECT-002 — Dynamic class loading may need reflection metadata
+
+- **Severity**: MEDIUM
+- **Inspects**: calls to `ClassLoader.loadClass`.
+- **Fires when**: an application class loads a class by name at run time, which native-image cannot resolve at build
+  time.
+- **Recommendation**: register the dynamically loaded types under `reflection` in `reachability-metadata.json`, or
+  replace `ClassLoader.loadClass` with direct class literals where possible.
+
+### GRAAL-REFLECT-003 — Deep reflection (setAccessible / private lookups) may need reflection metadata
+
+- **Severity**: MEDIUM
+- **Inspects**: `AccessibleObject.setAccessible` / `trySetAccessible` and `MethodHandles.privateLookupIn`.
+- **Fires when**: a class uses deep reflection that bypasses access checks, which native-image must be told about to keep
+  the members reachable.
+- **Recommendation**: register the accessed members (with `allowWrite` where needed) under `reflection` in
+  `reachability-metadata.json` and ensure the required module opens are configured; prefer public APIs over deep
+  reflection.
+
+### GRAAL-REFLECT-004 — Reflective annotation access may need reflection metadata
+
+- **Severity**: LOW
+- **Inspects**: reflective annotation queries (`getAnnotation`, `getDeclaredAnnotations`, `isAnnotationPresent`, …) on
+  reflected members (`Method`, `Field`, `Constructor`, `Parameter`). Reads on `java.lang.Class` are intentionally ignored
+  as too common to be actionable.
+- **Fires when**: a class reads annotations from a reflected member whose annotations native-image only retains when the
+  element is registered for reflection.
+- **Recommendation**: register the inspected members under `reflection` in `reachability-metadata.json` so their
+  annotations are available at run time.
 
 ## Proxies
 
@@ -108,6 +139,26 @@ detail lines.
 - **Recommendation**: register the loaded resource paths (as globs) under `resources` in `reachability-metadata.json` so
   native-image bundles them.
 
+### GRAAL-RES-002 — Resource bundle loading may need resource-bundle metadata
+
+- **Severity**: LOW
+- **Inspects**: calls to `ResourceBundle.getBundle`.
+- **Fires when**: a class loads a localized resource bundle whose `.properties` files must be embedded in the native
+  image.
+- **Recommendation**: register the bundle base names under `bundles` in `reachability-metadata.json` so native-image
+  includes every locale variant.
+
+## Service loading
+
+### GRAAL-SERVICE-001 — Service loading may need service metadata
+
+- **Severity**: LOW
+- **Inspects**: calls to `ServiceLoader.load` / `loadInstalled`.
+- **Fires when**: a class discovers providers through `META-INF/services`, which native-image must reach and reflectively
+  instantiate.
+- **Recommendation**: ensure the `META-INF/services` provider files are on the classpath and register the provider
+  implementations under `reflection` in `reachability-metadata.json`.
+
 ## Serialization
 
 ### GRAAL-SER-001 — Serializable types may need serialization metadata
@@ -118,6 +169,19 @@ detail lines.
   serialization metadata.
 - **Recommendation**: if these types are serialized (e.g. via the JDK serialization protocol), register them under
   `serialization` in `reachability-metadata.json`.
+
+## Build-time initialization
+
+### GRAAL-INIT-001 — Static initializer I/O or thread starts may break build-time initialization
+
+- **Severity**: LOW
+- **Inspects**: static initializers that perform file I/O (`java.nio.file.Files`, file streams) or start threads /
+  processes (`Thread.start`, `Runtime.exec`, `ProcessBuilder.start`) directly. Side effects in helper methods or lambdas
+  are out of scope.
+- **Fires when**: a class runs I/O or starts a thread from its static initializer; with build-time class initialization
+  these run during the native build, capturing build-time state or failing the build.
+- **Recommendation**: move the side effect out of the static initializer, or initialize the class at run time (e.g.
+  `--initialize-at-run-time=<class>`) so the I/O or thread starts when the application runs.
 
 ## Native access
 
@@ -130,3 +194,12 @@ detail lines.
   configuration.
 - **Recommendation**: confirm the native libraries are available to the native image and add JNI configuration if
   needed; prefer supported APIs over `Unsafe`.
+
+### GRAAL-NATIVE-002 — Native method declarations may need JNI configuration
+
+- **Severity**: LOW
+- **Inspects**: application classes that declare `native` methods.
+- **Fires when**: a class declares a `native` method whose JNI entry point and backing native library must be configured
+  for the native image.
+- **Recommendation**: provide JNI configuration under `jni` in `reachability-metadata.json` and ensure the native library
+  is bundled with and loadable by the native image.
