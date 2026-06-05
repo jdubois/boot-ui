@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.securityadvisor;
 
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.FilterChainModel;
+import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.SecurityAdvisorRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
@@ -186,6 +187,35 @@ final class DefaultLoginPageProductionRule extends AbstractSecurityAdvisorRule {
         for (FilterChainModel chain : context.chains()) {
             if (chain.hasFilter("DefaultLoginPageGeneratingFilter")) {
                 details.add(chain.describe() + " serves the auto-generated Spring Security login page in production.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class WeakBcryptStrengthRule extends AbstractSecurityAdvisorRule {
+
+    private static final int RECOMMENDED_MINIMUM_STRENGTH = 10;
+
+    WeakBcryptStrengthRule() {
+        super(new SecurityAdvisorRuleDefinition(
+                "SEC-AUTH-006",
+                "BCrypt password encoder should use an adequate work factor",
+                SecurityAdvisorCategory.AUTHENTICATION,
+                "LOW",
+                "Detects a BCryptPasswordEncoder bean configured with a strength below the recommended minimum of 10 (the framework default).",
+                "Use a BCrypt strength of at least 10 (the default) so password hashing stays computationally expensive; raise it as hardware improves, or migrate to Argon2/PBKDF2.",
+                "https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (PasswordEncoderModel encoder : context.passwordEncoders()) {
+            Integer strength = encoder.bcryptStrength();
+            if (strength != null && strength >= 0 && strength < RECOMMENDED_MINIMUM_STRENGTH) {
+                details.add("PasswordEncoder bean " + encoder.type() + " uses BCrypt strength " + strength
+                        + ", below the recommended minimum of " + RECOMMENDED_MINIMUM_STRENGTH + ".");
             }
         }
         return violation(details);
@@ -533,6 +563,35 @@ final class BearerTokenStatefulRule extends AbstractSecurityAdvisorRule {
     }
 }
 
+final class ConcurrentSessionControlRule extends AbstractSecurityAdvisorRule {
+
+    ConcurrentSessionControlRule() {
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-SESSION-007",
+                        "Consider configuring concurrent session control",
+                        SecurityAdvisorCategory.SESSION,
+                        "INFO",
+                        "Detects an interactive form-login chain that maintains sessions but installs no ConcurrentSessionFilter (no maximumSessions limit).",
+                        "Set sessionManagement().maximumSessions(n) so a stolen or shared credential cannot open unlimited concurrent sessions.",
+                        "https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html#ns-concurrent-sessions"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            boolean interactiveLogin = chain.hasFilter("UsernamePasswordAuthenticationFilter")
+                    || chain.hasFilter("DefaultLoginPageGeneratingFilter");
+            if (interactiveLogin && chain.isStateful() && !chain.hasFilterContaining("ConcurrentSession")) {
+                details.add(chain.describe()
+                        + " maintains sessions for an interactive login but configures no concurrent-session control.");
+            }
+        }
+        return violation(details);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Transport & security headers
 // ---------------------------------------------------------------------------
@@ -635,6 +694,60 @@ final class ContentTypeOptionsRule extends AbstractSecurityAdvisorRule {
         for (FilterChainModel chain : context.chains()) {
             if (chain.headerWriterFilterPresent() && !chain.hasHeaderWriterContaining("XContentTypeOptions")) {
                 details.add(chain.describe() + " does not emit X-Content-Type-Options: nosniff.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class ReferrerPolicyHeaderRule extends AbstractSecurityAdvisorRule {
+
+    ReferrerPolicyHeaderRule() {
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-HEAD-005",
+                        "A Referrer-Policy header should be emitted",
+                        SecurityAdvisorCategory.HEADERS,
+                        "LOW",
+                        "Detects chains whose header writers do not emit a Referrer-Policy header (not sent by default).",
+                        "Add a ReferrerPolicyHeaderWriter via headers().referrerPolicy(...) with a policy such as strict-origin-when-cross-origin to limit referrer leakage.",
+                        "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-referrer"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.headerWriterFilterPresent() && !chain.hasHeaderWriterContaining("ReferrerPolicy")) {
+                details.add(chain.describe() + " does not emit a Referrer-Policy header.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class PermissionsPolicyHeaderRule extends AbstractSecurityAdvisorRule {
+
+    PermissionsPolicyHeaderRule() {
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-HEAD-006",
+                        "A Permissions-Policy header should be considered",
+                        SecurityAdvisorCategory.HEADERS,
+                        "INFO",
+                        "Detects chains whose header writers do not emit a Permissions-Policy header (not sent by default).",
+                        "Add a PermissionsPolicyHeaderWriter via headers().permissionsPolicyHeader(...) to restrict powerful browser features the application does not use.",
+                        "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-permissions-policy"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.headerWriterFilterPresent()
+                    && !chain.hasHeaderWriterContaining("PermissionsPolicy")
+                    && !chain.hasHeaderWriterContaining("FeaturePolicy")) {
+                details.add(chain.describe() + " does not emit a Permissions-Policy header.");
             }
         }
         return violation(details);
@@ -1212,5 +1325,46 @@ final class ErrorResponseDisclosureRule extends AbstractSecurityAdvisorRule {
                     "server.error.include-binding-errors=always exposes binding/validation details in error responses.");
         }
         return violation(details);
+    }
+}
+
+final class HttpsEnforcementRule extends AbstractSecurityAdvisorRule {
+
+    HttpsEnforcementRule() {
+        super(
+                new SecurityAdvisorRuleDefinition(
+                        "SEC-CONFIG-006",
+                        "Application should enforce HTTPS in production",
+                        SecurityAdvisorCategory.CONFIGURATION,
+                        "LOW",
+                        "Notes that, while a production profile is active, the application configures no server-side TLS, HTTPS redirect (requiresChannel/ChannelProcessingFilter), or forwarded-header strategy indicating TLS is terminated upstream.",
+                        "Enforce HTTPS via server.ssl.* (or requiresChannel().requiresSecure()), or set server.forward-headers-strategy=framework when TLS is terminated by a proxy so secure cookies and redirects behave correctly.",
+                        "https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.embedded-container.configure-ssl"));
+    }
+
+    @Override
+    SecurityAdvisorRuleResultDto evaluateRule(SecurityAdvisorContext context) {
+        if (!context.isProductionProfileActive() || isTlsHandled(context)) {
+            return pass();
+        }
+        return violation(
+                List.of(
+                        "No server-side TLS, HTTPS redirect, or forwarded-header strategy is configured while a production profile is active."));
+    }
+
+    private boolean isTlsHandled(SecurityAdvisorContext context) {
+        if (context.isPropertyTrue("server.ssl.enabled")
+                || context.firstProperty("server.ssl.key-store") != null
+                || context.firstProperty("server.ssl.bundle") != null
+                || context.firstProperty("server.ssl.certificate") != null) {
+            return true;
+        }
+        String forwarded = context.firstProperty("server.forward-headers-strategy");
+        if (forwarded != null && ("framework".equalsIgnoreCase(forwarded) || "native".equalsIgnoreCase(forwarded))) {
+            return true;
+        }
+        return context.chains().stream()
+                .anyMatch(
+                        chain -> chain.hasFilter("ChannelProcessingFilter") || chain.hasFilter("HttpsRedirectFilter"));
     }
 }

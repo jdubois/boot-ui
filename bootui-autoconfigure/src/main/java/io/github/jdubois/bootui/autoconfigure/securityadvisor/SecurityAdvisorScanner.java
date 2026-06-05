@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.securityadvisor;
 
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.FilterChainModel;
+import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.SecurityAdvisorReport;
 import io.github.jdubois.bootui.core.dto.SecurityAdvisorRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityAdvisorScanStatusDto;
@@ -193,8 +194,7 @@ final class SecurityAdvisorScanner {
         }
 
         ListableBeanFactory beanFactory = beanFactories.getIfAvailable();
-        List<String> passwordEncoderTypes =
-                beanTypeNames(beanFactory, "org.springframework.security.crypto.password.PasswordEncoder");
+        List<PasswordEncoderModel> passwordEncoders = discoverPasswordEncoders(beanFactory);
         List<String> jwtDecoderTypes = beanTypeNames(beanFactory, "org.springframework.security.oauth2.jwt.JwtDecoder");
         List<CorsConfigModel> corsConfigs = new ArrayList<>();
         boolean corsSourcePresent = discoverCors(beanFactory, corsConfigs, errors);
@@ -218,7 +218,7 @@ final class SecurityAdvisorScanner {
 
         SecurityAdvisorContext context = new SecurityAdvisorContext(
                 chains,
-                passwordEncoderTypes,
+                passwordEncoders,
                 corsConfigs,
                 corsSourcePresent,
                 jwtDecoderTypes,
@@ -525,6 +525,42 @@ final class SecurityAdvisorScanner {
             return '\0';
         }
         return null;
+    }
+
+    private static final String PASSWORD_ENCODER_CLASS = "org.springframework.security.crypto.password.PasswordEncoder";
+
+    private static List<PasswordEncoderModel> discoverPasswordEncoders(ListableBeanFactory beanFactory) {
+        if (beanFactory == null) {
+            return List.of();
+        }
+        Class<?> type = classForName(PASSWORD_ENCODER_CLASS);
+        if (type == null) {
+            return List.of();
+        }
+        Map<String, ?> beans;
+        try {
+            beans = beanFactory.getBeansOfType(type);
+        } catch (RuntimeException | LinkageError ex) {
+            return beanTypeNames(beanFactory, PASSWORD_ENCODER_CLASS).stream()
+                    .map(name -> new PasswordEncoderModel(name, null))
+                    .toList();
+        }
+        List<PasswordEncoderModel> models = new ArrayList<>();
+        for (Object encoder : beans.values()) {
+            if (encoder == null) {
+                continue;
+            }
+            models.add(new PasswordEncoderModel(encoder.getClass().getName(), bcryptStrength(encoder)));
+        }
+        return models;
+    }
+
+    private static Integer bcryptStrength(Object encoder) {
+        if (!encoder.getClass().getName().contains("BCryptPasswordEncoder")) {
+            return null;
+        }
+        Object value = readField(encoder, "strength");
+        return (value instanceof Integer strength) ? strength : null;
     }
 
     private static List<String> beanTypeNames(ListableBeanFactory beanFactory, String className) {

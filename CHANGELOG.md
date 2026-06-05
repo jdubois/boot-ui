@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- Security Advisor: five new Spring Security hardening checks — BCrypt work-factor floor
+  (`SEC-AUTH-006`), Referrer-Policy and Permissions-Policy headers (`SEC-HEAD-005`/`SEC-HEAD-006`),
+  concurrent session control (`SEC-SESSION-007`), and HTTPS enforcement in production
+  (`SEC-CONFIG-006`), with matching entries in `docs/SECURITY-ADVISOR-CHECKS.md`.
+
 ## [1.0.0] - 2026-06-05
 
 First stable BootUI release, focused on promoting the current local developer-console surface to `1.0.0`, adding the

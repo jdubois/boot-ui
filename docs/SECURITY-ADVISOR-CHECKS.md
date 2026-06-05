@@ -70,6 +70,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Provide a custom login page via formLogin().loginPage(...) for production so the unstyled default page (which advertises the Spring Security stack) is not served.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/form.html>
 
+### SEC-AUTH-006 - BCrypt password encoder should use an adequate work factor
+
+- **Severity**: LOW
+- **Detects**: Detects a BCryptPasswordEncoder bean configured with a strength below the recommended minimum of 10 (the framework default).
+- **Recommendation**: Use a BCrypt strength of at least 10 (the default) so password hashing stays computationally expensive; raise it as hardware improves, or migrate to Argon2/PBKDF2.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
+
 ## Authorization
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
@@ -160,6 +167,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Configure sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS) to avoid creating HTTP sessions for REST API calls.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-stateless>
 
+### SEC-SESSION-007 - Consider configuring concurrent session control
+
+- **Severity**: INFO
+- **Detects**: Detects an interactive form-login chain that maintains sessions but installs no ConcurrentSessionFilter (no maximumSessions limit).
+- **Recommendation**: Set sessionManagement().maximumSessions(n) so a stolen or shared credential cannot open unlimited concurrent sessions.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html#ns-concurrent-sessions>
+
 ## Transport & security headers
 
 ### SEC-HEAD-001 - HTTP Strict Transport Security should be emitted
@@ -189,6 +203,20 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects chains whose header writers omit X-Content-Type-Options: nosniff.
 - **Recommendation**: Keep the default XContentTypeOptionsHeaderWriter so browsers do not MIME-sniff responses.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-content-type-options>
+
+### SEC-HEAD-005 - A Referrer-Policy header should be emitted
+
+- **Severity**: LOW
+- **Detects**: Detects chains whose header writers do not emit a Referrer-Policy header (not sent by default).
+- **Recommendation**: Add a ReferrerPolicyHeaderWriter via headers().referrerPolicy(...) with a policy such as strict-origin-when-cross-origin to limit referrer leakage.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-referrer>
+
+### SEC-HEAD-006 - A Permissions-Policy header should be considered
+
+- **Severity**: INFO
+- **Detects**: Detects chains whose header writers do not emit a Permissions-Policy header (not sent by default).
+- **Recommendation**: Add a PermissionsPolicyHeaderWriter via headers().permissionsPolicyHeader(...) to restrict powerful browser features the application does not use.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-permissions-policy>
 
 ## CORS
 
@@ -339,3 +367,10 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects server.error.include-stacktrace / include-message / include-binding-errors set to 'always', which exposes internal details in error responses.
 - **Recommendation**: Use 'never' (or 'on_param') for include-stacktrace and keep include-message / include-binding-errors at 'never' in production to avoid information disclosure.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling>
+
+### SEC-CONFIG-006 - Application should enforce HTTPS in production
+
+- **Severity**: LOW
+- **Detects**: Notes that, while a production profile is active, the application configures no server-side TLS, HTTPS redirect (requiresChannel/ChannelProcessingFilter), or forwarded-header strategy indicating TLS is terminated upstream.
+- **Recommendation**: Enforce HTTPS via server.ssl.* (or requiresChannel().requiresSecure()), or set server.forward-headers-strategy=framework when TLS is terminated by a proxy so secure cookies and redirects behave correctly.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.embedded-container.configure-ssl>
