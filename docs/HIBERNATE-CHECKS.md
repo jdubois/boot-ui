@@ -41,14 +41,18 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: prefer `LAZY` mappings and fetch required data explicitly with joins, entity graphs, DTO
   projections, or targeted collection-value queries.
 
-### HIB-FETCH-002 - Batch fetching should be configured for association-heavy models
+### HIB-FETCH-002 - Batch fetching should cover lazy secondary-select associations
 
 - **Severity**: INFO
-- **Inspects**: association mappings, `hibernate.default_batch_fetch_size` / Spring's
-  `spring.jpa.properties.hibernate.default_batch_fetch_size`, and `@org.hibernate.annotations.BatchSize`.
-- **Fires when**: associations are mapped but no global batch-fetch size or local `@BatchSize` annotation is detected.
-- **Why it matters**: lazy associations without batch fetching can produce N+1 select patterns when iterated.
-- **Recommendation**: set a bounded global batch-fetch size or apply `@BatchSize` to high-traffic associations.
+- **Inspects**: lazy to-one and collection mappings, `hibernate.default_batch_fetch_size` / Spring's
+  `spring.jpa.properties.hibernate.default_batch_fetch_size`, association-level `@org.hibernate.annotations.BatchSize`,
+  and target-entity `@BatchSize` for lazy to-one associations.
+- **Fires when**: a lazy association can initialize through secondary selects and no global or applicable local batch
+  fetch size is detected.
+- **Why it matters**: lazy associations without batch fetching can produce N+1 select patterns when the same association
+  is traversed across multiple owner rows.
+- **Recommendation**: set a bounded global batch-fetch size or targeted `@BatchSize` for associations traversed across
+  multiple owners; use explicit fetch plans or paged/filtered queries for a single oversized collection.
 
 ### HIB-FETCH-003 - Collection fetch joins should not be paged directly
 

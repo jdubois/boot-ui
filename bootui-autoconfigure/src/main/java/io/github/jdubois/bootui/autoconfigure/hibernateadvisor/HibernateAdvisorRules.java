@@ -4,8 +4,10 @@ import io.github.jdubois.bootui.core.dto.HibernateAdvisorRuleResultDto;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,6 +46,35 @@ abstract class AbstractHibernateAdvisorRule implements HibernateAdvisorRule {
 
     HibernateAdvisorRuleResultDto violation(List<String> details) {
         return details.isEmpty() ? pass() : HibernateAdvisorRuleSupport.violation(definition, details);
+    }
+}
+
+final class HibernateAdvisorRuleModelSupport {
+
+    private HibernateAdvisorRuleModelSupport() {}
+
+    static Map<String, HibernateEntityModel> entitiesByJavaType(List<HibernateEntityModel> entities) {
+        Map<String, HibernateEntityModel> byJavaType = new LinkedHashMap<>();
+        for (HibernateEntityModel entity : entities) {
+            if (entity.javaType() != null) {
+                byJavaType.put(entity.javaType().getName(), entity);
+            }
+        }
+        return byJavaType;
+    }
+
+    static Class<?> associationTargetType(HibernateAttributeModel attribute) {
+        if (attribute.isCollectionAssociation()) {
+            java.lang.reflect.Type generic = attribute.genericType();
+            if (generic instanceof java.lang.reflect.ParameterizedType parameterized) {
+                java.lang.reflect.Type[] args = parameterized.getActualTypeArguments();
+                if (args.length > 0 && args[args.length - 1] instanceof Class<?> raw) {
+                    return raw;
+                }
+            }
+            return null;
+        }
+        return attribute.rawType();
     }
 }
 
@@ -533,11 +564,11 @@ final class MissingBatchFetchRule extends AbstractHibernateAdvisorRule {
         super(
                 new HibernateAdvisorRuleDefinition(
                         "HIB-FETCH-002",
-                        "Batch fetching should be configured for association-heavy models",
+                        "Batch fetching should cover lazy secondary-select associations",
                         HibernateAdvisorCategory.FETCHING,
                         "INFO",
-                        "Detects mapped associations with no global hibernate.default_batch_fetch_size and no @BatchSize.",
-                        "Set a bounded hibernate.default_batch_fetch_size or add @BatchSize to high-traffic associations to reduce N+1 select risk.",
+                        "Detects lazy to-one and collection associations that can initialize through secondary selects without hibernate.default_batch_fetch_size or an applicable @BatchSize.",
+                        "Set a bounded hibernate.default_batch_fetch_size or targeted @BatchSize for associations traversed across multiple owner rows; use explicit fetch plans or paged queries for a single oversized collection.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-batch"));
     }
 
@@ -546,15 +577,57 @@ final class MissingBatchFetchRule extends AbstractHibernateAdvisorRule {
         if (!context.hasAssociations()) {
             return skipped("No mapped associations were detected.");
         }
-        if (context.defaultBatchFetchSize() != null || context.hasBatchSizeAnnotation()) {
+        if (context.defaultBatchFetchSize() != null) {
             return pass();
         }
-        return HibernateAdvisorRuleSupport.result(
-                definition(),
-                HibernateAdvisorRuleSupport.VIOLATION,
-                context.associationCount(),
-                List.of(context.associationCount()
-                        + " mapped association(s) were detected without a global batch-fetch size or @BatchSize."));
+        Map<String, HibernateEntityModel> entitiesByJavaType =
+                HibernateAdvisorRuleModelSupport.entitiesByJavaType(context.entities());
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (!isBatchFetchCandidate(attribute) || isCoveredByBatchSize(attribute, entitiesByJavaType)) {
+                    continue;
+                }
+                details.add(
+                        attribute.description()
+                                + " can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.");
+            }
+        }
+        return violation(details);
+    }
+
+    private boolean isBatchFetchCandidate(HibernateAttributeModel attribute) {
+        Annotation association = attribute.associationAnnotation();
+        if (association == null || hasNonBatchFetchMode(attribute)) {
+            return false;
+        }
+        String fetch = attribute.annotationValueName(association, "fetch");
+        if ("EAGER".equals(fetch)) {
+            return false;
+        }
+        return attribute.isCollectionAssociation() || (attribute.isToOneAssociation() && "LAZY".equals(fetch));
+    }
+
+    private boolean hasNonBatchFetchMode(HibernateAttributeModel attribute) {
+        Annotation fetch = attribute.fetchAnnotation();
+        if (fetch == null) {
+            return false;
+        }
+        String mode = attribute.annotationValueName(fetch, "value");
+        return "JOIN".equals(mode) || "SUBSELECT".equals(mode);
+    }
+
+    private boolean isCoveredByBatchSize(
+            HibernateAttributeModel attribute, Map<String, HibernateEntityModel> entitiesByJavaType) {
+        if (attribute.hasBatchSizeAnnotation()) {
+            return true;
+        }
+        if (!attribute.isToOneAssociation()) {
+            return false;
+        }
+        Class<?> targetType = HibernateAdvisorRuleModelSupport.associationTargetType(attribute);
+        HibernateEntityModel target = targetType == null ? null : entitiesByJavaType.get(targetType.getName());
+        return target != null && target.hasBatchSizeAnnotation();
     }
 }
 
@@ -1765,12 +1838,8 @@ final class CacheAssociationCoverageRule extends AbstractHibernateAdvisorRule {
         if (context.entities().isEmpty()) {
             return pass();
         }
-        java.util.Map<String, HibernateEntityModel> byJavaType = new java.util.HashMap<>();
-        for (HibernateEntityModel entity : context.entities()) {
-            if (entity.javaType() != null) {
-                byJavaType.put(entity.javaType().getName(), entity);
-            }
-        }
+        Map<String, HibernateEntityModel> byJavaType =
+                HibernateAdvisorRuleModelSupport.entitiesByJavaType(context.entities());
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             if (!entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation()) {
@@ -1783,7 +1852,7 @@ final class CacheAssociationCoverageRule extends AbstractHibernateAdvisorRule {
                 if (attribute.hasHibernateCacheAnnotation()) {
                     continue;
                 }
-                Class<?> targetType = associationTargetType(attribute);
+                Class<?> targetType = HibernateAdvisorRuleModelSupport.associationTargetType(attribute);
                 if (targetType == null) {
                     continue;
                 }
@@ -1797,20 +1866,6 @@ final class CacheAssociationCoverageRule extends AbstractHibernateAdvisorRule {
             }
         }
         return violation(details);
-    }
-
-    private Class<?> associationTargetType(HibernateAttributeModel attribute) {
-        if (attribute.isCollectionAssociation()) {
-            java.lang.reflect.Type generic = attribute.genericType();
-            if (generic instanceof java.lang.reflect.ParameterizedType parameterized) {
-                java.lang.reflect.Type[] args = parameterized.getActualTypeArguments();
-                if (args.length > 0 && args[args.length - 1] instanceof Class<?> raw) {
-                    return raw;
-                }
-            }
-            return null;
-        }
-        return attribute.rawType();
     }
 }
 

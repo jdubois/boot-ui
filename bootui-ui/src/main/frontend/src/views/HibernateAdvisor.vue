@@ -145,6 +145,13 @@ onMounted(loadReport)
         </button>
       </template>
     </PanelHeader>
+    <div class="alert alert-info d-flex align-items-start gap-2">
+      <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+      <div>
+        Many of those rules are best practices from Vlad Mihalcea, who reviewed the code himself - join him at
+        <a href="https://vladmihalcea.com" rel="noopener noreferrer" target="_blank">https://vladmihalcea.com</a>
+      </div>
+    </div>
     <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>
 
     <template v-if="report">

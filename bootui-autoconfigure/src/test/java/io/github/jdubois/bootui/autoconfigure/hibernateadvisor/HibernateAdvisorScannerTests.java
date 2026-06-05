@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorReport;
+import io.github.jdubois.bootui.core.dto.HibernateAdvisorRuleResultDto;
 import jakarta.persistence.Basic;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
@@ -38,6 +39,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.Cache;
 import org.hibernate.annotations.CacheConcurrencyStrategy;
 import org.hibernate.annotations.DynamicUpdate;
@@ -282,6 +284,55 @@ class HibernateAdvisorScannerTests {
     }
 
     @Test
+    void missingBatchFetchReportsLazySecondarySelectAssociations() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.open-in-view", "false");
+        HibernateAdvisorScanner scanner = scanner(environment, BatchFetchRiskOrder.class);
+
+        HibernateAdvisorReport report = scanner.scan();
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-FETCH-002"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.violationCount()).isEqualTo(3);
+                    assertThat(result.sampleViolations())
+                            .contains(
+                                    BatchFetchRiskOrder.class.getName()
+                                            + "#customer can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.",
+                                    BatchFetchRiskOrder.class.getName()
+                                            + "#lineItems can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.",
+                                    BatchFetchRiskOrder.class.getName()
+                                            + "#tags can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.");
+                    assertThat(result.sampleViolations()).noneMatch(sample -> sample.contains("#defaultEagerCustomer"));
+                });
+    }
+
+    @Test
+    void missingBatchFetchHonorsLocalAndTargetBatchSizeAnnotations() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.open-in-view", "false");
+        HibernateAdvisorScanner scanner =
+                scanner(environment, List.of(), CoveredBatchFetchOrder.class, BatchSizedCustomer.class);
+
+        HibernateAdvisorReport report = scanner.scan();
+
+        assertThat(report.results())
+                .extracting(HibernateAdvisorRuleResultDto::id)
+                .doesNotContain("HIB-FETCH-002");
+    }
+
+    @Test
+    void missingBatchFetchIgnoresDefaultEagerToOneAssociations() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.open-in-view", "false");
+        HibernateAdvisorScanner scanner = scanner(environment, DefaultEagerToOneOrder.class);
+
+        HibernateAdvisorReport report = scanner.scan();
+
+        assertThat(report.results())
+                .extracting(HibernateAdvisorRuleResultDto::id)
+                .doesNotContain("HIB-FETCH-002");
+    }
+
+    @Test
     void scanReturnsStableDisabledReportWhenNoEntitiesAreAvailable() {
         HibernateAdvisorScanner scanner = new HibernateAdvisorScanner(List.of(), new MockEnvironment(), CLOCK);
 
@@ -430,6 +481,60 @@ class HibernateAdvisorScannerTests {
 
         @OneToMany
         List<UncachedAssociation> details;
+    }
+
+    @Entity
+    static class BatchFetchRiskOrder {
+
+        @Id
+        Long id;
+
+        @ManyToOne(fetch = FetchType.LAZY)
+        Customer customer;
+
+        @ManyToOne
+        Customer defaultEagerCustomer;
+
+        @OneToMany
+        List<LineItem> lineItems;
+
+        @ManyToMany
+        Set<Tag> tags;
+    }
+
+    @Entity
+    static class CoveredBatchFetchOrder {
+
+        @Id
+        Long id;
+
+        @ManyToOne(fetch = FetchType.LAZY)
+        BatchSizedCustomer customer;
+
+        @OneToMany
+        @BatchSize(size = 16)
+        List<LineItem> lineItems;
+    }
+
+    @Entity
+    @BatchSize(size = 32)
+    static class BatchSizedCustomer {
+
+        @Id
+        Long id;
+    }
+
+    @Entity
+    static class DefaultEagerToOneOrder {
+
+        @Id
+        Long id;
+
+        @ManyToOne
+        Customer customer;
+
+        @OneToOne
+        Profile profile;
     }
 
     @Entity
