@@ -7,8 +7,8 @@ actions:
   - text: Explore features
     link: /features
     type: primary
-  - text: View configuration
-    link: /properties
+  - text: Super easy setup
+    link: /setup
     type: secondary
 features:
   - title: Runtime observability
