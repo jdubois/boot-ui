@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.securityadvisor;
 
+import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.FilterChainModel;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorModel.PasswordEncoderModel;
@@ -25,8 +26,6 @@ record SecurityAdvisorContext(
         boolean methodSecurityAnnotationsPresent,
         boolean webSecurityConfigurerAdapterPresent,
         Environment environment) {
-    private static final String BOOTUI_ACTUATOR_DEFAULTS_PROPERTY_SOURCE = "bootUiActuatorEndpointDefaults";
-
     SecurityAdvisorContext {
         chains = List.copyOf(chains);
         passwordEncoders = List.copyOf(passwordEncoders);
@@ -103,12 +102,20 @@ record SecurityAdvisorContext(
             if (text.isBlank()) {
                 continue;
             }
-            if (BOOTUI_ACTUATOR_DEFAULTS_PROPERTY_SOURCE.equals(propertySource.getName())) {
-                return null;
+            if (isBootUiActuatorDefault(propertySource, key, text)) {
+                continue;
             }
             return text;
         }
         return null;
+    }
+
+    private boolean isBootUiActuatorDefault(PropertySource<?> propertySource, String key, String value) {
+        if (BootUiActuatorDefaultsEnvironmentPostProcessor.PROPERTY_SOURCE_NAME.equals(propertySource.getName())) {
+            return true;
+        }
+        return "defaultProperties".equals(propertySource.getName())
+                && BootUiActuatorDefaultsEnvironmentPostProcessor.isBootUiActuatorDefault(key, value);
     }
 
     String[] activeProfiles() {

@@ -16,16 +16,16 @@ import org.springframework.core.env.MutablePropertySources;
  */
 public class BootUiActuatorDefaultsEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
-    public static final int ORDER = BootUiOverridesEnvironmentPostProcessor.ORDER + 5;
+    public static final int ORDER = Ordered.LOWEST_PRECEDENCE - 10;
 
-    static final String PROPERTY_SOURCE_NAME = "bootUiActuatorEndpointDefaults";
+    public static final String PROPERTY_SOURCE_NAME = "bootUiActuatorEndpointDefaults";
 
-    static final String REQUIRED_ENDPOINTS =
+    public static final String REQUIRED_ENDPOINTS =
             "health,info,beans,conditions,configprops,env,loggers,mappings," + "metrics,startup,scheduledtasks";
 
-    static final String TRACING_SAMPLING_PROBABILITY_PROPERTY = "management.tracing.sampling.probability";
+    public static final String TRACING_SAMPLING_PROBABILITY_PROPERTY = "management.tracing.sampling.probability";
 
-    static final String TRACING_SAMPLING_PROBABILITY = "1.0";
+    public static final String TRACING_SAMPLING_PROBABILITY = "1.0";
 
     private static final Map<String, Object> ACTUATOR_DEFAULTS = Map.of(
             "management.endpoints.web.exposure.include",
@@ -62,5 +62,18 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
 
     private boolean tracesPanelEnabled(ConfigurableEnvironment environment) {
         return environment.getProperty("bootui.panels.traces.enabled", Boolean.class, true);
+    }
+
+    public static boolean isBootUiActuatorDefault(String key, String value) {
+        if (key == null || value == null) {
+            return false;
+        }
+        String normalized = value.trim();
+        return switch (key) {
+            case "management.endpoints.web.exposure.include" -> REQUIRED_ENDPOINTS.equals(normalized);
+            case "management.endpoint.health.show-details" -> "always".equalsIgnoreCase(normalized);
+            case TRACING_SAMPLING_PROBABILITY_PROPERTY -> TRACING_SAMPLING_PROBABILITY.equals(normalized);
+            default -> false;
+        };
     }
 }
