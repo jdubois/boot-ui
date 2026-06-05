@@ -528,6 +528,8 @@ public abstract class AgentSessionStore {
                 0,
                 0,
                 0,
+                null,
+                null,
                 0,
                 0,
                 0,
@@ -568,6 +570,8 @@ public abstract class AgentSessionStore {
         int eventCount = 0;
         int turnCount = 0;
         int errorCount = 0;
+        Long totalInputTokens = null;
+        Long totalOutputTokens = null;
         int activeLast24Hours = 0;
         int activeLast7Days = 0;
         int sessionsWithSchemaDrift = 0;
@@ -578,6 +582,8 @@ public abstract class AgentSessionStore {
             eventCount += summary.eventCount();
             turnCount += summary.turnCount();
             errorCount += summary.errorCount();
+            totalInputTokens = addNullable(totalInputTokens, summary.inputTokens());
+            totalOutputTokens = addNullable(totalOutputTokens, summary.outputTokens());
             if (summary.schemaDrift()) {
                 sessionsWithSchemaDrift++;
             }
@@ -620,14 +626,18 @@ public abstract class AgentSessionStore {
                         entry.getKey(),
                         entry.getKey() + HOUR_MILLIS,
                         entry.getValue().eventCount,
-                        entry.getValue().errorCount))
+                        entry.getValue().errorCount,
+                        entry.getValue().inputTokens,
+                        entry.getValue().outputTokens))
                 .toList();
         List<CopilotActivityBucket> dailyActivityBuckets = dailyBuckets.entrySet().stream()
                 .map(entry -> new CopilotActivityBucket(
                         entry.getKey(),
                         entry.getKey() + DAY_MILLIS,
                         entry.getValue().eventCount,
-                        entry.getValue().errorCount))
+                        entry.getValue().errorCount,
+                        entry.getValue().inputTokens,
+                        entry.getValue().outputTokens))
                 .toList();
         List<CopilotSessionSummary> recentSessions = snapshot.stream()
                 .map(ps -> ps.summary)
@@ -650,6 +660,8 @@ public abstract class AgentSessionStore {
                 snapshot.size(),
                 eventCount,
                 turnCount,
+                totalInputTokens,
+                totalOutputTokens,
                 errorCount,
                 activeLast24Hours,
                 activeLast7Days,
@@ -878,11 +890,15 @@ public abstract class AgentSessionStore {
                 status,
                 events.size(),
                 turns.size(),
+                extracted.tokenUsage.inputTokens(),
+                extracted.tokenUsage.outputTokens(),
                 errors,
                 lastSummary,
                 extracted.schemaDrift);
 
         SessionAggregates aggregates = aggregateEvents(events);
+        Map<Long, BucketCounts> activityByHour = new LinkedHashMap<>(aggregates.activityByHour());
+        mergeBucketCounts(activityByHour, extracted.tokenActivityByHour);
         return new ParsedSession(
                 summary,
                 counts,
@@ -891,7 +907,7 @@ public abstract class AgentSessionStore {
                 failureEvents,
                 rawById,
                 aggregates.toolCounts(),
-                aggregates.activityByHour(),
+                activityByHour,
                 attrs.size(),
                 mtime);
     }
@@ -906,6 +922,8 @@ public abstract class AgentSessionStore {
         Map<String, Integer> byCategory = new LinkedHashMap<>();
         Map<String, Integer> toolCounts = new LinkedHashMap<>();
         Map<Long, BucketCounts> activityByHour = new LinkedHashMap<>();
+        Map<Long, BucketCounts> incrementalTokenActivityByHour = new LinkedHashMap<>();
+        Map<Long, BucketCounts> authoritativeTokenActivityByHour = new LinkedHashMap<>();
         Map<String, String> toolNameByEventId = new HashMap<>();
 
         String model = null;
@@ -915,6 +933,8 @@ public abstract class AgentSessionStore {
         Long updatedAt = null;
         Long lastActivity = null;
         String lastSummary = null;
+        TokenUsage sessionTokenUsage = TokenUsage.empty();
+        boolean sessionTokenUsageAuthoritative = false;
         int totalEvents = 0;
         int errors = 0;
         int lineNumber = 0;
@@ -961,8 +981,24 @@ public abstract class AgentSessionStore {
                         stringField(node, "status", "state"),
                         stringField(message, "stop_reason"));
 
-                int turnIndex = turnIndexFor(turnAccumulators, node, data, type, timestamp);
-                updateTurn(turnAccumulators, node, data, type, timestamp);
+                TurnAccumulator turnAccumulator = turnAccumulatorFor(turnAccumulators, node, data, type, timestamp);
+                int turnIndex = turnAccumulator.index;
+                updateTurn(turnAccumulator, type, timestamp);
+                TokenUsage tokenUsage = jsonlTokenUsage(node, data, message);
+                if (tokenUsage.hasAny()) {
+                    if (tokenUsage.sessionTotal()) {
+                        sessionTokenUsage = tokenUsage;
+                        sessionTokenUsageAuthoritative = true;
+                        authoritativeTokenActivityByHour.clear();
+                        recordTokenUsage(authoritativeTokenActivityByHour, timestamp, tokenUsage);
+                    } else {
+                        turnAccumulator.addTokenUsage(tokenUsage);
+                        if (!sessionTokenUsageAuthoritative) {
+                            sessionTokenUsage = sessionTokenUsage.plus(tokenUsage);
+                            recordTokenUsage(incrementalTokenActivityByHour, timestamp, tokenUsage);
+                        }
+                    }
+                }
 
                 List<CopilotActivityEvent> lineEvents =
                         jsonlActivityEvents(node, toolNameByEventId, turnIndex, lineNumber);
@@ -996,6 +1032,9 @@ public abstract class AgentSessionStore {
         if (lastSummary == null && !events.isEmpty()) {
             lastSummary = events.get(events.size() - 1).summary();
         }
+        mergeBucketCounts(
+                activityByHour,
+                sessionTokenUsageAuthoritative ? authoritativeTokenActivityByHour : incrementalTokenActivityByHour);
 
         List<CopilotTurn> turns =
                 turnAccumulators.values().stream().map(TurnAccumulator::toTurn).toList();
@@ -1010,6 +1049,8 @@ public abstract class AgentSessionStore {
                 status,
                 totalEvents,
                 turns.size(),
+                sessionTokenUsage.inputTokens(),
+                sessionTokenUsage.outputTokens(),
                 errors,
                 lastSummary,
                 schemaDrift || !parsedAnyLine);
@@ -1026,25 +1067,17 @@ public abstract class AgentSessionStore {
                 mtime);
     }
 
-    private static int turnIndexFor(
+    private static TurnAccumulator turnAccumulatorFor(
             Map<String, TurnAccumulator> turnAccumulators, JsonNode node, JsonNode data, String type, Long timestamp) {
         String key = turnKey(node, data, type);
         if (key == null) {
             key = "__session";
         }
-        TurnAccumulator accumulator = turnAccumulators.computeIfAbsent(
+        return turnAccumulators.computeIfAbsent(
                 key, ignored -> new TurnAccumulator(turnAccumulators.size(), timestamp));
-        return accumulator.index;
     }
 
-    private static void updateTurn(
-            Map<String, TurnAccumulator> turnAccumulators, JsonNode node, JsonNode data, String type, Long timestamp) {
-        String key = turnKey(node, data, type);
-        if (key == null) {
-            key = "__session";
-        }
-        TurnAccumulator accumulator = turnAccumulators.computeIfAbsent(
-                key, ignored -> new TurnAccumulator(turnAccumulators.size(), timestamp));
+    private static void updateTurn(TurnAccumulator accumulator, String type, Long timestamp) {
         if (timestamp != null) {
             if (accumulator.startedAt == null || timestamp < accumulator.startedAt) {
                 accumulator.startedAt = timestamp;
@@ -1324,13 +1357,25 @@ public abstract class AgentSessionStore {
             return;
         }
         long bucketStart = hourStart(event.timestampEpochMillis());
-        BucketCounts existing = activityByHour.get(bucketStart);
         int errorIncrement = Boolean.FALSE.equals(event.success()) ? 1 : 0;
-        if (existing == null) {
-            activityByHour.put(bucketStart, new BucketCounts(1, errorIncrement));
-        } else {
-            activityByHour.put(
-                    bucketStart, new BucketCounts(existing.eventCount() + 1, existing.errorCount() + errorIncrement));
+        activityByHour.merge(bucketStart, new BucketCounts(1, errorIncrement, null, null), BucketCounts::plus);
+    }
+
+    private static void recordTokenUsage(
+            Map<Long, BucketCounts> activityByHour, Long timestamp, TokenUsage tokenUsage) {
+        if (timestamp == null || tokenUsage == null || !tokenUsage.hasAny()) {
+            return;
+        }
+        long bucketStart = hourStart(timestamp);
+        activityByHour.merge(
+                bucketStart,
+                new BucketCounts(0, 0, tokenUsage.inputTokens(), tokenUsage.outputTokens()),
+                BucketCounts::plus);
+    }
+
+    private static void mergeBucketCounts(Map<Long, BucketCounts> target, Map<Long, BucketCounts> source) {
+        for (Map.Entry<Long, BucketCounts> entry : source.entrySet()) {
+            target.merge(entry.getKey(), entry.getValue(), BucketCounts::plus);
         }
     }
 
@@ -1458,17 +1503,23 @@ public abstract class AgentSessionStore {
         List<CopilotActivityEvent> out = new ArrayList<>();
         Map<String, RawEventReference> rawById = new LinkedHashMap<>();
         List<CopilotTurn> turns = new ArrayList<>();
+        Map<Long, BucketCounts> tokenActivityByHour = new LinkedHashMap<>();
+        TokenUsage tokenUsage = TokenUsage.empty();
         boolean schemaDrift = false;
 
         if (root == null || root.isMissingNode()) {
-            return new EventsExtraction(out, rawById, turns, true);
+            return new EventsExtraction(out, rawById, turns, tokenActivityByHour, tokenUsage, true);
         }
 
         // Shape 1: top-level "events" or "activity" array
         JsonNode events = firstArray(root, "events", "activity", "tool_calls", "toolCalls");
         if (events != null) {
             for (int i = 0; i < events.size() && out.size() < maxEvents; i++) {
-                addEvent(out, rawById, events.get(i), 0, i);
+                JsonNode event = events.get(i);
+                TokenUsage eventTokenUsage = tokenUsageForNode(event);
+                tokenUsage = tokenUsage.plus(eventTokenUsage);
+                recordTokenUsage(tokenActivityByHour, nodeTimestamp(event), eventTokenUsage);
+                addEvent(out, rawById, event, 0, i);
             }
         }
 
@@ -1480,15 +1531,31 @@ public abstract class AgentSessionStore {
                 JsonNode turnEvents = firstArray(turn, "events", "activity", "tool_calls", "toolCalls");
                 int beforeCount = out.size();
                 Long turnStart = longField(turn, "started_at", "startedAt", "timestamp", "created_at");
+                TokenUsage turnTokenUsage = tokenUsageForNode(turn);
+                boolean turnHasAggregateTokenUsage = turnTokenUsage.hasAny();
                 if (turnEvents != null) {
                     for (int i = 0; i < turnEvents.size() && out.size() < maxEvents; i++) {
-                        addEvent(out, rawById, turnEvents.get(i), t, i);
+                        JsonNode event = turnEvents.get(i);
+                        if (!turnHasAggregateTokenUsage) {
+                            TokenUsage eventTokenUsage = tokenUsageForNode(event);
+                            turnTokenUsage = turnTokenUsage.plus(eventTokenUsage);
+                        }
+                        addEvent(out, rawById, event, t, i);
                     }
                 }
+                tokenUsage = tokenUsage.plus(turnTokenUsage);
+                recordTokenUsage(tokenActivityByHour, turnStart, turnTokenUsage);
                 int eventCount = out.size() - beforeCount;
                 String turnSummary = stringField(turn, "summary", "title", "intent");
                 Long durationMs = longField(turn, "duration_ms", "durationMs", "duration");
-                turns.add(new CopilotTurn(t, turnStart, durationMs, turnSummary, eventCount));
+                turns.add(new CopilotTurn(
+                        t,
+                        turnStart,
+                        durationMs,
+                        turnSummary,
+                        eventCount,
+                        turnTokenUsage.inputTokens(),
+                        turnTokenUsage.outputTokens()));
             }
         }
 
@@ -1506,16 +1573,30 @@ public abstract class AgentSessionStore {
                         // skip user prompts - never surfaced sanitized
                         continue;
                     }
+                    TokenUsage messageTokenUsage = tokenUsageForNode(msg);
+                    tokenUsage = tokenUsage.plus(messageTokenUsage);
+                    recordTokenUsage(tokenActivityByHour, nodeTimestamp(msg), messageTokenUsage);
                     addEvent(out, rawById, msg, 0, i);
                 }
             }
+        }
+
+        if (!tokenUsage.hasAny()) {
+            tokenUsage = tokenUsageForNode(root);
+            recordTokenUsage(
+                    tokenActivityByHour,
+                    firstLong(
+                            longField(root, "updated_at", "updatedAt"),
+                            longField(root, "created_at", "started_at", "startedAt", "createdAt"),
+                            nodeTimestamp(root)),
+                    tokenUsage);
         }
 
         if (out.isEmpty() && events == null && turnsNode == null) {
             schemaDrift = true;
         }
 
-        return new EventsExtraction(out, rawById, turns, schemaDrift);
+        return new EventsExtraction(out, rawById, turns, tokenActivityByHour, tokenUsage, schemaDrift);
     }
 
     private void addEvent(
@@ -1578,6 +1659,229 @@ public abstract class AgentSessionStore {
             }
         }
         return null;
+    }
+
+    private static Long nodeTimestamp(JsonNode node) {
+        return longField(node, "timestamp", "ts", "created_at", "createdAt", "time", "startTime");
+    }
+
+    private static TokenUsage jsonlTokenUsage(JsonNode node, JsonNode data, JsonNode message) {
+        TokenUsage tokenDetailsUsage = tokenDetailsTokenUsage(data);
+        if (tokenDetailsUsage.hasAny()) {
+            return tokenDetailsUsage.asSessionTotal();
+        }
+        TokenUsage modelMetricsUsage = modelMetricsTokenUsage(data);
+        if (modelMetricsUsage.hasAny()) {
+            return modelMetricsUsage.asSessionTotal();
+        }
+        return firstTokenUsage(
+                usageObjectTokenUsage(child(data, "usage")),
+                usageObjectTokenUsage(child(data, "usageMetadata")),
+                usageObjectTokenUsage(child(data, "usage_metadata")),
+                usageObjectTokenUsage(child(message, "usage")),
+                usageObjectTokenUsage(child(message, "usageMetadata")),
+                usageObjectTokenUsage(child(message, "usage_metadata")),
+                directTokenUsage(data),
+                directTokenUsage(message),
+                usageObjectTokenUsage(child(node, "usage")),
+                directTokenUsage(node));
+    }
+
+    private static TokenUsage tokenUsageForNode(JsonNode node) {
+        TokenUsage tokenDetailsUsage = tokenDetailsTokenUsage(node);
+        if (tokenDetailsUsage.hasAny()) {
+            return tokenDetailsUsage;
+        }
+        TokenUsage modelMetricsUsage = modelMetricsTokenUsage(node);
+        if (modelMetricsUsage.hasAny()) {
+            return modelMetricsUsage;
+        }
+        return firstTokenUsage(
+                usageObjectTokenUsage(child(node, "usage")),
+                usageObjectTokenUsage(child(node, "usageMetadata")),
+                usageObjectTokenUsage(child(node, "usage_metadata")),
+                directTokenUsage(node));
+    }
+
+    private static TokenUsage modelMetricsTokenUsage(JsonNode node) {
+        JsonNode modelMetrics = child(node, "modelMetrics");
+        if (modelMetrics == null || !modelMetrics.isObject()) {
+            return TokenUsage.empty();
+        }
+        TokenUsage total = TokenUsage.empty();
+        for (Map.Entry<String, JsonNode> entry : modelMetrics.properties()) {
+            total = total.plus(usageObjectTokenUsage(child(entry.getValue(), "usage"), false)
+                    .withoutSessionTotal());
+        }
+        return total;
+    }
+
+    private static TokenUsage tokenDetailsTokenUsage(JsonNode node) {
+        JsonNode tokenDetails = child(node, "tokenDetails");
+        if (tokenDetails == null || !tokenDetails.isObject()) {
+            return TokenUsage.empty();
+        }
+        Long inputTokens = tokenDetailCount(tokenDetails, "input", "inputTokens", "input_tokens");
+        inputTokens = addNullable(
+                inputTokens,
+                tokenDetailCount(
+                        tokenDetails,
+                        "cache_read",
+                        "cacheRead",
+                        "cacheReadTokens",
+                        "cache_read_tokens",
+                        "cache_write",
+                        "cacheWrite",
+                        "cacheWriteTokens",
+                        "cache_write_tokens"));
+        Long outputTokens = tokenDetailCount(tokenDetails, "output", "outputTokens", "output_tokens");
+        return new TokenUsage(inputTokens, outputTokens, false);
+    }
+
+    private static Long tokenDetailCount(JsonNode tokenDetails, String... names) {
+        Long sum = null;
+        for (String name : names) {
+            JsonNode bucket = child(tokenDetails, name);
+            if (bucket == null) {
+                continue;
+            }
+            if (bucket.isObject()) {
+                sum = addNullable(sum, firstCountField(bucket, "tokenCount", "token_count", "tokens", "count"));
+            } else {
+                sum = addNullable(sum, countField(tokenDetails, name));
+            }
+        }
+        return sum;
+    }
+
+    private static TokenUsage usageObjectTokenUsage(JsonNode usage) {
+        return usageObjectTokenUsage(usage, true);
+    }
+
+    private static TokenUsage usageObjectTokenUsage(JsonNode usage, boolean includeCacheInputTokens) {
+        if (usage == null || !usage.isObject()) {
+            return TokenUsage.empty();
+        }
+        Long inputTokens = firstCountField(
+                usage,
+                "inputTokens",
+                "input_tokens",
+                "promptTokens",
+                "prompt_tokens",
+                "totalInputTokens",
+                "total_input_tokens",
+                "usage_input_tokens",
+                "inputTokenCount",
+                "input_token_count");
+        Long outputTokens = firstCountField(
+                usage,
+                "outputTokens",
+                "output_tokens",
+                "completionTokens",
+                "completion_tokens",
+                "totalOutputTokens",
+                "total_output_tokens",
+                "usage_output_tokens",
+                "outputTokenCount",
+                "output_token_count");
+        if (includeCacheInputTokens) {
+            inputTokens = addNullable(
+                    inputTokens,
+                    sumCountFields(
+                            usage,
+                            "cacheCreationInputTokens",
+                            "cache_creation_input_tokens",
+                            "cacheReadInputTokens",
+                            "cache_read_input_tokens"));
+        }
+        return new TokenUsage(inputTokens, outputTokens, false);
+    }
+
+    private static TokenUsage directTokenUsage(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return TokenUsage.empty();
+        }
+        Long inputTokens = firstCountField(
+                node,
+                "inputTokens",
+                "input_tokens",
+                "promptTokens",
+                "prompt_tokens",
+                "totalInputTokens",
+                "total_input_tokens",
+                "usage_input_tokens",
+                "inputTokenCount",
+                "input_token_count");
+        Long outputTokens = firstCountField(
+                node,
+                "outputTokens",
+                "output_tokens",
+                "completionTokens",
+                "completion_tokens",
+                "totalOutputTokens",
+                "total_output_tokens",
+                "usage_output_tokens",
+                "outputTokenCount",
+                "output_token_count");
+        return new TokenUsage(inputTokens, outputTokens, false);
+    }
+
+    private static TokenUsage firstTokenUsage(TokenUsage... usages) {
+        for (TokenUsage usage : usages) {
+            if (usage.hasAny()) {
+                return usage;
+            }
+        }
+        return TokenUsage.empty();
+    }
+
+    private static Long firstCountField(JsonNode node, String... names) {
+        for (String name : names) {
+            Long value = countField(node, name);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static Long sumCountFields(JsonNode node, String... names) {
+        Long sum = null;
+        for (String name : names) {
+            sum = addNullable(sum, countField(node, name));
+        }
+        return sum;
+    }
+
+    private static Long countField(JsonNode node, String name) {
+        if (node == null) {
+            return null;
+        }
+        JsonNode value = node.get(name);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        Long parsed = null;
+        if (value.canConvertToLong()) {
+            parsed = value.asLong();
+        } else if (value.isString()) {
+            try {
+                parsed = Long.parseLong(value.asString().trim());
+            } catch (NumberFormatException ignore) {
+                return null;
+            }
+        }
+        return parsed != null && parsed >= 0 ? parsed : null;
+    }
+
+    private static Long addNullable(Long current, Long next) {
+        if (next == null) {
+            return current;
+        }
+        if (current == null) {
+            return next;
+        }
+        return current + next;
     }
 
     /**
@@ -1797,16 +2101,22 @@ public abstract class AgentSessionStore {
         final List<CopilotActivityEvent> events;
         final Map<String, RawEventReference> rawById;
         final List<CopilotTurn> turns;
+        final Map<Long, BucketCounts> tokenActivityByHour;
+        final TokenUsage tokenUsage;
         final boolean schemaDrift;
 
         EventsExtraction(
                 List<CopilotActivityEvent> events,
                 Map<String, RawEventReference> rawById,
                 List<CopilotTurn> turns,
+                Map<Long, BucketCounts> tokenActivityByHour,
+                TokenUsage tokenUsage,
                 boolean schemaDrift) {
             this.events = events;
             this.rawById = rawById;
             this.turns = turns;
+            this.tokenActivityByHour = tokenActivityByHour;
+            this.tokenUsage = tokenUsage;
             this.schemaDrift = schemaDrift;
         }
     }
@@ -1831,15 +2141,57 @@ public abstract class AgentSessionStore {
 
     private record SessionAggregates(Map<String, Integer> toolCounts, Map<Long, BucketCounts> activityByHour) {}
 
-    private record BucketCounts(int eventCount, int errorCount) {}
+    private record BucketCounts(int eventCount, int errorCount, Long inputTokens, Long outputTokens) {
+
+        BucketCounts plus(BucketCounts other) {
+            return new BucketCounts(
+                    eventCount + other.eventCount,
+                    errorCount + other.errorCount,
+                    addNullable(inputTokens, other.inputTokens),
+                    addNullable(outputTokens, other.outputTokens));
+        }
+    }
+
+    private record TokenUsage(Long inputTokens, Long outputTokens, boolean sessionTotal) {
+
+        static TokenUsage empty() {
+            return new TokenUsage(null, null, false);
+        }
+
+        boolean hasAny() {
+            return inputTokens != null || outputTokens != null;
+        }
+
+        TokenUsage plus(TokenUsage other) {
+            if (other == null || !other.hasAny()) {
+                return this;
+            }
+            return new TokenUsage(
+                    addNullable(inputTokens, other.inputTokens),
+                    addNullable(outputTokens, other.outputTokens),
+                    sessionTotal);
+        }
+
+        TokenUsage asSessionTotal() {
+            return new TokenUsage(inputTokens, outputTokens, true);
+        }
+
+        TokenUsage withoutSessionTotal() {
+            return sessionTotal ? new TokenUsage(inputTokens, outputTokens, false) : this;
+        }
+    }
 
     private static final class BucketAccumulator {
         int eventCount;
         int errorCount;
+        Long inputTokens;
+        Long outputTokens;
 
         void add(BucketCounts counts) {
             eventCount += counts.eventCount();
             errorCount += counts.errorCount();
+            inputTokens = addNullable(inputTokens, counts.inputTokens());
+            outputTokens = addNullable(outputTokens, counts.outputTokens());
         }
     }
 
@@ -1849,6 +2201,8 @@ public abstract class AgentSessionStore {
         Long lastSeenAt;
         String summary;
         int eventCount;
+        Long inputTokens;
+        Long outputTokens;
 
         TurnAccumulator(int index, Long startedAt) {
             this.index = index;
@@ -1856,10 +2210,15 @@ public abstract class AgentSessionStore {
             this.lastSeenAt = startedAt;
         }
 
+        void addTokenUsage(TokenUsage tokenUsage) {
+            inputTokens = addNullable(inputTokens, tokenUsage.inputTokens());
+            outputTokens = addNullable(outputTokens, tokenUsage.outputTokens());
+        }
+
         CopilotTurn toTurn() {
             Long duration =
                     startedAt != null && lastSeenAt != null && lastSeenAt >= startedAt ? lastSeenAt - startedAt : null;
-            return new CopilotTurn(index, startedAt, duration, summary, eventCount);
+            return new CopilotTurn(index, startedAt, duration, summary, eventCount, inputTokens, outputTokens);
         }
     }
 

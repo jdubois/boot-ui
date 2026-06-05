@@ -486,13 +486,16 @@ warnings in the panel.
 The Copilot panel surfaces sanitized signals from local
 [GitHub Copilot CLI](https://github.com/github/copilot-cli) sessions. It reads the session directories and `events.jsonl`
 files Copilot CLI writes under `~/.copilot/session-state/` (configurable via `bootui.copilot.session-state-dir`) and
-aggregates recent activity into a clean dashboard: active sessions, total sanitized events, failures, 24-hour activity,
-7-day activity, event category mix, top tools, model usage, and recent sessions. The session explorer remains available
+aggregates recent activity into a clean dashboard: active sessions, total sanitized events, input/output token usage when
+the local session logs include it, failures, 24-hour activity, 7-day activity, event category mix, top tools, model usage,
+and recent sessions. The session explorer remains available
 for drilling into tool calls, edits, reads, searches, shell commands, web/docs lookups, MCP tool calls, hook callbacks,
 skills, sub-agents, and ASK/intent/plan calls. To keep large local histories responsive, the session explorer returns
 the most recent `bootui.copilot.max-sessions` sessions by default, while `bootui.copilot.max-parsed-sessions` caps how
-many recent session files are parsed and retained in JVM heap. The activity charts can filter the explorer to sessions
-active during a selected hour or day. Failure lists use retained failure events and include sanitized tool/type context.
+many recent session files are parsed and retained in JVM heap. The activity charts default to token usage, with input
+tokens shown in blue and output tokens shown in red, and can be toggled back to sanitized events/failures. Selecting a
+chart hour or day filters the explorer to sessions active during that window. Failure lists use retained failure events
+and include sanitized tool/type context.
 Each event row shows only an allowlisted summary - raw prompts, tool arguments, command output, and diffs are deliberately
 excluded. The per-event "Reveal raw" action is an explicit, local-only escape hatch that returns the source JSON; it can
 be disabled with `bootui.copilot.allow-raw-reveal=false` and is also blocked when `bootui.expose-values=METADATA_ONLY`.
@@ -509,7 +512,9 @@ Copilot CLI session state.
 The Claude Code panel mirrors the Copilot dashboard for local
 [Claude Code](https://www.anthropic.com/claude-code) project logs. It reads JSONL session files under
 `~/.claude/projects/` (configurable via `bootui.claude-code.session-state-dir`) and surfaces sanitized activity trends,
-tool usage, model usage, failures, recent sessions, and per-session event drill-downs. BootUI treats Claude Code logs as
+tool usage, model usage, input/output token usage, failures, recent sessions, and per-session event drill-downs. Its
+activity charts use the same token-by-default view as the Copilot panel, with an events toggle for sanitized activity and
+failures. BootUI treats Claude Code logs as
 especially sensitive: prompts, assistant text, tool inputs, file contents, command output, and tool-result content are
 excluded from normal responses. `bootui.claude-code.max-parsed-sessions` caps how many recent JSONL files are parsed and
 retained in JVM heap. The raw JSONL reveal endpoint is disabled by default with `bootui.claude-code.allow-raw-reveal=false`;

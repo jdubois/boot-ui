@@ -9,6 +9,8 @@ test.describe('Claude Code panel', () => {
       sessionCount: 1,
       eventCount: 12,
       turnCount: 4,
+      totalInputTokens: 54321,
+      totalOutputTokens: 1234,
       errorCount: 1,
       activeLast24Hours: 1,
       activeLast7Days: 1,
@@ -25,13 +27,17 @@ test.describe('Claude Code panel', () => {
         startEpochMillis: Date.now() - (23 - index) * 60 * 60 * 1000,
         endEpochMillis: Date.now() - (22 - index) * 60 * 60 * 1000,
         eventCount: index === 23 ? 12 : 0,
-        errorCount: index === 23 ? 1 : 0
+        errorCount: index === 23 ? 1 : 0,
+        inputTokens: index === 23 ? 54321 : 0,
+        outputTokens: index === 23 ? 1234 : 0
       })),
       dailyActivityBuckets: Array.from({length: 7}, (_, index) => ({
         startEpochMillis: Date.now() - (6 - index) * 24 * 60 * 60 * 1000,
         endEpochMillis: Date.now() - (5 - index) * 24 * 60 * 60 * 1000,
         eventCount: index === 6 ? 12 : 0,
-        errorCount: index === 6 ? 1 : 0
+        errorCount: index === 6 ? 1 : 0,
+        inputTokens: index === 6 ? 54321 : 0,
+        outputTokens: index === 6 ? 1234 : 0
       })),
       recentSessions: [
         {
@@ -44,6 +50,8 @@ test.describe('Claude Code panel', () => {
           status: null,
           eventCount: 12,
           turnCount: 4,
+          inputTokens: 54321,
+          outputTokens: 1234,
           errorCount: 1,
           lastActivitySummary: 'SHELL · Bash · failed',
           schemaDrift: false
@@ -65,7 +73,9 @@ test.describe('Claude Code panel', () => {
           startedAtEpochMillis: Date.now() - 120_000,
           durationMillis: 1500,
           summary: 'assistant',
-          eventCount: 2
+          eventCount: 2,
+          inputTokens: 54321,
+          outputTokens: 1234
         }
       ],
       recentEvents: [
@@ -140,6 +150,9 @@ test.describe('Claude Code panel', () => {
     await expect(page.getByRole('heading', {name: 'Claude Code activity overview'})).toBeVisible()
     await expect(page.getByText('/home/dev/.claude/projects')).toBeVisible()
     await expect(page.getByText('bootui.claude-code.max-sessions')).toBeVisible()
+    await expect(page.locator('#activity-mode-tokens')).toBeChecked()
+    await expect(page.locator('.metric-card', {hasText: 'Tokens'}).getByText('55,55k', {exact: true})).toBeVisible()
+    await expect(page.locator('.metric-card', {hasText: 'Tokens'}).getByText('54,32k in · 1,23k out')).toBeVisible()
     await expect(page.getByText('copilot-mission-control')).toHaveCount(0)
     await expect(page.getByRole('heading', {name: 'Top tools'}).locator('..').getByText('Bash')).toBeVisible()
 

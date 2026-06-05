@@ -72,9 +72,17 @@ class ClaudeCodeControllerTests {
                 .andExpect(jsonPath("$.sessions[0].model").value("claude-sonnet-4-20250514"))
                 .andExpect(jsonPath("$.sessions[0].workingDirectory").value("/work/app"))
                 .andExpect(jsonPath("$.sessions[0].eventCount").value(2))
+                .andExpect(jsonPath("$.sessions[0].inputTokens").value(135))
+                .andExpect(jsonPath("$.sessions[0].outputTokens").value(20))
                 .andExpect(jsonPath("$.sessions[0].errorCount").value(1));
 
         CopilotSessionDetail detail = store.getSession("session-one");
+        assertThat(detail.summary().inputTokens()).isEqualTo(135);
+        assertThat(detail.summary().outputTokens()).isEqualTo(20);
+        assertThat(detail.turns()).anySatisfy(turn -> {
+            assertThat(turn.inputTokens()).isEqualTo(135);
+            assertThat(turn.outputTokens()).isEqualTo(20);
+        });
         assertThat(detail.recentEvents())
                 .extracting(CopilotActivityEvent::toolName)
                 .containsExactly("Bash", "Bash");
@@ -130,11 +138,17 @@ class ClaudeCodeControllerTests {
                 .andExpect(jsonPath("$.available").value(true))
                 .andExpect(jsonPath("$.sessionCount").value(1))
                 .andExpect(jsonPath("$.eventCount").value(2))
+                .andExpect(jsonPath("$.totalInputTokens").value(135))
+                .andExpect(jsonPath("$.totalOutputTokens").value(20))
                 .andExpect(jsonPath("$.errorCount").value(1))
                 .andExpect(jsonPath("$.activeLast24Hours").value(1))
                 .andExpect(jsonPath("$.activityBuckets[21].eventCount").value(1))
+                .andExpect(jsonPath("$.activityBuckets[21].inputTokens").value(135))
+                .andExpect(jsonPath("$.activityBuckets[21].outputTokens").value(20))
                 .andExpect(jsonPath("$.activityBuckets[22].eventCount").value(1))
-                .andExpect(jsonPath("$.dailyActivityBuckets[6].eventCount").value(2));
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].eventCount").value(2))
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].inputTokens").value(135))
+                .andExpect(jsonPath("$.dailyActivityBuckets[6].outputTokens").value(20));
     }
 
     @Test
@@ -254,7 +268,7 @@ class ClaudeCodeControllerTests {
         Files.createDirectories(file.getParent());
         Files.writeString(file, """
                 {"type":"user","uuid":"u1","timestamp":"2026-05-28T10:00:00Z","cwd":"/work/app","message":{"role":"user","content":"SECRET_PROMPT"}}
-                {"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-05-28T10:15:00Z","cwd":"/work/app","message":{"role":"assistant","model":"claude-sonnet-4-20250514","content":[{"type":"text","text":"SECRET_TEXT"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo SECRET_COMMAND","file_path":"/tmp/SECRET_FILE.txt"}}]}}
+                {"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-05-28T10:15:00Z","cwd":"/work/app","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"output_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":30},"content":[{"type":"text","text":"SECRET_TEXT"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo SECRET_COMMAND","file_path":"/tmp/SECRET_FILE.txt"}}]}}
                 {"type":"user","uuid":"u2","parentUuid":"a1","timestamp":"2026-05-28T11:00:00Z","cwd":"/work/app","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"SECRET_OUTPUT","is_error":true}]}}
                 """);
     }
