@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.hibernateadvisor;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateAdvisorReport;
+import io.github.jdubois.bootui.core.dto.HibernateAdvisorRuleResultDto;
 import jakarta.persistence.Basic;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.CascadeType;
@@ -250,6 +251,46 @@ class HibernateAdvisorScannerTests {
     }
 
     @Test
+    void paginationOverCollectionFetchRulesStillApplyThroughHibernate74() {
+        HibernateAdvisorContext context = collectionFetchPaginationContext("7.4.9.Final");
+
+        HibernateAdvisorRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
+        HibernateAdvisorRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
+
+        assertThat(queryResult.status()).isEqualTo(HibernateAdvisorRuleSupport.VIOLATION);
+        assertThat(queryResult.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("findPageWithTags", "o.tags"));
+        assertThat(configResult.status()).isEqualTo(HibernateAdvisorRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void paginationOverCollectionFetchRulesSkipAfterHibernate74() {
+        HibernateAdvisorContext context = collectionFetchPaginationContext("7.5.0.Final");
+
+        HibernateAdvisorRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
+        HibernateAdvisorRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
+
+        assertThat(queryResult.status()).isEqualTo(HibernateAdvisorRuleSupport.SKIPPED);
+        assertThat(queryResult.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("Hibernate 7.5.0.Final"));
+        assertThat(configResult.status()).isEqualTo(HibernateAdvisorRuleSupport.SKIPPED);
+        assertThat(configResult.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("Hibernate 7.5.0.Final"));
+    }
+
+    @Test
+    void hibernateVersionComparisonUsesMajorMinorNumbers() {
+        assertThat(HibernateRuntimeVersion.parse("7.4.99.Final").isAfterMajorMinor(7, 4))
+                .isFalse();
+        assertThat(HibernateRuntimeVersion.parse("7.10.0.Final").isAfterMajorMinor(7, 4))
+                .isTrue();
+        assertThat(HibernateRuntimeVersion.parse("8.0.0.Final").isAfterMajorMinor(7, 4))
+                .isTrue();
+        assertThat(HibernateRuntimeVersion.parse("unknown").isAfterMajorMinor(7, 4))
+                .isFalse();
+    }
+
+    @Test
     void scanPassesWhenMappingsAndConfigurationAreSafe() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.jpa.open-in-view", "false")
@@ -310,7 +351,32 @@ class HibernateAdvisorScannerTests {
                         .toList(),
                 repositories,
                 environment,
-                CLOCK);
+                CLOCK,
+                "7.4.9.Final");
+    }
+
+    private HibernateAdvisorContext collectionFetchPaginationContext(String hibernateVersion) {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.ProblemOrderRepository",
+                ProblemOrder.class,
+                List.of(new HibernateRepositoryMethodModel(
+                        "com.example.ProblemOrderRepository",
+                        "findPageWithTags",
+                        ProblemOrder.class,
+                        List.class,
+                        "select o from ProblemOrder o left join fetch o.tags where o.status = :status",
+                        false,
+                        null,
+                        true,
+                        false,
+                        false,
+                        false,
+                        List.of(Status.class))));
+        return new HibernateAdvisorContext(
+                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
+                List.of(repository),
+                new MockEnvironment(),
+                hibernateVersion);
     }
 
     @Entity
