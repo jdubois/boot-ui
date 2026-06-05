@@ -24,11 +24,9 @@ final class ProcessGitWorkspace implements GitWorkspace {
     private static final int MAX_DIFF_CHARS = 200_000;
 
     private final Path repoRoot;
-    private final Path worktreeBase;
 
     ProcessGitWorkspace(Path repoRoot) {
         this.repoRoot = repoRoot.toAbsolutePath().normalize();
-        this.worktreeBase = this.repoRoot.resolve(".git").resolve("bootui-copilot-fix");
     }
 
     @Override
@@ -58,11 +56,11 @@ final class ProcessGitWorkspace implements GitWorkspace {
         if (reason != null) {
             throw new GitWorkspaceException(reason);
         }
-        Path directory = worktreeBase.resolve(branch.replace('/', '_'));
+        Path directory;
         try {
-            Files.createDirectories(worktreeBase);
+            directory = Files.createTempDirectory("bootui-copilot-fix-");
         } catch (IOException ex) {
-            throw new GitWorkspaceException("Could not create worktree base directory", ex);
+            throw new GitWorkspaceException("Could not create worktree directory", ex);
         }
         // git worktree add -b <branch> <dir> HEAD creates the branch and checks it out in <dir>.
         Exec add = run(repoRoot, "worktree", "add", "-b", branch, directory.toString(), "HEAD");
