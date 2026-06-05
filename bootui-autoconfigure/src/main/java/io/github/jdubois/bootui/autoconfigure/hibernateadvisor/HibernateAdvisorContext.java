@@ -18,20 +18,6 @@ record HibernateAdvisorContext(
                 .anyMatch(HibernateAttributeModel::isAssociation);
     }
 
-    int associationCount() {
-        return (int) entities.stream()
-                .flatMap(entity -> entity.attributes().stream())
-                .filter(HibernateAttributeModel::isAssociation)
-                .count();
-    }
-
-    boolean hasBatchSizeAnnotation() {
-        return entities.stream().anyMatch(HibernateEntityModel::hasBatchSizeAnnotation)
-                || entities.stream()
-                        .flatMap(entity -> entity.attributes().stream())
-                        .anyMatch(HibernateAttributeModel::hasBatchSizeAnnotation);
-    }
-
     Integer defaultBatchFetchSize() {
         for (String key : List.of(
                 "spring.jpa.properties.hibernate.default_batch_fetch_size", "hibernate.default_batch_fetch_size")) {

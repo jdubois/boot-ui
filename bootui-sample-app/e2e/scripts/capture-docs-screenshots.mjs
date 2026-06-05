@@ -1526,13 +1526,17 @@ const hibernateAdvisor = {
     ),
     hibernateAdvisorResult(
       'HIB-FETCH-002',
-      'Batch fetching should be configured for association-heavy models',
+      'Batch fetching should cover lazy secondary-select associations',
       'Fetching',
       'INFO',
-      'Detects mapped associations with no global hibernate.default_batch_fetch_size and no @BatchSize.',
-      4,
-      ['4 mapped association(s) were detected without a global batch-fetch size or @BatchSize.'],
-      'Set a bounded hibernate.default_batch_fetch_size or add @BatchSize to high-traffic associations to reduce N+1 select risk.'
+      'Detects lazy to-one and collection associations that can initialize through secondary selects without hibernate.default_batch_fetch_size or an applicable @BatchSize.',
+      3,
+      [
+        'io.github.jdubois.bootui.sample.SampleOrder#tags can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.',
+        'io.github.jdubois.bootui.sample.SampleOrder#invoices can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.',
+        'io.github.jdubois.bootui.sample.SampleCustomer#invoices can initialize through secondary selects without a global batch-fetch size or applicable @BatchSize.'
+      ],
+      'Set a bounded hibernate.default_batch_fetch_size or targeted @BatchSize for associations traversed across multiple owner rows; use explicit fetch plans or paged queries for a single oversized collection.'
     )
   ]
 }
