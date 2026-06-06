@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
+import io.github.jdubois.bootui.autoconfigure.memoryadvisor.MemoryAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
 import io.github.jdubois.bootui.autoconfigure.pentest.*;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
@@ -221,7 +222,8 @@ class BootUiAutoConfigurationTests {
                             SpringSecurityController.class,
                             StartupController.class,
                             TracesController.class,
-                            ThreadDumpController.class)
+                            ThreadDumpController.class,
+                            MemoryAdvisorController.class)
                     .forEach(beanType -> assertLazyBean(beanFactory, beanType));
 
             assertLazyBeanDefinition(beanFactory, "bootUiConfigOverrideService");

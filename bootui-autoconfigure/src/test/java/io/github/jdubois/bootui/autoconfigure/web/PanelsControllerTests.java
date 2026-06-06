@@ -29,6 +29,7 @@ class PanelsControllerTests {
             BootUiPanels.TUNING_ADVISOR,
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.THREADS,
+            BootUiPanels.MEMORY_ADVISOR,
             BootUiPanels.STARTUP,
             BootUiPanels.GRAALVM,
             BootUiPanels.CONFIG,

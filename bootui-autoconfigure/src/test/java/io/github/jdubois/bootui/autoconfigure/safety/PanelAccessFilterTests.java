@@ -194,6 +194,7 @@ class PanelAccessFilterTests {
         requests.put("http-sessions", new ActionRequest("POST", "/bootui/api/http-sessions/session-key/invalidate"));
         requests.put("heap-dump", new ActionRequest("POST", "/bootui/api/heap-dump/capture"));
         requests.put("threads", new ActionRequest("POST", "/bootui/api/threads/download"));
+        requests.put("memory-advisor", new ActionRequest("POST", "/bootui/api/memory-advisor/scan"));
         requests.put("graalvm", new ActionRequest("POST", "/bootui/api/graalvm/scan"));
         requests.put("config", new ActionRequest("POST", "/bootui/api/config/overrides"));
         requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
