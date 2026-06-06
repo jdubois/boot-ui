@@ -577,9 +577,9 @@ const detectedFrameworkLabel = computed(() => {
                 style="top: 0; transform: translateX(-50%); pointer-events: none; white-space: nowrap; z-index: 10"
               >
                 <div class="fw-semibold">{{ tooltipData.time }}</div>
-                <div style="color: #0d6efd">In: {{ tooltipData.input }}</div>
-                <div style="color: #6610f2">Out: {{ tooltipData.output }}</div>
-                <div style="color: #198754">Calls: {{ tooltipData.calls }}</div>
+                <div style="color: var(--bootui-chart-input)">In: {{ tooltipData.input }}</div>
+                <div style="color: var(--bootui-chart-output)">Out: {{ tooltipData.output }}</div>
+                <div style="color: var(--bootui-chart-calls)">Calls: {{ tooltipData.calls }}</div>
               </div>
             </div>
             <div class="d-flex justify-content-between text-muted small mt-1 px-1">

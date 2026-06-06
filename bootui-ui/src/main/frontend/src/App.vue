@@ -570,6 +570,12 @@ function onGlobalKeydown(e) {
   --bootui-nav-active-color: #ffffff;
   --bootui-nav-group-bg: rgba(255, 255, 255, 0.58);
   --bootui-nav-group-color: #64748b;
+  --bootui-nav-link-color: #334155;
+
+  /* Chart legend */
+  --bootui-chart-input: #0d6efd;
+  --bootui-chart-output: #6610f2;
+  --bootui-chart-calls: #198754;
 
   /* Skeleton loaders */
   --bootui-skeleton-base: #e2e8f0;
@@ -610,6 +616,12 @@ function onGlobalKeydown(e) {
   --bootui-nav-active-color: #ffffff;
   --bootui-nav-group-bg: rgba(30, 41, 59, 0.7);
   --bootui-nav-group-color: #94a3b8;
+  --bootui-nav-link-color: #cbd5e1;
+
+  /* Chart legend */
+  --bootui-chart-input: #6ea8fe;
+  --bootui-chart-output: #c084fc;
+  --bootui-chart-calls: #75b798;
 
   /* Skeleton loaders */
   --bootui-skeleton-base: #334155;
@@ -685,6 +697,81 @@ function onGlobalKeydown(e) {
 :global(:root[data-bootui-theme='dark'] .badge.bg-light) {
   background-color: rgba(226, 232, 240, 0.12) !important;
   color: var(--bootui-text-muted) !important;
+}
+
+/* The text-bg-light badge variant is a fixed light color; keep it muted in dark mode. */
+:global(:root[data-bootui-theme='dark'] .text-bg-light) {
+  background-color: rgba(226, 232, 240, 0.12) !important;
+  color: var(--bootui-text-muted) !important;
+}
+
+/* Bootstrap contextual table variants are not theme-aware; remap them for dark mode. */
+:global(:root[data-bootui-theme='dark'] .table-light) {
+  --bs-table-bg: var(--bootui-surface-alt);
+  --bs-table-color: var(--bootui-text);
+  --bs-table-border-color: var(--bootui-border-alt);
+}
+
+:global(:root[data-bootui-theme='dark'] .table-warning) {
+  --bs-table-color: var(--bootui-text);
+  --bs-table-bg: rgba(245, 158, 11, 0.16);
+  --bs-table-border-color: rgba(245, 158, 11, 0.28);
+  --bs-table-striped-bg: rgba(245, 158, 11, 0.2);
+  --bs-table-striped-color: var(--bootui-text);
+  --bs-table-active-bg: rgba(245, 158, 11, 0.24);
+  --bs-table-active-color: var(--bootui-text);
+  --bs-table-hover-bg: rgba(245, 158, 11, 0.22);
+  --bs-table-hover-color: var(--bootui-text);
+}
+
+:global(:root[data-bootui-theme='dark'] .table-danger) {
+  --bs-table-color: var(--bootui-text);
+  --bs-table-bg: rgba(220, 38, 38, 0.18);
+  --bs-table-border-color: rgba(220, 38, 38, 0.3);
+  --bs-table-striped-bg: rgba(220, 38, 38, 0.22);
+  --bs-table-striped-color: var(--bootui-text);
+  --bs-table-active-bg: rgba(220, 38, 38, 0.26);
+  --bs-table-active-color: var(--bootui-text);
+  --bs-table-hover-bg: rgba(220, 38, 38, 0.24);
+  --bs-table-hover-color: var(--bootui-text);
+}
+
+:global(:root[data-bootui-theme='dark'] .table-active) {
+  --bs-table-active-bg: rgba(226, 232, 240, 0.1);
+  --bs-table-active-color: var(--bootui-text);
+}
+
+/* Emphasis text utilities keep their saturated light-mode colors in Bootstrap's
+   dark theme; brighten them to the matching dark emphasis tones for contrast. */
+:global(:root[data-bootui-theme='dark'] .text-primary) {
+  color: rgba(110, 168, 254, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root[data-bootui-theme='dark'] .text-success) {
+  color: rgba(117, 183, 152, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root[data-bootui-theme='dark'] .text-danger) {
+  color: rgba(234, 134, 143, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root[data-bootui-theme='dark'] .text-info) {
+  color: rgba(110, 223, 246, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root[data-bootui-theme='dark'] .text-warning) {
+  color: rgba(255, 218, 106, var(--bs-text-opacity, 1)) !important;
+}
+
+/* Fixed light surfaces (code snippets, popovers) must darken in dark mode. */
+:global(:root[data-bootui-theme='dark'] .bg-light:not(.badge)) {
+  background-color: var(--bootui-surface-alt) !important;
+  color: var(--bootui-text) !important;
+}
+
+:global(:root[data-bootui-theme='dark'] .bg-white) {
+  background-color: var(--bootui-surface-solid) !important;
+  color: var(--bootui-text) !important;
 }
 
 :global(.card) {
@@ -933,7 +1020,7 @@ function onGlobalKeydown(e) {
 
 .bootui-nav-link {
   align-items: center;
-  color: #334155;
+  color: var(--bootui-nav-link-color);
   display: flex;
   gap: 0.75rem;
   padding: 0.62rem 0.75rem;

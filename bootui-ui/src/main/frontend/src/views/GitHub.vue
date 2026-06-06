@@ -873,7 +873,7 @@ function securitySignalUrl(signal) {
   color: inherit;
 }
 
-.metric-card-button--quota {
+.metric-card.metric-card-button.metric-card-button--quota {
   background: var(--github-quota-card-bg) !important;
   border-color: var(--github-quota-card-bg) !important;
   color: var(--github-quota-card-color) !important;
