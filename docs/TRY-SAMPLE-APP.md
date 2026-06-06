@@ -19,7 +19,9 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/jdubois/boot-ui/main/scripts/run-sample.ps1 | iex
 ```
 
-The scripts clone into `./boot-ui` unless that directory already exists, build with `-DskipTests`, then start
+The scripts list `main` plus the five most recent release tags and ask which version to build and run; the most recent
+tag is selected by default (press Enter to accept, or set `BOOTUI_REF` to choose non-interactively). They clone into
+`./boot-ui` unless that directory already exists, build with `-DskipTests`, then start
 `bootui-sample-app` with the `dev` profile. Spring Boot starts PostgreSQL, Redis, and Ollama from
 `bootui-sample-app/compose.yaml`; the first startup also pulls the small `qwen2.5:0.5b` chat model when missing. Open
 <http://localhost:8080/bootui> after startup. If you already cloned the repository, run `./scripts/run-sample.sh` or
