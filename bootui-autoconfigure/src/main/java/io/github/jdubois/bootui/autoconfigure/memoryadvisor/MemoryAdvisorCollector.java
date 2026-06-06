@@ -74,7 +74,8 @@ final class MemoryAdvisorCollector {
         for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
             MemoryUsage usage = pool.getUsage();
             if (usage != null) {
-                pools.add(new MemoryPoolSnapshot(pool.getName(), usage.getUsed(), usage.getCommitted(), usage.getMax()));
+                pools.add(
+                        new MemoryPoolSnapshot(pool.getName(), usage.getUsed(), usage.getCommitted(), usage.getMax()));
             }
         }
 

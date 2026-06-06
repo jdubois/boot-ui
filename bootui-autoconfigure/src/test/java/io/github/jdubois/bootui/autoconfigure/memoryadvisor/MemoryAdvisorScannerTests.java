@@ -150,12 +150,27 @@ class MemoryAdvisorScannerTests {
     @Test
     void runawayCpuThreadIsFlagged() {
         ThreadInfoDto hot = new ThreadInfoDto(
-                42, "worker-1", "RUNNABLE", 5, false, false, 120_000L, 100_000L, 0, 0, false, false, false, null, null,
-                null, List.of());
+                42,
+                "worker-1",
+                "RUNNABLE",
+                5,
+                false,
+                false,
+                120_000L,
+                100_000L,
+                0,
+                0,
+                false,
+                false,
+                false,
+                null,
+                null,
+                null,
+                List.of());
         ThreadData threads = new ThreadData(
                 20, 20, 5, true, false, List.of(), List.of(new ThreadStateCountDto("RUNNABLE", 20)), List.of(hot));
-        MemoryAdvisorContext context =
-                new MemoryAdvisorContext(healthyMemory(), threads, HeapContentData.unavailable(), ClassLoadingData.empty());
+        MemoryAdvisorContext context = new MemoryAdvisorContext(
+                healthyMemory(), threads, HeapContentData.unavailable(), ClassLoadingData.empty());
         MemoryAdvisorScanner scanner = new MemoryAdvisorScanner(() -> context, CLOCK);
 
         MemoryAdvisorReport report = scanner.scan();

@@ -251,8 +251,9 @@ onMounted(loadReport)
               <dl v-else class="row mb-0 small">
                 <dt class="col-6">Heap used</dt>
                 <dd class="col-6 text-end">
-                  {{ formatBytes(summary.heapUsedBytes) }} / {{ formatBytes(summary.heapMaxBytes) }}
-                  ({{ summary.heapUsedPercent }}%)
+                  {{ formatBytes(summary.heapUsedBytes) }} / {{ formatBytes(summary.heapMaxBytes) }} ({{
+                    summary.heapUsedPercent
+                  }}%)
                 </dd>
                 <dt class="col-6">Live threads</dt>
                 <dd class="col-6 text-end">{{ summary.liveThreads }}</dd>

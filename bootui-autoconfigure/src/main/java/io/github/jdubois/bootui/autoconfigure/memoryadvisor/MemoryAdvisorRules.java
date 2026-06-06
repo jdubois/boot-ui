@@ -99,14 +99,15 @@ final class HighHeapUtilizationRule extends AbstractMemoryAdvisorRule {
     private static final int THRESHOLD_PERCENT = 90;
 
     HighHeapUtilizationRule() {
-        super(new MemoryAdvisorRuleDefinition(
-                "MEM-HEAP-001",
-                "Heap utilization is critically high",
-                MemoryAdvisorCategory.HEAP_PRESSURE,
-                "HIGH",
-                "Flags when live heap usage is close to the maximum heap, which risks long GC pauses or OutOfMemoryError.",
-                "Increase -Xmx (or MaxRAMPercentage), reduce retained objects, or profile the heap to find the growth source.",
-                "https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html"));
+        super(
+                new MemoryAdvisorRuleDefinition(
+                        "MEM-HEAP-001",
+                        "Heap utilization is critically high",
+                        MemoryAdvisorCategory.HEAP_PRESSURE,
+                        "HIGH",
+                        "Flags when live heap usage is close to the maximum heap, which risks long GC pauses or OutOfMemoryError.",
+                        "Increase -Xmx (or MaxRAMPercentage), reduce retained objects, or profile the heap to find the growth source.",
+                        "https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html"));
     }
 
     @Override
@@ -217,8 +218,8 @@ final class MetaspaceSaturationRule extends AbstractMemoryAdvisorRule {
         }
         MemoryPoolSnapshot pool = metaspace.get();
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
-            return violation("Metaspace is " + pool.usedPercent() + "% full ("
-                    + MemoryAdvisorFormat.bytes(pool.used()) + " of " + MemoryAdvisorFormat.bytes(pool.max()) + ").");
+            return violation("Metaspace is " + pool.usedPercent() + "% full (" + MemoryAdvisorFormat.bytes(pool.used())
+                    + " of " + MemoryAdvisorFormat.bytes(pool.max()) + ").");
         }
         return pass();
     }
@@ -247,8 +248,8 @@ final class CodeCacheSaturationRule extends AbstractMemoryAdvisorRule {
         }
         MemoryPoolSnapshot pool = codeCache.get();
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
-            return violation("Code cache is " + pool.usedPercent() + "% full ("
-                    + MemoryAdvisorFormat.bytes(pool.used()) + " of " + MemoryAdvisorFormat.bytes(pool.max()) + ").");
+            return violation("Code cache is " + pool.usedPercent() + "% full (" + MemoryAdvisorFormat.bytes(pool.used())
+                    + " of " + MemoryAdvisorFormat.bytes(pool.max()) + ").");
         }
         return pass();
     }
@@ -281,8 +282,9 @@ final class DirectBufferGrowthRule extends AbstractMemoryAdvisorRule {
                     + memory.directBufferCount() + " buffers.");
         }
         if (used >= ABSOLUTE_WARN_BYTES) {
-            return violation("Direct buffer pool holds " + MemoryAdvisorFormat.bytes(used) + " of off-heap memory across "
-                    + memory.directBufferCount() + " buffers; monitor for native-memory growth.");
+            return violation(
+                    "Direct buffer pool holds " + MemoryAdvisorFormat.bytes(used) + " of off-heap memory across "
+                            + memory.directBufferCount() + " buffers; monitor for native-memory growth.");
         }
         return pass();
     }
@@ -425,14 +427,15 @@ final class ThreadPoolExhaustionGapRule extends AbstractMemoryAdvisorRule {
     private static final int MIN_GAP = 50;
 
     ThreadPoolExhaustionGapRule() {
-        super(new MemoryAdvisorRuleDefinition(
-                "MEM-THREAD-003",
-                "Peak thread count is far above the live count",
-                MemoryAdvisorCategory.THREADS,
-                "LOW",
-                "Flags a large gap between the peak and current live thread counts, which can indicate pool exhaustion bursts, thread churn, or a thread leak.",
-                "Review thread-pool sizing and lifecycle; bound pool sizes and ensure short-lived threads are not created per request.",
-                "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html"));
+        super(
+                new MemoryAdvisorRuleDefinition(
+                        "MEM-THREAD-003",
+                        "Peak thread count is far above the live count",
+                        MemoryAdvisorCategory.THREADS,
+                        "LOW",
+                        "Flags a large gap between the peak and current live thread counts, which can indicate pool exhaustion bursts, thread churn, or a thread leak.",
+                        "Review thread-pool sizing and lifecycle; bound pool sizes and ensure short-lived threads are not created per request.",
+                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html"));
     }
 
     @Override
@@ -456,14 +459,15 @@ final class RunawayCpuThreadRule extends AbstractMemoryAdvisorRule {
     private static final int MAX_REPORTED = 5;
 
     RunawayCpuThreadRule() {
-        super(new MemoryAdvisorRuleDefinition(
-                "MEM-THREAD-004",
-                "Runnable threads with very high accumulated CPU time",
-                MemoryAdvisorCategory.THREADS,
-                "INFO",
-                "Highlights RUNNABLE threads that have consumed a large amount of CPU time; in a single snapshot these are candidates for hot loops or runaway work, not a confirmed problem.",
-                "Correlate with two consecutive thread snapshots; if CPU keeps climbing for the same thread, profile its stack for a hot or spinning loop.",
-                "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html"));
+        super(
+                new MemoryAdvisorRuleDefinition(
+                        "MEM-THREAD-004",
+                        "Runnable threads with very high accumulated CPU time",
+                        MemoryAdvisorCategory.THREADS,
+                        "INFO",
+                        "Highlights RUNNABLE threads that have consumed a large amount of CPU time; in a single snapshot these are candidates for hot loops or runaway work, not a confirmed problem.",
+                        "Correlate with two consecutive thread snapshots; if CPU keeps climbing for the same thread, profile its stack for a hot or spinning loop.",
+                        "https://docs.oracle.com/en/java/javase/21/docs/api/java.management/java/lang/management/ThreadMXBean.html"));
     }
 
     @Override

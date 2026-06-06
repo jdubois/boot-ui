@@ -75,8 +75,7 @@ final class MemoryAdvisorScanner {
         List<MemoryAdvisorRuleResultDto> results = MemoryAdvisorRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))
                 .toList();
-        boolean hadErrors = results.stream()
-                .anyMatch(result -> MemoryAdvisorRuleSupport.ERROR.equals(result.status()));
+        boolean hadErrors = results.stream().anyMatch(result -> MemoryAdvisorRuleSupport.ERROR.equals(result.status()));
         String status = hadErrors ? "PARTIAL" : "SCANNED";
         String message = "Memory Advisor evaluated " + results.size() + " rules against the JVM runtime.";
         if (hadErrors) {
