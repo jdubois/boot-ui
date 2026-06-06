@@ -28,6 +28,7 @@ jobs:
   maven-central:
     name: Maven Central
     runs-on: ubuntu-latest
+    environment: maven-central
     permissions:
       contents: write
     env:
