@@ -15,6 +15,7 @@ describe('routes', () => {
       'Tuning Advisor',
       'Heap Dump',
       'Threads',
+      'Memory Advisor',
       'Startup Timeline',
       'GraalVM',
       'Configuration',
@@ -81,6 +82,7 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
       groups.overview,
       groups.overview,
+      groups.runtime,
       groups.runtime,
       groups.runtime,
       groups.runtime,

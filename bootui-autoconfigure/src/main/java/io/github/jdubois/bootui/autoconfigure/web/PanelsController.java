@@ -73,6 +73,7 @@ public class PanelsController {
             case BootUiPanels.OVERVIEW,
                     BootUiPanels.MEMORY,
                     BootUiPanels.TUNING_ADVISOR,
+                    BootUiPanels.MEMORY_ADVISOR,
                     BootUiPanels.CONFIG,
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTEST,

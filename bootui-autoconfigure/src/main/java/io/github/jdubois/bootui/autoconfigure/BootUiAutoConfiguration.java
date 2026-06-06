@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernateadvisor.HibernateAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.memoryadvisor.MemoryAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
@@ -109,6 +110,7 @@ import org.springframework.core.env.Environment;
     ClaudeCodeController.class,
     GraalVmController.class,
     ThreadDumpController.class,
+    MemoryAdvisorController.class,
     BootUiIndexController.class,
     BootUiOpenTelemetryConfiguration.class
 })
@@ -155,7 +157,8 @@ public class BootUiAutoConfiguration {
             SpringSecurityController.class.getName(),
             StartupController.class.getName(),
             TracesController.class.getName(),
-            ThreadDumpController.class.getName());
+            ThreadDumpController.class.getName(),
+            MemoryAdvisorController.class.getName());
 
     private static final Set<String> LAZY_BEAN_NAMES =
             Set.of("bootUiConfigOverrideService", "bootUiDevToolsBridge", "bootUiOtlpSpanDecoder");

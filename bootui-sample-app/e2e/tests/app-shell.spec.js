@@ -11,6 +11,7 @@ const allPanelLinks = [
   {id: 'tuning-advisor', title: 'Tuning Advisor', heading: /^Tuning Advisor/},
   {id: 'heap-dump', title: 'Heap Dump', heading: /^Heap Dump/},
   {id: 'threads', title: 'Threads', heading: /^Threads/},
+  {id: 'memory-advisor', title: 'Memory Advisor', heading: /^Memory Advisor/},
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
   {id: 'graalvm', title: 'GraalVM', heading: /^GraalVM/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
@@ -97,7 +98,7 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Runtime', count: 9},
+      {title: 'Runtime', count: 10},
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 5},
       {title: 'Security', count: 5},
