@@ -131,9 +131,9 @@ describe('Overview', () => {
     await runAll.trigger('click')
     await flushPromises()
 
-    // Scores: vuln 75, pentest 100, architecture 100, hibernate 100, security-advisor 100, github 100 => mean 95.83 => 96
+    // Scores: vuln 75, pentest 100, architecture 100, hibernate 100, security-advisor 100, rest-advisor 100, github 100 => mean 96.43 => 96
     expect(wrapper.text()).toContain('96')
-    expect(wrapper.text()).toContain('6 of 6 scanners scored')
+    expect(wrapper.text()).toContain('7 of 7 scanners scored')
   })
 
   it('shows a connect button for GitHub and excludes it from the score until authenticated', async () => {
@@ -157,6 +157,6 @@ describe('Overview', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Connect to GitHub to load live security metrics')
-    expect(wrapper.text()).toContain('0 of 2 scanners scored')
+    expect(wrapper.text()).toContain('0 of 3 scanners scored')
   })
 })
