@@ -29,6 +29,7 @@ const Memory = () => import('./views/Memory.vue')
 const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
 const Threads = () => import('./views/Threads.vue')
+const MemoryAdvisor = () => import('./views/MemoryAdvisor.vue')
 const Metrics = () => import('./views/Metrics.vue')
 const Vulnerabilities = () => import('./views/Dependencies.vue')
 const DevServices = () => import('./views/DevServices.vue')
@@ -103,6 +104,12 @@ export const routes = [
     name: 'threads',
     component: Threads,
     meta: {group: groups.runtime, icon: 'bi-list-task', title: 'Threads'}
+  },
+  {
+    path: '/memory-advisor',
+    name: 'memory-advisor',
+    component: MemoryAdvisor,
+    meta: {group: groups.runtime, icon: 'bi-clipboard2-pulse', title: 'Memory Advisor'}
   },
   {
     path: '/startup',
