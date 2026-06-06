@@ -65,7 +65,7 @@ test.describe('Dev Services view', () => {
     await expect.poll(async () => (await emptyState.count()) + (await tableRows.count())).toBeGreaterThan(0)
   })
 
-  test('filters services, opens details, loads logs, and hides unavailable restart', async ({page}) => {
+  test('filters services, opens details, loads logs, and hides unavailable restart', async ({openView, page}) => {
     await page.route(
       (url) => url.pathname === '/bootui/api/dev-services',
       async (route) => {
@@ -90,13 +90,7 @@ test.describe('Dev Services view', () => {
       }
     )
 
-    await page.goto('/bootui/#/dev-services')
-    await expect(
-      page
-        .locator('main h2')
-        .filter({hasText: /^Dev Services/})
-        .first()
-    ).toBeVisible()
+    await openView('dev-services', /^Dev Services/)
     await expect(page.getByText('2 / 2 services')).toBeVisible()
     await expect(page.getByRole('columnheader', {name: 'Source'})).toHaveCount(0)
 

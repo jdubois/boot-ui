@@ -73,16 +73,10 @@ const detail = {
 }
 
 test.describe('AI Usage view', () => {
-  test('renders AI token usage, model breakdowns, and chat detail', async ({page}) => {
+  test('renders AI token usage, model breakdowns, and chat detail', async ({openView, page}) => {
     await stubAi(page, overview)
 
-    await page.goto('/bootui/#/ai')
-    await expect(
-      page
-        .locator('main h2')
-        .filter({hasText: /AI Usage/})
-        .first()
-    ).toBeVisible()
+    await openView('ai', /AI Usage/)
     await expect(page.getByText('Spring AI detected')).toBeVisible()
     await expect(page.locator('.kpi-card-body', {hasText: 'Total tokens'}).getByText('49', {exact: true})).toBeVisible()
     await expect(page.locator('.card', {hasText: 'Usage by model'}).getByText('qwen2.5:0.5b')).toBeVisible()

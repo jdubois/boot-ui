@@ -16,7 +16,7 @@ test.describe('DevTools view', () => {
     await expect(page.locator('.alert-info')).toContainText('Restart interrupts the current JVM context')
   })
 
-  test('triggering LiveReload shows action feedback and keeps restart guarded', async ({page}) => {
+  test('triggering LiveReload shows action feedback and keeps restart guarded', async ({openView, page}) => {
     await page.route(
       (url) => url.pathname === '/bootui/api/devtools',
       async (route) => {
@@ -47,13 +47,7 @@ test.describe('DevTools view', () => {
       }
     )
 
-    await page.goto('/bootui/#/devtools')
-    await expect(
-      page
-        .locator('main h2')
-        .filter({hasText: /^DevTools/})
-        .first()
-    ).toBeVisible()
+    await openView('devtools', /^DevTools/)
 
     await expect(page.getByText('LiveReload port:')).toBeVisible()
     await expect(page.getByRole('button', {name: /Restart app/})).toBeDisabled()
