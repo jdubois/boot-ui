@@ -77,6 +77,7 @@ public class PanelsController {
                     BootUiPanels.CONFIG,
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTEST,
+                    BootUiPanels.SPRING_ADVISOR,
                     BootUiPanels.VULNERABILITIES -> available();
             case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
             case BootUiPanels.HEAP_DUMP ->

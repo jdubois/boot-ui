@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorControll
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.springadvisor.SpringAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.net.URI;
 import java.nio.file.Path;
@@ -221,6 +222,7 @@ class BootUiAutoConfigurationTests {
                             ScheduledController.class,
                             SecurityLogsController.class,
                             SecurityAdvisorController.class,
+                            SpringAdvisorController.class,
                             SpringSecurityController.class,
                             StartupController.class,
                             TracesController.class,

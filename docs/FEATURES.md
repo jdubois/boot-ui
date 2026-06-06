@@ -239,6 +239,18 @@ on the server.
 
 ![BootUI Mappings panel](./images/bootui-mappings.png)
 
+### Spring Advisor
+
+The Spring Advisor panel runs an explicit, read-only scan of the host application's running Spring application context and
+`Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
+`DataSource`s) and feature flags, then evaluates a curated ruleset across bean wiring, configuration hygiene, profiles and
+environment, performance and concurrency (including virtual threads), and web/HTTP settings. Because it runs inside the
+already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
+complements the Architecture panel, which statically analyses compiled bytecode with ArchUnit, by inspecting the live,
+wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
+intercepts live traffic, or surfaces secrets. See [SPRING-ADVISOR-CHECKS.md](SPRING-ADVISOR-CHECKS.md) for the full rule
+catalogue and remediation links.
+
 ## Database
 
 ### Database Connection Pools

@@ -24,6 +24,7 @@ const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
 const SpringSecurity = () => import('./views/SpringSecurity.vue')
+const SpringAdvisor = () => import('./views/SpringAdvisor.vue')
 const SecurityAdvisor = () => import('./views/SecurityAdvisor.vue')
 const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const Memory = () => import('./views/Memory.vue')
@@ -159,6 +160,12 @@ export const routes = [
     name: 'mappings',
     component: Mappings,
     meta: {group: groups.configuration, icon: 'bi-signpost-2', title: 'Mappings'}
+  },
+  {
+    path: '/spring-advisor',
+    name: 'spring-advisor',
+    component: SpringAdvisor,
+    meta: {group: groups.configuration, icon: 'bi-lightbulb', title: 'Spring Advisor'}
   },
   {
     path: '/database-connection-pools',

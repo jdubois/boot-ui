@@ -54,6 +54,7 @@ Panel settings are consistent across the UI and API:
 | Configuration   | Beans                     | `beans`                     | `bootui.panels.beans.enabled`                     | Not applicable; view-only.                  |
 | Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                  |
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                  |
+| Configuration   | Spring Advisor            | `spring-advisor`            | `bootui.panels.spring-advisor.enabled`            | `bootui.panels.spring-advisor.read-only`    |
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                  |
 | Database        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                  |
 | Database        | Hibernate Advisor         | `hibernate-advisor`         | `bootui.panels.hibernate-advisor.enabled`         | `bootui.panels.hibernate-advisor.read-only` |
@@ -125,6 +126,13 @@ Panel settings are consistent across the UI and API:
 | --------------------------------- | ------- | ---------------------------------------------------- |
 | `bootui.panels.loggers.enabled`   | `true`  | Show logger data from the Actuator loggers endpoint. |
 | `bootui.panels.loggers.read-only` | `false` | Disable runtime logger level updates and resets.     |
+
+### Spring Advisor
+
+| Property                                | Default | Description                                                              |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------ |
+| `bootui.panels.spring-advisor.enabled`   | `true`  | Show read-only Spring application-context best-practice checks.          |
+| `bootui.panels.spring-advisor.read-only` | `false` | Disable the explicit Spring Advisor scan action.                         |
 
 ### Spring Security
 

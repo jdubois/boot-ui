@@ -100,7 +100,7 @@ test.describe('BootUI app shell', () => {
 
     const groups = [
       {title: 'Runtime', count: 10},
-      {title: 'Configuration', count: 6},
+      {title: 'Configuration', count: 7},
       {title: 'Database', count: 5},
       {title: 'Security', count: 5},
       {title: 'Services', count: 3},
