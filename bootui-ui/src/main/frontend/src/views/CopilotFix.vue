@@ -143,16 +143,15 @@ onBeforeUnmount(closeStream)
 
     <div v-if="!enabled" class="alert alert-secondary" role="alert">
       The Fix it with Copilot capability is disabled. Set
-      <code>bootui.copilot-fix.enabled=ON</code> to allow automated fixes. It is local-only and
-      opt-in by design.
+      <code>bootui.copilot-fix.enabled=ON</code> to allow automated fixes. It is local-only and opt-in by design.
     </div>
     <div v-else-if="!available" class="alert alert-warning" role="alert">
       {{ unavailableReason || 'This capability is currently unavailable.' }}
     </div>
 
     <div v-if="!descriptor && enabled" class="text-secondary">
-      Open a finding in the <strong>Vulnerabilities</strong> panel and choose
-      <em>Fix it with Copilot</em> to start a run here.
+      Open a finding in the <strong>Vulnerabilities</strong> panel and choose <em>Fix it with Copilot</em> to start a
+      run here.
     </div>
 
     <div v-if="descriptor" class="card mb-3">
@@ -166,12 +165,7 @@ onBeforeUnmount(closeStream)
         <p v-if="descriptor.targets && descriptor.targets.length" class="mb-0 small">
           Affected: <code>{{ descriptor.targets.join(', ') }}</code>
         </p>
-        <button
-          v-if="available && !running"
-          type="button"
-          class="btn btn-sm btn-primary mt-3"
-          @click="retry"
-        >
+        <button v-if="available && !running" type="button" class="btn btn-sm btn-primary mt-3" @click="retry">
           <i class="bi bi-magic me-1" aria-hidden="true"></i>{{ run ? 'Run again' : 'Fix it with Copilot' }}
         </button>
       </div>
@@ -183,12 +177,15 @@ onBeforeUnmount(closeStream)
           Run <code>{{ run.id }}</code>
           <span class="badge ms-2" :class="running ? 'text-bg-info' : 'text-bg-secondary'">{{ runStatus }}</span>
         </span>
-        <span v-if="branch" class="small">branch <code>{{ branch }}</code></span>
+        <span v-if="branch" class="small"
+          >branch <code>{{ branch }}</code></span
+        >
       </div>
       <div class="card-body">
         <ul class="list-unstyled small mb-3 bootui-copilot-fix-events">
           <li v-for="event in events" :key="event.sequence" :class="{'text-danger': event.type === 'error'}">
-            <span class="text-secondary me-2">{{ event.type }}</span>{{ event.message }}
+            <span class="text-secondary me-2">{{ event.type }}</span
+            >{{ event.message }}
           </li>
         </ul>
 
@@ -196,9 +193,8 @@ onBeforeUnmount(closeStream)
           <h3 class="h6">Proposed diff ({{ run.filesChanged }} file(s))</h3>
           <pre class="bg-body-tertiary p-2 rounded small bootui-copilot-fix-diff"><code>{{ diff }}</code></pre>
           <p class="small text-secondary mb-0">
-            Review the diff above. The changes are isolated on branch <code>{{ branch }}</code> and
-            were not applied to your current branch. Open a draft pull request from that branch when
-            you are satisfied.
+            Review the diff above. The changes are isolated on branch <code>{{ branch }}</code> and were not applied to
+            your current branch. Open a draft pull request from that branch when you are satisfied.
           </p>
         </div>
         <p v-else-if="!running" class="small text-secondary mb-0">{{ run.message }}</p>
