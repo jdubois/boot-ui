@@ -15,7 +15,9 @@ require_command() {
 # The default selection is the most recent tag when one exists, otherwise "main".
 select_ref() {
   local -a tags=("$@")
-  local -a options=("main" "${tags[@]}")
+  # Use the `${arr[@]+...}` idiom so an empty `tags` array does not trip
+  # `set -u` ("unbound variable") on Bash 3.2 (macOS /bin/bash).
+  local -a options=("main" ${tags[@]+"${tags[@]}"})
   local default_index=0
   if (( ${#tags[@]} > 0 )); then
     default_index=1
@@ -65,8 +67,13 @@ if [[ -x "./mvnw" && -d "bootui-sample-app" ]]; then
   echo "Using existing BootUI checkout at $(pwd)."
   require_command git
 
-  mapfile -t TAGS < <(git tag --sort=-v:refname 2>/dev/null | head -5)
-  select_ref "${TAGS[@]}"
+  # Read tags into an array. Avoid `mapfile`/`readarray` (Bash 4+) so the script
+  # works under the Bash 3.2 that ships as /bin/bash on macOS.
+  TAGS=()
+  while IFS= read -r tag; do
+    TAGS+=("$tag")
+  done < <(git tag --sort=-v:refname 2>/dev/null | head -5)
+  select_ref ${TAGS[@]+"${TAGS[@]}"}
 
   echo "Checking out '$SELECTED_REF'..."
   git checkout "$SELECTED_REF"
@@ -79,8 +86,13 @@ else
     exit 1
   fi
 
-  mapfile -t TAGS < <(git ls-remote --tags --refs --sort=-v:refname "$REPO_URL" 2>/dev/null | sed 's#.*refs/tags/##' | head -5)
-  select_ref "${TAGS[@]}"
+  # Read tags into an array. Avoid `mapfile`/`readarray` (Bash 4+) so the script
+  # works under the Bash 3.2 that ships as /bin/bash on macOS.
+  TAGS=()
+  while IFS= read -r tag; do
+    TAGS+=("$tag")
+  done < <(git ls-remote --tags --refs --sort=-v:refname "$REPO_URL" 2>/dev/null | sed 's#.*refs/tags/##' | head -5)
+  select_ref ${TAGS[@]+"${TAGS[@]}"}
 
   echo "Cloning BootUI ($SELECTED_REF) into $TARGET_DIR..."
   git clone --depth 1 --branch "$SELECTED_REF" "$REPO_URL" "$TARGET_DIR"
