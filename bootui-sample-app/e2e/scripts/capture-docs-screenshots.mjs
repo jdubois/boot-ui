@@ -202,6 +202,38 @@ const github = {
     {label: 'Enhancement', count: 5, tone: 'info'},
     {label: 'Documentation', count: 2, tone: 'success'}
   ],
+  issues: [
+    {
+      number: 188,
+      title: 'Flaky Playwright run on slow CI agents',
+      author: 'julien',
+      htmlUrl: 'https://github.com/jdubois/boot-ui/issues/188',
+      createdAt: nowMillis - 3 * 24 * 60 * 60 * 1000,
+      updatedAt: nowMillis - 35 * 60 * 1000,
+      comments: 4,
+      labels: ['bug', 'ci']
+    },
+    {
+      number: 184,
+      title: 'Document the GitHub issues drawer',
+      author: 'octocat',
+      htmlUrl: 'https://github.com/jdubois/boot-ui/issues/184',
+      createdAt: nowMillis - 5 * 24 * 60 * 60 * 1000,
+      updatedAt: nowMillis - 4 * 60 * 60 * 1000,
+      comments: 1,
+      labels: ['docs']
+    },
+    {
+      number: 179,
+      title: 'Add metric for stale issues older than 90 days',
+      author: 'contributor',
+      htmlUrl: 'https://github.com/jdubois/boot-ui/issues/179',
+      createdAt: nowMillis - 12 * 24 * 60 * 60 * 1000,
+      updatedAt: nowMillis - 2 * 24 * 60 * 60 * 1000,
+      comments: 0,
+      labels: ['enhancement']
+    }
+  ],
   securitySignals: [
     {label: 'Dependabot alerts', status: 'AVAILABLE', count: 0, unavailableReason: null},
     {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null},

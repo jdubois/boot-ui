@@ -67,6 +67,7 @@ final class GitHubApiClient implements GitHubClient {
                     List.of(),
                     List.of(),
                     List.of(),
+                    List.of(),
                     unavailableCopilotUsage("GitHub API host is not allowed"),
                     List.of());
         }
@@ -79,6 +80,7 @@ final class GitHubApiClient implements GitHubClient {
         List<GitHubWorkflowRunDto> workflowRuns = new ArrayList<>();
         List<GitHubWorkflowDto> workflows = new ArrayList<>();
         List<GitHubIssueBucketDto> issueBuckets = new ArrayList<>();
+        List<GitHubIssueDto> issues = new ArrayList<>();
         List<GitHubSecuritySignalDto> securitySignals = new ArrayList<>();
 
         try {
@@ -92,6 +94,7 @@ final class GitHubApiClient implements GitHubClient {
                         refreshedAt,
                         null,
                         credential(token, rateLimit.headers(), null),
+                        List.of(),
                         List.of(),
                         List.of(),
                         List.of(),
@@ -125,6 +128,7 @@ final class GitHubApiClient implements GitHubClient {
                         workflowRuns,
                         workflows,
                         issueBuckets,
+                        issues,
                         securitySignals,
                         copilotUsage,
                         warnings);
@@ -157,6 +161,7 @@ final class GitHubApiClient implements GitHubClient {
                     "issues");
             if (issuesResponse.success()) {
                 issueBuckets.addAll(issueBuckets(issuesResponse.json()));
+                issues.addAll(issues(issuesResponse.json()));
             } else {
                 warnings.add(issuesResponse.safeMessage());
             }
@@ -241,6 +246,7 @@ final class GitHubApiClient implements GitHubClient {
                     workflowRuns,
                     workflows,
                     issueBuckets,
+                    issues,
                     securitySignals,
                     copilotUsage,
                     warnings);
@@ -491,6 +497,28 @@ final class GitHubApiClient implements GitHubClient {
                 new GitHubIssueBucketDto("With labels", labeled, "info"),
                 new GitHubIssueBucketDto("No label", unlabeled, "warning"),
                 new GitHubIssueBucketDto("Stale 30d+", stale, stale > 0 ? "warning" : "success"));
+    }
+
+    private List<GitHubIssueDto> issues(JsonNode root) {
+        if (!root.isArray()) {
+            return List.of();
+        }
+        List<GitHubIssueDto> issues = new ArrayList<>();
+        for (JsonNode item : root) {
+            if (!item.path("pull_request").isMissingNode()) {
+                continue;
+            }
+            issues.add(new GitHubIssueDto(
+                    item.path("number").asInt(),
+                    text(item, "title"),
+                    text(item.path("user"), "login"),
+                    text(item, "html_url"),
+                    instantMillis(text(item, "created_at")),
+                    instantMillis(text(item, "updated_at")),
+                    item.path("comments").asInt(0),
+                    labels(item.path("labels"))));
+        }
+        return issues;
     }
 
     private void addSecuritySignal(
@@ -804,6 +832,7 @@ final class GitHubApiClient implements GitHubClient {
             List<GitHubWorkflowRunDto> workflowRuns,
             List<GitHubWorkflowDto> workflows,
             List<GitHubIssueBucketDto> issueBuckets,
+            List<GitHubIssueDto> issues,
             List<GitHubSecuritySignalDto> securitySignals,
             GitHubCopilotUsageDto copilotUsage,
             List<String> warnings) {
@@ -822,6 +851,7 @@ final class GitHubApiClient implements GitHubClient {
                 List.copyOf(workflowRuns),
                 List.copyOf(workflows),
                 List.copyOf(issueBuckets),
+                List.copyOf(issues),
                 List.copyOf(securitySignals),
                 copilotUsage,
                 List.copyOf(warnings));
@@ -840,6 +870,7 @@ final class GitHubApiClient implements GitHubClient {
                 refreshedAt,
                 null,
                 credential(token, null, null),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),

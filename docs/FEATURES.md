@@ -44,8 +44,11 @@ remote. It uses BootUI's standard auto-refresh control with a one-minute interva
 refresh and each interval are bounded and blocked by the panel's read-only settings.
 
 The panel shows repository metadata and an eight-card summary grid with click-through detail drawers for open pull
-requests, issue buckets, the latest GitHub Actions executions, quotas, Copilot usage report availability, and the three
-security signals. GitHub Actions execution rows link to the matching run, show the workflow, branch, event, status, and
+requests, open issues, the latest GitHub Actions executions, quotas, Copilot usage report availability, and the three
+security signals. The open-issues drawer summarizes the label/staleness buckets and then lists the bounded set of open
+issues returned by the refresh, linking each to its issue page with its author, labels, comment count, and last-updated
+time (pull requests returned by the issues endpoint are excluded). GitHub Actions execution rows link to the matching
+run, show the workflow, branch, event, status, and
 duration, and mirror the recent-run list from the GitHub Actions page. The workflow failure count only considers the
 latest execution for each workflow and branch, so older failures drop out once a later run fixes that workflow on that
 branch; security signal drawers link to the matching GitHub alert pages.
