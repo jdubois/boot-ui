@@ -118,8 +118,8 @@ final class DuplicateObjectMapperRule extends AbstractSpringAdvisorRule {
     SpringAdvisorRuleResultDto evaluateRule(SpringAdvisorContext context) {
         List<BeanRef> mappers = context.objectMappers();
         if (mappers.size() > 1 && SpringAdvisorModel.primaryCount(mappers) == 0) {
-            return violation("Found " + mappers.size() + " ObjectMapper beans and none is @Primary: "
-                    + names(mappers) + ".");
+            return violation(
+                    "Found " + mappers.size() + " ObjectMapper beans and none is @Primary: " + names(mappers) + ".");
         }
         return pass();
     }
@@ -410,9 +410,10 @@ final class ConnectionPoolSmallForVirtualThreadsRule extends AbstractSpringAdvis
         Integer maxPoolSize = context.firstIntegerProperty("spring.datasource.hikari.maximum-pool-size");
         int effective = maxPoolSize != null ? maxPoolSize : DEFAULT_HIKARI_POOL_SIZE;
         if (effective <= DEFAULT_HIKARI_POOL_SIZE) {
-            String configured = maxPoolSize != null ? String.valueOf(maxPoolSize) : "default " + DEFAULT_HIKARI_POOL_SIZE;
-            return violation("Virtual threads are enabled but the HikariCP maximum pool size is "
-                    + configured + ", which can become the concurrency bottleneck.");
+            String configured =
+                    maxPoolSize != null ? String.valueOf(maxPoolSize) : "default " + DEFAULT_HIKARI_POOL_SIZE;
+            return violation("Virtual threads are enabled but the HikariCP maximum pool size is " + configured
+                    + ", which can become the concurrency bottleneck.");
         }
         return pass();
     }

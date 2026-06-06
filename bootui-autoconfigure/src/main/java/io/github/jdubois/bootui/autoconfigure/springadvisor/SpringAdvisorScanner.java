@@ -107,13 +107,7 @@ final class SpringAdvisorScanner {
         List<String> inspected = describe(context);
         String message = "Spring Advisor completed against " + context.beanDefinitionCount() + " bean definition(s).";
         return report(
-                "SCANNED",
-                message,
-                clock.millis(),
-                inspected,
-                context.beanDefinitionCount(),
-                results.size(),
-                results);
+                "SCANNED", message, clock.millis(), inspected, context.beanDefinitionCount(), results.size(), results);
     }
 
     private SpringAdvisorReport report(
@@ -189,9 +183,11 @@ final class SpringAdvisorScanner {
         List<BeanRef> objectMappers = beansOfType(beanFactory, OBJECT_MAPPER_TYPE, classLoader);
         List<BeanRef> taskExecutors = beansOfType(beanFactory, TASK_EXECUTOR_TYPE, classLoader);
         List<BeanRef> dataSources = beansOfType(beanFactory, DATA_SOURCE_TYPE, classLoader);
-        boolean pooledExecutor = !beansOfType(beanFactory, POOLED_TASK_EXECUTOR_TYPE, classLoader).isEmpty();
+        boolean pooledExecutor = !beansOfType(beanFactory, POOLED_TASK_EXECUTOR_TYPE, classLoader)
+                .isEmpty();
         boolean hikariPresent = ClassUtils.isPresent(HIKARI_DATA_SOURCE_TYPE, classLoader)
-                && !beansOfType(beanFactory, HIKARI_DATA_SOURCE_TYPE, classLoader).isEmpty();
+                && !beansOfType(beanFactory, HIKARI_DATA_SOURCE_TYPE, classLoader)
+                        .isEmpty();
         boolean asyncEnabled = beanFactory != null && beanFactory.containsBeanDefinition(ASYNC_PROCESSOR_BEAN);
         boolean devToolsPresent = ClassUtils.isPresent(DEVTOOLS_MARKER, classLoader);
         int beanCount = beanFactory != null ? beanFactory.getBeanDefinitionCount() : 0;
