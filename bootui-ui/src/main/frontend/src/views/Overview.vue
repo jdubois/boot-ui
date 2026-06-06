@@ -25,6 +25,8 @@ function panelAvailable(id) {
 }
 
 // Severity-based scanners share the same {severityCounts, scan.status} contract.
+// Ordered to mirror the Advisors navigation group (code & design, then data,
+// runtime, and security advisors).
 const scannerDefs = [
   {
     id: 'architecture',
@@ -43,12 +45,28 @@ const scannerDefs = [
     endpoint: 'api/rest-advisor/scan'
   },
   {
+    id: 'spring-advisor',
+    title: 'Spring Advisor',
+    icon: 'bi-lightbulb',
+    tone: 'info',
+    to: '/spring-advisor',
+    endpoint: 'api/spring-advisor/scan'
+  },
+  {
     id: 'hibernate-advisor',
     title: 'Hibernate Advisor',
     icon: 'bi-database-gear',
     tone: 'info',
     to: '/hibernate-advisor',
     endpoint: 'api/hibernate-advisor/scan'
+  },
+  {
+    id: 'memory-advisor',
+    title: 'Memory Advisor',
+    icon: 'bi-clipboard2-pulse',
+    tone: 'warning',
+    to: '/memory-advisor',
+    endpoint: 'api/memory-advisor/scan'
   },
   {
     id: 'security-advisor',
@@ -59,20 +77,20 @@ const scannerDefs = [
     endpoint: 'api/security-advisor/scan'
   },
   {
-    id: 'vulnerabilities',
-    title: 'Vulnerabilities',
-    icon: 'bi-bug',
-    tone: 'danger',
-    to: '/vulnerabilities',
-    endpoint: 'api/dependencies/scan'
-  },
-  {
     id: 'pentest',
     title: 'Pentesting',
     icon: 'bi-shield-exclamation',
     tone: 'warning',
     to: '/pentest',
     endpoint: 'api/pentest/scan'
+  },
+  {
+    id: 'vulnerabilities',
+    title: 'Vulnerabilities',
+    icon: 'bi-bug',
+    tone: 'danger',
+    to: '/vulnerabilities',
+    endpoint: 'api/dependencies/scan'
   }
 ]
 

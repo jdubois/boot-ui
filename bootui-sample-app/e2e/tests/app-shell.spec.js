@@ -99,37 +99,46 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Runtime', count: 10},
-      {title: 'Configuration', count: 7},
-      {title: 'Database', count: 5},
-      {title: 'Security', count: 5},
+      {title: 'Advisors', count: 9},
+      {title: 'Runtime', count: 8},
+      {title: 'Configuration', count: 6},
+      {title: 'Database', count: 4},
+      {title: 'Security', count: 2},
       {title: 'Services', count: 3},
-      {title: 'Diagnostics', count: 6},
+      {title: 'Diagnostics', count: 4},
       {title: 'Developer tools', count: 4}
     ]
 
     for (const group of groups) {
       const toggle = page.getByRole('button', {name: new RegExp(`${group.title}\\s+${group.count}`)})
       await expect(toggle).toBeVisible()
-      await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Runtime' ? 'true' : 'false')
+      await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Advisors' ? 'true' : 'false')
     }
 
-    await page.getByRole('button', {name: /Database\s+5/}).click()
+    await expect(page.getByRole('group', {name: 'Advisors panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Architecture',
+      'REST API Advisor',
+      'Spring Advisor',
+      'Hibernate Advisor',
+      'Memory Advisor',
+      'Tuning Advisor',
+      'Security Advisor',
+      'Pentesting',
+      'Vulnerabilities'
+    ])
+
+    await page.getByRole('button', {name: /Database\s+4/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
       'Spring Data',
-      'Hibernate Advisor',
       'Flyway',
       'Liquibase'
     ])
 
-    await page.getByRole('button', {name: /Security\s+5/}).click()
+    await page.getByRole('button', {name: /Security\s+2/}).click()
     await expect(page.getByRole('group', {name: 'Security panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Spring Security',
-      'Security Logs',
-      'Security Advisor',
-      'Pentesting',
-      'Vulnerabilities'
+      'Security Logs'
     ])
 
     await page.getByRole('button', {name: /Services\s+3/}).click()
@@ -139,14 +148,12 @@ test.describe('BootUI app shell', () => {
       'AI Usage'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+6/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+4/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Traces',
       'Log Tail',
       'HTTP Exchanges',
-      'HTTP Probe',
-      'Architecture',
-      'REST API Advisor'
+      'HTTP Probe'
     ])
   })
 

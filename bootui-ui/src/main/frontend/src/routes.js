@@ -42,6 +42,7 @@ const Copilot = () => import('./views/Copilot.vue')
 
 export const groups = {
   overview: 'overview',
+  advisors: 'advisors',
   runtime: 'runtime',
   configuration: 'configuration',
   database: 'database',
@@ -64,6 +65,60 @@ export const routes = [
     name: 'github',
     component: GitHub,
     meta: {group: groups.overview, icon: 'bi-github', title: 'GitHub'}
+  },
+  {
+    path: '/architecture',
+    name: 'architecture',
+    component: Architecture,
+    meta: {group: groups.advisors, icon: 'bi-diagram-2', title: 'Architecture'}
+  },
+  {
+    path: '/rest-advisor',
+    name: 'rest-advisor',
+    component: RestApiAdvisor,
+    meta: {group: groups.advisors, icon: 'bi-signpost-split', title: 'REST API Advisor'}
+  },
+  {
+    path: '/spring-advisor',
+    name: 'spring-advisor',
+    component: SpringAdvisor,
+    meta: {group: groups.advisors, icon: 'bi-lightbulb', title: 'Spring Advisor'}
+  },
+  {
+    path: '/hibernate-advisor',
+    name: 'hibernate-advisor',
+    component: HibernateAdvisor,
+    meta: {group: groups.advisors, icon: 'bi-database-gear', title: 'Hibernate Advisor'}
+  },
+  {
+    path: '/memory-advisor',
+    name: 'memory-advisor',
+    component: MemoryAdvisor,
+    meta: {group: groups.advisors, icon: 'bi-clipboard2-pulse', title: 'Memory Advisor'}
+  },
+  {
+    path: '/tuning-advisor',
+    name: 'tuning-advisor',
+    component: TuningAdvisor,
+    meta: {group: groups.advisors, icon: 'bi-sliders2-vertical', title: 'Tuning Advisor'}
+  },
+  {
+    path: '/security-advisor',
+    name: 'security-advisor',
+    component: SecurityAdvisor,
+    meta: {group: groups.advisors, icon: 'bi-shield-check', title: 'Security Advisor'}
+  },
+  {
+    path: '/pentest',
+    name: 'pentest',
+    component: Pentesting,
+    meta: {group: groups.advisors, icon: 'bi-shield-exclamation', title: 'Pentesting'}
+  },
+  {
+    path: '/vulnerabilities',
+    name: 'vulnerabilities',
+    component: Vulnerabilities,
+    meta: {group: groups.advisors, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
     path: '/health',
@@ -90,12 +145,6 @@ export const routes = [
     meta: {group: groups.runtime, icon: 'bi-memory', title: 'Memory'}
   },
   {
-    path: '/tuning-advisor',
-    name: 'tuning-advisor',
-    component: TuningAdvisor,
-    meta: {group: groups.runtime, icon: 'bi-sliders2-vertical', title: 'Tuning Advisor'}
-  },
-  {
     path: '/heap-dump',
     name: 'heap-dump',
     component: HeapDump,
@@ -106,12 +155,6 @@ export const routes = [
     name: 'threads',
     component: Threads,
     meta: {group: groups.runtime, icon: 'bi-list-task', title: 'Threads'}
-  },
-  {
-    path: '/memory-advisor',
-    name: 'memory-advisor',
-    component: MemoryAdvisor,
-    meta: {group: groups.runtime, icon: 'bi-clipboard2-pulse', title: 'Memory Advisor'}
   },
   {
     path: '/startup',
@@ -162,12 +205,6 @@ export const routes = [
     meta: {group: groups.configuration, icon: 'bi-signpost-2', title: 'Mappings'}
   },
   {
-    path: '/spring-advisor',
-    name: 'spring-advisor',
-    component: SpringAdvisor,
-    meta: {group: groups.configuration, icon: 'bi-lightbulb', title: 'Spring Advisor'}
-  },
-  {
     path: '/database-connection-pools',
     name: 'database-connection-pools',
     component: DatabaseConnectionsPools,
@@ -178,12 +215,6 @@ export const routes = [
     name: 'data',
     component: Data,
     meta: {group: groups.database, icon: 'bi-database', title: 'Spring Data'}
-  },
-  {
-    path: '/hibernate-advisor',
-    name: 'hibernate-advisor',
-    component: HibernateAdvisor,
-    meta: {group: groups.database, icon: 'bi-database-gear', title: 'Hibernate Advisor'}
   },
   {
     path: '/flyway',
@@ -208,24 +239,6 @@ export const routes = [
     name: 'security-logs',
     component: SecurityLogs,
     meta: {group: groups.security, icon: 'bi-shield-lock', title: 'Security Logs'}
-  },
-  {
-    path: '/security-advisor',
-    name: 'security-advisor',
-    component: SecurityAdvisor,
-    meta: {group: groups.security, icon: 'bi-shield-check', title: 'Security Advisor'}
-  },
-  {
-    path: '/pentest',
-    name: 'pentest',
-    component: Pentesting,
-    meta: {group: groups.security, icon: 'bi-shield-exclamation', title: 'Pentesting'}
-  },
-  {
-    path: '/vulnerabilities',
-    name: 'vulnerabilities',
-    component: Vulnerabilities,
-    meta: {group: groups.security, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
     path: '/scheduled',
@@ -268,18 +281,6 @@ export const routes = [
     name: 'http-probe',
     component: HttpProbe,
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe'}
-  },
-  {
-    path: '/architecture',
-    name: 'architecture',
-    component: Architecture,
-    meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
-  },
-  {
-    path: '/rest-advisor',
-    name: 'rest-advisor',
-    component: RestApiAdvisor,
-    meta: {group: groups.diagnostics, icon: 'bi-signpost-split', title: 'REST API Advisor'}
   },
   {
     path: '/devtools',
