@@ -88,6 +88,13 @@ When BootUI is active, the starter should contribute low-precedence Actuator def
 `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host
 applications can override those `management.*` settings explicitly.
 
+BootUI's panels are served by Spring MVC and require a servlet web application. Because the starter ships Spring MVC and
+an embedded servlet container, BootUI also supports non-web (command-line) applications: when BootUI is active and the
+host is configured as non-web (`spring.main.web-application-type=none`), the starter forces a servlet web application so
+the console can be served. This only happens while BootUI is active (development contexts by default), never overrides an
+explicitly reactive application, and never runs without an embedded servlet container on the classpath. It can be
+disabled with `bootui.force-web=false`.
+
 ### 4.2 URL
 
 Default UI URL inside the host Spring Boot 4 application:

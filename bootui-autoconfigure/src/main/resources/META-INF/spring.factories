@@ -1,4 +1,5 @@
 org.springframework.boot.EnvironmentPostProcessor=\
 io.github.jdubois.bootui.autoconfigure.config.BootUiOverridesEnvironmentPostProcessor,\
 io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor,\
-io.github.jdubois.bootui.autoconfigure.config.BootUiStartupEnvironmentPostProcessor
+io.github.jdubois.bootui.autoconfigure.config.BootUiStartupEnvironmentPostProcessor,\
+io.github.jdubois.bootui.autoconfigure.config.BootUiWebApplicationTypeEnvironmentPostProcessor
