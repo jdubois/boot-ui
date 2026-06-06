@@ -253,9 +253,7 @@ final class MemoryAdvisorCollector {
             case 'k' -> multiplier = 1024L;
             case 'm' -> multiplier = 1024L * 1024;
             case 'g' -> multiplier = 1024L * 1024 * 1024;
-            default -> {
-                /* no unit suffix */
-            }
+            default -> multiplier = 1;
         }
         if (multiplier != 1) {
             number = trimmed.substring(0, trimmed.length() - 1);
