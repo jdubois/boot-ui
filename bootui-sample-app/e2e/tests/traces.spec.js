@@ -61,7 +61,7 @@ const traceDetail = {
 }
 
 test.describe('Traces view', () => {
-  test('renders trace summaries and waterfall details', async ({page}) => {
+  test('renders trace summaries and waterfall details', async ({openView, page}) => {
     await stubShell(page)
     await page.route(
       (url) => url.pathname === '/bootui/api/traces',
@@ -76,13 +76,7 @@ test.describe('Traces view', () => {
       }
     )
 
-    await page.goto('/bootui/#/traces')
-    await expect(
-      page
-        .locator('main h2')
-        .filter({hasText: /^Traces/})
-        .first()
-    ).toBeVisible()
+    await openView('traces', /^Traces/)
     await expect(page.getByText('1 / 500 retained trace')).toBeVisible()
     const traceRow = page.locator('tbody tr', {hasText: 'GET /api/sample/hello'})
     await expect(traceRow).toBeVisible()
