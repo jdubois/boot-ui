@@ -78,6 +78,7 @@ class GitHubDashboardService {
                     report.workflowRuns(),
                     report.workflows(),
                     report.issueBuckets(),
+                    report.issues(),
                     report.securitySignals(),
                     report.copilotUsage(),
                     report.warnings());
@@ -101,6 +102,7 @@ class GitHubDashboardService {
                 null,
                 null,
                 new GitHubCredentialDto("none", false, null, null),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -142,6 +144,7 @@ class GitHubDashboardService {
                         null,
                         null),
                 new GitHubCredentialDto("not connected", false, null, null),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),

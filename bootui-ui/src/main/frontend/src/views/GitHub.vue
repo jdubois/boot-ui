@@ -33,6 +33,7 @@ const pullRequests = computed(() => data.value?.pullRequests ?? [])
 const workflowRuns = computed(() => data.value?.workflowRuns ?? [])
 const workflows = computed(() => data.value?.workflows ?? [])
 const issueBuckets = computed(() => data.value?.issueBuckets ?? [])
+const issues = computed(() => data.value?.issues ?? [])
 const securitySignals = computed(() => data.value?.securitySignals ?? [])
 const warnings = computed(() => data.value?.warnings ?? [])
 const repository = computed(() => data.value?.repository)
@@ -384,7 +385,9 @@ const drawerSubtitle = computed(() => {
   return (
     {
       pullRequests: `${pullRequests.value.length} pull request${pullRequests.value.length === 1 ? '' : 's'} returned by this refresh`,
-      issues: 'Issue buckets from the bounded live refresh',
+      issues: issues.value.length
+        ? `${issues.value.length} issue${issues.value.length === 1 ? '' : 's'} returned by this refresh`
+        : 'Issue buckets from the bounded live refresh',
       workflows: visibleWorkflowRuns.value.length
         ? `Latest ${visibleWorkflowRuns.value.length} GitHub Actions execution${visibleWorkflowRuns.value.length === 1 ? '' : 's'} returned by this refresh`
         : 'No GitHub Actions executions were returned by this refresh',
@@ -596,17 +599,56 @@ function securitySignalUrl(signal) {
         </template>
 
         <template v-else-if="activeDrawer === 'issues'">
-          <div v-if="issueBuckets.length" class="card-body">
-            <div class="row g-3">
-              <div v-for="bucket in issueBuckets" :key="bucket.label" class="col-sm-6 col-lg-3">
-                <div class="border rounded p-3 h-100">
+          <div v-if="issueBuckets.length" class="card-body pb-0">
+            <div class="row g-2">
+              <div v-for="bucket in issueBuckets" :key="bucket.label" class="col-6 col-lg-3">
+                <div class="border rounded px-3 py-2 h-100">
                   <div class="text-muted small">{{ bucket.label }}</div>
-                  <div class="display-6">{{ formatNumber(bucket.count) }}</div>
+                  <div class="fs-5 fw-semibold">{{ formatNumber(bucket.count) }}</div>
                 </div>
               </div>
             </div>
           </div>
-          <div v-else class="card-body text-muted">No issue buckets were returned by this refresh.</div>
+          <div v-if="issues.length" class="table-responsive mt-3">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Issue</th>
+                  <th>Author</th>
+                  <th>Labels</th>
+                  <th class="text-end">Comments</th>
+                  <th class="text-end">Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="issue in issues" :key="issue.number">
+                  <td>
+                    <a
+                      v-if="issue.htmlUrl"
+                      :href="issue.htmlUrl"
+                      class="github-link-chip"
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      #{{ issue.number }} {{ issue.title }}
+                      <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                    <span v-else class="fw-semibold">#{{ issue.number }} {{ issue.title }}</span>
+                  </td>
+                  <td>{{ issue.author || '—' }}</td>
+                  <td>
+                    <span v-for="label in issue.labels" :key="label" class="badge text-bg-light me-1">{{ label }}</span>
+                    <span v-if="!issue.labels?.length" class="text-muted small">—</span>
+                  </td>
+                  <td class="text-end">{{ formatNumber(issue.comments ?? 0) }}</td>
+                  <td class="text-end">{{ issue.updatedAt ? formatRelative(issue.updatedAt) : '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else-if="!issueBuckets.length" class="card-body text-muted">
+            No open issues were returned by this refresh.
+          </div>
         </template>
 
         <template v-else-if="activeDrawer === 'workflows'">
@@ -832,7 +874,7 @@ function securitySignalUrl(signal) {
 }
 
 .metric-card-button--quota {
-  background: var(--github-quota-card-bg);
+  background: var(--github-quota-card-bg) !important;
   border-color: var(--github-quota-card-bg) !important;
   color: var(--github-quota-card-color) !important;
 }
