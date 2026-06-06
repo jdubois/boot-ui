@@ -81,6 +81,7 @@ public class PanelsController {
             case BootUiPanels.HEAP_DUMP ->
                 availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
+            case BootUiPanels.REST_ADVISOR -> availability(restAdvisorAvailable(), restAdvisorUnavailableReason());
             case BootUiPanels.GRAALVM -> availability(graalvmAvailable(), graalvmUnavailableReason());
             case BootUiPanels.THREADS ->
                 availability(
@@ -312,6 +313,18 @@ public class PanelsController {
     }
 
     private String architectureUnavailableReason() {
+        if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
+            return "ArchUnit is not on the classpath";
+        }
+        return "No application base package was detected";
+    }
+
+    private boolean restAdvisorAvailable() {
+        return classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
+                && AutoConfigurationPackages.has(applicationContext);
+    }
+
+    private String restAdvisorUnavailableReason() {
         if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
             return "ArchUnit is not on the classpath";
         }

@@ -45,6 +45,7 @@ public final class BootUiPanels {
     public static final String HTTP_EXCHANGES = "http-exchanges";
     public static final String HTTP_PROBE = "http-probe";
     public static final String ARCHITECTURE = "architecture";
+    public static final String REST_ADVISOR = "rest-advisor";
     public static final String PENTEST = "pentest";
     public static final String VULNERABILITIES = "vulnerabilities";
     public static final String DEVTOOLS = "devtools";
@@ -92,7 +93,8 @@ public final class BootUiPanels {
             new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"),
             new Panel(FLYWAY, "Flyway", true, "/flyway"),
             new Panel(LIQUIBASE, "Liquibase", true, "/liquibase"),
-            new Panel(GITHUB, "GitHub", true, "/github"));
+            new Panel(GITHUB, "GitHub", true, "/github"),
+            new Panel(REST_ADVISOR, "REST API Advisor", true, "/rest-advisor"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));
