@@ -55,10 +55,7 @@ final class RestApiAdvisorRuleSupport {
     }
 
     static RestApiAdvisorRuleResultDto result(
-            RestApiAdvisorRuleDefinition definition,
-            String status,
-            int violationCount,
-            List<String> sampleViolations) {
+            RestApiAdvisorRuleDefinition definition, String status, int violationCount, List<String> sampleViolations) {
         return new RestApiAdvisorRuleResultDto(
                 definition.id(),
                 definition.name(),

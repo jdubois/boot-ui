@@ -72,7 +72,8 @@ final class RestApiAdvisorRuleHelp {
     static final String OPENAPI_DOCS = "https://springdoc.org/";
 
     private static final Pattern VERSION_SEGMENT = Pattern.compile("v\\d+", Pattern.CASE_INSENSITIVE);
-    private static final Pattern VERSIONED_MEDIA_TYPE = Pattern.compile(".*(version=|vnd\\.).*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern VERSIONED_MEDIA_TYPE =
+            Pattern.compile(".*(version=|vnd\\.).*", Pattern.CASE_INSENSITIVE);
     private static final Set<String> VERBS = Set.of(
             "get", "create", "update", "delete", "remove", "save", "add", "fetch", "find", "insert", "modify", "list",
             "post", "put", "patch", "read", "search");
@@ -110,7 +111,8 @@ final class RestApiAdvisorRuleHelp {
             if (lower.equals(verb)) {
                 return true;
             }
-            if (lower.startsWith(verb) && segment.length() > verb.length()
+            if (lower.startsWith(verb)
+                    && segment.length() > verb.length()
                     && Character.isUpperCase(segment.charAt(verb.length()))) {
                 return true;
             }
@@ -240,7 +242,8 @@ final class StateChangingHandlersNotOnGetRule extends AbstractRestApiAdvisorRule
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         return handlersMatching(
                 context,
-                handler -> handler.nameLooksStateChanging() && handler.httpMethods().contains("GET"),
+                handler -> handler.nameLooksStateChanging()
+                        && handler.httpMethods().contains("GET"),
                 "state-changing name mapped to GET");
     }
 }
@@ -271,8 +274,7 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiAdvisorRule {
             if (!controller.typeLevelPaths().isEmpty() || controller.handlerCount() < 2) {
                 continue;
             }
-            List<HandlerMethodModel> controllerHandlers =
-                    byController.getOrDefault(controller.className(), List.of());
+            List<HandlerMethodModel> controllerHandlers = byController.getOrDefault(controller.className(), List.of());
             String shared = sharedLeadingSegment(controllerHandlers);
             if (shared != null) {
                 violations.add(controller.simpleName() + " repeats leading path segment '/" + shared
@@ -536,9 +538,8 @@ final class ReadEndpointsReturnRepresentationRule extends AbstractRestApiAdvisor
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         return handlersMatching(
                 context,
-                handler -> handler.httpMethods().contains("GET")
-                        && handler.bodyIsScalar()
-                        && !handler.returnsCollection(),
+                handler ->
+                        handler.httpMethods().contains("GET") && handler.bodyIsScalar() && !handler.returnsCollection(),
                 "GET returns a bare scalar (String/primitive)");
     }
 }
@@ -653,9 +654,7 @@ final class NoEntitiesInResponsesRule extends AbstractRestApiAdvisorRule {
     @Override
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         return handlersMatching(
-                context,
-                handler -> handler.bodyIsEntity() && !handler.returnsVoid(),
-                "response body is a JPA @Entity");
+                context, handler -> handler.bodyIsEntity() && !handler.returnsVoid(), "response body is a JPA @Entity");
     }
 }
 
@@ -721,8 +720,8 @@ final class DtosAreImmutableRule extends AbstractRestApiAdvisorRule {
         List<String> violations = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {
             if (handler.bodyExposesSetters() && !handler.returnsVoid()) {
-                violations.add(handler.describe() + " — response DTO '" + handler.bodyTypeName()
-                        + "' exposes public setters");
+                violations.add(
+                        handler.describe() + " — response DTO '" + handler.bodyTypeName() + "' exposes public setters");
             }
         }
         return RestApiAdvisorRuleSupport.fromViolations(definition(), violations);
@@ -775,9 +774,8 @@ final class ReturnPagedTypeRule extends AbstractRestApiAdvisorRule {
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         return handlersMatching(
                 context,
-                handler -> handler.nameLooksLikeFindAll()
-                        && handler.returnsCollection()
-                        && !handler.returnsPageOrSlice(),
+                handler ->
+                        handler.nameLooksLikeFindAll() && handler.returnsCollection() && !handler.returnsPageOrSlice(),
                 "find-all handler returns an unbounded List");
     }
 }
@@ -834,7 +832,9 @@ final class MutatingEndpointsDeclareMediaTypesRule extends AbstractRestApiAdviso
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         return handlersMatching(
                 context,
-                handler -> isMutating(handler) && handler.produces().isEmpty() && handler.consumes().isEmpty(),
+                handler -> isMutating(handler)
+                        && handler.produces().isEmpty()
+                        && handler.consumes().isEmpty(),
                 "mutating endpoint declares no consumes/produces");
     }
 
@@ -940,8 +940,8 @@ final class PreferProblemDetailRule extends AbstractRestApiAdvisorRule {
         List<String> violations = new ArrayList<>();
         for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
             if (!handler.returnsProblemType()) {
-                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
-                        + " returns '" + simpleName(handler.bodyTypeName()) + "' instead of ProblemDetail");
+                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName() + " returns '"
+                        + simpleName(handler.bodyTypeName()) + "' instead of ProblemDetail");
             }
         }
         return RestApiAdvisorRuleSupport.fromViolations(definition(), violations);
@@ -969,8 +969,7 @@ final class EndpointsAreDocumentedRule extends AbstractRestApiAdvisorRule {
     @Override
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         if (!context.springdocPresent()) {
-            return RestApiAdvisorRuleSupport.skipped(
-                    definition(), "springdoc-openapi is not on the host classpath.");
+            return RestApiAdvisorRuleSupport.skipped(definition(), "springdoc-openapi is not on the host classpath.");
         }
         return handlersMatching(context, handler -> !handler.hasOperationAnnotation(), "no @Operation annotation");
     }
@@ -992,8 +991,7 @@ final class ControllersAreTaggedRule extends AbstractRestApiAdvisorRule {
     @Override
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         if (!context.springdocPresent()) {
-            return RestApiAdvisorRuleSupport.skipped(
-                    definition(), "springdoc-openapi is not on the host classpath.");
+            return RestApiAdvisorRuleSupport.skipped(definition(), "springdoc-openapi is not on the host classpath.");
         }
         List<String> violations = new ArrayList<>();
         for (ControllerModel controller : context.controllers()) {

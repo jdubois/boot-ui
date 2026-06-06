@@ -14,9 +14,7 @@ class RestApiAdvisorRuleRegistryTests {
 
         assertThat(rules).hasSize(30);
 
-        List<String> ids = rules.stream()
-                .map(rule -> rule.definition().id())
-                .toList();
+        List<String> ids = rules.stream().map(rule -> rule.definition().id()).toList();
         assertThat(ids).doesNotHaveDuplicates();
         assertThat(ids).allMatch(id -> id.startsWith("RAPI-"));
     }

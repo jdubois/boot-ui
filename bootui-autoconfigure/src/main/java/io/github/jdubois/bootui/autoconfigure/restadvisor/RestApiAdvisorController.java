@@ -31,8 +31,7 @@ public class RestApiAdvisorController {
                 () -> RestApiAdvisorPackages.detect(applicationContext),
                 new ClassFileRestApiAdvisorImporter(),
                 () -> ClassUtils.isPresent(
-                        "io.swagger.v3.oas.annotations.Operation",
-                        RestApiAdvisorController.class.getClassLoader()),
+                        "io.swagger.v3.oas.annotations.Operation", RestApiAdvisorController.class.getClassLoader()),
                 Clock.systemUTC()));
     }
 

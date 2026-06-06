@@ -63,8 +63,19 @@ final class RestApiHandlerModelBuilder {
             "java.lang.Character");
 
     private static final Set<String> STATE_CHANGING_PREFIXES = Set.of(
-            "create", "update", "delete", "remove", "save", "add", "insert", "modify", "patch", "put", "post",
-            "register", "edit");
+            "create",
+            "update",
+            "delete",
+            "remove",
+            "save",
+            "add",
+            "insert",
+            "modify",
+            "patch",
+            "put",
+            "post",
+            "register",
+            "edit");
 
     private final List<ControllerModel> controllers = new ArrayList<>();
     private final List<HandlerMethodModel> handlers = new ArrayList<>();
@@ -114,8 +125,7 @@ final class RestApiHandlerModelBuilder {
         int handlerCount = 0;
         for (JavaMethod method : type.getMethods()) {
             try {
-                HandlerMethodModel model = toHandler(
-                        type, method, restController, classValidated, typeLevelPaths);
+                HandlerMethodModel model = toHandler(type, method, restController, classValidated, typeLevelPaths);
                 if (model != null) {
                     handlers.add(model);
                     handlerCount++;
@@ -173,13 +183,16 @@ final class RestApiHandlerModelBuilder {
         List<String> consumes = new ArrayList<>();
         boolean isHandler = false;
 
-        isHandler |= readSpecificMapping(method, Types.GET_MAPPING, "GET", httpMethods, mappingPaths, produces, consumes);
-        isHandler |= readSpecificMapping(method, Types.POST_MAPPING, "POST", httpMethods, mappingPaths, produces, consumes);
-        isHandler |= readSpecificMapping(method, Types.PUT_MAPPING, "PUT", httpMethods, mappingPaths, produces, consumes);
         isHandler |=
-                readSpecificMapping(method, Types.DELETE_MAPPING, "DELETE", httpMethods, mappingPaths, produces, consumes);
+                readSpecificMapping(method, Types.GET_MAPPING, "GET", httpMethods, mappingPaths, produces, consumes);
         isHandler |=
-                readSpecificMapping(method, Types.PATCH_MAPPING, "PATCH", httpMethods, mappingPaths, produces, consumes);
+                readSpecificMapping(method, Types.POST_MAPPING, "POST", httpMethods, mappingPaths, produces, consumes);
+        isHandler |=
+                readSpecificMapping(method, Types.PUT_MAPPING, "PUT", httpMethods, mappingPaths, produces, consumes);
+        isHandler |= readSpecificMapping(
+                method, Types.DELETE_MAPPING, "DELETE", httpMethods, mappingPaths, produces, consumes);
+        isHandler |= readSpecificMapping(
+                method, Types.PATCH_MAPPING, "PATCH", httpMethods, mappingPaths, produces, consumes);
 
         Optional<JavaAnnotation<JavaMethod>> requestMapping = method.tryGetAnnotationOfType(Types.REQUEST_MAPPING);
         if (requestMapping.isPresent()) {
@@ -265,7 +278,8 @@ final class RestApiHandlerModelBuilder {
             }
         }
 
-        boolean hasResponseStatus = method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
+        boolean hasResponseStatus =
+                method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
         String responseStatusValue = responseStatusValue(method, type);
         boolean declaresBroadThrows = declaresBroadThrows(method);
         boolean hasOperation = method.isAnnotatedWith(Types.OPERATION);
@@ -435,9 +449,7 @@ final class RestApiHandlerModelBuilder {
     private String resolveBodyTypeName(JavaType returnType) {
         JavaType body = unwrapWrappers(returnType);
         JavaClass erasure = body.toErasure();
-        if (isCollection(erasure)
-                || Types.PAGE.equals(erasure.getName())
-                || Types.SLICE.equals(erasure.getName())) {
+        if (isCollection(erasure) || Types.PAGE.equals(erasure.getName()) || Types.SLICE.equals(erasure.getName())) {
             JavaType element = firstTypeArgument(body);
             if (element != null) {
                 return element.toErasure().getName();
@@ -481,7 +493,8 @@ final class RestApiHandlerModelBuilder {
             return false;
         }
         JavaAnnotation<JavaParameter> ann = annotation.get();
-        boolean required = ann.get("required").map(value -> !Boolean.FALSE.equals(value)).orElse(true);
+        boolean required =
+                ann.get("required").map(value -> !Boolean.FALSE.equals(value)).orElse(true);
         boolean hasDefault = ann.get("defaultValue")
                 .map(value -> value instanceof String text && !text.isBlank() && text.indexOf('\uE000') < 0)
                 .orElse(false);
@@ -493,7 +506,10 @@ final class RestApiHandlerModelBuilder {
             return false;
         }
         String name = type.getName();
-        if (UNTYPED_TYPES.contains(name) || SCALAR_TYPES.contains(name) || isPrimitive(type) || name.startsWith("java.")) {
+        if (UNTYPED_TYPES.contains(name)
+                || SCALAR_TYPES.contains(name)
+                || isPrimitive(type)
+                || name.startsWith("java.")) {
             return false;
         }
         Set<JavaMethod> methods;

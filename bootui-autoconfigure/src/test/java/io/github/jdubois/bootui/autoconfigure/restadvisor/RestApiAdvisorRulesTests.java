@@ -81,7 +81,8 @@ class RestApiAdvisorRulesTests {
 
     @Test
     void versioningRulesFlagWildcardAndMissingVersion() {
-        assertThat(status(new NoWildcardMediaTypesRule(), context(false, FIXTURES))).isEqualTo("VIOLATION");
+        assertThat(status(new NoWildcardMediaTypesRule(), context(false, FIXTURES)))
+                .isEqualTo("VIOLATION");
         // A version signal (/api/v1) exists across the full fixtures, so the versioned rule passes.
         assertThat(status(new ApiIsVersionedRule(), context(false, FIXTURES))).isEqualTo("PASS");
         // The bad controller alone has no version signal.
@@ -90,19 +91,26 @@ class RestApiAdvisorRulesTests {
 
     @Test
     void errorHandlingRulesReflectCentralizedHandling() {
-        assertThat(status(new NoBroadThrowsOnHandlersRule(), context(false, FIXTURES))).isEqualTo("VIOLATION");
+        assertThat(status(new NoBroadThrowsOnHandlersRule(), context(false, FIXTURES)))
+                .isEqualTo("VIOLATION");
         // The advice in the good package provides centralized handling for the full scan.
-        assertThat(status(new CentralizedExceptionHandlingRule(), context(false, FIXTURES))).isEqualTo("PASS");
+        assertThat(status(new CentralizedExceptionHandlingRule(), context(false, FIXTURES)))
+                .isEqualTo("PASS");
         // The bad controller alone has no @ControllerAdvice.
-        assertThat(status(new CentralizedExceptionHandlingRule(), context(false, BAD))).isEqualTo("VIOLATION");
+        assertThat(status(new CentralizedExceptionHandlingRule(), context(false, BAD)))
+                .isEqualTo("VIOLATION");
     }
 
     @Test
     void documentationRulesAreSkippedWithoutSpringdocAndFireWithIt() {
-        assertThat(status(new EndpointsAreDocumentedRule(), context(false, FIXTURES))).isEqualTo("SKIPPED");
-        assertThat(status(new ControllersAreTaggedRule(), context(false, FIXTURES))).isEqualTo("SKIPPED");
-        assertThat(status(new EndpointsAreDocumentedRule(), context(true, FIXTURES))).isEqualTo("VIOLATION");
-        assertThat(status(new ControllersAreTaggedRule(), context(true, FIXTURES))).isEqualTo("VIOLATION");
+        assertThat(status(new EndpointsAreDocumentedRule(), context(false, FIXTURES)))
+                .isEqualTo("SKIPPED");
+        assertThat(status(new ControllersAreTaggedRule(), context(false, FIXTURES)))
+                .isEqualTo("SKIPPED");
+        assertThat(status(new EndpointsAreDocumentedRule(), context(true, FIXTURES)))
+                .isEqualTo("VIOLATION");
+        assertThat(status(new ControllersAreTaggedRule(), context(true, FIXTURES)))
+                .isEqualTo("VIOLATION");
     }
 
     @Test
@@ -119,19 +127,20 @@ class RestApiAdvisorRulesTests {
 
     @Test
     void ruleThatThrowsDegradesToError() {
-        RestApiAdvisorRule throwingRule = new AbstractRestApiAdvisorRule(new RestApiAdvisorRuleDefinition(
-                "RAPI-TEST-001",
-                "Throwing rule",
-                RestApiAdvisorCategory.ROUTING,
-                "LOW",
-                "Test rule that throws.",
-                "n/a",
-                "")) {
-            @Override
-            RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
-                throw new IllegalStateException("boom");
-            }
-        };
+        RestApiAdvisorRule throwingRule =
+                new AbstractRestApiAdvisorRule(new RestApiAdvisorRuleDefinition(
+                        "RAPI-TEST-001",
+                        "Throwing rule",
+                        RestApiAdvisorCategory.ROUTING,
+                        "LOW",
+                        "Test rule that throws.",
+                        "n/a",
+                        "")) {
+                    @Override
+                    RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
+                        throw new IllegalStateException("boom");
+                    }
+                };
 
         RestApiAdvisorRuleResultDto result = throwingRule.evaluate(context(false, FIXTURES));
         assertThat(result.status()).isEqualTo("ERROR");

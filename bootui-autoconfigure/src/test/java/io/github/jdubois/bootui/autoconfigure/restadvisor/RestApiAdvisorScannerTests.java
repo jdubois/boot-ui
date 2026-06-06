@@ -49,9 +49,7 @@ class RestApiAdvisorScannerTests {
                 .extracting(RestApiAdvisorRuleResultDto::id)
                 .contains("RAPI-DTO-001", "RAPI-VALID-001", "RAPI-MAP-001", "RAPI-NAME-001");
         assertThat(report.violationsFound()).isPositive();
-        assertThat(report.severityCounts())
-                .extracting("severity")
-                .containsExactly("HIGH", "MEDIUM", "LOW", "INFO");
+        assertThat(report.severityCounts()).extracting("severity").containsExactly("HIGH", "MEDIUM", "LOW", "INFO");
     }
 
     @Test

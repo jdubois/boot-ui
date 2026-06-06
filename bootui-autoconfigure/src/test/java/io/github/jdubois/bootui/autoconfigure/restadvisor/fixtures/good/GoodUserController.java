@@ -30,9 +30,7 @@ public class GoodUserController {
         return new UserDto(id, "user");
     }
 
-    @PostMapping(
-            consumes = MediaType.APPLICATION_JSON_VALUE,
-            produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public UserDto createUser(@Validated @RequestBody CreateUserRequest request) {
         return new UserDto("1", request.name());

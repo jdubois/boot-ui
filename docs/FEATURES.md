@@ -28,7 +28,7 @@ how much each scanner deducted from a perfect score. A single "Run all scanners"
 or each scanner card can be run individually.
 
 Each scanner card shows its own 0–100 score, status, and severity counts. The severity-based scanners are Architecture,
-Hibernate Advisor, Security Advisor, Vulnerabilities, and Pentesting; scores start at 100 and subtract a fixed weighted
+REST API Advisor, Hibernate Advisor, Security Advisor, Vulnerabilities, and Pentesting; scores start at 100 and subtract a fixed weighted
 penalty per finding (critical 25, high 10, medium 3, low 1), so a clean scan stays at 100. The GitHub card is not a
 severity scanner: it connects to the local repository and, only when the credential is connected and authenticated,
 contributes a score derived from open security alerts. The overall score is the mean of the scanners that were actually
@@ -472,6 +472,27 @@ violating rules, sorted by severity and violation count. See
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
 
 ![BootUI Architecture panel](./images/bootui-architecture.png)
+
+### REST API Advisor
+
+The REST API Advisor panel runs a curated, zero-config ruleset against the host application's own web layer
+(`@RestController` / `@Controller` handler methods) at runtime. Like the Architecture panel, it detects the
+application's base package from the `@SpringBootApplication` configuration, imports the compiled controllers from that
+package with ArchUnit's `ClassFileImporter` (bounded to the application's own classes), and derives a read-only handler
+model — HTTP method(s), path(s), parameters and their annotations, return type, `produces`/`consumes`, validation flags,
+and declared throws. It then evaluates 30 universally-sensible REST best-practice rules across eight categories: routing
+and HTTP-method mapping, resource naming, status codes and responses, input validation and binding, DTO and payload
+contracts, pagination, versioning and content negotiation, and error handling and documentation. The `RAPI-DOC-*`
+documentation rules only run when springdoc-openapi is on the host classpath.
+
+The advisor deliberately avoids security concerns (CORS, authentication, authorization), which remain owned by the
+Security Advisor panel. The scan runs on demand and caches the last report; each rule is registered with a stable
+identifier, category, severity, recommendation, and a learn-more link, and the rule results list shows only flagged
+rules, sorted by severity and finding count. The heuristics complement — rather than replace — an API design review or
+contract testing. See [REST-API-ADVISOR-CHECKS.md](REST-API-ADVISOR-CHECKS.md) for the full catalogue of rules and what
+each one inspects.
+
+![BootUI REST API Advisor panel](./images/bootui-rest-advisor.png)
 
 ## Developer tools
 
