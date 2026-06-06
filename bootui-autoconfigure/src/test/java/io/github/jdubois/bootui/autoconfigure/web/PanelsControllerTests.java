@@ -60,7 +60,8 @@ class PanelsControllerTests {
             BootUiPanels.CLAUDE_CODE,
             BootUiPanels.FLYWAY,
             BootUiPanels.LIQUIBASE,
-            BootUiPanels.GITHUB);
+            BootUiPanels.GITHUB,
+            BootUiPanels.REST_ADVISOR);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {

@@ -38,6 +38,7 @@ const allPanelLinks = [
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
+  {id: 'rest-advisor', title: 'REST API Advisor', heading: /^REST API Advisor/},
   {id: 'devtools', title: 'DevTools', heading: /^DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
@@ -103,7 +104,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Database', count: 5},
       {title: 'Security', count: 5},
       {title: 'Services', count: 3},
-      {title: 'Diagnostics', count: 5},
+      {title: 'Diagnostics', count: 6},
       {title: 'Developer tools', count: 4}
     ]
 
@@ -138,13 +139,14 @@ test.describe('BootUI app shell', () => {
       'AI Usage'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+5/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+6/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Traces',
       'Log Tail',
       'HTTP Exchanges',
       'HTTP Probe',
-      'Architecture'
+      'Architecture',
+      'REST API Advisor'
     ])
   })
 

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.memoryadvisor.MemoryAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
 import io.github.jdubois.bootui.autoconfigure.pentest.*;
+import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
@@ -187,6 +188,7 @@ class BootUiAutoConfigurationTests {
             List.of(
                             AiController.class,
                             ArchitectureController.class,
+                            RestApiAdvisorController.class,
                             BeansController.class,
                             BootUiIndexController.class,
                             SpringCacheController.class,

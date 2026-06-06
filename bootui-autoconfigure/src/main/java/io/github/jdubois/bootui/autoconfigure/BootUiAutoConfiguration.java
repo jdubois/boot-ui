@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.pentest.*;
+import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
@@ -93,6 +94,7 @@ import org.springframework.core.env.Environment;
     PentestController.class,
     HeapDumpController.class,
     ArchitectureController.class,
+    RestApiAdvisorController.class,
     LogTailController.class,
     HttpExchangesController.class,
     ProfileController.class,
@@ -121,6 +123,7 @@ public class BootUiAutoConfiguration {
     private static final Set<String> LAZY_CONTROLLER_CLASS_NAMES = Set.of(
             AiController.class.getName(),
             ArchitectureController.class.getName(),
+            RestApiAdvisorController.class.getName(),
             BeansController.class.getName(),
             BootUiIndexController.class.getName(),
             HibernateAdvisorController.class.getName(),

@@ -211,6 +211,7 @@ class PanelAccessFilterTests {
         requests.put("flyway", new ActionRequest("POST", "/bootui/api/flyway/migrate"));
         requests.put("liquibase", new ActionRequest("POST", "/bootui/api/liquibase/update"));
         requests.put("github", new ActionRequest("POST", "/bootui/api/github/refresh"));
+        requests.put("rest-advisor", new ActionRequest("POST", "/bootui/api/rest-advisor/scan"));
         return requests;
     }
 
