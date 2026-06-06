@@ -43,6 +43,10 @@ abstract class AbstractSpringAdvisorRule implements SpringAdvisorRule {
     SpringAdvisorRuleResultDto violation(String detail) {
         return SpringAdvisorRuleSupport.violation(definition, List.of(detail));
     }
+
+    static String names(List<BeanRef> refs) {
+        return refs.stream().map(BeanRef::name).reduce((a, b) -> a + ", " + b).orElse("");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -123,10 +127,6 @@ final class DuplicateObjectMapperRule extends AbstractSpringAdvisorRule {
         }
         return pass();
     }
-
-    private static String names(List<BeanRef> refs) {
-        return refs.stream().map(BeanRef::name).reduce((a, b) -> a + ", " + b).orElse("");
-    }
 }
 
 final class AmbiguousTaskExecutorRule extends AbstractSpringAdvisorRule {
@@ -153,10 +153,6 @@ final class AmbiguousTaskExecutorRule extends AbstractSpringAdvisorRule {
         }
         return pass();
     }
-
-    private static String names(List<BeanRef> refs) {
-        return refs.stream().map(BeanRef::name).reduce((a, b) -> a + ", " + b).orElse("");
-    }
 }
 
 final class AmbiguousDataSourceRule extends AbstractSpringAdvisorRule {
@@ -181,10 +177,6 @@ final class AmbiguousDataSourceRule extends AbstractSpringAdvisorRule {
                     + names(dataSources) + ".");
         }
         return pass();
-    }
-
-    private static String names(List<BeanRef> refs) {
-        return refs.stream().map(BeanRef::name).reduce((a, b) -> a + ", " + b).orElse("");
     }
 }
 
