@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
+import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -68,12 +69,7 @@ function occurrenceCountLabel(count) {
 
 function scanTime() {
   if (!report.value?.scan?.scannedAt) return ''
-  return new Date(report.value.scan.scannedAt).toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  return formatClockTime(report.value.scan.scannedAt)
 }
 
 async function loadReport() {
