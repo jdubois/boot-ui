@@ -2,7 +2,7 @@
 import {apiFetch} from '../api.js'
 import {computed, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
-import {formatNumber} from '../utils/format.js'
+import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -212,8 +212,7 @@ const categoryBadgeClass = (category) =>
 
 function formatTime(timestamp) {
   if (timestamp === null || timestamp === undefined) return '—'
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString([], {hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'})
+  return formatClockTime(timestamp)
 }
 
 function formatBucketTime(timestamp) {
