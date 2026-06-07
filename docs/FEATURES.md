@@ -38,7 +38,7 @@ gracefully when optional infrastructure is missing.
 
 ![BootUI Overview panel](./images/bootui-overview.png)
 
-### GitHub
+## GitHub
 
 The GitHub panel sits directly under Overview and summarizes the current project's GitHub state from the local `origin`
 remote. It uses BootUI's standard auto-refresh control with a one-minute interval while the tab is visible; the initial
