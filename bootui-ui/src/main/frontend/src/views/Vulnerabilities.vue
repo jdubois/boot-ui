@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
+import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
@@ -98,12 +99,7 @@ function severityWidth(count) {
 
 function scanTime() {
   if (!data.value?.scan?.scannedAt) return ''
-  return new Date(data.value.scan.scannedAt).toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  return formatClockTime(data.value.scan.scannedAt)
 }
 
 async function loadDependencies() {

@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -81,18 +82,9 @@ function formatBytes(bytes) {
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
-function formatNumber(value) {
-  return (value ?? 0).toLocaleString()
-}
-
 function formatTime(epochMs) {
   if (!epochMs) return ''
-  return new Date(epochMs).toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  return formatClockTime(epochMs)
 }
 
 async function loadReport(options = {}) {

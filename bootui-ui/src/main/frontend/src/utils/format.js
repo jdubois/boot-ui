@@ -11,6 +11,15 @@ export function formatTime(epochNanos) {
   return new Date(Math.floor(epochNanos / 1_000_000)).toLocaleTimeString()
 }
 
+export function formatClockTime(epochMillis) {
+  return new Date(epochMillis).toLocaleTimeString([], {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}
+
 export function formatNumber(n) {
   if (n == null) return '—'
   return Number(n).toLocaleString()

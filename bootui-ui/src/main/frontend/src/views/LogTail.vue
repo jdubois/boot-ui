@@ -1,5 +1,6 @@
 <script setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {formatClockTime} from '../utils/format.js'
 
 const MAX_LINES = 2000
 
@@ -91,16 +92,6 @@ function clearLines() {
   lines.value = []
 }
 
-function formatTime(timestamp) {
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
-}
-
 function levelClass(level) {
   return (
     {
@@ -172,7 +163,7 @@ onBeforeUnmount(() => disconnect(false))
       v-for="(line, index) in visibleLines"
       :key="`${line.timestamp}-${index}`"
       class="d-block"
-    ><span class="text-secondary">[{{ formatTime(line.timestamp) }}]</span> <span
+    ><span class="text-secondary">[{{ formatClockTime(line.timestamp) }}]</span> <span
       :class="levelClass(line.level)">{{ line.level }}</span> <span class="text-info-emphasis">{{ line.logger }}</span> <span
       class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span></span></code><span v-else
                                                                                                             class="text-secondary">No log lines to display.</span></pre>
