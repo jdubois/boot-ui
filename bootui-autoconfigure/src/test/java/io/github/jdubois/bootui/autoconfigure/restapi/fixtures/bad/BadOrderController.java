@@ -26,7 +26,7 @@ public class BadOrderController {
     }
 
     // RAPI-RESP-001 (POST creation defaults to 200), RAPI-NAME-001 (verb),
-    // RAPI-VALID-003 (entity request body / mass-assignment), RAPI-DTO-001 (entity response),
+    // RAPI-VALID-002 (entity request body / mass-assignment), RAPI-DTO-001 (entity response),
     // RAPI-VER-003 (wildcard media type)
     @PostMapping(value = "/createOrder", consumes = MediaType.ALL_VALUE)
     public OrderEntity createOrder(@RequestBody OrderEntity order) {

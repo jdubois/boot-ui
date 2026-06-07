@@ -98,14 +98,14 @@ The panel is always available (the JVM always exposes memory and thread beans). 
 
 ## GC configuration
 
-### MEM-GC-002 - Heap sizing is left to default container ergonomics
+### MEM-GC-001 - Heap sizing is left to default container ergonomics
 
 - **Severity**: INFO
 - **Detects**: A detected container memory limit with neither -Xmx nor -XX:MaxRAMPercentage set. The JVM is container-aware and defaults the max heap to about 25% of the limit, which is safe but conservative and easy to overlook.
 - **Recommendation**: Set -XX:MaxRAMPercentage (or an explicit -Xmx) if you want the heap sized deliberately rather than at the ~25% default.
 - **Learn more**: <https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html>
 
-### MEM-GC-003 - Cumulative GC time is a large share of uptime
+### MEM-GC-002 - Cumulative GC time is a large share of uptime
 
 - **Severity**: MEDIUM
 - **Detects**: Compares total time spent in garbage collection since JVM start against the JVM uptime. A high lifetime ratio is a classic sign of an undersized heap or an excessive allocation rate. This is a cumulative average and can be skewed by a one-off startup spike, so corroborate with live GC metrics.

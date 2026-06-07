@@ -1176,7 +1176,7 @@ final class CollectionFetchJoinAnnotationRule extends AbstractHibernateRule {
     CollectionFetchJoinAnnotationRule() {
         super(
                 new HibernateRuleDefinition(
-                        "HIB-FETCH-007",
+                        "HIB-FETCH-006",
                         "Collection associations should not declare @Fetch(JOIN)",
                         HibernateCategory.FETCHING,
                         "MEDIUM",

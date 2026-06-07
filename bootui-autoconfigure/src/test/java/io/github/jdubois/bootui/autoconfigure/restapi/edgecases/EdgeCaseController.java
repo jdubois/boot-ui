@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * A controller whose handlers each intentionally trip one of the newer REST API Advisor rules
- * (RAPI-MAP-006/007, RAPI-RESP-005/006/007, RAPI-VALID-004, RAPI-VER-002/004). Kept in a sibling
+ * (RAPI-MAP-006/007, RAPI-RESP-005/006/007, RAPI-VALID-003, RAPI-VER-002/004). Kept in a sibling
  * package so it does not perturb the aggregate assertions over the {@code fixtures} packages.
  */
 @RestController
@@ -55,7 +55,7 @@ public class EdgeCaseController {
         return ResponseEntity.ok(new WidgetDto("1", "first"));
     }
 
-    // RAPI-VALID-004: optional primitive @RequestParam can throw 500 when omitted.
+    // RAPI-VALID-003: optional primitive @RequestParam can throw 500 when omitted.
     @GetMapping("/scan")
     public WidgetDto scan(@RequestParam(required = false) int limit) {
         return new WidgetDto(String.valueOf(limit), "scan");

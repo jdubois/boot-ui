@@ -236,7 +236,7 @@ class HibernateScannerTests {
                         "HIB-FETCH-003",
                         "HIB-FETCH-004",
                         "HIB-FETCH-005",
-                        "HIB-FETCH-007",
+                        "HIB-FETCH-006",
                         "HIB-ID-002",
                         "HIB-ID-003",
                         "HIB-ID-004",

@@ -314,7 +314,7 @@ final class MissingHeapSizingInContainerRule extends AbstractMemoryRule {
 
     MissingHeapSizingInContainerRule() {
         super(new MemoryRuleDefinition(
-                "MEM-GC-002",
+                "MEM-GC-001",
                 "Heap sizing is left to default container ergonomics",
                 MemoryCategory.GC_CONFIGURATION,
                 "INFO",
@@ -744,7 +744,7 @@ final class HighGcOverheadRule extends AbstractMemoryRule {
     HighGcOverheadRule() {
         super(
                 new MemoryRuleDefinition(
-                        "MEM-GC-003",
+                        "MEM-GC-002",
                         "Cumulative GC time is a large share of uptime",
                         MemoryCategory.GC_CONFIGURATION,
                         "MEDIUM",

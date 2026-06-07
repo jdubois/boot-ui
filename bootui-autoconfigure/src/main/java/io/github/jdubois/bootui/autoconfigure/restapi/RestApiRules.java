@@ -816,7 +816,7 @@ final class RequestBodyIsValidatedRule extends AbstractRestApiRule {
 final class NoMassAssignmentViaEntitiesRule extends AbstractRestApiRule {
     NoMassAssignmentViaEntitiesRule() {
         super(new RestApiRuleDefinition(
-                "RAPI-VALID-003",
+                "RAPI-VALID-002",
                 "No mass-assignment via JPA entities",
                 RestApiCategory.VALIDATION,
                 "HIGH",
@@ -836,7 +836,7 @@ final class NoMassAssignmentViaEntitiesRule extends AbstractRestApiRule {
 final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
     OptionalPrimitiveRequestParamRule() {
         super(new RestApiRuleDefinition(
-                "RAPI-VALID-004",
+                "RAPI-VALID-003",
                 "Optional @RequestParam is not a primitive",
                 RestApiCategory.VALIDATION,
                 "MEDIUM",

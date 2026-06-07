@@ -14,6 +14,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   concurrent session control (`SEC-SESSION-007`), and HTTPS enforcement in production
   (`SEC-CONFIG-006`), with matching entries in `docs/SECURITY-ADVISOR-CHECKS.md`.
 
+### Changed
+
+- Advisor check catalogues: closed numbering gaps so every rule-ID sequence is continuous, corrected
+  drifted Hibernate doc entries (`HIB-CONFIG-016`, `HIB-CONFIG-017`, `HIB-MAP-018`, `HIB-MAP-019`) to
+  match the implemented rules, and rewrote `docs/REST-API-CHECKS.md` in the same `### ID - Title`
+  format used by the other advisor catalogues. Renumbered rule IDs: `MEM-GC-002` → `MEM-GC-001`,
+  `MEM-GC-003` → `MEM-GC-002`, `RAPI-VALID-003` → `RAPI-VALID-002`, `RAPI-VALID-004` →
+  `RAPI-VALID-003`, and `HIB-FETCH-007` → `HIB-FETCH-006`.
+
 ## [1.0.0] - 2026-06-05
 
 First stable BootUI release, focused on promoting the current local developer-console surface to `1.0.0`, adding the

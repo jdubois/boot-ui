@@ -214,7 +214,7 @@ class MemoryScannerTests {
 
         MemoryReport report = scanner.scan();
 
-        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-003");
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-002");
     }
 
     @Test
