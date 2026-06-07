@@ -191,24 +191,32 @@ final class LazyInitializationDisabledRule extends AbstractSpringAdvisorRule {
     LazyInitializationDisabledRule() {
         super(new SpringAdvisorRuleDefinition(
                 "SPRING-CONFIG-001",
-                "Consider lazy initialization for large contexts",
+                "Lazy initialization hygiene",
                 SpringAdvisorCategory.CONFIGURATION,
-                "LOW",
-                "A large bean context is initialised eagerly. Lazy initialization can shorten startup"
-                        + " for development, tests, and short-lived or serverless workloads.",
-                "Evaluate spring.main.lazy-initialization=true, ideally combined with @Lazy(false) on"
-                        + " beans that must still initialise eagerly (such as listeners and schedulers).",
+                "MEDIUM",
+                "The application is running with a production profile (e.g., prod, staging, production) but spring.main.lazy-initialization=true. Production workloads should initialize eagerly to fail fast.",
+                "Ensure spring.main.lazy-initialization is false (or unset) in production profiles. You may enable it in development for faster startup.",
                 "https://docs.spring.io/spring-boot/reference/features/spring-application.html"));
     }
 
     @Override
     SpringAdvisorRuleResultDto evaluateRule(SpringAdvisorContext context) {
-        if (context.isPropertyTrue("spring.main.lazy-initialization")) {
+        boolean isLazy = context.isPropertyTrue("spring.main.lazy-initialization");
+        
+        if (context.isProductionProfileActive()) {
+            if (isLazy) {
+                return violation("The application is running with a production profile but spring.main.lazy-initialization=true. Production workloads should initialize eagerly to fail fast.");
+            }
+            return pass();
+        }
+
+        // If not in prod, retain original logic
+        if (isLazy) {
             return pass();
         }
         if (context.beanDefinitionCount() > LARGE_CONTEXT_THRESHOLD) {
             return violation("The context defines " + context.beanDefinitionCount()
-                    + " beans and is initialised eagerly; lazy initialization may cut startup time.");
+                    + " beans and is initialised eagerly; lazy initialization may cut startup time in non-production environments.");
         }
         return pass();
     }
@@ -482,6 +490,101 @@ final class Http2DisabledRule extends AbstractSpringAdvisorRule {
     SpringAdvisorRuleResultDto evaluateRule(SpringAdvisorContext context) {
         if (!context.isPropertyTrue("server.http2.enabled")) {
             return violation("server.http2.enabled is not true; HTTP/2 multiplexing is unavailable.");
+        }
+        return pass();
+    }
+}
+
+
+final class MissingApplicationNameRule extends AbstractSpringAdvisorRule {
+
+    MissingApplicationNameRule() {
+        super(new SpringAdvisorRuleDefinition(
+                "SPRING-CONFIG-003",
+                "Application name not set",
+                SpringAdvisorCategory.CONFIGURATION,
+                "HIGH",
+                "spring.application.name is missing or blank. This defaults to 'application', causing overlap in observability tools.",
+                "Set spring.application.name to a descriptive value in application.properties or application.yml.",
+                "https://docs.spring.io/spring-boot/reference/features/spring-application.html"));
+    }
+
+    @Override
+    SpringAdvisorRuleResultDto evaluateRule(SpringAdvisorContext context) {
+        String appName = context.firstProperty("spring.application.name");
+        if (appName == null || appName.trim().isEmpty()) {
+            return violation("spring.application.name is missing or blank. This defaults to 'application', causing overlap in observability tools.");
+        }
+        return pass();
+    }
+}
+
+final class CloudProbesDisabledRule extends AbstractSpringAdvisorRule {
+
+    CloudProbesDisabledRule() {
+        super(new SpringAdvisorRuleDefinition(
+                "SPRING-CONFIG-004",
+                "Cloud probes disabled",
+                SpringAdvisorCategory.CONFIGURATION,
+                "MEDIUM",
+                "management.health.probes.enabled is explicitly set to false. This breaks container orchestration health checks.",
+                "Remove management.health.probes.enabled=false, or set it to true for cloud deployments.",
+                "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.kubernetes-probes"));
+    }
+
+    @Override
+    SpringAdvisorRuleResultDto evaluateRule(SpringAdvisorContext context) {
+        if ("false".equalsIgnoreCase(context.firstProperty("management.health.probes.enabled"))) {
+            return violation("management.health.probes.enabled is explicitly set to false. This breaks container orchestration health checks.");
+        }
+        return pass();
+    }
+}
+
+
+final class JmxEnabledRule extends AbstractSpringAdvisorRule {
+
+    JmxEnabledRule() {
+        super(new SpringAdvisorRuleDefinition(
+                "SPRING-PERF-005",
+                "JMX is explicitly enabled",
+                SpringAdvisorCategory.PERFORMANCE,
+                "MEDIUM",
+                "spring.jmx.enabled is explicitly set to true. Consider keeping JMX disabled to reduce memory footprint and attack surface.",
+                "Remove spring.jmx.enabled=true unless specifically required by a legacy monitoring tool.",
+                "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-2.2-Release-Notes#jmx-now-disabled-by-default"));
+    }
+
+    @Override
+    SpringAdvisorRuleResultDto evaluateRule(SpringAdvisorContext context) {
+        if (context.isPropertyTrue("spring.jmx.enabled")) {
+            return violation("spring.jmx.enabled is explicitly set to true. Consider keeping JMX disabled to reduce memory footprint and attack surface.");
+        }
+        return pass();
+    }
+}
+
+
+final class ProblemDetailsDisabledRule extends AbstractSpringAdvisorRule {
+
+    ProblemDetailsDisabledRule() {
+        super(new SpringAdvisorRuleDefinition(
+                "SPRING-WEB-004",
+                "Problem Details for HTTP APIs not enabled",
+                SpringAdvisorCategory.WEB,
+                "MEDIUM",
+                "RFC 7807 Problem Details is not enabled. Standardize error responses by enabling spring.mvc.problemdetails.enabled=true or spring.webflux.problemdetails.enabled=true.",
+                "Set spring.mvc.problemdetails.enabled=true (or spring.webflux.problemdetails.enabled=true for WebFlux) to standardize error responses.",
+                "https://docs.spring.io/spring-boot/reference/web/spring-mvc.html#web.servlet.spring-mvc.error-handling"));
+    }
+
+    @Override
+    SpringAdvisorRuleResultDto evaluateRule(SpringAdvisorContext context) {
+        boolean mvcEnabled = context.isPropertyTrue("spring.mvc.problemdetails.enabled");
+        boolean webfluxEnabled = context.isPropertyTrue("spring.webflux.problemdetails.enabled");
+        
+        if (!mvcEnabled && !webfluxEnabled) {
+            return violation("RFC 7807 Problem Details is not enabled. Standardize error responses by enabling spring.mvc.problemdetails.enabled=true or spring.webflux.problemdetails.enabled=true.");
         }
         return pass();
     }

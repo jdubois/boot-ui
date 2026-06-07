@@ -18,6 +18,8 @@ final class SpringAdvisorRuleRegistry {
             // Configuration
             new LazyInitializationDisabledRule(),
             new DebugOrTraceLoggingRule(),
+            new MissingApplicationNameRule(),
+            new CloudProbesDisabledRule(),
             // Profiles and environment
             new NoActiveProfileRule(),
             new DevToolsOnClasspathRule(),
@@ -26,10 +28,12 @@ final class SpringAdvisorRuleRegistry {
             new VirtualThreadsOverriddenByPoolRule(),
             new AsyncWithoutCustomExecutorRule(),
             new ConnectionPoolSmallForVirtualThreadsRule(),
+            new JmxEnabledRule(),
             // Web and HTTP
             new ResponseCompressionDisabledRule(),
             new GracefulShutdownDisabledRule(),
-            new Http2DisabledRule());
+            new Http2DisabledRule(),
+            new ProblemDetailsDisabledRule());
 
     private SpringAdvisorRuleRegistry() {}
 

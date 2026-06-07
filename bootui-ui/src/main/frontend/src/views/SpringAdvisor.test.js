@@ -24,7 +24,7 @@ function advisorReport(results, violationsFound = results.filter((result) => res
     disclaimer: 'Spring disclaimer.',
     inspected: ['Active profiles: none', 'Bean definitions: 120'],
     componentsAnalyzed: 120,
-    rulesEvaluated: 16,
+    rulesEvaluated: 20,
     violationsFound,
     severityCounts: [
       {severity: 'HIGH', count: severityCount(results, 'HIGH')},
@@ -37,7 +37,7 @@ function advisorReport(results, violationsFound = results.filter((result) => res
       status: 'SCANNED',
       message: 'Spring Advisor completed.',
       scannedAt: 1_700_000_000_000,
-      rulesEvaluated: 16,
+      rulesEvaluated: 20,
       componentsAnalyzed: 120,
       violationsFound
     },

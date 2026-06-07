@@ -58,11 +58,11 @@ The panel is always available (a Spring application context always exists). Bean
 
 ## Configuration
 
-### SPRING-CONFIG-001 - Consider lazy initialization for large contexts
+### SPRING-CONFIG-001 - Lazy initialization hygiene
 
-- **Severity**: LOW
-- **Detects**: A large bean context is initialised eagerly. Lazy initialization can shorten startup for development, tests, and short-lived or serverless workloads.
-- **Recommendation**: Evaluate spring.main.lazy-initialization=true, ideally combined with @Lazy(false) on beans that must still initialise eagerly (such as listeners and schedulers).
+- **Severity**: MEDIUM
+- **Detects**: The application is running with a production profile (e.g., prod, staging, production, or variants starting/ending with prod/production) but spring.main.lazy-initialization=true. Production workloads should initialize eagerly to fail fast.
+- **Recommendation**: Ensure spring.main.lazy-initialization is false (or unset) in production profiles. You may enable it in development for faster startup.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/spring-application.html>
 
 ### SPRING-CONFIG-002 - Disable global debug or trace logging
@@ -73,6 +73,20 @@ The panel is always available (a Spring application context always exists). Bean
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html>
 
 ## Profiles and environment
+### SPRING-CONFIG-003 - Application name not set
+
+- **Severity**: HIGH
+- **Detects**: spring.application.name is missing or blank. This defaults to 'application', causing overlap in observability tools.
+- **Recommendation**: Set spring.application.name to a descriptive value in application.properties or application.yml.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/spring-application.html>
+
+### SPRING-CONFIG-004 - Cloud probes disabled
+
+- **Severity**: MEDIUM
+- **Detects**: management.health.probes.enabled is explicitly set to false. This breaks container orchestration health checks.
+- **Recommendation**: Remove management.health.probes.enabled=false, or set it to true for cloud deployments.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.kubernetes-probes>
+
 
 ### SPRING-PROFILE-001 - Run with an explicit active profile
 
@@ -117,6 +131,13 @@ The panel is always available (a Spring application context always exists). Bean
 - **Detects**: Virtual threads are enabled while the HikariCP connection pool keeps a small (default) maximum size, so many virtual threads can contend for few database connections.
 - **Recommendation**: Review spring.datasource.hikari.maximum-pool-size against the expected concurrency, and size it for the database rather than the (now cheap) thread count.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html>
+### SPRING-PERF-005 - JMX is explicitly enabled
+
+- **Severity**: MEDIUM
+- **Detects**: spring.jmx.enabled is explicitly set to true. Consider keeping JMX disabled to reduce memory footprint and attack surface.
+- **Recommendation**: Remove spring.jmx.enabled=true unless specifically required by a legacy monitoring tool.
+- **Learn more**: <https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-2.2-Release-Notes#jmx-now-disabled-by-default>
+
 
 ## Web and HTTP
 
@@ -141,3 +162,10 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: Enable server.http2.enabled=true (over TLS) once the runtime and clients support it.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
+
+### SPRING-WEB-004 - Problem Details for HTTP APIs not enabled
+
+- **Severity**: MEDIUM
+- **Detects**: RFC 7807 Problem Details is not enabled. Standardize error responses by enabling spring.mvc.problemdetails.enabled=true or spring.webflux.problemdetails.enabled=true.
+- **Recommendation**: Set spring.mvc.problemdetails.enabled=true (or spring.webflux.problemdetails.enabled=true for WebFlux) to standardize error responses.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/spring-mvc.html#web.servlet.spring-mvc.error-handling>

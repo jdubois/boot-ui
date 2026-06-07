@@ -15,7 +15,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class SpringAdvisorScannerTests {
 
-    private static final int RULE_COUNT = 16;
+    private static final int RULE_COUNT = 20;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -87,6 +87,8 @@ class SpringAdvisorScannerTests {
         environment.withProperty("server.compression.enabled", "true");
         environment.withProperty("server.shutdown", "graceful");
         environment.withProperty("server.http2.enabled", "true");
+        environment.withProperty("spring.application.name", "test-app");
+        environment.withProperty("spring.mvc.problemdetails.enabled", "true");
         SpringAdvisorContext context = cleanContext(environment);
         SpringAdvisorScanner scanner = new SpringAdvisorScanner(context, CLOCK);
 
