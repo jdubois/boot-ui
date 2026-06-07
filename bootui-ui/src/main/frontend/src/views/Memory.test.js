@@ -22,7 +22,7 @@ function advisorReport(results, violationsFound = results.filter((result) => res
   return {
     localOnly: true,
     disclaimer: 'Memory disclaimer.',
-    rulesEvaluated: 16,
+    rulesEvaluated: 22,
     violationsFound,
     summary: {
       heapUsedBytes: 536_870_912,
@@ -46,7 +46,7 @@ function advisorReport(results, violationsFound = results.filter((result) => res
       status: 'SCANNED',
       message: 'Memory Advisor completed.',
       scannedAt: 1_700_000_000_000,
-      rulesEvaluated: 16,
+      rulesEvaluated: 22,
       violationsFound
     },
     results

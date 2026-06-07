@@ -20,6 +20,7 @@ const checkDocs = [
   'SPRING-CHECKS.md',
   'HIBERNATE-CHECKS.md',
   'SECURITY-CHECKS.md',
+  'MEMORY-CHECKS.md',
   'PENTEST-CHECKS.md',
   'GRAALVM-READINESS-CHECKS.md'
 ]

@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ClassLoadingD
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.HeapContentData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryPoolSnapshot;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.RuntimeData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ThreadData;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
@@ -62,7 +63,8 @@ final class MemoryCollector {
     }
 
     MemoryContext collect() {
-        return new MemoryContext(collectMemory(), collectThreads(), collectHeapContent(), collectClassLoading());
+        return new MemoryContext(
+                collectMemory(), collectThreads(), collectHeapContent(), collectClassLoading(), collectRuntime());
     }
 
     private MemoryData collectMemory() {
@@ -151,19 +153,51 @@ final class MemoryCollector {
         if (entries.isEmpty()) {
             return HeapContentData.unavailable();
         }
+        // Totals cover every histogram row so percentage-of-heap rules are not skewed by the
+        // top-N truncation applied to the entries surfaced for display.
         long totalInstances = 0;
         long totalBytes = 0;
         for (HeapClassHistogramEntryDto entry : entries) {
             totalInstances += entry.instances();
             totalBytes += entry.bytes();
         }
-        return new HeapContentData(true, entries, totalInstances, totalBytes);
+        return new HeapContentData(true, topEntries(entries), totalInstances, totalBytes);
     }
 
     private ClassLoadingData collectClassLoading() {
         ClassLoadingMXBean bean = ManagementFactory.getClassLoadingMXBean();
         return new ClassLoadingData(
                 bean.getLoadedClassCount(), bean.getTotalLoadedClassCount(), bean.getUnloadedClassCount());
+    }
+
+    private RuntimeData collectRuntime() {
+        long uptimeMillis = ManagementFactory.getRuntimeMXBean().getUptime();
+
+        long gcTimeMillis = 0;
+        long gcCount = 0;
+        boolean gcTimeKnown = false;
+        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
+            long time = gc.getCollectionTime();
+            if (time >= 0) {
+                gcTimeMillis += time;
+                gcTimeKnown = true;
+            }
+            long count = gc.getCollectionCount();
+            if (count > 0) {
+                gcCount += count;
+            }
+        }
+
+        int pendingFinalization = ManagementFactory.getMemoryMXBean().getObjectPendingFinalizationCount();
+
+        List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
+        return new RuntimeData(
+                uptimeMillis,
+                gcTimeKnown ? gcTimeMillis : -1,
+                gcCount,
+                pendingFinalization,
+                parseInitialHeap(inputArgs),
+                parseThreadStackBytes(inputArgs));
     }
 
     private static List<HeapClassHistogramEntryDto> parseHistogram(String raw) {
@@ -178,15 +212,17 @@ final class MemoryCollector {
             entries.add(new HeapClassHistogramEntryDto(0, normalizeClassName(matcher.group(3)), instances, bytes));
         }
         entries.sort(Comparator.comparingLong(HeapClassHistogramEntryDto::bytes).reversed());
-        List<HeapClassHistogramEntryDto> ranked = new ArrayList<>();
+        List<HeapClassHistogramEntryDto> ranked = new ArrayList<>(entries.size());
         int rank = 1;
         for (HeapClassHistogramEntryDto entry : entries) {
-            if (rank > MAX_HISTOGRAM_CLASSES) {
-                break;
-            }
             ranked.add(new HeapClassHistogramEntryDto(rank++, entry.className(), entry.instances(), entry.bytes()));
         }
         return ranked;
+    }
+
+    /** Keeps only the largest classes for display while totals are computed over every row. */
+    private static List<HeapClassHistogramEntryDto> topEntries(List<HeapClassHistogramEntryDto> ranked) {
+        return ranked.size() <= MAX_HISTOGRAM_CLASSES ? ranked : List.copyOf(ranked.subList(0, MAX_HISTOGRAM_CLASSES));
     }
 
     private static String normalizeClassName(String rawClassName) {
@@ -239,6 +275,44 @@ final class MemoryCollector {
             }
         }
         return -1;
+    }
+
+    private static long parseInitialHeap(List<String> inputArgs) {
+        for (String arg : inputArgs) {
+            if (arg != null && arg.startsWith("-Xms")) {
+                long parsed = parseMemorySize(arg.substring("-Xms".length()));
+                if (parsed > 0) {
+                    return parsed;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static long parseThreadStackBytes(List<String> inputArgs) {
+        for (String arg : inputArgs) {
+            if (arg == null) {
+                continue;
+            }
+            if (arg.startsWith("-Xss")) {
+                long parsed = parseMemorySize(arg.substring("-Xss".length()));
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } else if (arg.startsWith("-XX:ThreadStackSize=")) {
+                // -XX:ThreadStackSize is expressed in kilobytes, unlike the suffix-aware -Xss form.
+                try {
+                    long kb = Long.parseLong(
+                            arg.substring("-XX:ThreadStackSize=".length()).trim());
+                    if (kb > 0) {
+                        return kb * 1024L;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // fall through to the default estimate
+                }
+            }
+        }
+        return RuntimeData.DEFAULT_THREAD_STACK_BYTES;
     }
 
     private static long parseMemorySize(String value) {

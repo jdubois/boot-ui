@@ -13,13 +13,18 @@ import java.util.Optional;
  * collect data themselves, which keeps each rule deterministic and unit-testable.
  */
 record MemoryContext(
-        MemoryData memory, ThreadData threads, HeapContentData heapContent, ClassLoadingData classLoading) {
+        MemoryData memory,
+        ThreadData threads,
+        HeapContentData heapContent,
+        ClassLoadingData classLoading,
+        RuntimeData runtime) {
 
     MemoryContext {
         memory = memory == null ? MemoryData.empty() : memory;
         threads = threads == null ? ThreadData.empty() : threads;
         heapContent = heapContent == null ? HeapContentData.unavailable() : heapContent;
         classLoading = classLoading == null ? ClassLoadingData.empty() : classLoading;
+        runtime = runtime == null ? RuntimeData.empty() : runtime;
     }
 
     int heapUsedPercent() {
@@ -85,30 +90,19 @@ record MemoryContext(
             return findPool(name -> name.equals("metaspace"));
         }
 
-        Optional<MemoryPoolSnapshot> codeCachePool() {
+        List<MemoryPoolSnapshot> codeCachePools() {
             return pools.stream()
                     .filter(pool -> {
                         String name = lower(pool.name());
                         return name.contains("code cache") || name.contains("codeheap");
                     })
-                    .reduce((first, second) -> new MemoryPoolSnapshot(
-                            "Code cache",
-                            first.used() + second.used(),
-                            first.committed() + second.committed(),
-                            sumMax(first.max(), second.max())));
+                    .toList();
         }
 
         private Optional<MemoryPoolSnapshot> findPool(java.util.function.Predicate<String> nameMatches) {
             return pools.stream()
                     .filter(pool -> nameMatches.test(lower(pool.name())))
                     .findFirst();
-        }
-
-        private static long sumMax(long first, long second) {
-            if (first < 0 || second < 0) {
-                return -1;
-            }
-            return first + second;
         }
 
         boolean usesGarbageCollector(String token) {
@@ -173,6 +167,27 @@ record MemoryContext(
 
         static ClassLoadingData empty() {
             return new ClassLoadingData(0, 0, 0);
+        }
+    }
+
+    /**
+     * Process-level scalars that are cheap single readings from the JVM but are not part of the
+     * memory, thread, or heap-content snapshots: JVM uptime, cumulative GC time/count, the pending
+     * finalization backlog, and the parsed {@code -Xms}/{@code -Xss} sizes used by the native-memory
+     * and GC-overhead rules.
+     */
+    record RuntimeData(
+            long uptimeMillis,
+            long gcCollectionTimeMillis,
+            long gcCollectionCount,
+            int objectPendingFinalizationCount,
+            long initialHeapBytes,
+            long threadStackBytes) {
+
+        static final long DEFAULT_THREAD_STACK_BYTES = 1024L * 1024;
+
+        static RuntimeData empty() {
+            return new RuntimeData(0, -1, 0, 0, -1, DEFAULT_THREAD_STACK_BYTES);
         }
     }
 }

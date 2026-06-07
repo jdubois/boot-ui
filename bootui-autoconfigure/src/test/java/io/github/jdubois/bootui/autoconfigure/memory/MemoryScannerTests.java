@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ClassLoadingD
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.HeapContentData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryPoolSnapshot;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.RuntimeData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ThreadData;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
@@ -21,7 +22,7 @@ import org.junit.jupiter.api.Test;
 
 class MemoryScannerTests {
 
-    private static final int RULE_COUNT = 16;
+    private static final int RULE_COUNT = 22;
     private static final long MB = 1024L * 1024;
     private static final long GB = 1024L * 1024 * 1024;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC);
@@ -63,8 +64,8 @@ class MemoryScannerTests {
                 List.of(11L, 12L),
                 List.of(new ThreadStateCountDto("BLOCKED", 12), new ThreadStateCountDto("RUNNABLE", 28)),
                 List.of());
-        MemoryContext context =
-                new MemoryContext(memory, threads, HeapContentData.unavailable(), new ClassLoadingData(8000, 8000, 0));
+        MemoryContext context = new MemoryContext(
+                memory, threads, HeapContentData.unavailable(), new ClassLoadingData(8000, 8000, 0), healthyRuntime());
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
 
         MemoryReport report = scanner.scan();
@@ -78,7 +79,7 @@ class MemoryScannerTests {
     @Test
     void highHeapUtilizationIsFlagged() {
         MemoryData memory = new MemoryData(
-                960 * MB,
+                990 * MB,
                 1 * GB,
                 1 * GB,
                 64 * MB,
@@ -92,8 +93,8 @@ class MemoryScannerTests {
                 List.of("-Xmx1g"),
                 List.of("G1 Young Generation"),
                 null);
-        MemoryContext context =
-                new MemoryContext(memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty());
+        MemoryContext context = new MemoryContext(
+                memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
 
         MemoryReport report = scanner.scan();
@@ -107,8 +108,8 @@ class MemoryScannerTests {
                 new HeapClassHistogramEntryDto(1, "java.util.HashMap$Node", 2_000_000, 120 * MB),
                 new HeapClassHistogramEntryDto(2, "byte[]", 1000, 30 * MB));
         HeapContentData heapContent = new HeapContentData(true, histogram, 2_001_000, 150 * MB);
-        MemoryContext context =
-                new MemoryContext(healthyMemory(), ThreadData.empty(), heapContent, ClassLoadingData.empty());
+        MemoryContext context = new MemoryContext(
+                healthyMemory(), ThreadData.empty(), heapContent, ClassLoadingData.empty(), healthyRuntime());
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
 
         MemoryReport report = scanner.scan();
@@ -154,7 +155,7 @@ class MemoryScannerTests {
                 5,
                 false,
                 false,
-                120_000L,
+                290_000L,
                 100_000L,
                 0,
                 0,
@@ -167,13 +168,159 @@ class MemoryScannerTests {
                 List.of());
         ThreadData threads = new ThreadData(
                 20, 20, 5, true, false, List.of(), List.of(new ThreadStateCountDto("RUNNABLE", 20)), List.of(hot));
-        MemoryContext context =
-                new MemoryContext(healthyMemory(), threads, HeapContentData.unavailable(), ClassLoadingData.empty());
+        MemoryContext context = new MemoryContext(
+                healthyMemory(), threads, HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
 
         MemoryReport report = scanner.scan();
 
         assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-THREAD-004");
+    }
+
+    @Test
+    void committedFootprintNearContainerLimitIsFlagged() {
+        MemoryData memory = new MemoryData(
+                300 * MB,
+                700 * MB,
+                1 * GB,
+                120 * MB,
+                150 * MB,
+                256 * MB,
+                List.of(),
+                40 * MB,
+                50 * MB,
+                64,
+                256 * MB,
+                List.of("-Xmx1g"),
+                List.of("G1 Young Generation"),
+                1 * GB);
+        ThreadData threads = new ThreadData(
+                30, 30, 5, false, false, List.of(), List.of(new ThreadStateCountDto("RUNNABLE", 30)), List.of());
+        MemoryContext context = new MemoryContext(
+                memory, threads, HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-FOOTPRINT-001");
+    }
+
+    @Test
+    void highGcOverheadIsFlagged() {
+        RuntimeData runtime = new RuntimeData(700_000, 100_000, 5000, 0, -1, MB);
+        MemoryContext context = new MemoryContext(
+                healthyMemory(), ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), runtime);
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-GC-003");
+    }
+
+    @Test
+    void compressedOopsCliffIsFlagged() {
+        MemoryData memory = new MemoryData(
+                10 * GB,
+                20 * GB,
+                40 * GB,
+                128 * MB,
+                160 * MB,
+                512 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx40g"),
+                List.of("G1 Young Generation"),
+                null);
+        MemoryContext context = new MemoryContext(
+                memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-HEAP-004");
+    }
+
+    @Test
+    void pendingFinalizationBacklogIsFlagged() {
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 5000, -1, MB);
+        MemoryContext context = new MemoryContext(
+                healthyMemory(), ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), runtime);
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-HEAP-006");
+    }
+
+    @Test
+    void unboundedMetaspaceInContainerIsFlagged() {
+        MemoryData memory = new MemoryData(
+                512 * MB,
+                1 * GB,
+                1 * GB,
+                200 * MB,
+                220 * MB,
+                -1,
+                List.of(new MemoryPoolSnapshot("Metaspace", 150 * MB, 160 * MB, -1)),
+                16 * MB,
+                16 * MB,
+                64,
+                256 * MB,
+                List.of("-Xmx1g"),
+                List.of("G1 Young Generation"),
+                2 * GB);
+        MemoryContext context = new MemoryContext(
+                memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-POOL-004");
+    }
+
+    @Test
+    void classLoadingChurnIsFlagged() {
+        MemoryContext context = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                new ClassLoadingData(9000, 60_000, 51_000),
+                healthyRuntime());
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-CLASS-002");
+    }
+
+    @Test
+    void unequalInitialAndMaxHeapForLowLatencyCollectorIsFlagged() {
+        MemoryData memory = new MemoryData(
+                1 * GB,
+                2 * GB,
+                4 * GB,
+                128 * MB,
+                160 * MB,
+                512 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx4g", "-Xms1g"),
+                List.of("ZGC Cycles", "ZGC Pauses"),
+                null);
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, 1 * GB, MB);
+        MemoryContext context = new MemoryContext(
+                memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), runtime);
+        MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
+
+        MemoryReport report = scanner.scan();
+
+        assertThat(report.results()).extracting(MemoryRuleResultDto::id).contains("MEM-HEAP-005");
     }
 
     private static int severityCount(MemoryReport report, String severity) {
@@ -197,7 +344,12 @@ class MemoryScannerTests {
                         List.of(new ThreadStateCountDto("RUNNABLE", 20), new ThreadStateCountDto("WAITING", 10)),
                         List.of()),
                 HeapContentData.unavailable(),
-                new ClassLoadingData(9000, 9500, 500));
+                new ClassLoadingData(9000, 9500, 500),
+                healthyRuntime());
+    }
+
+    private static RuntimeData healthyRuntime() {
+        return new RuntimeData(300_000, 1_500, 50, 0, -1, MB);
     }
 
     private static MemoryData healthyMemory() {

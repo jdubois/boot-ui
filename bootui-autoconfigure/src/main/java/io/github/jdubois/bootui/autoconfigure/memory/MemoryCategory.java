@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.memory;
 enum MemoryCategory {
     HEAP_PRESSURE("Heap pressure"),
     MEMORY_POOLS("Memory pools"),
+    NATIVE_MEMORY("Native memory"),
     GC_CONFIGURATION("GC configuration"),
     THREADS("Threads"),
     HEAP_CONTENT("Heap content"),

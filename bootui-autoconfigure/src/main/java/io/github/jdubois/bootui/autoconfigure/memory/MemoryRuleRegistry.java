@@ -9,13 +9,19 @@ final class MemoryRuleRegistry {
             new HighHeapUtilizationRule(),
             new OldGenerationNearMaxRule(),
             new UnsetOrSmallMaxHeapRule(),
+            new CompressedOopsCliffRule(),
+            new PendingFinalizationBacklogRule(),
+            // Native memory
+            new CommittedFootprintNearContainerLimitRule(),
             // Memory pools
             new MetaspaceSaturationRule(),
             new CodeCacheSaturationRule(),
             new DirectBufferGrowthRule(),
+            new UnboundedMetaspaceInContainerRule(),
             // GC configuration
-            new GcChoiceVsHeapSizeRule(),
             new MissingHeapSizingInContainerRule(),
+            new HighGcOverheadRule(),
+            new UnequalInitialAndMaxHeapRule(),
             // Threads
             new DeadlockDetectedRule(),
             new HighBlockedThreadRatioRule(),
@@ -26,7 +32,8 @@ final class MemoryRuleRegistry {
             new CollectionBloatRule(),
             new DominantClassRule(),
             // Class loading
-            new ExcessiveLoadedClassesRule());
+            new ExcessiveLoadedClassesRule(),
+            new ClassLoadingChurnRule());
 
     private MemoryRuleRegistry() {}
 

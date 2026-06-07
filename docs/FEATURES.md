@@ -145,9 +145,10 @@ mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catal
 
 The Memory panel runs an explicit, read-only scan over the live JVM management beans (heap and memory pools,
 garbage collection, threads, loaded classes, and an optional class histogram) and turns them into severity-ranked
-findings such as heap pressure, metaspace saturation, thread deadlocks, and collection bloat. It complements the raw
-Live Memory and Threads panels by diagnosing the data they expose. The scan is on demand and caches the last report; new rules
-are added as small, focused classes in the `memory` package.
+findings such as heap pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead,
+thread deadlocks, and collection bloat. It complements the raw Live Memory and Threads panels by diagnosing the data they
+expose. The scan is on demand and caches the last report; new rules are added as small, focused classes in the `memory`
+package. See [MEMORY-CHECKS.md](MEMORY-CHECKS.md) for the full rule catalogue and remediation links.
 
 ### Security
 
