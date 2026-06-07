@@ -1,6 +1,6 @@
 # Hibernate Advisor checks
 
-The Hibernate Advisor panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
+The Hibernate panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
 the JPA `EntityManagerFactory` metamodel, selected persistence properties, and Spring Data repository metadata when
 available; it does not intercept runtime queries, invoke repositories, execute SQL, or modify mappings.
 

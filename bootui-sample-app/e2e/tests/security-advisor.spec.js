@@ -3,7 +3,7 @@ import {expect, test} from './fixtures.js'
 
 test.describe('Security Advisor view', () => {
   test('runs the read-only scan and reports rules, chains, and findings', async ({openView, page}) => {
-    await openView('security-advisor', 'Security Advisor')
+    await openView('security-advisor', 'Security')
 
     // The read-only disclaimer renders once the report loads. The pre-scan empty state is not
     // asserted because the advisor caches the last scan, so a reused or retried server may

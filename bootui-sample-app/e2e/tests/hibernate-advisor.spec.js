@@ -3,7 +3,7 @@ import {expect, test} from './fixtures.js'
 
 test.describe('Hibernate Advisor view', () => {
   test('runs mapped-entity checks and shows the sample advisor fixtures', async ({openView, page}) => {
-    await openView('hibernate-advisor', 'Hibernate Advisor')
+    await openView('hibernate-advisor', 'Hibernate')
 
     await expect(page.getByText('No Hibernate Advisor data yet')).toBeVisible()
     await page.getByRole('button', {name: 'Run Hibernate checks'}).click()

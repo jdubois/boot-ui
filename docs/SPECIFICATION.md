@@ -458,7 +458,7 @@ Acceptance criteria:
 - Polling does not overlap slow requests.
 - Switching meter, tag filters, or statistic resets the live graph history.
 
-### 5.10 JVM Memory and Tuning Advisor Panels
+### 5.10 Memory and JVM Tuning Panels
 
 Purpose: answer "How much heap/non-heap memory is this app using, and what JVM/container options would be reasonable
 locally?"
@@ -472,24 +472,24 @@ Features:
 
 - The Memory panel shows live heap and non-heap usage summaries.
 - The Memory panel shows memory pool usage.
-- The Tuning Advisor panel shows JVM input arguments.
-- The Tuning Advisor panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
+- The JVM Tuning panel shows JVM input arguments.
+- The JVM Tuning panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
   enabled in the current application, and shows an information or warning bubble. The detected state feeds the sizing
   calculations, but generated JVM or Kubernetes snippets do not set the Spring property.
-- The Tuning Advisor panel provides a bare-metal JVM memory calculator that partitions a user-chosen
+- The JVM Tuning panel provides a bare-metal JVM memory calculator that partitions a user-chosen
   target JVM process memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
   using the live loaded-class count from `ClassLoadingMXBean` (with a 1.25× safety
   factor) and a live-or-floored platform-thread count. When virtual threads are enabled, the calculator uses a smaller
   platform-thread floor and stack size because request concurrency no longer reserves one native stack per request.
-- The Tuning Advisor panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
+- The JVM Tuning panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
   (equal for predictable startup), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`,
   `-XX:MaxDirectMemorySize`, `-Xss`, GC selection (G1 below 4 GB, ZGC above), and
   out-of-memory safeguards.
-- The Tuning Advisor panel suggests Kubernetes resources and `JAVA_TOOL_OPTIONS` with `requests.memory == limits.memory`
+- The JVM Tuning panel suggests Kubernetes resources and `JAVA_TOOL_OPTIONS` with `requests.memory == limits.memory`
   for Guaranteed QoS and percentage-based heap sizing (`-XX:MaxRAMPercentage` / `-XX:InitialRAMPercentage`) instead of
   fixed `-Xmx` / `-Xms`, while keeping fixed non-heap caps and warnings visible.
-- The Tuning Advisor panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
+- The JVM Tuning panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
   and lets the user include or omit Spring Boot Actuator startup/readiness/liveness probes. The Actuator toggle
   initializes from the current application health-probe configuration and is recommended for Kubernetes deployments.
 
@@ -718,7 +718,7 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
-### 5.17.1 Hibernate Advisor Panel
+### 5.17.1 Hibernate Panel
 
 Purpose: answer "Which Hibernate/JPA mapping and configuration risks should I review before they become production
 performance issues?"
@@ -1263,7 +1263,7 @@ Top-level navigation:
   - HTTP Sessions.
   - Metrics.
   - Memory.
-  - Tuning Advisor.
+  - JVM Tuning.
   - Heap Dump.
   - Threads.
   - Startup Timeline.
@@ -1278,13 +1278,13 @@ Top-level navigation:
 - Database:
   - Database Connection Pools.
   - Spring Data.
-  - Hibernate Advisor.
+  - Hibernate.
   - Flyway.
   - Liquibase.
 - Security:
   - Spring Security.
   - Security Logs.
-  - Security Advisor.
+  - Security.
   - Pentesting.
   - Vulnerabilities.
 - Services:
@@ -1297,7 +1297,7 @@ Top-level navigation:
   - HTTP Exchanges.
   - HTTP Probe.
   - Architecture.
-  - REST API Advisor.
+  - REST API.
 - Developer tools:
   - DevTools.
   - Dev Services.
@@ -1392,11 +1392,11 @@ BootUI's 1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
-  unavailable navigation groups covering Health, HTTP Sessions, Metrics, Memory, Tuning Advisor, Heap Dump, Threads,
+  unavailable navigation groups covering Health, HTTP Sessions, Metrics, Memory, JVM Tuning, Heap Dump, Threads,
   Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database Connection
-  Pools, Spring Data, Hibernate Advisor, Flyway, Liquibase, Spring Security, Security Logs, Security Advisor, Pentesting,
+  Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
   Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
-  REST API Advisor,
+  REST API,
   DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.
 - Secret-like values are masked.

@@ -76,37 +76,31 @@ export const routes = [
     path: '/rest-advisor',
     name: 'rest-advisor',
     component: RestApiAdvisor,
-    meta: {group: groups.advisors, icon: 'bi-signpost-split', title: 'REST API Advisor'}
+    meta: {group: groups.advisors, icon: 'bi-signpost-split', title: 'REST API'}
   },
   {
     path: '/spring-advisor',
     name: 'spring-advisor',
     component: SpringAdvisor,
-    meta: {group: groups.advisors, icon: 'bi-lightbulb', title: 'Spring Advisor'}
+    meta: {group: groups.advisors, icon: 'bi-lightbulb', title: 'Spring'}
   },
   {
     path: '/hibernate-advisor',
     name: 'hibernate-advisor',
     component: HibernateAdvisor,
-    meta: {group: groups.advisors, icon: 'bi-database-gear', title: 'Hibernate Advisor'}
+    meta: {group: groups.advisors, icon: 'bi-database-gear', title: 'Hibernate'}
   },
   {
     path: '/memory-advisor',
     name: 'memory-advisor',
     component: MemoryAdvisor,
-    meta: {group: groups.advisors, icon: 'bi-clipboard2-pulse', title: 'Memory Advisor'}
-  },
-  {
-    path: '/tuning-advisor',
-    name: 'tuning-advisor',
-    component: TuningAdvisor,
-    meta: {group: groups.advisors, icon: 'bi-sliders2-vertical', title: 'Tuning Advisor'}
+    meta: {group: groups.advisors, icon: 'bi-clipboard2-pulse', title: 'Memory'}
   },
   {
     path: '/security-advisor',
     name: 'security-advisor',
     component: SecurityAdvisor,
-    meta: {group: groups.advisors, icon: 'bi-shield-check', title: 'Security Advisor'}
+    meta: {group: groups.advisors, icon: 'bi-shield-check', title: 'Security'}
   },
   {
     path: '/pentest',
@@ -143,6 +137,12 @@ export const routes = [
     name: 'memory',
     component: Memory,
     meta: {group: groups.runtime, icon: 'bi-memory', title: 'Memory'}
+  },
+  {
+    path: '/tuning-advisor',
+    name: 'tuning-advisor',
+    component: TuningAdvisor,
+    meta: {group: groups.runtime, icon: 'bi-sliders2-vertical', title: 'JVM Tuning'}
   },
   {
     path: '/heap-dump',

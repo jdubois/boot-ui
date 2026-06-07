@@ -8,10 +8,10 @@ const allPanelLinks = [
   {id: 'http-sessions', title: 'HTTP Sessions', heading: /^HTTP Sessions/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
   {id: 'memory', title: 'Memory', heading: /^Memory/},
-  {id: 'tuning-advisor', title: 'Tuning Advisor', heading: /^Tuning Advisor/},
+  {id: 'tuning-advisor', title: 'JVM Tuning', heading: /^JVM Tuning/},
   {id: 'heap-dump', title: 'Heap Dump', heading: /^Heap Dump/},
   {id: 'threads', title: 'Threads', heading: /^Threads/},
-  {id: 'memory-advisor', title: 'Memory Advisor', heading: /^Memory Advisor/},
+  {id: 'memory-advisor', title: 'Memory', heading: /^Memory/},
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
   {id: 'graalvm', title: 'GraalVM', heading: /^GraalVM/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
@@ -22,12 +22,12 @@ const allPanelLinks = [
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
-  {id: 'hibernate-advisor', title: 'Hibernate Advisor', heading: /^Hibernate Advisor/},
+  {id: 'hibernate-advisor', title: 'Hibernate', heading: /^Hibernate/},
   {id: 'flyway', title: 'Flyway', heading: /Flyway migrations/},
   {id: 'liquibase', title: 'Liquibase', heading: /Liquibase change sets/},
   {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
   {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
-  {id: 'security-advisor', title: 'Security Advisor', heading: /^Security Advisor/},
+  {id: 'security-advisor', title: 'Security', heading: /^Security/},
   {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
@@ -38,7 +38,7 @@ const allPanelLinks = [
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
-  {id: 'rest-advisor', title: 'REST API Advisor', heading: /^REST API Advisor/},
+  {id: 'rest-advisor', title: 'REST API', heading: /^REST API/},
   {id: 'devtools', title: 'DevTools', heading: /^DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
@@ -99,8 +99,8 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Advisors', count: 9},
-      {title: 'Runtime', count: 8},
+      {title: 'Advisors', count: 8},
+      {title: 'Runtime', count: 9},
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 4},
       {title: 'Security', count: 2},
@@ -117,12 +117,11 @@ test.describe('BootUI app shell', () => {
 
     await expect(page.getByRole('group', {name: 'Advisors panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Architecture',
-      'REST API Advisor',
-      'Spring Advisor',
-      'Hibernate Advisor',
-      'Memory Advisor',
-      'Tuning Advisor',
-      'Security Advisor',
+      'REST API',
+      'Spring',
+      'Hibernate',
+      'Memory',
+      'Security',
       'Pentesting',
       'Vulnerabilities'
     ])
@@ -226,7 +225,9 @@ test.describe('BootUI app shell', () => {
     await expandAllSidebarGroups(page)
 
     for (const link of allPanelLinks) {
-      await page.getByRole('link', {name: link.title, exact: true}).click()
+      const navLink = page.locator(`aside a.bootui-nav-link[href$="#/${link.id}"]`)
+      await expect(navLink).toHaveCount(1)
+      await navLink.click()
       await expect(page.locator('main h2').filter({hasText: link.heading}).first()).toBeVisible({timeout: 15_000})
     }
   })

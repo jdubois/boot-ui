@@ -133,7 +133,7 @@ onMounted(loadReport)
   <div>
     <PanelHeader
       icon="bi-database-gear"
-      title="Hibernate Advisor"
+      title="Hibernate"
       subtitle="Review mapped JPA entities with bounded Hibernate performance checks."
       :loading="loading"
       :error="error"

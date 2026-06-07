@@ -133,7 +133,7 @@ onMounted(loadReport)
   <div>
     <PanelHeader
       icon="bi-shield-check"
-      title="Security Advisor"
+      title="Security"
       subtitle="Review the registered Spring Security filter chains with bounded best-practice checks."
       :loading="loading"
       :error="error"

@@ -18,7 +18,7 @@ test.describe('Tuning Advisor view', () => {
       }
     }
 
-    await openView('tuning-advisor', 'Tuning Advisor')
+    await openView('tuning-advisor', 'JVM Tuning')
 
     const virtualThreadsStatus = page.locator('.virtual-threads-status').first()
     const jvmOptionsCard = page.locator('.card', {hasText: 'Bare metal JVM options'}).first()
@@ -53,7 +53,7 @@ test.describe('Tuning Advisor view', () => {
   })
 
   test('Kubernetes toggles update the deployment snippet', async ({openView, page}) => {
-    await openView('tuning-advisor', 'Tuning Advisor')
+    await openView('tuning-advisor', 'JVM Tuning')
 
     const kubernetesCard = page.locator('.card', {hasText: 'Kubernetes calculator'}).first()
     const yamlBlock = kubernetesCard.locator('.options-box code')
@@ -84,7 +84,7 @@ test.describe('Tuning Advisor view', () => {
   })
 
   test('editing total memory updates the recommended -Xmx', async ({openView, page}) => {
-    await openView('tuning-advisor', 'Tuning Advisor')
+    await openView('tuning-advisor', 'JVM Tuning')
 
     const calculatorCard = page.locator('.card', {hasText: 'Bare metal JVM calculator'})
     const jvmOptionsCard = page.locator('.card', {hasText: 'Bare metal JVM options'}).first()

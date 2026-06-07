@@ -62,10 +62,10 @@ public final class BootUiPanels {
             new Panel(HTTP_SESSIONS, "HTTP Sessions", true, "/http-sessions"),
             new Panel(METRICS, "Metrics", false, "/metrics"),
             new Panel(MEMORY, "Memory", false, "/memory"),
-            new Panel(TUNING_ADVISOR, "Tuning Advisor", false, "/tuning-advisor"),
+            new Panel(TUNING_ADVISOR, "JVM Tuning", false, "/tuning-advisor"),
             new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
             new Panel(THREADS, "Threads", true, "/threads"),
-            new Panel(MEMORY_ADVISOR, "Memory Advisor", true, "/memory-advisor"),
+            new Panel(MEMORY_ADVISOR, "Memory", true, "/memory-advisor"),
             new Panel(STARTUP, "Startup Timeline", false, "/startup"),
             new Panel(GRAALVM, "GraalVM", true, "/graalvm"),
             new Panel(CONFIG, "Configuration", true, "/config"),
@@ -75,13 +75,13 @@ public final class BootUiPanels {
             new Panel(CONDITIONS, "Conditions", false, "/conditions"),
             new Panel(MAPPINGS, "Mappings", false, "/mappings"),
             new Panel(SPRING_SECURITY, "Spring Security", false, "/spring-security"),
-            new Panel(SECURITY_ADVISOR, "Security Advisor", true, "/security-advisor"),
+            new Panel(SECURITY_ADVISOR, "Security", true, "/security-advisor"),
             new Panel(SECURITY_LOGS, "Security Logs", false, "/security-logs"),
             new Panel(PENTEST, "Pentesting", true, "/pentest"),
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
             new Panel(DATA, "Spring Data", false, "/data"),
-            new Panel(HIBERNATE_ADVISOR, "Hibernate Advisor", true, "/hibernate-advisor"),
+            new Panel(HIBERNATE_ADVISOR, "Hibernate", true, "/hibernate-advisor"),
             new Panel(SPRING_CACHE, "Spring Cache", true, "/spring-cache"),
             new Panel(AI, "AI Usage", false, "/ai"),
             new Panel(TRACES, "Traces", true, "/traces"),
@@ -97,8 +97,8 @@ public final class BootUiPanels {
             new Panel(FLYWAY, "Flyway", true, "/flyway"),
             new Panel(LIQUIBASE, "Liquibase", true, "/liquibase"),
             new Panel(GITHUB, "GitHub", true, "/github"),
-            new Panel(REST_ADVISOR, "REST API Advisor", true, "/rest-advisor"),
-            new Panel(SPRING_ADVISOR, "Spring Advisor", true, "/spring-advisor"));
+            new Panel(REST_ADVISOR, "REST API", true, "/rest-advisor"),
+            new Panel(SPRING_ADVISOR, "Spring", true, "/spring-advisor"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

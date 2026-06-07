@@ -29,7 +29,7 @@ flow) exposed by the sample app:
 | `mappings.spec.js`          | HTTP mappings include the sample app routes, filter narrows the list                                                  |
 | `scheduled.spec.js`         | Scheduled tasks view lists the sample echo scheduler                                                                  |
 | `data.spec.js`              | `ProductRepository` is listed, detail panel shows `searchByName`                                                      |
-| `hibernate-advisor.spec.js` | Hibernate Advisor scan action and mapped-entity findings                                                              |
+| `hibernate-advisor.spec.js` | Hibernate scan action and mapped-entity findings                                                                      |
 | `spring-cache.spec.js`      | Cache managers, cache details, annotations, metrics, and guarded clear actions                                        |
 | `spring-security.spec.js`   | Filter chains list `/api/secure`, explain endpoint returns a match                                                    |
 | `security-logs.spec.js`     | Security Logs list recent audit events with filters, auto-refresh, and masked sensitive event data                    |

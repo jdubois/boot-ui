@@ -25,7 +25,7 @@ const panelOrder = [
   ['http-sessions', 'HTTP Sessions'],
   ['metrics', 'Metrics'],
   ['memory', 'Memory'],
-  ['tuning-advisor', 'Tuning Advisor'],
+  ['tuning-advisor', 'JVM Tuning'],
   ['heap-dump', 'Heap Dump'],
   ['threads', 'Threads'],
   ['startup', 'Startup Timeline'],
@@ -38,12 +38,12 @@ const panelOrder = [
   ['mappings', 'Mappings'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['data', 'Spring Data'],
-  ['hibernate-advisor', 'Hibernate Advisor'],
+  ['hibernate-advisor', 'Hibernate'],
   ['flyway', 'Flyway'],
   ['liquibase', 'Liquibase'],
   ['spring-security', 'Spring Security'],
   ['security-logs', 'Security Logs'],
-  ['security-advisor', 'Security Advisor'],
+  ['security-advisor', 'Security'],
   ['pentest', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['scheduled', 'Scheduled Tasks'],
@@ -54,7 +54,7 @@ const panelOrder = [
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
-  ['rest-advisor', 'REST API Advisor'],
+  ['rest-advisor', 'REST API'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['copilot', 'Copilot'],
@@ -2156,7 +2156,7 @@ const screenshots = [
     }
   ],
   ['memory', 'Memory', 'bootui-memory.png', waitForText('Memory Pools')],
-  ['tuning-advisor', 'Tuning Advisor', 'bootui-tuning-advisor.png', waitForText('Bare metal JVM calculator')],
+  ['tuning-advisor', 'JVM Tuning', 'bootui-tuning-advisor.png', waitForText('Bare metal JVM calculator')],
   [
     'heap-dump',
     'Heap Dump',
@@ -2195,12 +2195,12 @@ const screenshots = [
       await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
     }
   ],
-  ['hibernate-advisor', 'Hibernate Advisor', 'bootui-hibernate-advisor.png', waitForText('FetchType.EAGER')],
+  ['hibernate-advisor', 'Hibernate', 'bootui-hibernate-advisor.png', waitForText('FetchType.EAGER')],
   ['flyway', 'Flyway', 'bootui-flyway.png', waitForText('V3__add_catalog_tags.sql')],
   ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
   ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
-  ['security-advisor', 'Security Advisor', 'bootui-security-advisor.png', waitForText('SEC-ACT-002')],
+  ['security-advisor', 'Security', 'bootui-security-advisor.png', waitForText('SEC-ACT-002')],
   ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
@@ -2232,12 +2232,7 @@ const screenshots = [
     }
   ],
   ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
-  [
-    'rest-advisor',
-    'REST API Advisor',
-    'bootui-rest-advisor.png',
-    waitForText("Don't expose JPA entities in responses")
-  ],
+  ['rest-advisor', 'REST API', 'bootui-rest-advisor.png', waitForText("Don't expose JPA entities in responses")],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [

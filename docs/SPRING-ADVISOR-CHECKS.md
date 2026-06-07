@@ -1,6 +1,6 @@
 # Spring Advisor checks
 
-The Spring Advisor panel runs a fixed, on-demand ruleset against the host application's **running Spring application context** and `Environment`. It takes a read-only snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s, `DataSource`s) and feature flags, then evaluates a curated set of configuration and best-practice checks. It never mutates the context, intercepts live traffic, or surfaces secrets.
+The Spring panel runs a fixed, on-demand ruleset against the host application's **running Spring application context** and `Environment`. It takes a read-only snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s, `DataSource`s) and feature flags, then evaluates a curated set of configuration and best-practice checks. It never mutates the context, intercepts live traffic, or surfaces secrets.
 
 Because the advisor runs inside the *started* application, it focuses on "started but suboptimal" states: settings that let the app boot yet deviate from production best practices. Conditions that would prevent startup entirely are out of scope. The checks are heuristic review prompts; the right remediation still depends on the application's requirements and deployment topology.
 
@@ -140,4 +140,3 @@ The panel is always available (a Spring application context always exists). Bean
 - **Detects**: HTTP/2 is not enabled (server.http2.enabled is not true). HTTP/2 multiplexing can improve latency for browsers and modern clients.
 - **Recommendation**: Enable server.http2.enabled=true (over TLS) once the runtime and clients support it.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
-

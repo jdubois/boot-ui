@@ -133,7 +133,7 @@ onMounted(loadReport)
   <div>
     <PanelHeader
       icon="bi-signpost-split"
-      title="REST API Advisor"
+      title="REST API"
       subtitle="Run curated, project-agnostic REST best-practice rules against the host application's own controllers."
       :loading="loading"
       :error="error"

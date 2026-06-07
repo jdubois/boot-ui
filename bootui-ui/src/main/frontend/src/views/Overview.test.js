@@ -77,7 +77,7 @@ describe('Overview', () => {
     expect(wrapper.text()).toContain('Vulnerabilities')
     expect(wrapper.text()).toContain('Architecture')
     expect(wrapper.text()).not.toContain('Pentesting')
-    expect(wrapper.text()).not.toContain('Hibernate Advisor')
+    expect(wrapper.text()).not.toContain('Hibernate')
     expect(wrapper.text()).not.toContain('Connect to GitHub')
   })
 

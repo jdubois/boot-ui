@@ -148,7 +148,7 @@ onMounted(loadReport)
   <div>
     <PanelHeader
       icon="bi-clipboard2-pulse"
-      title="Memory Advisor"
+      title="Memory"
       subtitle="Rule-based JVM memory, GC, and thread health findings from the live management beans."
       :loading="loading"
       :error="error"

@@ -25,8 +25,9 @@ function panelAvailable(id) {
 }
 
 // Severity-based scanners share the same {severityCounts, scan.status} contract.
-// Ordered to mirror the Advisors navigation group (code & design, then data,
-// runtime, and security advisors).
+// GitHub renders as the first grid card, so the scanner order below lays out the
+// remaining cards into a 3-column grid: Architecture, Memory, REST API / Spring,
+// Hibernate, Security / Pentesting, Vulnerabilities.
 const scannerDefs = [
   {
     id: 'architecture',
@@ -37,8 +38,16 @@ const scannerDefs = [
     endpoint: 'api/architecture/scan'
   },
   {
+    id: 'memory-advisor',
+    title: 'Memory',
+    icon: 'bi-clipboard2-pulse',
+    tone: 'warning',
+    to: '/memory-advisor',
+    endpoint: 'api/memory-advisor/scan'
+  },
+  {
     id: 'rest-advisor',
-    title: 'REST API Advisor',
+    title: 'REST API',
     icon: 'bi-signpost-split',
     tone: 'primary',
     to: '/rest-advisor',
@@ -46,7 +55,7 @@ const scannerDefs = [
   },
   {
     id: 'spring-advisor',
-    title: 'Spring Advisor',
+    title: 'Spring',
     icon: 'bi-lightbulb',
     tone: 'info',
     to: '/spring-advisor',
@@ -54,23 +63,15 @@ const scannerDefs = [
   },
   {
     id: 'hibernate-advisor',
-    title: 'Hibernate Advisor',
+    title: 'Hibernate',
     icon: 'bi-database-gear',
     tone: 'info',
     to: '/hibernate-advisor',
     endpoint: 'api/hibernate-advisor/scan'
   },
   {
-    id: 'memory-advisor',
-    title: 'Memory Advisor',
-    icon: 'bi-clipboard2-pulse',
-    tone: 'warning',
-    to: '/memory-advisor',
-    endpoint: 'api/memory-advisor/scan'
-  },
-  {
     id: 'security-advisor',
-    title: 'Security Advisor',
+    title: 'Security',
     icon: 'bi-shield-check',
     tone: 'success',
     to: '/security-advisor',

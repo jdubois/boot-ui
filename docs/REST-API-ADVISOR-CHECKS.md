@@ -1,6 +1,6 @@
 # REST API checks
 
-The REST API Advisor panel runs a fixed, zero-config ruleset against the host application's own web layer
+The REST API panel runs a fixed, zero-config ruleset against the host application's own web layer
 (`@RestController` / `@Controller` handler methods). This page lists every rule that ships with BootUI today, what it
 inspects, when it fires, and what to do about it.
 
@@ -32,8 +32,8 @@ no controllers can be imported.
 
 ## What BootUI does not do
 
-- It does not check security concerns (CORS, authentication, authorization) — those remain owned by the **Security
-  Advisor** panel.
+- It does not check security concerns (CORS, authentication, authorization) — those remain owned by the **Security**
+  panel.
 - It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
 - It is **not a replacement** for an API design review or contract testing. The heuristics are project-agnostic review
   prompts, not verdicts.

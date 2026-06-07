@@ -65,7 +65,7 @@ async function copyKubernetesYaml() {
   <div>
     <PanelHeader
       icon="bi-sliders2-vertical"
-      title="Tuning Advisor"
+      title="JVM Tuning"
       subtitle="Review current JVM arguments, plan bare-metal JVM options, and calculate Kubernetes memory sizing."
       :loading="loading"
       :error="error"

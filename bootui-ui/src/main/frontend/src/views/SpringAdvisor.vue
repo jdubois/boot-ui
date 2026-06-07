@@ -133,7 +133,7 @@ onMounted(loadReport)
   <div>
     <PanelHeader
       icon="bi-lightbulb"
-      title="Spring Advisor"
+      title="Spring"
       subtitle="Review the running Spring application context with bounded configuration and best-practice checks."
       :loading="loading"
       :error="error"
