@@ -28,7 +28,8 @@ how much each scanner deducted from a perfect score. A single "Run all scanners"
 or each scanner card can be run individually.
 
 Each scanner card shows its own 0–100 score, status, and severity counts. The severity-based scanners are Architecture,
-Hibernate Advisor, Security Advisor, Vulnerabilities, and Pentesting; scores start at 100 and subtract a fixed weighted
+REST API Advisor, Spring Advisor, Hibernate Advisor, Memory Advisor, Security Advisor, Pentesting, and Vulnerabilities; scores start at 100
+and subtract a fixed weighted
 penalty per finding (critical 25, high 10, medium 3, low 1), so a clean scan stays at 100. The GitHub card is not a
 severity scanner: it connects to the local repository and, only when the credential is connected and authenticated,
 contributes a score derived from open security alerts. The overall score is the mean of the scanners that were actually
@@ -65,6 +66,147 @@ GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeo
 safety threshold that skips optional sections before exhausting the core API quota.
 
 ![BootUI GitHub panel](./images/bootui-github.png)
+
+## Advisors
+
+BootUI's advisors run explicit, on-demand rule-based scans and surface severity-ranked findings, feeding the weighted
+score on the Overview dashboard. Each advisor inspects a different facet of the application — compiled architecture, the
+REST layer, the live Spring context, persistence, JVM memory, runtime tuning, and security posture — and is read-only.
+
+### Architecture
+
+The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
+application's own classes at runtime. It detects the application's base package from the `@SpringBootApplication`
+configuration, imports the compiled classes from that package, and evaluates a fixed set of universally-sensible
+architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
+exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
+deprecated APIs, poorly named exceptions/interfaces, mutable/visible loggers, production dependencies on test
+frameworks, public mutable static fields, or non-final utility classes), and Spring stereotype/proxy heuristics (no field
+injection, controllers should not depend on repositories, repositories should not depend on controllers or services,
+services should not depend on controllers, services and repositories should stay servlet-agnostic, no self-invocation or
+unproxyable proxy annotations, async/scheduled method signatures should be supported, async should stay out of
+configuration classes, stereotypes should stay outside the default package, `@ConfigurationProperties` classes should be
+immutable, stereotype dependencies should flow web → service → repository, and code should avoid
+`AopContext.currentProxy()`). When BootUI is installed through
+`bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available when a base package is resolvable
+and the scan runs on demand, caching the last report.
+
+Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
+starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
+rule is registered with a stable identifier, category, severity, and recommendation; the rule results list shows only
+violating rules, sorted by severity and violation count. See
+[ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
+
+![BootUI Architecture panel](./images/bootui-architecture.png)
+
+### REST API Advisor
+
+The REST API Advisor panel runs a curated, zero-config ruleset against the host application's own web layer
+(`@RestController` / `@Controller` handler methods) at runtime. Like the Architecture panel, it detects the
+application's base package from the `@SpringBootApplication` configuration, imports the compiled controllers from that
+package with ArchUnit's `ClassFileImporter` (bounded to the application's own classes), and derives a read-only handler
+model — HTTP method(s), path(s), parameters and their annotations, return type, `produces`/`consumes`, validation flags,
+and declared throws. It then evaluates 30 universally-sensible REST best-practice rules across eight categories: routing
+and HTTP-method mapping, resource naming, status codes and responses, input validation and binding, DTO and payload
+contracts, pagination, versioning and content negotiation, and error handling and documentation. The `RAPI-DOC-*`
+documentation rules only run when springdoc-openapi is on the host classpath.
+
+The advisor deliberately avoids security concerns (CORS, authentication, authorization), which remain owned by the
+Security Advisor panel. The scan runs on demand and caches the last report; each rule is registered with a stable
+identifier, category, severity, recommendation, and a learn-more link, and the rule results list shows only flagged
+rules, sorted by severity and finding count. The heuristics complement — rather than replace — an API design review or
+contract testing. See [REST-API-ADVISOR-CHECKS.md](REST-API-ADVISOR-CHECKS.md) for the full catalogue of rules and what
+each one inspects.
+
+![BootUI REST API Advisor panel](./images/bootui-rest-advisor.png)
+
+### Spring Advisor
+
+The Spring Advisor panel runs an explicit, read-only scan of the host application's running Spring application context and
+`Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
+`DataSource`s) and feature flags, then evaluates a curated ruleset across bean wiring, configuration hygiene, profiles and
+environment, performance and concurrency (including virtual threads), and web/HTTP settings. Because it runs inside the
+already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
+complements the Architecture panel, which statically analyses compiled bytecode with ArchUnit, by inspecting the live,
+wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
+intercepts live traffic, or surfaces secrets. See [SPRING-ADVISOR-CHECKS.md](SPRING-ADVISOR-CHECKS.md) for the full rule
+catalogue and remediation links.
+
+### Hibernate Advisor
+
+The Hibernate Advisor panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when
+Hibernate ORM is present. It reviews mapped entities, selected persistence configuration, and Spring Data repository
+metadata for common Hibernate/JPA performance and mapping risks such as eager fetching, problematic identifier
+generators, collection fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report
+is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
+mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
+
+![BootUI Hibernate Advisor panel](./images/bootui-hibernate-advisor.png)
+
+### Memory Advisor
+
+The Memory Advisor panel runs an explicit, read-only scan over the live JVM management beans (heap and memory pools,
+garbage collection, threads, loaded classes, and an optional class histogram) and turns them into severity-ranked
+findings such as heap pressure, metaspace saturation, thread deadlocks, and collection bloat. It complements the raw
+Memory and Threads panels by diagnosing the data they expose. The scan is on demand and caches the last report; new rules
+are added as small, focused classes in the `memoryadvisor` package.
+
+### Tuning Advisor
+
+The Tuning Advisor panel uses the same live JVM context to review current JVM input arguments, explain
+`spring.threads.virtual.enabled=true`, and run JVM sizing calculators for both dedicated hosts and Kubernetes. It detects
+whether Spring virtual threads are enabled in the current application, shows an information or warning bubble, and feeds
+that detected state into platform-thread stack budgets and heap sizing recommendations without adding the Spring property
+to generated JVM or Kubernetes snippets.
+
+The bare-metal calculator partitions a target JVM process memory budget into heap, metaspace, code cache, direct memory,
+thread stacks, and headroom, then turns that plan into copyable JVM options with fixed `-Xms` and `-Xmx` values. The
+Kubernetes calculator keeps `requests.memory == limits.memory` for Guaranteed QoS by default, but can switch to a
+snapshot-based Burstable request when the operator intentionally overcommits memory. Its `JAVA_TOOL_OPTIONS` uses
+`-XX:MaxRAMPercentage` and `-XX:InitialRAMPercentage` instead of fixed heap sizes so the JVM heap follows the container
+memory limit when an operator resizes the pod. A Spring Boot Actuator probes toggle initializes from the current health
+probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
+non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
+
+![BootUI Tuning Advisor panel](./images/bootui-tuning-advisor.png)
+
+### Security Advisor
+
+The Security Advisor panel runs an explicit, read-only scan of the host application's registered Spring Security
+`SecurityFilterChain` beans and related security beans when Spring Security is on the classpath. It introspects the filter
+lists, simulates an anonymous authorization decision, and inspects security-relevant beans (`PasswordEncoder`,
+`CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties to flag common hardening gaps across authentication,
+authorization, CSRF, session management, transport/security headers, CORS, method security, actuator exposure, OAuth2
+resource-server validation, and configuration hygiene. The report is framed as a review prompt, not a verdict: it never
+intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
+[SECURITY-ADVISOR-CHECKS.md](SECURITY-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
+
+![BootUI Security Advisor panel](./images/bootui-security-advisor.png)
+
+### Pentesting
+
+The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
+BootUI's `/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the
+application context path for missing or unsafe security headers, CORS behavior, cookie flags, verbose error exposure,
+Spring Security wiring, and actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such
+as wildcard actuator exposure, health detail exposure, an enabled H2 console, in-config security credentials,
+value-revealing actuator endpoints, request-detail logging, and DevTools left on the classpath. It intentionally does not
+sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies. Findings are
+heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
+
+Each hygiene check is registered with a stable identifier, OWASP 2025 category, evidence source, and recommendation so
+new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
+full catalogue of checks and what each one inspects.
+
+![BootUI Pentesting panel](./images/bootui-pentesting.png)
+
+### Vulnerabilities
+
+The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
+vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
+ordered by severity first, with dependencies and advisories alphabetized within the same severity.
+
+![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.png)
 
 ## Runtime
 
@@ -107,25 +249,6 @@ the running process metrics so you can spot high heap pressure, non-heap growth,
 JVM sizing controls mixed into the view.
 
 ![BootUI Memory panel](./images/bootui-memory.png)
-
-### Tuning Advisor
-
-The Tuning Advisor panel uses the same live JVM context to review current JVM input arguments, explain
-`spring.threads.virtual.enabled=true`, and run JVM sizing calculators for both dedicated hosts and Kubernetes. It detects
-whether Spring virtual threads are enabled in the current application, shows an information or warning bubble, and feeds
-that detected state into platform-thread stack budgets and heap sizing recommendations without adding the Spring property
-to generated JVM or Kubernetes snippets.
-
-The bare-metal calculator partitions a target JVM process memory budget into heap, metaspace, code cache, direct memory,
-thread stacks, and headroom, then turns that plan into copyable JVM options with fixed `-Xms` and `-Xmx` values. The
-Kubernetes calculator keeps `requests.memory == limits.memory` for Guaranteed QoS by default, but can switch to a
-snapshot-based Burstable request when the operator intentionally overcommits memory. Its `JAVA_TOOL_OPTIONS` uses
-`-XX:MaxRAMPercentage` and `-XX:InitialRAMPercentage` instead of fixed heap sizes so the JVM heap follows the container
-memory limit when an operator resizes the pod. A Spring Boot Actuator probes toggle initializes from the current health
-probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
-non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
-
-![BootUI Tuning Advisor panel](./images/bootui-tuning-advisor.png)
 
 ### Heap Dump
 
@@ -259,17 +382,6 @@ methods, and degrades to a clear empty state when Spring Data is not present or 
 
 ![BootUI Spring Data panel](./images/bootui-data.png)
 
-### Hibernate Advisor
-
-The Hibernate Advisor panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when
-Hibernate ORM is present. It reviews mapped entities, selected persistence configuration, and Spring Data repository
-metadata for common Hibernate/JPA performance and mapping risks such as eager fetching, problematic identifier
-generators, collection fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report
-is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
-mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
-
-![BootUI Hibernate Advisor panel](./images/bootui-hibernate-advisor.png)
-
 ### Flyway
 
 The Flyway panel shows schema migrations for each `Flyway` bean in the context and lists, per database, the current schema
@@ -320,44 +432,6 @@ data before rendering. Responses are bounded by `bootui.security-logs.max-logs`,
 is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
 ![BootUI Security Logs panel](./images/bootui-security-logs.png)
-
-### Security Advisor
-
-The Security Advisor panel runs an explicit, read-only scan of the host application's registered Spring Security
-`SecurityFilterChain` beans and related security beans when Spring Security is on the classpath. It introspects the filter
-lists, simulates an anonymous authorization decision, and inspects security-relevant beans (`PasswordEncoder`,
-`CorsConfigurationSource`, `JwtDecoder`) and `Environment` properties to flag common hardening gaps across authentication,
-authorization, CSRF, session management, transport/security headers, CORS, method security, actuator exposure, OAuth2
-resource-server validation, and configuration hygiene. The report is framed as a review prompt, not a verdict: it never
-intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
-[SECURITY-ADVISOR-CHECKS.md](SECURITY-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
-
-![BootUI Security Advisor panel](./images/bootui-security-advisor.png)
-
-### Pentesting
-
-The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
-BootUI's `/bootui` routes. It combines passive Spring metadata with bounded synthetic localhost requests under the
-application context path for missing or unsafe security headers, CORS behavior, cookie flags, verbose error exposure,
-Spring Security wiring, and actuator exposure. It also inspects Spring Boot configuration for common hardening gaps such
-as wildcard actuator exposure, health detail exposure, an enabled H2 console, in-config security credentials,
-value-revealing actuator endpoints, request-detail logging, and DevTools left on the classpath. It intentionally does not
-sweep discovered application endpoints, send SQL/XSS/destructive payloads, or store raw response bodies. Findings are
-heuristic review prompts, not proof of exploitability or a replacement for a full security assessment.
-
-Each hygiene check is registered with a stable identifier, OWASP 2025 category, evidence source, and recommendation so
-new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
-full catalogue of checks and what each one inspects.
-
-![BootUI Pentesting panel](./images/bootui-pentesting.png)
-
-### Vulnerabilities
-
-The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
-vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
-ordered by severity first, with dependencies and advisories alphabetized within the same severity.
-
-![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.png)
 
 ## Services
 
@@ -449,32 +523,6 @@ The HTTP Probe panel sends local-only requests to the running application and di
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.png)
-
-### Architecture
-
-The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
-application's own classes at runtime. It detects the application's base package from the `@SpringBootApplication`
-configuration, imports the compiled classes from that package, and evaluates a fixed set of universally-sensible
-architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
-exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
-deprecated APIs, poorly named exceptions/interfaces, mutable/visible loggers, production dependencies on test
-frameworks, public mutable static fields, or non-final utility classes), and Spring stereotype/proxy heuristics (no field
-injection, controllers should not depend on repositories, repositories should not depend on controllers or services,
-services should not depend on controllers, services and repositories should stay servlet-agnostic, no self-invocation or
-unproxyable proxy annotations, async/scheduled method signatures should be supported, async should stay out of
-configuration classes, stereotypes should stay outside the default package, `@ConfigurationProperties` classes should be
-immutable, stereotype dependencies should flow web → service → repository, and code should avoid
-`AopContext.currentProxy()`). When BootUI is installed through
-`bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available when a base package is resolvable
-and the scan runs on demand, caching the last report.
-
-Generic rules are necessarily less powerful than project-authored ArchUnit tests, so the panel is positioned as a
-starting-point and review aid that complements — rather than replaces — a project-specific ArchUnit test suite. Each
-rule is registered with a stable identifier, category, severity, and recommendation; the rule results list shows only
-violating rules, sorted by severity and violation count. See
-[ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
-
-![BootUI Architecture panel](./images/bootui-architecture.png)
 
 ## Developer tools
 

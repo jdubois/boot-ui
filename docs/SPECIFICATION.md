@@ -1126,6 +1126,8 @@ Initial endpoints:
 | `/bootui/api/hibernate-advisor/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
 | `/bootui/api/architecture`                   | GET    | Latest Architecture scan report                                                        |
 | `/bootui/api/architecture/scan`              | POST   | Run explicit ArchUnit hygiene checks                                                   |
+| `/bootui/api/rest-advisor`                   | GET    | Latest REST API Advisor scan report                                                    |
+| `/bootui/api/rest-advisor/scan`              | POST   | Run explicit read-only REST API best-practice checks                                   |
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
@@ -1302,6 +1304,7 @@ Top-level navigation:
   - HTTP Exchanges.
   - HTTP Probe.
   - Architecture.
+  - REST API Advisor.
 - Developer tools:
   - DevTools.
   - Dev Services.
@@ -1400,6 +1403,7 @@ BootUI's 1.0 release surface is complete when:
   Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database Connection
   Pools, Spring Data, Hibernate Advisor, Flyway, Liquibase, Spring Security, Security Logs, Security Advisor, Pentesting,
   Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
+  REST API Advisor,
   DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.
 - Secret-like values are masked.

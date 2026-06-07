@@ -21,6 +21,7 @@ public final class BootUiPanels {
     public static final String TUNING_ADVISOR = "tuning-advisor";
     public static final String HEAP_DUMP = "heap-dump";
     public static final String THREADS = "threads";
+    public static final String MEMORY_ADVISOR = "memory-advisor";
     public static final String STARTUP = "startup";
     public static final String GRAALVM = "graalvm";
     public static final String SCHEDULED = "scheduled";
@@ -45,6 +46,7 @@ public final class BootUiPanels {
     public static final String HTTP_EXCHANGES = "http-exchanges";
     public static final String HTTP_PROBE = "http-probe";
     public static final String ARCHITECTURE = "architecture";
+    public static final String REST_ADVISOR = "rest-advisor";
     public static final String PENTEST = "pentest";
     public static final String VULNERABILITIES = "vulnerabilities";
     public static final String DEVTOOLS = "devtools";
@@ -52,6 +54,7 @@ public final class BootUiPanels {
     public static final String COPILOT = "copilot";
     public static final String CLAUDE_CODE = "claude-code";
     public static final String GITHUB = "github";
+    public static final String SPRING_ADVISOR = "spring-advisor";
 
     private static final List<Panel> PANELS = List.of(
             new Panel(OVERVIEW, "Overview", false, "/overview"),
@@ -62,6 +65,7 @@ public final class BootUiPanels {
             new Panel(TUNING_ADVISOR, "Tuning Advisor", false, "/tuning-advisor"),
             new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
             new Panel(THREADS, "Threads", true, "/threads"),
+            new Panel(MEMORY_ADVISOR, "Memory Advisor", true, "/memory-advisor"),
             new Panel(STARTUP, "Startup Timeline", false, "/startup"),
             new Panel(GRAALVM, "GraalVM", true, "/graalvm"),
             new Panel(CONFIG, "Configuration", true, "/config"),
@@ -92,7 +96,9 @@ public final class BootUiPanels {
             new Panel(CLAUDE_CODE, "Claude Code", false, "/claude-code"),
             new Panel(FLYWAY, "Flyway", true, "/flyway"),
             new Panel(LIQUIBASE, "Liquibase", true, "/liquibase"),
-            new Panel(GITHUB, "GitHub", true, "/github"));
+            new Panel(GITHUB, "GitHub", true, "/github"),
+            new Panel(REST_ADVISOR, "REST API Advisor", true, "/rest-advisor"),
+            new Panel(SPRING_ADVISOR, "Spring Advisor", true, "/spring-advisor"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

@@ -29,6 +29,7 @@ class PanelsControllerTests {
             BootUiPanels.TUNING_ADVISOR,
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.THREADS,
+            BootUiPanels.MEMORY_ADVISOR,
             BootUiPanels.STARTUP,
             BootUiPanels.GRAALVM,
             BootUiPanels.CONFIG,
@@ -59,7 +60,9 @@ class PanelsControllerTests {
             BootUiPanels.CLAUDE_CODE,
             BootUiPanels.FLYWAY,
             BootUiPanels.LIQUIBASE,
-            BootUiPanels.GITHUB);
+            BootUiPanels.GITHUB,
+            BootUiPanels.REST_ADVISOR,
+            BootUiPanels.SPRING_ADVISOR);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {

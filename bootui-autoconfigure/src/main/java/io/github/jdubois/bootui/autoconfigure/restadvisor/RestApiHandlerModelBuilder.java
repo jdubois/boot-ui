@@ -1,0 +1,632 @@
+package io.github.jdubois.bootui.autoconfigure.restadvisor;
+
+import com.tngtech.archunit.core.domain.JavaAnnotation;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaEnumConstant;
+import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.domain.JavaParameter;
+import com.tngtech.archunit.core.domain.JavaParameterizedType;
+import com.tngtech.archunit.core.domain.JavaType;
+import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorModel.ControllerModel;
+import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorModel.ExceptionHandlerModel;
+import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorModel.HandlerMethodModel;
+import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorModel.Types;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Translates the imported {@link JavaClasses} into the bounded {@link HandlerMethodModel} /
+ * {@link ControllerModel} snapshot the rules consume. Every per-class and per-method extraction is
+ * isolated in a try/catch so a single unresolvable class or member degrades to "skip this element"
+ * rather than aborting the whole scan.
+ */
+final class RestApiHandlerModelBuilder {
+
+    private static final Set<String> WRAPPER_TYPES = Set.of(
+            Types.RESPONSE_ENTITY,
+            Types.HTTP_ENTITY,
+            Types.OPTIONAL,
+            "java.util.concurrent.Callable",
+            "java.util.concurrent.CompletableFuture",
+            "java.util.concurrent.CompletionStage",
+            "reactor.core.publisher.Mono",
+            "org.springframework.web.context.request.async.DeferredResult",
+            "org.springframework.web.context.request.async.WebAsyncTask");
+
+    private static final Set<String> COLLECTION_TYPES = Set.of(
+            "java.util.List",
+            "java.util.Collection",
+            "java.util.Set",
+            "java.lang.Iterable",
+            "java.util.stream.Stream",
+            "reactor.core.publisher.Flux");
+
+    private static final Set<String> UNTYPED_TYPES =
+            Set.of("java.lang.Object", "java.util.Map", "java.util.HashMap", "com.fasterxml.jackson.databind.JsonNode");
+
+    private static final Set<String> SCALAR_TYPES = Set.of(
+            "java.lang.String",
+            "java.lang.CharSequence",
+            "java.lang.Number",
+            "java.lang.Boolean",
+            "java.lang.Byte",
+            "java.lang.Short",
+            "java.lang.Integer",
+            "java.lang.Long",
+            "java.lang.Float",
+            "java.lang.Double",
+            "java.lang.Character");
+
+    private static final Set<String> STATE_CHANGING_PREFIXES = Set.of(
+            "create",
+            "update",
+            "delete",
+            "remove",
+            "save",
+            "add",
+            "insert",
+            "modify",
+            "patch",
+            "put",
+            "post",
+            "register",
+            "edit");
+
+    private final List<ControllerModel> controllers = new ArrayList<>();
+    private final List<HandlerMethodModel> handlers = new ArrayList<>();
+    private final List<ExceptionHandlerModel> exceptionHandlers = new ArrayList<>();
+    private boolean hasExceptionHandling;
+
+    private RestApiHandlerModelBuilder() {}
+
+    static RestApiHandlerModelBuilder build(JavaClasses classes) {
+        RestApiHandlerModelBuilder builder = new RestApiHandlerModelBuilder();
+        for (JavaClass type : classes) {
+            try {
+                builder.inspect(type);
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a class that cannot be introspected; the rest of the scan continues.
+            }
+        }
+        return builder;
+    }
+
+    List<ControllerModel> controllers() {
+        return List.copyOf(controllers);
+    }
+
+    List<HandlerMethodModel> handlers() {
+        return List.copyOf(handlers);
+    }
+
+    List<ExceptionHandlerModel> exceptionHandlers() {
+        return List.copyOf(exceptionHandlers);
+    }
+
+    boolean hasExceptionHandling() {
+        return hasExceptionHandling;
+    }
+
+    private void inspect(JavaClass type) {
+        collectExceptionHandlers(type);
+        if (!isController(type)) {
+            return;
+        }
+        boolean restController = annotated(type, Types.REST_CONTROLLER) || metaAnnotated(type, Types.REST_CONTROLLER);
+        boolean classValidated = annotated(type, Types.VALIDATED);
+        boolean hasTag = annotated(type, Types.TAG);
+        List<String> typeLevelPaths = mappingPaths(type, Types.REQUEST_MAPPING);
+
+        int handlerCount = 0;
+        for (JavaMethod method : type.getMethods()) {
+            try {
+                HandlerMethodModel model = toHandler(type, method, restController, classValidated, typeLevelPaths);
+                if (model != null) {
+                    handlers.add(model);
+                    handlerCount++;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a method that cannot be introspected.
+            }
+        }
+        controllers.add(new ControllerModel(
+                type.getName(),
+                safeSimpleName(type),
+                restController,
+                typeLevelPaths,
+                classValidated,
+                hasTag,
+                handlerCount));
+    }
+
+    private void collectExceptionHandlers(JavaClass type) {
+        boolean isAdvice = annotated(type, Types.CONTROLLER_ADVICE)
+                || annotated(type, Types.REST_CONTROLLER_ADVICE)
+                || metaAnnotated(type, Types.CONTROLLER_ADVICE);
+        boolean foundAdviceHandler = false;
+        for (JavaMethod method : type.getMethods()) {
+            try {
+                if (!method.isAnnotatedWith(Types.EXCEPTION_HANDLER)) {
+                    continue;
+                }
+                String bodyType = resolveBodyTypeName(method.getReturnType());
+                boolean problemType = Types.PROBLEM_DETAIL.equals(bodyType) || Types.ERROR_RESPONSE.equals(bodyType);
+                exceptionHandlers.add(
+                        new ExceptionHandlerModel(type.getName(), method.getName(), bodyType, problemType));
+                if (isAdvice) {
+                    foundAdviceHandler = true;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Ignore an unreadable exception-handler method.
+            }
+        }
+        if (foundAdviceHandler) {
+            hasExceptionHandling = true;
+        }
+    }
+
+    private HandlerMethodModel toHandler(
+            JavaClass type,
+            JavaMethod method,
+            boolean restController,
+            boolean classValidated,
+            List<String> typeLevelPaths) {
+
+        Set<String> httpMethods = new LinkedHashSet<>();
+        List<String> mappingPaths = new ArrayList<>();
+        List<String> produces = new ArrayList<>();
+        List<String> consumes = new ArrayList<>();
+        boolean isHandler = false;
+
+        isHandler |=
+                readSpecificMapping(method, Types.GET_MAPPING, "GET", httpMethods, mappingPaths, produces, consumes);
+        isHandler |=
+                readSpecificMapping(method, Types.POST_MAPPING, "POST", httpMethods, mappingPaths, produces, consumes);
+        isHandler |=
+                readSpecificMapping(method, Types.PUT_MAPPING, "PUT", httpMethods, mappingPaths, produces, consumes);
+        isHandler |= readSpecificMapping(
+                method, Types.DELETE_MAPPING, "DELETE", httpMethods, mappingPaths, produces, consumes);
+        isHandler |= readSpecificMapping(
+                method, Types.PATCH_MAPPING, "PATCH", httpMethods, mappingPaths, produces, consumes);
+
+        Optional<JavaAnnotation<JavaMethod>> requestMapping = method.tryGetAnnotationOfType(Types.REQUEST_MAPPING);
+        if (requestMapping.isPresent()) {
+            isHandler = true;
+            JavaAnnotation<JavaMethod> ann = requestMapping.get();
+            mappingPaths.addAll(stringValues(ann, "value", "path"));
+            produces.addAll(stringValues(ann, "produces"));
+            consumes.addAll(stringValues(ann, "consumes"));
+            httpMethods.addAll(enumValues(ann, "method"));
+        }
+
+        if (!isHandler) {
+            return null;
+        }
+
+        boolean explicitHttpMethod = !httpMethods.isEmpty();
+        List<String> effectivePaths = effectivePaths(typeLevelPaths, mappingPaths);
+
+        JavaType returnType = method.getReturnType();
+        JavaClass rawReturn = returnType.toErasure();
+        String returnTypeName = rawReturn.getName();
+        boolean returnsResponseEntity =
+                Types.RESPONSE_ENTITY.equals(returnTypeName) || Types.HTTP_ENTITY.equals(returnTypeName);
+        boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
+
+        JavaType bodyType = unwrapWrappers(returnType);
+        JavaClass bodyErasure = bodyType.toErasure();
+        boolean returnsCollection = isCollection(bodyErasure);
+        boolean returnsPageOrSlice =
+                Types.PAGE.equals(bodyErasure.getName()) || Types.SLICE.equals(bodyErasure.getName());
+        if (returnsCollection) {
+            JavaType element = firstTypeArgument(bodyType);
+            if (element != null) {
+                bodyType = element;
+                bodyErasure = element.toErasure();
+            }
+        } else if (returnsPageOrSlice) {
+            JavaType element = firstTypeArgument(bodyType);
+            if (element != null) {
+                bodyType = element;
+                bodyErasure = element.toErasure();
+            }
+        }
+        String bodyTypeName = bodyErasure.getName();
+        boolean bodyIsEntity = safeAnnotated(bodyErasure, Types.ENTITY);
+        boolean bodyIsUntyped = UNTYPED_TYPES.contains(bodyTypeName);
+        boolean bodyIsScalar = SCALAR_TYPES.contains(bodyTypeName) || isPrimitive(bodyErasure);
+        boolean bodyIsRecord = safeIsRecord(bodyErasure);
+        boolean bodyExposesSetters = exposesPublicSetters(bodyErasure, bodyIsRecord, bodyIsEntity);
+
+        boolean hasRequestBody = false;
+        boolean requestBodyValidated = false;
+        boolean requestBodyIsEntity = false;
+        boolean hasConstrainedSimpleParam = false;
+        boolean hasPageable = false;
+        boolean hasUnboundedOptionalRequestParam = false;
+
+        for (JavaParameter parameter : method.getParameters()) {
+            try {
+                String paramTypeName = parameter.getRawType().getName();
+                if (parameter.isAnnotatedWith(Types.REQUEST_BODY)) {
+                    hasRequestBody = true;
+                    requestBodyValidated |= parameter.isAnnotatedWith(Types.VALID)
+                            || parameter.isAnnotatedWith(Types.VALIDATED)
+                            || hasConstraintAnnotation(parameter);
+                    requestBodyIsEntity |= safeAnnotated(parameter.getRawType(), Types.ENTITY);
+                }
+                boolean simpleBinding = parameter.isAnnotatedWith(Types.PATH_VARIABLE)
+                        || parameter.isAnnotatedWith(Types.REQUEST_PARAM);
+                if (simpleBinding && hasConstraintAnnotation(parameter)) {
+                    hasConstrainedSimpleParam = true;
+                }
+                if (parameter.isAnnotatedWith(Types.REQUEST_PARAM)
+                        && Types.OPTIONAL.equals(paramTypeName)
+                        && isUnboundedRequestParam(parameter)) {
+                    hasUnboundedOptionalRequestParam = true;
+                }
+                if (Types.PAGEABLE.equals(paramTypeName)) {
+                    hasPageable = true;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a parameter that cannot be introspected.
+            }
+        }
+
+        boolean hasResponseStatus =
+                method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
+        String responseStatusValue = responseStatusValue(method, type);
+        boolean declaresBroadThrows = declaresBroadThrows(method);
+        boolean hasOperation = method.isAnnotatedWith(Types.OPERATION);
+        String lowerName = method.getName().toLowerCase(Locale.ROOT);
+        boolean stateChanging = startsWithAny(lowerName, STATE_CHANGING_PREFIXES);
+        boolean findAll = lowerName.startsWith("findall")
+                || lowerName.startsWith("getall")
+                || lowerName.startsWith("listall")
+                || lowerName.equals("list")
+                || lowerName.startsWith("fetchall")
+                || lowerName.startsWith("readall");
+
+        return new HandlerMethodModel(
+                type.getName(),
+                safeSimpleName(type),
+                method.getName(),
+                restController,
+                classValidated,
+                List.copyOf(httpMethods),
+                explicitHttpMethod,
+                List.copyOf(mappingPaths),
+                effectivePaths,
+                dedupe(produces),
+                dedupe(consumes),
+                returnTypeName,
+                simpleName(returnTypeName),
+                returnsVoid,
+                returnsResponseEntity,
+                returnsCollection,
+                returnsPageOrSlice,
+                bodyTypeName,
+                bodyIsEntity,
+                bodyIsUntyped,
+                bodyIsScalar,
+                bodyExposesSetters,
+                bodyIsRecord,
+                hasRequestBody,
+                requestBodyValidated,
+                requestBodyIsEntity,
+                hasConstrainedSimpleParam,
+                hasPageable,
+                hasUnboundedOptionalRequestParam,
+                hasResponseStatus,
+                responseStatusValue,
+                declaresBroadThrows,
+                hasOperation,
+                stateChanging,
+                findAll);
+    }
+
+    private static boolean readSpecificMapping(
+            JavaMethod method,
+            String annotationName,
+            String httpMethod,
+            Set<String> httpMethods,
+            List<String> mappingPaths,
+            List<String> produces,
+            List<String> consumes) {
+        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(annotationName);
+        if (annotation.isEmpty()) {
+            return false;
+        }
+        JavaAnnotation<JavaMethod> ann = annotation.get();
+        httpMethods.add(httpMethod);
+        mappingPaths.addAll(stringValues(ann, "value", "path"));
+        produces.addAll(stringValues(ann, "produces"));
+        consumes.addAll(stringValues(ann, "consumes"));
+        return true;
+    }
+
+    private static boolean isController(JavaClass type) {
+        return annotated(type, Types.REST_CONTROLLER)
+                || annotated(type, Types.CONTROLLER)
+                || metaAnnotated(type, Types.REST_CONTROLLER)
+                || metaAnnotated(type, Types.CONTROLLER);
+    }
+
+    private static List<String> mappingPaths(JavaClass type, String annotationName) {
+        Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
+        if (annotation.isEmpty()) {
+            return List.of();
+        }
+        return stringValues(annotation.get(), "value", "path");
+    }
+
+    private static List<String> stringValues(JavaAnnotation<?> annotation, String... keys) {
+        List<String> values = new ArrayList<>();
+        for (String key : keys) {
+            annotation.get(key).ifPresent(value -> addStrings(values, value));
+        }
+        return values;
+    }
+
+    private static List<String> enumValues(JavaAnnotation<?> annotation, String key) {
+        List<String> values = new ArrayList<>();
+        annotation.get(key).ifPresent(value -> addStrings(values, value));
+        return values;
+    }
+
+    private static void addStrings(List<String> target, Object value) {
+        if (value instanceof Object[] array) {
+            for (Object element : array) {
+                addString(target, element);
+            }
+        } else {
+            addString(target, value);
+        }
+    }
+
+    private static void addString(List<String> target, Object value) {
+        if (value instanceof JavaEnumConstant enumConstant) {
+            target.add(enumConstant.name());
+        } else if (value instanceof String text && !text.isBlank()) {
+            target.add(text);
+        }
+    }
+
+    private static List<String> effectivePaths(List<String> typeLevelPaths, List<String> mappingPaths) {
+        List<String> roots = typeLevelPaths.isEmpty() ? List.of("") : typeLevelPaths;
+        List<String> leaves = mappingPaths.isEmpty() ? List.of("") : mappingPaths;
+        List<String> result = new ArrayList<>();
+        for (String root : roots) {
+            for (String leaf : leaves) {
+                result.add(normalizePath(root + "/" + leaf));
+            }
+        }
+        return dedupe(result);
+    }
+
+    static String normalizePath(String raw) {
+        String collapsed = raw.replaceAll("/{2,}", "/");
+        if (!collapsed.startsWith("/")) {
+            collapsed = "/" + collapsed;
+        }
+        if (collapsed.length() > 1 && collapsed.endsWith("/")) {
+            collapsed = collapsed.substring(0, collapsed.length() - 1);
+        }
+        return collapsed;
+    }
+
+    private JavaType unwrapWrappers(JavaType type) {
+        JavaType current = type;
+        for (int depth = 0; depth < 4; depth++) {
+            String name = current.toErasure().getName();
+            if (!WRAPPER_TYPES.contains(name)) {
+                return current;
+            }
+            JavaType argument = firstTypeArgument(current);
+            if (argument == null) {
+                return current;
+            }
+            current = argument;
+        }
+        return current;
+    }
+
+    private static JavaType firstTypeArgument(JavaType type) {
+        if (type instanceof JavaParameterizedType parameterized) {
+            List<JavaType> arguments = parameterized.getActualTypeArguments();
+            if (!arguments.isEmpty()) {
+                return arguments.get(0);
+            }
+        }
+        return null;
+    }
+
+    private String resolveBodyTypeName(JavaType returnType) {
+        JavaType body = unwrapWrappers(returnType);
+        JavaClass erasure = body.toErasure();
+        if (isCollection(erasure) || Types.PAGE.equals(erasure.getName()) || Types.SLICE.equals(erasure.getName())) {
+            JavaType element = firstTypeArgument(body);
+            if (element != null) {
+                return element.toErasure().getName();
+            }
+        }
+        return erasure.getName();
+    }
+
+    private static boolean isCollection(JavaClass type) {
+        try {
+            if (type.isArray()) {
+                return true;
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // fall through to name match
+        }
+        return COLLECTION_TYPES.contains(type.getName());
+    }
+
+    private static boolean isPrimitive(JavaClass type) {
+        try {
+            return type.isPrimitive();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static boolean hasConstraintAnnotation(JavaParameter parameter) {
+        for (JavaAnnotation<JavaParameter> annotation : parameter.getAnnotations()) {
+            String name = annotation.getRawType().getName();
+            if (name.startsWith(Types.CONSTRAINT_PACKAGE) || Types.VALID.equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isUnboundedRequestParam(JavaParameter parameter) {
+        Optional<JavaAnnotation<JavaParameter>> annotation = parameter.tryGetAnnotationOfType(Types.REQUEST_PARAM);
+        if (annotation.isEmpty()) {
+            return false;
+        }
+        JavaAnnotation<JavaParameter> ann = annotation.get();
+        boolean required =
+                ann.get("required").map(value -> !Boolean.FALSE.equals(value)).orElse(true);
+        boolean hasDefault = ann.get("defaultValue")
+                .map(value -> value instanceof String text && !text.isBlank() && text.indexOf('\uE000') < 0)
+                .orElse(false);
+        return required && !hasDefault;
+    }
+
+    private static boolean exposesPublicSetters(JavaClass type, boolean isRecord, boolean isEntity) {
+        if (isRecord || isEntity) {
+            return false;
+        }
+        String name = type.getName();
+        if (UNTYPED_TYPES.contains(name)
+                || SCALAR_TYPES.contains(name)
+                || isPrimitive(type)
+                || name.startsWith("java.")) {
+            return false;
+        }
+        Set<JavaMethod> methods;
+        try {
+            methods = type.getMethods();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+        if (methods.isEmpty()) {
+            return false;
+        }
+        for (JavaMethod method : methods) {
+            String methodName = method.getName();
+            if (methodName.length() > 3
+                    && methodName.startsWith("set")
+                    && Character.isUpperCase(methodName.charAt(3))
+                    && method.getRawParameterTypes().size() == 1
+                    && method.getModifiers().contains(com.tngtech.archunit.core.domain.JavaModifier.PUBLIC)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String responseStatusValue(JavaMethod method, JavaClass type) {
+        String value = responseStatusValue(method.tryGetAnnotationOfType(Types.RESPONSE_STATUS));
+        if (!value.isEmpty()) {
+            return value;
+        }
+        return responseStatusValue(type.tryGetAnnotationOfType(Types.RESPONSE_STATUS));
+    }
+
+    private static String responseStatusValue(Optional<? extends JavaAnnotation<?>> annotation) {
+        if (annotation.isEmpty()) {
+            return "";
+        }
+        JavaAnnotation<?> ann = annotation.get();
+        // @ResponseStatus declares "value" and "code" as @AliasFor each other, both defaulting to
+        // INTERNAL_SERVER_ERROR. ArchUnit reads raw attributes (no @AliasFor resolution), so whichever
+        // attribute the developer set holds the real status while the other stays at the default. Prefer
+        // the non-default attribute; fall back to the default only when neither was overridden.
+        String fallback = "";
+        for (String key : List.of("value", "code")) {
+            Optional<Object> raw = ann.get(key);
+            if (raw.isPresent() && raw.get() instanceof JavaEnumConstant enumConstant) {
+                String name = enumConstant.name();
+                if (!"INTERNAL_SERVER_ERROR".equals(name)) {
+                    return name;
+                }
+                fallback = name;
+            }
+        }
+        return fallback;
+    }
+
+    private static boolean declaresBroadThrows(JavaMethod method) {
+        for (JavaClass exceptionType : method.getExceptionTypes()) {
+            String name = exceptionType.getName();
+            if ("java.lang.Exception".equals(name) || "java.lang.Throwable".equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean startsWithAny(String value, Set<String> prefixes) {
+        for (String prefix : prefixes) {
+            if (value.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean annotated(JavaClass type, String annotationName) {
+        try {
+            return type.isAnnotatedWith(annotationName);
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static boolean metaAnnotated(JavaClass type, String annotationName) {
+        try {
+            return type.isMetaAnnotatedWith(annotationName);
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static boolean safeAnnotated(JavaClass type, String annotationName) {
+        return annotated(type, annotationName);
+    }
+
+    private static boolean safeIsRecord(JavaClass type) {
+        try {
+            return type.isRecord();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static String safeSimpleName(JavaClass type) {
+        try {
+            String simple = type.getSimpleName();
+            return simple.isEmpty() ? type.getName() : simple;
+        } catch (RuntimeException | LinkageError ex) {
+            return type.getName();
+        }
+    }
+
+    private static String simpleName(String fullName) {
+        int lastDot = fullName.lastIndexOf('.');
+        return lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
+    }
+
+    private static List<String> dedupe(List<String> values) {
+        return List.copyOf(new LinkedHashSet<>(values));
+    }
+}
