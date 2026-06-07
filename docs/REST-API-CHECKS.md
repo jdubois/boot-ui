@@ -139,7 +139,7 @@ classpath; otherwise they are reported as `SKIPPED`.
 ### RAPI-RESP-003 - No untyped ResponseEntity body
 
 - **Severity**: LOW
-- **Detects**: ResponseEntity<?> or ResponseEntity<Object> erases the response contract, so clients and OpenAPI tooling cannot infer the body type.
+- **Detects**: `ResponseEntity<?>` or `ResponseEntity<Object>` erases the response contract, so clients and OpenAPI tooling cannot infer the body type.
 - **Recommendation**: Parameterize ResponseEntity with the concrete DTO type returned by the handler.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 

@@ -60,7 +60,7 @@ The panel is always available (a Spring application context always exists). Bean
 
 - **Severity**: MEDIUM
 - **Detects**: Detects more than one PlatformTransactionManager bean without a @Primary, so @Transactional methods may bind to an unexpected manager. A bean named transactionManager or a TransactionManagementConfigurer resolves the default and suppresses this check.
-- **Recommendation**: Mark the main transaction manager @Primary, name it transactionManager, implement TransactionManagementConfigurer, or set @Transactional("<name>") on each usage.
+- **Recommendation**: Mark the main transaction manager @Primary, name it transactionManager, implement TransactionManagementConfigurer, or set `@Transactional("<name>")` on each usage.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/data-access/transaction.html>
 
 ### SPRING-WIRING-007 - Prefer RestClient over RestTemplate
@@ -127,7 +127,7 @@ The panel is always available (a Spring application context always exists). Bean
 
 - **Severity**: MEDIUM
 - **Detects**: Spring Boot DevTools is on the classpath. It enables automatic restart, a live-reload server, and relaxed caching. DevTools disables itself in a fully packaged jar, but it is still active here and must never be bundled into a production artifact.
-- **Recommendation**: Scope spring-boot-devtools to development only (Maven <optional>true</optional> / Gradle developmentOnly) so it is excluded from production builds.
+- **Recommendation**: Scope spring-boot-devtools to development only (Maven `<optional>true</optional>` / Gradle developmentOnly) so it is excluded from production builds.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/using/devtools.html>
 
 ### SPRING-PROFILE-003 - Keep profile-name validation enabled
