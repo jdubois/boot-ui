@@ -146,7 +146,7 @@ mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catal
 The Memory panel runs an explicit, read-only scan over the live JVM management beans (heap and memory pools,
 garbage collection, threads, loaded classes, and an optional class histogram) and turns them into severity-ranked
 findings such as heap pressure, metaspace saturation, thread deadlocks, and collection bloat. It complements the raw
-Memory and Threads panels by diagnosing the data they expose. The scan is on demand and caches the last report; new rules
+Live Memory and Threads panels by diagnosing the data they expose. The scan is on demand and caches the last report; new rules
 are added as small, focused classes in the `memoryadvisor` package.
 
 ### Security
@@ -221,13 +221,13 @@ available measurements, and render a local live chart for a selected metric/tag 
 
 ![BootUI Metrics panel](./images/bootui-metrics.png)
 
-### Memory
+### Live Memory
 
-The Memory panel summarizes current live JVM heap and non-heap usage plus memory pool utilization. It stays focused on
+The Live Memory panel summarizes current live JVM heap and non-heap usage plus memory pool utilization. It stays focused on
 the running process metrics so you can spot high heap pressure, non-heap growth, and pool-level saturation without the
 JVM sizing controls mixed into the view.
 
-![BootUI Memory panel](./images/bootui-memory.png)
+![BootUI Live Memory panel](./images/bootui-memory.png)
 
 ### JVM Tuning
 

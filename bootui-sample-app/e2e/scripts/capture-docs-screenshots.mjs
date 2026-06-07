@@ -24,7 +24,7 @@ const panelOrder = [
   ['health', 'Health'],
   ['http-sessions', 'HTTP Sessions'],
   ['metrics', 'Metrics'],
-  ['memory', 'Memory'],
+  ['live-memory', 'Live Memory'],
   ['jvm-tuning', 'JVM Tuning'],
   ['heap-dump', 'Heap Dump'],
   ['threads', 'Threads'],
@@ -2155,7 +2155,7 @@ const screenshots = [
       await page.waitForTimeout(2300)
     }
   ],
-  ['memory', 'Memory', 'bootui-memory.png', waitForText('Memory Pools')],
+  ['live-memory', 'Live Memory', 'bootui-memory.png', waitForText('Memory Pools')],
   ['jvm-tuning', 'JVM Tuning', 'bootui-jvm-tuning.png', waitForText('Bare metal JVM calculator')],
   [
     'heap-dump',

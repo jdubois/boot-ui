@@ -1,7 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import Memory from './Memory.vue'
+import LiveMemory from './LiveMemory.vue'
 
 const MB = 1024 * 1024
 
@@ -62,7 +62,7 @@ function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
-describe('Memory', () => {
+describe('LiveMemory', () => {
   let wrapper
 
   beforeEach(() => {
@@ -80,10 +80,10 @@ describe('Memory', () => {
   it('renders current live memory metrics from the memory report', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport())))
 
-    wrapper = mount(Memory)
+    wrapper = mount(LiveMemory)
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('api/memory')
+    expect(fetch).toHaveBeenCalledWith('api/live-memory')
     const renderedText = wrapper.text()
     const panelOrder = ['Heap Memory', 'Non-Heap Memory', 'Memory Pools']
     const panelPositions = panelOrder.map((label) => {

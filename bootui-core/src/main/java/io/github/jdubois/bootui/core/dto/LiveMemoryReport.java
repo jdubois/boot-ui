@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * Snapshot of JVM memory metrics.
  */
-public record MemoryReport(
+public record LiveMemoryReport(
         MemoryPoolDto heap,
         MemoryPoolDto nonHeap,
         List<MemoryPoolDto> pools,

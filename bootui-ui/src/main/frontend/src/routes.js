@@ -27,7 +27,7 @@ const SpringSecurity = () => import('./views/SpringSecurity.vue')
 const SpringAdvisor = () => import('./views/SpringAdvisor.vue')
 const SecurityAdvisor = () => import('./views/SecurityAdvisor.vue')
 const SecurityLogs = () => import('./views/SecurityLogs.vue')
-const Memory = () => import('./views/Memory.vue')
+const LiveMemory = () => import('./views/LiveMemory.vue')
 const JvmTuning = () => import('./views/JvmTuning.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
 const Threads = () => import('./views/Threads.vue')
@@ -133,10 +133,10 @@ export const routes = [
     meta: {group: groups.runtime, icon: 'bi-activity', title: 'Metrics'}
   },
   {
-    path: '/memory',
-    name: 'memory',
-    component: Memory,
-    meta: {group: groups.runtime, icon: 'bi-memory', title: 'Memory'}
+    path: '/live-memory',
+    name: 'live-memory',
+    component: LiveMemory,
+    meta: {group: groups.runtime, icon: 'bi-memory', title: 'Live Memory'}
   },
   {
     path: '/jvm-tuning',

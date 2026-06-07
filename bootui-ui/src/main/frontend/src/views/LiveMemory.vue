@@ -11,7 +11,7 @@ const {data, error, lastUpdated, autoRefresh, loading, initialLoading, load} = u
   <div>
     <PanelHeader
       icon="bi-memory"
-      title="Memory"
+      title="Live Memory"
       subtitle="Inspect live JVM heap, non-heap, and memory pool usage."
       :loading="loading"
       :error="error"

@@ -7,7 +7,7 @@ const allPanelLinks = [
   {id: 'health', title: 'Health', heading: /^Health/},
   {id: 'http-sessions', title: 'HTTP Sessions', heading: /^HTTP Sessions/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
-  {id: 'memory', title: 'Memory', heading: /^Memory/},
+  {id: 'live-memory', title: 'Live Memory', heading: /^Live Memory/},
   {id: 'jvm-tuning', title: 'JVM Tuning', heading: /^JVM Tuning/},
   {id: 'heap-dump', title: 'Heap Dump', heading: /^Heap Dump/},
   {id: 'threads', title: 'Threads', heading: /^Threads/},

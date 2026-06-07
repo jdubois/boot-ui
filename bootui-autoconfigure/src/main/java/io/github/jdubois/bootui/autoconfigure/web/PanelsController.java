@@ -71,7 +71,7 @@ public class PanelsController {
     private Availability availability(String id) {
         return switch (id) {
             case BootUiPanels.OVERVIEW,
-                    BootUiPanels.MEMORY,
+                    BootUiPanels.LIVE_MEMORY,
                     BootUiPanels.JVM_TUNING,
                     BootUiPanels.MEMORY_ADVISOR,
                     BootUiPanels.CONFIG,

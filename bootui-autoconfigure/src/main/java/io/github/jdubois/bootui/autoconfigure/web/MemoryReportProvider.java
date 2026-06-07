@@ -1,23 +1,19 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
+import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import io.github.jdubois.bootui.core.dto.MemoryPoolDto;
-import io.github.jdubois.bootui.core.dto.MemoryReport;
 import java.lang.management.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalLong;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
 
-@RestController
-@RequestMapping({"/bootui/api/memory", "/bootui/api/jvm-tuning"})
-public class MemoryController {
+/**
+ * Builds the live JVM memory report shared by the Live Memory and JVM Tuning panels.
+ */
+public class MemoryReportProvider {
 
     private static final String VIRTUAL_THREADS_PROPERTY = "spring.threads.virtual.enabled";
     private static final String HEALTH_ENDPOINT_ENABLED_PROPERTY = "management.endpoint.health.enabled";
@@ -28,24 +24,23 @@ public class MemoryController {
     private final ContainerMemoryLimitDetector containerMemoryLimitDetector;
     private final Environment environment;
 
-    public MemoryController() {
+    public MemoryReportProvider() {
         this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), null);
     }
 
-    @Autowired
-    public MemoryController(Environment environment) {
+    public MemoryReportProvider(Environment environment) {
         this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), environment);
     }
 
-    MemoryController(MemoryCalculator calculator) {
+    MemoryReportProvider(MemoryCalculator calculator) {
         this(calculator, ContainerMemoryLimitDetector.standard(), null);
     }
 
-    MemoryController(MemoryCalculator calculator, ContainerMemoryLimitDetector containerMemoryLimitDetector) {
+    MemoryReportProvider(MemoryCalculator calculator, ContainerMemoryLimitDetector containerMemoryLimitDetector) {
         this(calculator, containerMemoryLimitDetector, null);
     }
 
-    MemoryController(
+    MemoryReportProvider(
             MemoryCalculator calculator,
             ContainerMemoryLimitDetector containerMemoryLimitDetector,
             Environment environment) {
@@ -54,13 +49,12 @@ public class MemoryController {
         this.environment = environment;
     }
 
-    @GetMapping
-    public MemoryReport memory(
-            @RequestParam(name = "totalMemoryMb", required = false) Long totalMemoryMb,
-            @RequestParam(name = "threadCount", required = false) Integer threadCount,
-            @RequestParam(name = "headRoomPercent", required = false) Integer headRoomPercent,
-            @RequestParam(name = "kubernetesBurstableEnabled", required = false) Boolean kubernetesBurstableEnabled,
-            @RequestParam(name = "kubernetesActuatorEnabled", required = false) Boolean kubernetesActuatorEnabled) {
+    public LiveMemoryReport buildReport(
+            Long totalMemoryMb,
+            Integer threadCount,
+            Integer headRoomPercent,
+            Boolean kubernetesBurstableEnabled,
+            Boolean kubernetesActuatorEnabled) {
         MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
         ClassLoadingMXBean classBean = ManagementFactory.getClassLoadingMXBean();
         ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
@@ -128,7 +122,7 @@ public class MemoryController {
                 resolvedKubernetesBurstableEnabled,
                 resolvedKubernetesActuatorEnabled);
 
-        return new MemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation, kubernetes);
+        return new LiveMemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation, kubernetes);
     }
 
     private boolean resolveVirtualThreadsEnabled() {

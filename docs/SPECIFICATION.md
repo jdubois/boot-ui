@@ -465,7 +465,7 @@ Acceptance criteria:
 - Polling does not overlap slow requests.
 - Switching meter, tag filters, or statistic resets the live graph history.
 
-### 5.10 Memory and JVM Tuning Panels
+### 5.10 Live Memory and JVM Tuning Panels
 
 Purpose: answer "How much heap/non-heap memory is this app using, and what JVM/container options would be reasonable
 locally?"
@@ -477,8 +477,8 @@ Data sources:
 
 Features:
 
-- The Memory panel shows live heap and non-heap usage summaries.
-- The Memory panel shows memory pool usage.
+- The Live Memory panel shows live heap and non-heap usage summaries.
+- The Live Memory panel shows memory pool usage.
 - The JVM Tuning panel shows JVM input arguments.
 - The JVM Tuning panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
   enabled in the current application, and shows an information or warning bubble. The detected state feeds the sizing
@@ -1097,7 +1097,7 @@ Initial endpoints:
 | `/bootui/api/devtools`                       | GET    | Spring Boot DevTools status                                                            |
 | `/bootui/api/devtools/livereload`            | POST   | Trigger a DevTools LiveReload notification when available                              |
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
-| `/bootui/api/memory`                         | GET    | JVM memory report                                                                      |
+| `/bootui/api/live-memory`                         | GET    | JVM memory report                                                                      |
 | `/bootui/api/jvm-tuning`                 | GET    | JVM tuning advisor report                                                              |
 | `/bootui/api/heap-dump`                      | GET    | Heap dump capture inventory and latest value-free histogram report                     |
 | `/bootui/api/heap-dump/capture`              | POST   | Capture a local heap dump after explicit confirmation                                  |
@@ -1269,7 +1269,7 @@ Top-level navigation:
   - Health.
   - HTTP Sessions.
   - Metrics.
-  - Memory.
+  - Live Memory.
   - JVM Tuning.
   - Heap Dump.
   - Threads.
@@ -1399,7 +1399,7 @@ BootUI's 1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
 - The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
-  unavailable navigation groups covering Health, HTTP Sessions, Metrics, Memory, JVM Tuning, Heap Dump, Threads,
+  unavailable navigation groups covering Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump, Threads,
   Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database Connection
   Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
   Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,

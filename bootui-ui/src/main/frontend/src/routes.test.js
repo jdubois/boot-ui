@@ -19,7 +19,7 @@ describe('routes', () => {
       'Health',
       'HTTP Sessions',
       'Metrics',
-      'Memory',
+      'Live Memory',
       'JVM Tuning',
       'Heap Dump',
       'Threads',

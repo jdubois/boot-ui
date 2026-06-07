@@ -10,11 +10,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder;
 
 /**
- * Controller-level tests for {@link MemoryController}.
+ * Controller-level tests for {@link LiveMemoryController}.
  *
- * <p>Uses the package-private {@code MemoryController(MemoryCalculator)}
+ * <p>Uses the package-private {@code MemoryReportProvider(MemoryCalculator)}
  * constructor to inject a {@link MemoryCalculator} with a pinned JDK version
  * so that JVM-option assertions are reproducible regardless of the host JDK.
  * Live {@link java.lang.management.ManagementFactory} data is used for heap,
@@ -24,16 +25,16 @@ import org.springframework.test.web.servlet.MockMvc;
  * <p>Does not duplicate the formula assertions already covered by
  * {@link MemoryCalculatorTests}.</p>
  */
-class MemoryControllerTests {
+class LiveMemoryControllerTests {
 
     private static final JdkVersion JDK_25 = () -> 25;
 
     @Test
     void memoryReturnsExpectedTopLevelShape() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
-        mvc.perform(get("/bootui/api/memory").accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/live-memory").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.heap").isMap())
                 .andExpect(jsonPath("$.heap.name").value("Heap"))
@@ -49,7 +50,7 @@ class MemoryControllerTests {
 
     @Test
     void jvmTuningAliasReturnsMemoryReport() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
         mvc.perform(get("/bootui/api/jvm-tuning").param("totalMemoryMb", "512").accept(MediaType.APPLICATION_JSON))
@@ -61,10 +62,10 @@ class MemoryControllerTests {
 
     @Test
     void memoryPoolDtoHasRequiredFields() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
-        mvc.perform(get("/bootui/api/memory").accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/live-memory").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.heap.usedBytes").isNumber())
                 .andExpect(jsonPath("$.heap.committedBytes").isNumber())
@@ -75,22 +76,22 @@ class MemoryControllerTests {
 
     @Test
     void memoryHonorsTotalMemoryMbOverrideParam() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
         // With 512 MB total, calculation.totalMemoryBytes must reflect exactly 512 * 1024 * 1024
         long expectedBytes = 512L * 1024L * 1024L;
-        mvc.perform(get("/bootui/api/memory").param("totalMemoryMb", "512").accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/live-memory").param("totalMemoryMb", "512").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.calculation.totalMemoryBytes").value(expectedBytes));
     }
 
     @Test
     void memoryHonorsThreadCountOverrideParam() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
-        mvc.perform(get("/bootui/api/memory")
+        mvc.perform(get("/bootui/api/live-memory")
                         .param("totalMemoryMb", "1024")
                         .param("threadCount", "50")
                         .accept(MediaType.APPLICATION_JSON))
@@ -102,10 +103,12 @@ class MemoryControllerTests {
 
     @Test
     void suggestedJvmOptionsContainsRequiredFlags() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
-        mvc.perform(get("/bootui/api/memory").param("totalMemoryMb", "1024").accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/live-memory")
+                        .param("totalMemoryMb", "1024")
+                        .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.suggestedJvmOptions").value(org.hamcrest.Matchers.containsString("-Xmx")))
                 .andExpect(jsonPath("$.suggestedJvmOptions").value(org.hamcrest.Matchers.containsString("-Xms")))
@@ -117,22 +120,22 @@ class MemoryControllerTests {
 
     @Test
     void jvmInputArgumentsAreExposedAsArray() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
         // The endpoint always returns the live JVM input args list;
         // in a test JVM it may be empty, but the field must be a JSON array.
-        mvc.perform(get("/bootui/api/memory").accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/live-memory").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.jvmInputArguments").isArray());
     }
 
     @Test
     void calculationReportsLiveContextValues() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
+        MockMvc mvc = memorySetup(new MemoryReportProvider(new MemoryCalculator(JDK_25)))
                 .build();
 
-        mvc.perform(get("/bootui/api/memory").accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/live-memory").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 // liveThreadCount must be at least 1 (the test thread itself)
                 .andExpect(jsonPath("$.calculation.liveThreadCount").value(org.hamcrest.Matchers.greaterThan(0)))
@@ -142,12 +145,12 @@ class MemoryControllerTests {
 
     @Test
     void kubernetesRecommendationReportsGuaranteedResources() throws Exception {
-        MockMvc mvc = standaloneSetup(
-                        new MemoryController(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
+        MockMvc mvc = memorySetup(
+                        new MemoryReportProvider(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
                 .build();
 
         long expectedBytes = 1024L * 1024L * 1024L;
-        mvc.perform(get("/bootui/api/memory")
+        mvc.perform(get("/bootui/api/live-memory")
                         .param("totalMemoryMb", "1024")
                         .param("headRoomPercent", "10")
                         .accept(MediaType.APPLICATION_JSON))
@@ -173,7 +176,7 @@ class MemoryControllerTests {
     void jvmTuningDetectedVirtualThreadsChangeStackSizingWithoutSettingSpringProperty() throws Exception {
         MockEnvironment enabledEnvironment =
                 new MockEnvironment().withProperty("spring.threads.virtual.enabled", "true");
-        MockMvc enabledMvc = standaloneSetup(new MemoryController(
+        MockMvc enabledMvc = memorySetup(new MemoryReportProvider(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), enabledEnvironment))
                 .build();
 
@@ -198,7 +201,7 @@ class MemoryControllerTests {
 
         MockEnvironment disabledEnvironment =
                 new MockEnvironment().withProperty("spring.threads.virtual.enabled", "false");
-        MockMvc disabledMvc = standaloneSetup(new MemoryController(
+        MockMvc disabledMvc = memorySetup(new MemoryReportProvider(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), disabledEnvironment))
                 .build();
 
@@ -218,7 +221,7 @@ class MemoryControllerTests {
     @Test
     void jvmTuningVirtualThreadsParamDoesNotOverrideApplicationState() throws Exception {
         MockEnvironment environment = new MockEnvironment().withProperty("spring.threads.virtual.enabled", "false");
-        MockMvc mvc = standaloneSetup(new MemoryController(
+        MockMvc mvc = memorySetup(new MemoryReportProvider(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), environment))
                 .build();
 
@@ -236,7 +239,7 @@ class MemoryControllerTests {
 
     @Test
     void jvmTuningDoesNotEnableVirtualThreadsWhenPropertyIsAbsent() throws Exception {
-        MockMvc mvc = standaloneSetup(new MemoryController(
+        MockMvc mvc = memorySetup(new MemoryReportProvider(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), new MockEnvironment()))
                 .build();
 
@@ -250,8 +253,8 @@ class MemoryControllerTests {
 
     @Test
     void kubernetesBurstableParamChangesRequestAndQos() throws Exception {
-        MockMvc mvc = standaloneSetup(
-                        new MemoryController(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
+        MockMvc mvc = memorySetup(
+                        new MemoryReportProvider(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
                 .build();
 
         mvc.perform(get("/bootui/api/jvm-tuning")
@@ -271,7 +274,7 @@ class MemoryControllerTests {
     void kubernetesActuatorToggleUsesApplicationConfigAndCanBeOverridden() throws Exception {
         MockEnvironment environment =
                 new MockEnvironment().withProperty("management.endpoint.health.probes.enabled", "false");
-        MockMvc mvc = standaloneSetup(new MemoryController(
+        MockMvc mvc = memorySetup(new MemoryReportProvider(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), environment))
                 .build();
 
@@ -293,5 +296,9 @@ class MemoryControllerTests {
                 .andExpect(jsonPath("$.kubernetes.yaml").value(org.hamcrest.Matchers.containsString("startupProbe")))
                 .andExpect(jsonPath("$.kubernetes.yaml")
                         .value(org.hamcrest.Matchers.containsString("MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED")));
+    }
+
+    private static StandaloneMockMvcBuilder memorySetup(MemoryReportProvider provider) {
+        return standaloneSetup(new LiveMemoryController(provider), new JvmTuningController(provider));
     }
 }

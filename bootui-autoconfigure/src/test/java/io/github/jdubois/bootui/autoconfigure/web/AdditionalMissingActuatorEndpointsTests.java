@@ -32,7 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
  *   <li>HttpProbeController — always available; uses {@link org.springframework.core.env.Environment} directly</li>
  *   <li>LogTailController — uses {@link BootUiLogAppender} directly; no optional ObjectProvider</li>
  *   <li>ProfileController — uses {@link org.springframework.core.env.ConfigurableEnvironment} directly</li>
- *   <li>MemoryController — reads JVM MXBeans directly; no optional dependency</li>
+ *   <li>LiveMemoryController / JvmTuningController — read JVM MXBeans directly; no optional dependency</li>
  *   <li>OverviewController — uses Environment and BootUiActivation directly</li>
  *   <li>DevServicesController — uses {@link org.springframework.context.ConfigurableApplicationContext} directly</li>
  *   <li>DevToolsController — DevToolsBridge is always wired</li>

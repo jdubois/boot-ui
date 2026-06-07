@@ -327,7 +327,7 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void memoryEndpointReturnsJvmMemoryReport() {
-        ResponseEntity<Map> response = getMap("/bootui/api/memory");
+        ResponseEntity<Map> response = getMap("/bootui/api/live-memory");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
