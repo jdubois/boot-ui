@@ -1425,7 +1425,7 @@ const architecture = {
     'These checks complement, but do not replace, a project-specific ArchUnit test suite or an architecture review.',
   basePackages: ['io.github.jdubois.bootui.sample'],
   classesAnalyzed: 42,
-  rulesEvaluated: 15,
+  rulesEvaluated: 32,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1438,7 +1438,7 @@ const architecture = {
     status: 'SCANNED',
     message: 'Architecture rules completed against 42 application class(es) under the detected base package(s).',
     scannedAt: nowMillis - 35_000,
-    rulesEvaluated: 15,
+    rulesEvaluated: 32,
     classesAnalyzed: 42,
     violationsFound: 4
   },
@@ -1508,7 +1508,7 @@ const restApi = {
   basePackages: ['io.github.jdubois.bootui.sample'],
   controllersAnalyzed: 6,
   handlersAnalyzed: 18,
-  rulesEvaluated: 30,
+  rulesEvaluated: 36,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1522,7 +1522,7 @@ const restApi = {
     message:
       'REST API rules completed against 6 controller(s) and 18 handler method(s) under the detected base package(s).',
     scannedAt: nowMillis - 30_000,
-    rulesEvaluated: 30,
+    rulesEvaluated: 36,
     controllersAnalyzed: 6,
     handlersAnalyzed: 18,
     violationsFound: 4
@@ -1589,7 +1589,7 @@ const hibernate = {
     "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
   entityPackages: ['io.github.jdubois.bootui.sample'],
   entitiesAnalyzed: 6,
-  rulesEvaluated: 9,
+  rulesEvaluated: 63,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1602,7 +1602,7 @@ const hibernate = {
     status: 'SCANNED',
     message: 'Hibernate Advisor completed against 6 mapped entities.',
     scannedAt: nowMillis - 28_000,
-    rulesEvaluated: 9,
+    rulesEvaluated: 63,
     entitiesAnalyzed: 6,
     violationsFound: 4
   },
@@ -1669,7 +1669,7 @@ const security = {
     'any request'
   ],
   filterChainsAnalyzed: 3,
-  rulesEvaluated: 41,
+  rulesEvaluated: 46,
   violationsFound: 5,
   severityCounts: [
     {severity: 'HIGH', count: 2},
@@ -1682,7 +1682,7 @@ const security = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 3 filter chains.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 41,
+    rulesEvaluated: 46,
     filterChainsAnalyzed: 3,
     violationsFound: 5
   },
