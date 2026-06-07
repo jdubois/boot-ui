@@ -7,21 +7,63 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [1.1.0] - 2026-06-07
+
+Feature release that introduces a dedicated **Advisors** workspace with three new rule-based panels (Spring, REST API,
+Memory), expands every existing advisor catalogue, lets the console run from non-web applications, and reorganizes the
+runtime memory panels — while hardening the safety filter and correcting the Actuator-defaults precedence.
+
 ### Added
 
-- Security Advisor: five new Spring Security hardening checks — BCrypt work-factor floor
-  (`SEC-AUTH-006`), Referrer-Policy and Permissions-Policy headers (`SEC-HEAD-005`/`SEC-HEAD-006`),
-  concurrent session control (`SEC-SESSION-007`), and HTTPS enforcement in production
-  (`SEC-CONFIG-006`), with matching entries in `docs/SECURITY-ADVISOR-CHECKS.md`.
+- **Spring panel** — new advisor that inspects the running application for Spring and Spring Boot 4 best-practice issues,
+  shipping 31 curated rules documented in `docs/SPRING-CHECKS.md`.
+- **REST API panel** — new advisor that audits controller/handler mappings against 36 curated REST design rules,
+  documented in `docs/REST-API-CHECKS.md`.
+- **Memory panel** — new advisor with 22 heap, native, GC, and finalizer checks documented in `docs/MEMORY-CHECKS.md`.
+- **Live Memory** runtime panel showing live JVM memory-pool usage, split out from the previous runtime Memory panel.
+- Support for serving the BootUI console from **non-web (command-line) Spring Boot applications**, not just servlet web
+  apps.
+- GitHub panel **open-issues drawer** that lists open repository issues with bounded refreshes.
+- Five new Spring Security checks — BCrypt work-factor floor (`SEC-AUTH-006`), Referrer-Policy and Permissions-Policy
+  headers (`SEC-HEAD-005`/`SEC-HEAD-006`), concurrent session control (`SEC-SESSION-007`), and HTTPS enforcement in
+  production (`SEC-CONFIG-006`), documented in `docs/SECURITY-CHECKS.md`.
+- Expanded advisor coverage across the board: GraalVM readiness grows from 5 to 12 checks, plus new Architecture,
+  Hibernate, and Memory rules, all reflected in their `docs/*-CHECKS.md` catalogues.
 
 ### Changed
 
-- Advisor check catalogues: closed numbering gaps so every rule-ID sequence is continuous, corrected
-  drifted Hibernate doc entries (`HIB-CONFIG-016`, `HIB-CONFIG-017`, `HIB-MAP-018`, `HIB-MAP-019`) to
-  match the implemented rules, and rewrote `docs/REST-API-CHECKS.md` in the same `### ID - Title`
-  format used by the other advisor catalogues. Renumbered rule IDs: `MEM-GC-002` → `MEM-GC-001`,
-  `MEM-GC-003` → `MEM-GC-002`, `RAPI-VALID-003` → `RAPI-VALID-002`, `RAPI-VALID-004` →
+- Grouped the rule-based panels under a dedicated **Advisors** navigation group (Architecture, REST API, Spring,
+  Hibernate, Memory, Security) alongside Pentesting and Vulnerabilities, and wired the new advisors into the Overview
+  security & health scoring dashboard.
+- Renamed panels for clearer URLs and class names: dropped the "Advisor" suffix from the rule-based panels, renamed
+  Tuning Advisor to **JVM Tuning** and Dependencies to **Vulnerabilities**, and split the runtime Memory panel into
+  **Live Memory** and **JVM Tuning**. Legacy routes (`/security-advisor`, `/hibernate-advisor`, `/tuning-advisor`,
+  `/pentest`, `/dependencies`, `/rest-advisor`, `/spring-advisor`, `/memory-advisor`, `/profiles`) redirect to the new
+  paths.
+- Aligned endpoint, controller, and DTO naming for Log Tail, HTTP Probe, Database Connection Pools, and Profile Diff,
+  and fixed the Database Connection Pools component pluralization.
+- Standardized the empty/unavailable panel state behind a shared `UnavailableState` component and consolidated shared
+  time/number formatting helpers across views.
+- Renamed the advisor catalogue docs from `*-ADVISOR-CHECKS.md` to `*-CHECKS.md`, closed rule-ID numbering gaps so every
+  sequence is continuous, corrected drifted Hibernate doc entries (`HIB-CONFIG-016`, `HIB-CONFIG-017`, `HIB-MAP-018`,
+  `HIB-MAP-019`), and rewrote `docs/REST-API-CHECKS.md` in the shared `### ID - Title` format. Renumbered rule IDs:
+  `MEM-GC-002` → `MEM-GC-001`, `MEM-GC-003` → `MEM-GC-002`, `RAPI-VALID-003` → `RAPI-VALID-002`, `RAPI-VALID-004` →
   `RAPI-VALID-003`, and `HIB-FETCH-007` → `HIB-FETCH-006`.
+- Gave AI Usage, Copilot, and Claude Code their own documentation sections and synced `docs/FEATURES.md`,
+  `docs/PROPERTIES.md`, the README feature table, and the screenshots with the Advisors regrouping.
+- Scoped the Maven Central release secrets to a protected `maven-central` GitHub environment.
+
+### Fixed
+
+- BootUI's Actuator defaults are now contributed as true lowest-priority defaults so a host application's
+  `EnvironmentPostProcessor` settings always win (#246).
+- Hardened the localhost-only safety filter and added value-based secret masking for browser-visible property values.
+- Fixed dark-mode contrast on Bootstrap contextual utilities and on the GitHub quota metric cards.
+- Made the developer tooling more robust: `run-sample.sh` no longer fails on macOS Bash 3.2, the getting-started scripts
+  can target `main` or one of the last five tags, the Maven offline setup primes `spring-boot-maven-plugin`, and the
+  Copilot dev server self-heals on a cold worktree `.m2`.
+- Fixed documentation-site build failures (GitHub Pages Node 24 configuration, backticked angle-bracket type fragments,
+  and the Hibernate advisor image) and pinned the Ollama Docker Compose port to stabilize the e2e startup.
 
 ## [1.0.0] - 2026-06-05
 
@@ -350,7 +392,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/jdubois/boot-ui/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/jdubois/boot-ui/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/jdubois/boot-ui/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jdubois/boot-ui/compare/v0.4.0...v0.5.0
