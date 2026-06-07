@@ -866,7 +866,7 @@ final class NoWildcardMediaTypesRule extends AbstractRestApiAdvisorRule {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Error handling & documentation — RAPI-ERR / RAPI-DOC
+// Error handling — RAPI-ERR
 // ---------------------------------------------------------------------------------------------
 
 final class CentralizedExceptionHandlingRule extends AbstractRestApiAdvisorRule {
@@ -958,7 +958,7 @@ final class EndpointsAreDocumentedRule extends AbstractRestApiAdvisorRule {
         super(new RestApiAdvisorRuleDefinition(
                 "RAPI-DOC-001",
                 "Endpoints are documented",
-                RestApiAdvisorCategory.ERROR_HANDLING,
+                RestApiAdvisorCategory.DOCUMENTATION,
                 "INFO",
                 "springdoc-openapi is on the classpath but some handlers have no @Operation, so the generated"
                         + " documentation is incomplete.",
@@ -980,7 +980,7 @@ final class ControllersAreTaggedRule extends AbstractRestApiAdvisorRule {
         super(new RestApiAdvisorRuleDefinition(
                 "RAPI-DOC-002",
                 "Controllers are grouped/tagged",
-                RestApiAdvisorCategory.ERROR_HANDLING,
+                RestApiAdvisorCategory.DOCUMENTATION,
                 "INFO",
                 "springdoc-openapi is on the classpath but some controllers have no @Tag, so endpoints are not"
                         + " grouped in the generated documentation.",

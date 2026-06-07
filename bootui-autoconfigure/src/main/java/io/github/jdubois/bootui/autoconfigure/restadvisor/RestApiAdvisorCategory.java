@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.restadvisor;
 /**
  * Logical grouping for the curated REST API Advisor rules so the panel can describe what each rule
  * inspects. Categories mirror common REST API design concerns (routing, naming, responses,
- * validation, payloads, pagination, versioning, error handling &amp; documentation).
+ * validation, payloads, pagination, versioning, error handling, and documentation).
  */
 enum RestApiAdvisorCategory {
     ROUTING("Routing & HTTP method mapping"),
@@ -13,7 +13,8 @@ enum RestApiAdvisorCategory {
     PAYLOADS("DTO & payload contracts"),
     PAGINATION("Pagination & collections"),
     VERSIONING("Versioning & content negotiation"),
-    ERROR_HANDLING("Error handling & documentation");
+    ERROR_HANDLING("Error handling"),
+    DOCUMENTATION("Documentation");
 
     private final String label;
 

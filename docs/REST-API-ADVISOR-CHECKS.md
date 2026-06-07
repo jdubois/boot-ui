@@ -40,9 +40,9 @@ no controllers can be imported.
 
 ## Severities
 
-Findings are ranked `HIGH` / `MEDIUM` / `LOW` / `INFO`. The catalogue below ships **30 rules across 8 categories**
-(5 HIGH, 7 MEDIUM, 13 LOW, 5 INFO). The `RAPI-DOC-*` documentation rules only run when springdoc-openapi is on the host
-classpath; otherwise they are reported as `SKIPPED`.
+Findings are ranked `HIGH` / `MEDIUM` / `LOW` / `INFO`. The catalogue below ships **30 rules across 9 categories**:
+5 HIGH, 7 MEDIUM, 13 LOW, and 5 INFO. The `RAPI-DOC-*` documentation rules are included in those 30 rules and only run
+when springdoc-openapi is on the host classpath; otherwise they are reported as `SKIPPED`.
 
 ## Rule catalogue
 
