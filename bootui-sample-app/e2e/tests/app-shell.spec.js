@@ -28,7 +28,7 @@ const allPanelLinks = [
   {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
   {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
   {id: 'security-advisor', title: 'Security', heading: /^Security/},
-  {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
+  {id: 'pentesting', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},

@@ -112,23 +112,23 @@ class PanelAccessFilterTests {
     }
 
     @Test
-    void perPanelReadOnlyBlocksPentestScanAction() throws Exception {
-        properties.panel("pentest").setReadOnly(true);
-        MockHttpServletRequest request = request("POST", "/bootui/api/pentest/scan");
+    void perPanelReadOnlyBlocksPentestingScanAction() throws Exception {
+        properties.panel("pentesting").setReadOnly(true);
+        MockHttpServletRequest request = request("POST", "/bootui/api/pentesting/scan");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, new MockFilterChain());
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentAsString())
-                .contains("\"panel\":\"pentest\"")
-                .contains("bootui.panels.pentest.read-only=true");
+                .contains("\"panel\":\"pentesting\"")
+                .contains("bootui.panels.pentesting.read-only=true");
     }
 
     @Test
-    void perPanelReadOnlyAllowsPentestReportRead() throws Exception {
-        properties.panel("pentest").setReadOnly(true);
-        MockHttpServletRequest request = request("GET", "/bootui/api/pentest");
+    void perPanelReadOnlyAllowsPentestingReportRead() throws Exception {
+        properties.panel("pentesting").setReadOnly(true);
+        MockHttpServletRequest request = request("GET", "/bootui/api/pentesting");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, new MockFilterChain());
@@ -199,13 +199,13 @@ class PanelAccessFilterTests {
         requests.put("config", new ActionRequest("POST", "/bootui/api/config/overrides"));
         requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
         requests.put("security-advisor", new ActionRequest("POST", "/bootui/api/security-advisor/scan"));
-        requests.put("pentest", new ActionRequest("POST", "/bootui/api/pentest/scan"));
+        requests.put("pentesting", new ActionRequest("POST", "/bootui/api/pentesting/scan"));
         requests.put("hibernate-advisor", new ActionRequest("POST", "/bootui/api/hibernate-advisor/scan"));
         requests.put("spring-cache", new ActionRequest("POST", "/bootui/api/spring-cache/clear"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/probe"));
         requests.put("architecture", new ActionRequest("POST", "/bootui/api/architecture/scan"));
-        requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/dependencies/scan"));
+        requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/vulnerabilities/scan"));
         requests.put("devtools", new ActionRequest("POST", "/bootui/api/devtools/restart"));
         requests.put("dev-services", new ActionRequest("POST", "/bootui/api/dev-services/services/demo/restart"));
         requests.put("flyway", new ActionRequest("POST", "/bootui/api/flyway/migrate"));

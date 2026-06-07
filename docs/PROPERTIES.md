@@ -63,7 +63,7 @@ Panel settings are consistent across the UI and API:
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                  |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                  |
 | Security        | Security                  | `security-advisor`          | `bootui.panels.security-advisor.enabled`          | `bootui.panels.security-advisor.read-only`  |
-| Security        | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`           |
+| Security        | Pentesting                | `pentest`                   | `bootui.panels.pentesting.enabled`                   | `bootui.panels.pentesting.read-only`           |
 | Security        | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only`   |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                  |
 | Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`      |
@@ -158,8 +158,8 @@ Panel settings are consistent across the UI and API:
 
 | Property                          | Default | Description                                                          |
 | --------------------------------- | ------- | -------------------------------------------------------------------- |
-| `bootui.panels.pentest.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
-| `bootui.panels.pentest.read-only` | `false` | Disable the explicit local scan action.                              |
+| `bootui.panels.pentesting.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
+| `bootui.panels.pentesting.read-only` | `false` | Disable the explicit local scan action.                              |
 
 ### Spring Cache
 
@@ -224,10 +224,10 @@ Panel settings are consistent across the UI and API:
 | ----------------------------------------- | ------- | ------------------------------------------------------- |
 | `bootui.panels.vulnerabilities.enabled`   | `true`  | Show dependency inventory and local scan results.       |
 | `bootui.panels.vulnerabilities.read-only` | `false` | Disable on-demand OSV scan requests.                    |
-| `bootui.dependencies.osv-enabled`         | `true`  | Additional action gate for OSV.dev scans.               |
-| `bootui.dependencies.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
-| `bootui.dependencies.max-packages`        | `250`   | Maximum packages included in one OSV batch query.       |
-| `bootui.dependencies.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
+| `bootui.vulnerabilities.osv-enabled`         | `true`  | Additional action gate for OSV.dev scans.               |
+| `bootui.vulnerabilities.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
+| `bootui.vulnerabilities.max-packages`        | `250`   | Maximum packages included in one OSV batch query.       |
+| `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
 
 ### Heap Dump
 

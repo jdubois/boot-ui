@@ -44,7 +44,7 @@ const panelOrder = [
   ['spring-security', 'Spring Security'],
   ['security-logs', 'Security Logs'],
   ['security-advisor', 'Security'],
-  ['pentest', 'Pentesting'],
+  ['pentesting', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['scheduled', 'Scheduled Tasks'],
   ['spring-cache', 'Spring Cache'],
@@ -1324,7 +1324,7 @@ const securityEndpoints = {
   ]
 }
 
-const pentest = {
+const pentesting = {
   checksRun: 41,
   findingsFound: 4,
   disclaimer: 'These local-only checks target the host application and exclude BootUI /bootui paths.',
@@ -1389,7 +1389,7 @@ const pentest = {
       severity: 'MEDIUM',
       confidence: 'MEDIUM',
       title: 'Missing hardening response headers',
-      target: '/__bootui_pentest__/missing-resource',
+      target: '/__bootui_pentesting__/missing-resource',
       owaspCategory: 'A05 Security Misconfiguration',
       evidence: 'Missing X-Content-Type-Options and Content-Security-Policy headers on the synthetic 404 response.',
       recommendation: 'Configure security headers globally and verify they apply to error responses.'
@@ -1409,7 +1409,7 @@ const pentest = {
       severity: 'INFO',
       confidence: 'LOW',
       title: 'Strict-Transport-Security not observed',
-      target: '/__bootui_pentest__/missing-resource',
+      target: '/__bootui_pentesting__/missing-resource',
       owaspCategory: 'A05 Security Misconfiguration',
       evidence:
         'No Strict-Transport-Security header was seen on the synthetic localhost response (expected over plain HTTP).',
@@ -2201,7 +2201,7 @@ const screenshots = [
   ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
   ['security-advisor', 'Security', 'bootui-security-advisor.png', waitForText('SEC-ACT-002')],
-  ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
+  ['pentesting', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
@@ -2788,10 +2788,10 @@ async function handleApiRoute(route) {
         unavailableReason: null
       })
     )
-  if (endpoint === 'dependencies') return fulfillJson(route, dependencies)
-  if (endpoint === 'dependencies/scan') return fulfillJson(route, dependencies)
-  if (endpoint === 'pentest') return fulfillJson(route, pentest)
-  if (endpoint === 'pentest/scan') return fulfillJson(route, pentest)
+  if (endpoint === 'vulnerabilities') return fulfillJson(route, dependencies)
+  if (endpoint === 'vulnerabilities/scan') return fulfillJson(route, dependencies)
+  if (endpoint === 'pentesting') return fulfillJson(route, pentesting)
+  if (endpoint === 'pentesting/scan') return fulfillJson(route, pentesting)
   if (endpoint === 'architecture') return fulfillJson(route, architecture)
   if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
   if (endpoint === 'rest-advisor') return fulfillJson(route, restApiAdvisor)

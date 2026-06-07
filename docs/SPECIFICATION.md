@@ -515,7 +515,7 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Support disabling OSV scans with `bootui.dependencies.osv-enabled=false`.
+- Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
 
 Acceptance criteria:
 
@@ -1085,8 +1085,8 @@ Initial endpoints:
 | `/bootui/api/metrics/detail`                 | GET    | Micrometer meter detail and live measurements                                          |
 | `/bootui/api/database-connection-pools/pools` | GET    | JDBC connection pool metadata                                                          |
 | `/bootui/api/database-connection-pools/pools/{name}/snapshot` | GET | Live connection pool utilization snapshot                                   |
-| `/bootui/api/dependencies`                   | GET    | Runtime Maven dependency inventory without external scanning                           |
-| `/bootui/api/dependencies/scan`              | POST   | Explicit on-demand OSV.dev vulnerability scan                                          |
+| `/bootui/api/vulnerabilities`                   | GET    | Runtime Maven dependency inventory without external scanning                           |
+| `/bootui/api/vulnerabilities/scan`              | POST   | Explicit on-demand OSV.dev vulnerability scan                                          |
 | `/bootui/api/devtools`                       | GET    | Spring Boot DevTools status                                                            |
 | `/bootui/api/devtools/livereload`            | POST   | Trigger a DevTools LiveReload notification when available                              |
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
@@ -1137,8 +1137,8 @@ Initial endpoints:
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
 | `/bootui/api/security-advisor`               | GET    | Latest Spring Security Advisor report                                                  |
 | `/bootui/api/security-advisor/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
-| `/bootui/api/pentest`                        | GET    | Latest local OWASP hygiene report                                                      |
-| `/bootui/api/pentest/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
+| `/bootui/api/pentesting`                        | GET    | Latest local OWASP hygiene report                                                      |
+| `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, token usage, explorer, raw reveal, SSE    |
 
@@ -1172,10 +1172,10 @@ Initial properties:
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
-| `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
-| `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
-| `bootui.dependencies.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
-| `bootui.dependencies.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
+| `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
+| `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
+| `bootui.vulnerabilities.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
+| `bootui.vulnerabilities.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
 | `bootui.github.api-enabled`                  | `true`                                  | Allow GitHub panel refresh calls to GitHub APIs.                                                  |
 | `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                             |
 | `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                        |

@@ -42,7 +42,7 @@ function mountOverview(panels) {
 const allPanels = {
   panels: [
     {id: 'vulnerabilities', available: true},
-    {id: 'pentest', available: true},
+    {id: 'pentesting', available: true},
     {id: 'architecture', available: true},
     {id: 'hibernate-advisor', available: true},
     {id: 'github', available: true}
@@ -67,7 +67,7 @@ describe('Overview', () => {
     const wrapper = mountOverview({
       panels: [
         {id: 'vulnerabilities', available: true},
-        {id: 'pentest', available: false},
+        {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
         {id: 'hibernate-advisor', available: false},
         {id: 'github', available: false}
@@ -99,7 +99,7 @@ describe('Overview', () => {
     const wrapper = mountOverview({
       panels: [
         {id: 'vulnerabilities', available: false},
-        {id: 'pentest', available: false},
+        {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
         {id: 'hibernate-advisor', available: false},
         {id: 'github', available: false}
@@ -118,8 +118,8 @@ describe('Overview', () => {
 
   it('aggregates scanner scores into the overall score with Run all', async () => {
     stubFetch({
-      'api/dependencies/scan': severityReport([{severity: 'CRITICAL', count: 1}]),
-      'api/pentest/scan': severityReport([]),
+      'api/vulnerabilities/scan': severityReport([{severity: 'CRITICAL', count: 1}]),
+      'api/pentesting/scan': severityReport([]),
       'api/architecture/scan': severityReport([]),
       'api/hibernate-advisor/scan': severityReport([]),
       'api/github/refresh': githubReport({alerts: 0})
@@ -143,7 +143,7 @@ describe('Overview', () => {
     const wrapper = mountOverview({
       panels: [
         {id: 'vulnerabilities', available: false},
-        {id: 'pentest', available: false},
+        {id: 'pentesting', available: false},
         {id: 'architecture', available: false},
         {id: 'hibernate-advisor', available: false},
         {id: 'rest-advisor', available: false},

@@ -108,7 +108,7 @@ function scanTime() {
 
 async function loadDependencies() {
   try {
-    const res = await apiFetch('api/dependencies')
+    const res = await apiFetch('api/vulnerabilities')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
     error.value = null
@@ -124,7 +124,7 @@ async function scanDependencies() {
   }
   loading.value = true
   try {
-    const res = await apiFetch('api/dependencies/scan', {method: 'POST'})
+    const res = await apiFetch('api/vulnerabilities/scan', {method: 'POST'})
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
     if (data.value.vulnerable > 0) {

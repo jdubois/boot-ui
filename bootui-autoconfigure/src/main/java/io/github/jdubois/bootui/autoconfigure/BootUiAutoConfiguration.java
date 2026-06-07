@@ -10,7 +10,7 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
-import io.github.jdubois.bootui.autoconfigure.pentest.*;
+import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
@@ -86,13 +86,13 @@ import org.springframework.core.env.Environment;
     HikariController.class,
     SpringCacheController.class,
     DevServicesController.class,
-    DependenciesController.class,
+    VulnerabilitiesController.class,
     BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration.class,
     BootUiAutoConfiguration.SecurityAuditRepositoryConfiguration.class,
     ScheduledController.class,
     HttpProbeService.class,
     HttpProbeController.class,
-    PentestController.class,
+    PentestingController.class,
     HeapDumpController.class,
     ArchitectureController.class,
     RestApiAdvisorController.class,
@@ -137,7 +137,7 @@ public class BootUiAutoConfiguration {
             DataController.class.getName(),
             FlywayController.class.getName(),
             LiquibaseController.class.getName(),
-            DependenciesController.class.getName(),
+            VulnerabilitiesController.class.getName(),
             DevToolsController.class.getName(),
             GitHubController.class.getName(),
             GraalVmController.class.getName(),
@@ -154,7 +154,7 @@ public class BootUiAutoConfiguration {
             OtlpReceiverController.class.getName(),
             OverviewController.class.getName(),
             PanelsController.class.getName(),
-            PentestController.class.getName(),
+            PentestingController.class.getName(),
             ProfileController.class.getName(),
             ScheduledController.class.getName(),
             SecurityLogsController.class.getName(),

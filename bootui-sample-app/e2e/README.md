@@ -39,7 +39,7 @@ flow) exposed by the sample app:
 | `http-exchanges.spec.js`    | Recent inbound requests, masked header details, paging, and security failures                                         |
 | `http-probe.spec.js`        | Probe `/api/hello` and assert the response body is shown                                                              |
 | `pentesting.spec.js`        | OWASP hygiene report rendering, check details, and explicit scan controls                                             |
-| `dependencies.spec.js`      | Vulnerability inventory, severity ordering, OSV scan states, and read-only behavior                                   |
+| `vulnerabilities.spec.js`   | Vulnerability inventory, severity ordering, OSV scan states, and read-only behavior                                   |
 | `devtools.spec.js`          | DevTools LiveReload / restart status cards and guarded action feedback                                                |
 | `dev-services.spec.js`      | Dev Services snapshot, filtering, details, log viewing, and disabled restart controls                                 |
 | `copilot.spec.js`           | Copilot dashboard, session explorer, sanitized events, raw reveal gating, and auto-refresh controls                   |

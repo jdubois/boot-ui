@@ -13,7 +13,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
-class DependenciesControllerTests {
+class VulnerabilitiesControllerTests {
 
     private static DependencyDto dependency(String groupId, String artifactId, String version) {
         String packageName = groupId + ":" + artifactId;
@@ -22,13 +22,13 @@ class DependenciesControllerTests {
 
     @Test
     void dependenciesReturnsClasspathInventoryWithoutScanning() throws Exception {
-        MockMvc mvc = standaloneSetup(new DependenciesController(
+        MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
                         dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "unused", 1L, 1, dependencies)))
                 .build();
 
-        mvc.perform(get("/bootui/api/dependencies"))
+        mvc.perform(get("/bootui/api/vulnerabilities"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scanningEnabled").value(true))
                 .andExpect(jsonPath("$.scan.status").value("NOT_SCANNED"))
@@ -39,13 +39,13 @@ class DependenciesControllerTests {
 
     @Test
     void scanUsesScannerWhenEnabled() throws Exception {
-        MockMvc mvc = standaloneSetup(new DependenciesController(
+        MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
                         dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "done", 1L, 1, dependencies)))
                 .build();
 
-        mvc.perform(post("/bootui/api/dependencies/scan"))
+        mvc.perform(post("/bootui/api/vulnerabilities/scan"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
                 .andExpect(jsonPath("$.scan.message").value("done"))
@@ -55,14 +55,14 @@ class DependenciesControllerTests {
     @Test
     void scanReportsDisabledWhenOsvIsDisabled() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        properties.getDependencies().setOsvEnabled(false);
-        MockMvc mvc = standaloneSetup(new DependenciesController(
+        properties.getVulnerabilities().setOsvEnabled(false);
+        MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         properties,
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
                         dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "unused", 1L, 1, dependencies)))
                 .build();
 
-        mvc.perform(post("/bootui/api/dependencies/scan"))
+        mvc.perform(post("/bootui/api/vulnerabilities/scan"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scanningEnabled").value(false))
                 .andExpect(jsonPath("$.scan.status").value("DISABLED"))
@@ -71,17 +71,17 @@ class DependenciesControllerTests {
 
     @Test
     void dependenciesReturnsLastScanReportAfterScan() throws Exception {
-        MockMvc mvc = standaloneSetup(new DependenciesController(
+        MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
                         dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "done", 1L, 1, dependencies)))
                 .build();
 
-        mvc.perform(post("/bootui/api/dependencies/scan"))
+        mvc.perform(post("/bootui/api/vulnerabilities/scan"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"));
 
-        mvc.perform(get("/bootui/api/dependencies"))
+        mvc.perform(get("/bootui/api/vulnerabilities"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
                 .andExpect(jsonPath("$.scan.message").value("done"));

@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bootui/api/dependencies")
-public class DependenciesController {
+@RequestMapping("/bootui/api/vulnerabilities")
+public class VulnerabilitiesController {
 
     private final BootUiProperties properties;
 
@@ -23,11 +23,11 @@ public class DependenciesController {
     private volatile DependenciesReport lastScanReport;
 
     @Autowired
-    public DependenciesController(BootUiProperties properties) {
-        this(properties, new DependencyCatalog(), new OsvVulnerabilityScanner(properties.getDependencies()));
+    public VulnerabilitiesController(BootUiProperties properties) {
+        this(properties, new DependencyCatalog(), new OsvVulnerabilityScanner(properties.getVulnerabilities()));
     }
 
-    DependenciesController(
+    VulnerabilitiesController(
             BootUiProperties properties,
             DependencyProvider dependencyProvider,
             VulnerabilityScanner vulnerabilityScanner) {
@@ -44,7 +44,7 @@ public class DependenciesController {
         }
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
         return OsvVulnerabilityScanner.report(
-                properties.getDependencies().isOsvEnabled(),
+                properties.getVulnerabilities().isOsvEnabled(),
                 "NOT_SCANNED",
                 "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
                 null,
@@ -56,11 +56,11 @@ public class DependenciesController {
     public DependenciesReport scan() {
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
         DependenciesReport report;
-        if (!properties.getDependencies().isOsvEnabled()) {
+        if (!properties.getVulnerabilities().isOsvEnabled()) {
             report = OsvVulnerabilityScanner.report(
                     false,
                     "DISABLED",
-                    "OSV scanning is disabled. Set bootui.dependencies.osv-enabled=true to allow on-demand scans.",
+                    "OSV scanning is disabled. Set bootui.vulnerabilities.osv-enabled=true to allow on-demand scans.",
                     null,
                     0,
                     dependencies);

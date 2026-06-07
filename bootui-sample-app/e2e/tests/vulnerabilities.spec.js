@@ -77,7 +77,7 @@ const scannedReport = {
 test.describe('Vulnerabilities view', () => {
   test('renders inventory and on-demand vulnerability scan results', async ({page}) => {
     await page.route(
-      (url) => url.pathname === '/bootui/api/dependencies',
+      (url) => url.pathname === '/bootui/api/vulnerabilities',
       async (route) => {
         await route.fulfill({
           contentType: 'application/json',
@@ -86,7 +86,7 @@ test.describe('Vulnerabilities view', () => {
       }
     )
     await page.route(
-      (url) => url.pathname === '/bootui/api/dependencies/scan',
+      (url) => url.pathname === '/bootui/api/vulnerabilities/scan',
       async (route) => {
         await route.fulfill({
           contentType: 'application/json',

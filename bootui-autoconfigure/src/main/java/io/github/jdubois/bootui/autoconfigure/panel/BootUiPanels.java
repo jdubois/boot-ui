@@ -47,7 +47,7 @@ public final class BootUiPanels {
     public static final String HTTP_PROBE = "http-probe";
     public static final String ARCHITECTURE = "architecture";
     public static final String REST_ADVISOR = "rest-advisor";
-    public static final String PENTEST = "pentest";
+    public static final String PENTESTING = "pentesting";
     public static final String VULNERABILITIES = "vulnerabilities";
     public static final String DEVTOOLS = "devtools";
     public static final String DEV_SERVICES = "dev-services";
@@ -77,7 +77,7 @@ public final class BootUiPanels {
             new Panel(SPRING_SECURITY, "Spring Security", false, "/spring-security"),
             new Panel(SECURITY_ADVISOR, "Security", true, "/security-advisor"),
             new Panel(SECURITY_LOGS, "Security Logs", false, "/security-logs"),
-            new Panel(PENTEST, "Pentesting", true, "/pentest"),
+            new Panel(PENTESTING, "Pentesting", true, "/pentesting"),
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
             new Panel(DATA, "Spring Data", false, "/data"),
@@ -89,7 +89,7 @@ public final class BootUiPanels {
             new Panel(HTTP_EXCHANGES, "HTTP Exchanges", false, "/http-exchanges"),
             new Panel(HTTP_PROBE, "HTTP Probe", true, "/probe"),
             new Panel(ARCHITECTURE, "Architecture", true, "/architecture"),
-            new Panel(VULNERABILITIES, "Vulnerabilities", true, "/dependencies"),
+            new Panel(VULNERABILITIES, "Vulnerabilities", true, "/vulnerabilities"),
             new Panel(DEVTOOLS, "DevTools", true, "/devtools"),
             new Panel(DEV_SERVICES, "Dev Services", true, "/dev-services"),
             new Panel(COPILOT, "Copilot", false, "/copilot"),

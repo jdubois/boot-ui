@@ -33,7 +33,7 @@ const HeapDump = () => import('./views/HeapDump.vue')
 const Threads = () => import('./views/Threads.vue')
 const MemoryAdvisor = () => import('./views/MemoryAdvisor.vue')
 const Metrics = () => import('./views/Metrics.vue')
-const Vulnerabilities = () => import('./views/Dependencies.vue')
+const Vulnerabilities = () => import('./views/Vulnerabilities.vue')
 const DevServices = () => import('./views/DevServices.vue')
 const DevTools = () => import('./views/DevTools.vue')
 const Traces = () => import('./views/Traces.vue')
@@ -103,8 +103,8 @@ export const routes = [
     meta: {group: groups.advisors, icon: 'bi-shield-check', title: 'Security'}
   },
   {
-    path: '/pentest',
-    name: 'pentest',
+    path: '/pentesting',
+    name: 'pentesting',
     component: Pentesting,
     meta: {group: groups.advisors, icon: 'bi-shield-exclamation', title: 'Pentesting'}
   },
@@ -307,5 +307,6 @@ export const routes = [
     meta: {group: groups.developerTools, icon: 'bi-claude', title: 'Claude Code'}
   },
   {path: '/tuning-advisor', redirect: '/jvm-tuning'},
+  {path: '/pentest', redirect: '/pentesting'},
   {path: '/dependencies', redirect: '/vulnerabilities'}
 ]

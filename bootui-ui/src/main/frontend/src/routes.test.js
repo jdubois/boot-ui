@@ -132,6 +132,7 @@ describe('routes', () => {
     expect(routes.filter((route) => route.redirect)).toEqual([
       {path: '/', redirect: '/overview'},
       {path: '/tuning-advisor', redirect: '/jvm-tuning'},
+      {path: '/pentest', redirect: '/pentesting'},
       {path: '/dependencies', redirect: '/vulnerabilities'}
     ])
   })

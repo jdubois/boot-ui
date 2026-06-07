@@ -78,12 +78,12 @@ const scannerDefs = [
     endpoint: 'api/security-advisor/scan'
   },
   {
-    id: 'pentest',
+    id: 'pentesting',
     title: 'Pentesting',
     icon: 'bi-shield-exclamation',
     tone: 'warning',
-    to: '/pentest',
-    endpoint: 'api/pentest/scan'
+    to: '/pentesting',
+    endpoint: 'api/pentesting/scan'
   },
   {
     id: 'vulnerabilities',
@@ -91,7 +91,7 @@ const scannerDefs = [
     icon: 'bi-bug',
     tone: 'danger',
     to: '/vulnerabilities',
-    endpoint: 'api/dependencies/scan'
+    endpoint: 'api/vulnerabilities/scan'
   }
 ]
 

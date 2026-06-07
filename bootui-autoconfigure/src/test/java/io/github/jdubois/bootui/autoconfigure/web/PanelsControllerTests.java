@@ -41,7 +41,7 @@ class PanelsControllerTests {
             BootUiPanels.SPRING_SECURITY,
             BootUiPanels.SECURITY_ADVISOR,
             BootUiPanels.SECURITY_LOGS,
-            BootUiPanels.PENTEST,
+            BootUiPanels.PENTESTING,
             BootUiPanels.SCHEDULED,
             BootUiPanels.DATABASE_CONNECTION_POOLS,
             BootUiPanels.DATA,
@@ -103,7 +103,7 @@ class PanelsControllerTests {
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.CONFIG) + ".available")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".available")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".available")
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.TRACES) + ".available")
                             .value(true))
@@ -237,7 +237,7 @@ class PanelsControllerTests {
             BootUiProperties properties = new BootUiProperties();
             properties.panel("config").setEnabled(false);
             properties.panel("loggers").setReadOnly(true);
-            properties.panel("pentest").setReadOnly(true);
+            properties.panel("pentesting").setReadOnly(true);
             MockMvc mvc = standaloneSetup(new PanelsController(context, context.getEnvironment(), properties))
                     .build();
 
@@ -255,12 +255,12 @@ class PanelsControllerTests {
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.LOGGERS) + ".readOnlyReason")
                             .value("Panel is read-only via bootui.panels.loggers.read-only=true"))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".enabled")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".enabled")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".readOnly")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".readOnly")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".readOnlyReason")
-                            .value("Panel is read-only via bootui.panels.pentest.read-only=true"));
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".readOnlyReason")
+                            .value("Panel is read-only via bootui.panels.pentesting.read-only=true"));
         }
     }
 

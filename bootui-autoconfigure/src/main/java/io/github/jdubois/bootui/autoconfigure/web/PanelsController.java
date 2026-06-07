@@ -76,7 +76,7 @@ public class PanelsController {
                     BootUiPanels.MEMORY_ADVISOR,
                     BootUiPanels.CONFIG,
                     BootUiPanels.HTTP_PROBE,
-                    BootUiPanels.PENTEST,
+                    BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING_ADVISOR,
                     BootUiPanels.VULNERABILITIES -> available();
             case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
