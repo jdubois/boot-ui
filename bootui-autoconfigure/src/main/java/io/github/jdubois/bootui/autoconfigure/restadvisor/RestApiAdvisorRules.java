@@ -1071,7 +1071,7 @@ final class NoTrailingSlashInPathsRule extends AbstractRestApiAdvisorRule {
     RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
         return handlersMatching(context, handler -> {
             for (String path : handler.effectivePaths()) {
-                if (path != null && path.length() > 1 && path.endsWith("/") && !path.equals("/")) {
+                if (path != null && path.length() > 1 && path.endsWith("/")) {
                     return true;
                 }
             }
