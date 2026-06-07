@@ -753,7 +753,7 @@ Acceptance criteria:
 
 - When Hibernate/JPA infrastructure is unavailable, the panel shows a clear unavailable state.
 - Opening the panel never executes application queries or mutates persistence metadata.
-- The scan action is blocked by global read-only mode and `bootui.panels.hibernate-advisor.read-only`.
+- The scan action is blocked by global read-only mode and `bootui.panels.hibernate.read-only`.
 - Findings are presented as heuristic review prompts, not definitive performance verdicts.
 
 ### 5.17.2 Flyway Panel
@@ -1122,12 +1122,12 @@ Initial endpoints:
 | `/bootui/api/dev-services/{id}/restart`      | POST   | Restart a bean-backed service only when explicitly enabled                             |
 | `/bootui/api/data/repositories`              | GET    | Detected Spring Data repositories (summary)                                            |
 | `/bootui/api/data/repositories/{name}`       | GET    | Spring Data repository detail with query methods                                       |
-| `/bootui/api/hibernate-advisor`              | GET    | Latest Hibernate/JPA advisor report                                                    |
-| `/bootui/api/hibernate-advisor/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
+| `/bootui/api/hibernate`              | GET    | Latest Hibernate/JPA advisor report                                                    |
+| `/bootui/api/hibernate/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
 | `/bootui/api/architecture`                   | GET    | Latest Architecture scan report                                                        |
 | `/bootui/api/architecture/scan`              | POST   | Run explicit ArchUnit hygiene checks                                                   |
-| `/bootui/api/rest-advisor`                   | GET    | Latest REST API Advisor scan report                                                    |
-| `/bootui/api/rest-advisor/scan`              | POST   | Run explicit read-only REST API best-practice checks                                   |
+| `/bootui/api/rest-api`                   | GET    | Latest REST API Advisor scan report                                                    |
+| `/bootui/api/rest-api/scan`              | POST   | Run explicit read-only REST API best-practice checks                                   |
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
@@ -1142,8 +1142,8 @@ Initial endpoints:
 | `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
-| `/bootui/api/security-advisor`               | GET    | Latest Spring Security Advisor report                                                  |
-| `/bootui/api/security-advisor/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
+| `/bootui/api/security`               | GET    | Latest Spring Security Advisor report                                                  |
+| `/bootui/api/security/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
 | `/bootui/api/pentesting`                        | GET    | Latest local OWASP hygiene report                                                      |
 | `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |

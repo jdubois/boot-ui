@@ -55,15 +55,15 @@ Panel settings are consistent across the UI and API:
 | Configuration   | Beans                     | `beans`                     | `bootui.panels.beans.enabled`                     | Not applicable; view-only.                  |
 | Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                  |
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                  |
-| Configuration   | Spring                    | `spring-advisor`            | `bootui.panels.spring-advisor.enabled`            | `bootui.panels.spring-advisor.read-only`    |
+| Configuration   | Spring                    | `spring`            | `bootui.panels.spring.enabled`            | `bootui.panels.spring.read-only`    |
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                  |
 | Database        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                  |
-| Database        | Hibernate                 | `hibernate-advisor`         | `bootui.panels.hibernate-advisor.enabled`         | `bootui.panels.hibernate-advisor.read-only` |
+| Database        | Hibernate                 | `hibernate`         | `bootui.panels.hibernate.enabled`         | `bootui.panels.hibernate.read-only` |
 | Database        | Flyway                    | `flyway`                    | `bootui.panels.flyway.enabled`                    | `bootui.panels.flyway.read-only`            |
 | Database        | Liquibase                 | `liquibase`                 | `bootui.panels.liquibase.enabled`                 | `bootui.panels.liquibase.read-only`         |
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                  |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                  |
-| Security        | Security                  | `security-advisor`          | `bootui.panels.security-advisor.enabled`          | `bootui.panels.security-advisor.read-only`  |
+| Security        | Security                  | `security`          | `bootui.panels.security.enabled`          | `bootui.panels.security.read-only`  |
 | Security        | Pentesting                | `pentest`                   | `bootui.panels.pentesting.enabled`                   | `bootui.panels.pentesting.read-only`           |
 | Security        | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only`   |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                  |
@@ -132,8 +132,8 @@ Panel settings are consistent across the UI and API:
 
 | Property                                | Default | Description                                                              |
 | --------------------------------------- | ------- | ------------------------------------------------------------------------ |
-| `bootui.panels.spring-advisor.enabled`   | `true`  | Show read-only Spring application-context best-practice checks.          |
-| `bootui.panels.spring-advisor.read-only` | `false` | Disable the explicit Spring Advisor scan action.                         |
+| `bootui.panels.spring.enabled`   | `true`  | Show read-only Spring application-context best-practice checks.          |
+| `bootui.panels.spring.read-only` | `false` | Disable the explicit Spring Advisor scan action.                         |
 
 ### Spring Security
 
@@ -152,8 +152,8 @@ Panel settings are consistent across the UI and API:
 
 | Property                                  | Default | Description                                                        |
 | ----------------------------------------- | ------- | ------------------------------------------------------------------ |
-| `bootui.panels.security-advisor.enabled`  | `true`  | Show read-only Spring Security hardening checks.                   |
-| `bootui.panels.security-advisor.read-only` | `false` | Disable the explicit Spring Security Advisor scan action.          |
+| `bootui.panels.security.enabled`  | `true`  | Show read-only Spring Security hardening checks.                   |
+| `bootui.panels.security.read-only` | `false` | Disable the explicit Spring Security Advisor scan action.          |
 
 ### Pentesting
 
@@ -174,8 +174,8 @@ Panel settings are consistent across the UI and API:
 
 | Property                                    | Default | Description                                                                       |
 | ------------------------------------------- | ------- | --------------------------------------------------------------------------------- |
-| `bootui.panels.hibernate-advisor.enabled`   | `true`  | Show Hibernate/JPA mapping and configuration advisor findings.                    |
-| `bootui.panels.hibernate-advisor.read-only` | `false` | Disable the explicit Hibernate Advisor scan action while keeping results visible. |
+| `bootui.panels.hibernate.enabled`   | `true`  | Show Hibernate/JPA mapping and configuration advisor findings.                    |
+| `bootui.panels.hibernate.read-only` | `false` | Disable the explicit Hibernate Advisor scan action while keeping results visible. |
 
 ### Flyway
 

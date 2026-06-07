@@ -133,7 +133,12 @@ describe('routes', () => {
       {path: '/', redirect: '/overview'},
       {path: '/tuning-advisor', redirect: '/jvm-tuning'},
       {path: '/pentest', redirect: '/pentesting'},
-      {path: '/dependencies', redirect: '/vulnerabilities'}
+      {path: '/dependencies', redirect: '/vulnerabilities'},
+      {path: '/rest-advisor', redirect: '/rest-api'},
+      {path: '/spring-advisor', redirect: '/spring'},
+      {path: '/hibernate-advisor', redirect: '/hibernate'},
+      {path: '/memory-advisor', redirect: '/memory'},
+      {path: '/security-advisor', redirect: '/security'}
     ])
   })
 })

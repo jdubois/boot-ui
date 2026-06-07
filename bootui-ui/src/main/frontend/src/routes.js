@@ -9,7 +9,7 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionsPools = () => import('./views/DatabaseConnectionsPools.vue')
 const Data = () => import('./views/Data.vue')
-const HibernateAdvisor = () => import('./views/HibernateAdvisor.vue')
+const Hibernate = () => import('./views/Hibernate.vue')
 const Flyway = () => import('./views/Flyway.vue')
 const Liquibase = () => import('./views/Liquibase.vue')
 const Startup = () => import('./views/Startup.vue')
@@ -17,21 +17,21 @@ const Scheduled = () => import('./views/Scheduled.vue')
 const HttpProbe = () => import('./views/HttpProbe.vue')
 const Pentesting = () => import('./views/Pentesting.vue')
 const Architecture = () => import('./views/Architecture.vue')
-const RestApiAdvisor = () => import('./views/RestApiAdvisor.vue')
+const RestApi = () => import('./views/RestApi.vue')
 const GraalVm = () => import('./views/GraalVm.vue')
 const LogTail = () => import('./views/LogTail.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
 const SpringSecurity = () => import('./views/SpringSecurity.vue')
-const SpringAdvisor = () => import('./views/SpringAdvisor.vue')
-const SecurityAdvisor = () => import('./views/SecurityAdvisor.vue')
+const Spring = () => import('./views/Spring.vue')
+const Security = () => import('./views/Security.vue')
 const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const LiveMemory = () => import('./views/LiveMemory.vue')
 const JvmTuning = () => import('./views/JvmTuning.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
 const Threads = () => import('./views/Threads.vue')
-const MemoryAdvisor = () => import('./views/MemoryAdvisor.vue')
+const Memory = () => import('./views/Memory.vue')
 const Metrics = () => import('./views/Metrics.vue')
 const Vulnerabilities = () => import('./views/Vulnerabilities.vue')
 const DevServices = () => import('./views/DevServices.vue')
@@ -73,33 +73,33 @@ export const routes = [
     meta: {group: groups.advisors, icon: 'bi-diagram-2', title: 'Architecture'}
   },
   {
-    path: '/rest-advisor',
-    name: 'rest-advisor',
-    component: RestApiAdvisor,
+    path: '/rest-api',
+    name: 'rest-api',
+    component: RestApi,
     meta: {group: groups.advisors, icon: 'bi-signpost-split', title: 'REST API'}
   },
   {
-    path: '/spring-advisor',
-    name: 'spring-advisor',
-    component: SpringAdvisor,
+    path: '/spring',
+    name: 'spring',
+    component: Spring,
     meta: {group: groups.advisors, icon: 'bi-lightbulb', title: 'Spring'}
   },
   {
-    path: '/hibernate-advisor',
-    name: 'hibernate-advisor',
-    component: HibernateAdvisor,
+    path: '/hibernate',
+    name: 'hibernate',
+    component: Hibernate,
     meta: {group: groups.advisors, icon: 'bi-database-gear', title: 'Hibernate'}
   },
   {
-    path: '/memory-advisor',
-    name: 'memory-advisor',
-    component: MemoryAdvisor,
+    path: '/memory',
+    name: 'memory',
+    component: Memory,
     meta: {group: groups.advisors, icon: 'bi-clipboard2-pulse', title: 'Memory'}
   },
   {
-    path: '/security-advisor',
-    name: 'security-advisor',
-    component: SecurityAdvisor,
+    path: '/security',
+    name: 'security',
+    component: Security,
     meta: {group: groups.advisors, icon: 'bi-shield-check', title: 'Security'}
   },
   {
@@ -308,5 +308,10 @@ export const routes = [
   },
   {path: '/tuning-advisor', redirect: '/jvm-tuning'},
   {path: '/pentest', redirect: '/pentesting'},
-  {path: '/dependencies', redirect: '/vulnerabilities'}
+  {path: '/dependencies', redirect: '/vulnerabilities'},
+  {path: '/rest-advisor', redirect: '/rest-api'},
+  {path: '/spring-advisor', redirect: '/spring'},
+  {path: '/hibernate-advisor', redirect: '/hibernate'},
+  {path: '/memory-advisor', redirect: '/memory'},
+  {path: '/security-advisor', redirect: '/security'}
 ]

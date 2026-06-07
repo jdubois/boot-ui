@@ -115,7 +115,7 @@ The advisor deliberately avoids security concerns (CORS, authentication, authori
 Security panel. The scan runs on demand and caches the last report; each rule is registered with a stable
 identifier, category, severity, recommendation, and a learn-more link, and the rule results list shows only flagged
 rules, sorted by severity and finding count. The heuristics complement — rather than replace — an API design review or
-contract testing. See [REST-API-ADVISOR-CHECKS.md](REST-API-ADVISOR-CHECKS.md) for the full catalogue of rules and what
+contract testing. See [REST-API-CHECKS.md](REST-API-CHECKS.md) for the full catalogue of rules and what
 each one inspects.
 
 ### Spring
@@ -127,7 +127,7 @@ environment, performance and concurrency (including virtual threads), and web/HT
 already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
 complements the Architecture panel, which statically analyses compiled bytecode with ArchUnit, by inspecting the live,
 wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
-intercepts live traffic, or surfaces secrets. See [SPRING-ADVISOR-CHECKS.md](SPRING-ADVISOR-CHECKS.md) for the full rule
+intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
 catalogue and remediation links.
 
 ### Hibernate
@@ -139,7 +139,7 @@ generators, collection fetch pagination, unsafe cascades, cache misconfiguration
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Hibernate panel](./images/bootui-hibernate-advisor.png)
+![BootUI Hibernate panel](./images/bootui-hibernate.png)
 
 ### Memory
 
@@ -147,7 +147,7 @@ The Memory panel runs an explicit, read-only scan over the live JVM management b
 garbage collection, threads, loaded classes, and an optional class histogram) and turns them into severity-ranked
 findings such as heap pressure, metaspace saturation, thread deadlocks, and collection bloat. It complements the raw
 Live Memory and Threads panels by diagnosing the data they expose. The scan is on demand and caches the last report; new rules
-are added as small, focused classes in the `memoryadvisor` package.
+are added as small, focused classes in the `memory` package.
 
 ### Security
 
@@ -158,9 +158,9 @@ lists, simulates an anonymous authorization decision, and inspects security-rele
 authorization, CSRF, session management, transport/security headers, CORS, method security, actuator exposure, OAuth2
 resource-server validation, and configuration hygiene. The report is framed as a review prompt, not a verdict: it never
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
-[SECURITY-ADVISOR-CHECKS.md](SECURITY-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
+[SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Security panel](./images/bootui-security-advisor.png)
+![BootUI Security panel](./images/bootui-security.png)
 
 ### Pentesting
 

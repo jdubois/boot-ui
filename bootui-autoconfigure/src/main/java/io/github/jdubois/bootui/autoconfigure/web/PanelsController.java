@@ -73,17 +73,17 @@ public class PanelsController {
             case BootUiPanels.OVERVIEW,
                     BootUiPanels.LIVE_MEMORY,
                     BootUiPanels.JVM_TUNING,
-                    BootUiPanels.MEMORY_ADVISOR,
+                    BootUiPanels.MEMORY,
                     BootUiPanels.CONFIG,
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTESTING,
-                    BootUiPanels.SPRING_ADVISOR,
+                    BootUiPanels.SPRING,
                     BootUiPanels.VULNERABILITIES -> available();
             case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
             case BootUiPanels.HEAP_DUMP ->
                 availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
-            case BootUiPanels.REST_ADVISOR -> availability(restAdvisorAvailable(), restAdvisorUnavailableReason());
+            case BootUiPanels.REST_API -> availability(restApiAvailable(), restApiUnavailableReason());
             case BootUiPanels.GRAALVM -> availability(graalvmAvailable(), graalvmUnavailableReason());
             case BootUiPanels.THREADS ->
                 availability(
@@ -114,8 +114,7 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
-            case BootUiPanels.HIBERNATE_ADVISOR ->
-                availability(hibernateAdvisorAvailable(), hibernateAdvisorUnavailableReason());
+            case BootUiPanels.HIBERNATE -> availability(hibernateAvailable(), hibernateUnavailableReason());
             case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
             case BootUiPanels.FLYWAY -> availability(flywayAvailable(), flywayUnavailableReason());
             case BootUiPanels.LIQUIBASE -> availability(liquibaseAvailable(), liquibaseUnavailableReason());
@@ -125,8 +124,7 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.security.web.SecurityFilterChain"),
                         "Spring Security not on the classpath");
-            case BootUiPanels.SECURITY_ADVISOR ->
-                availability(securityAdvisorAvailable(), securityAdvisorUnavailableReason());
+            case BootUiPanels.SECURITY -> availability(securityAvailable(), securityUnavailableReason());
             case BootUiPanels.SECURITY_LOGS ->
                 availability(beanPresent(AuditEventRepository.class), "No AuditEventRepository bean is available");
             case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
@@ -281,13 +279,13 @@ public class PanelsController {
         }
     }
 
-    private boolean hibernateAdvisorAvailable() {
+    private boolean hibernateAvailable() {
         return classPresent("org.hibernate.SessionFactory")
                 && classPresent("jakarta.persistence.EntityManagerFactory")
                 && beanPresent("jakarta.persistence.EntityManagerFactory");
     }
 
-    private String hibernateAdvisorUnavailableReason() {
+    private String hibernateUnavailableReason() {
         if (!classPresent("org.hibernate.SessionFactory")) {
             return "Hibernate ORM is not on the classpath";
         }
@@ -297,12 +295,12 @@ public class PanelsController {
         return "No EntityManagerFactory beans are available";
     }
 
-    private boolean securityAdvisorAvailable() {
+    private boolean securityAvailable() {
         return classPresent("org.springframework.security.web.FilterChainProxy")
                 && beanPresent("org.springframework.security.web.FilterChainProxy");
     }
 
-    private String securityAdvisorUnavailableReason() {
+    private String securityUnavailableReason() {
         if (!classPresent("org.springframework.security.web.FilterChainProxy")) {
             return "Spring Security not on the classpath";
         }
@@ -321,12 +319,12 @@ public class PanelsController {
         return "No application base package was detected";
     }
 
-    private boolean restAdvisorAvailable() {
+    private boolean restApiAvailable() {
         return classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
                 && AutoConfigurationPackages.has(applicationContext);
     }
 
-    private String restAdvisorUnavailableReason() {
+    private String restApiUnavailableReason() {
         if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
             return "ArchUnit is not on the classpath";
         }

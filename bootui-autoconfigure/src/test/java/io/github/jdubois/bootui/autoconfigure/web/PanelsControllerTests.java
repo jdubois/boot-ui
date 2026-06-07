@@ -29,7 +29,7 @@ class PanelsControllerTests {
             BootUiPanels.JVM_TUNING,
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.THREADS,
-            BootUiPanels.MEMORY_ADVISOR,
+            BootUiPanels.MEMORY,
             BootUiPanels.STARTUP,
             BootUiPanels.GRAALVM,
             BootUiPanels.CONFIG,
@@ -39,13 +39,13 @@ class PanelsControllerTests {
             BootUiPanels.CONDITIONS,
             BootUiPanels.MAPPINGS,
             BootUiPanels.SPRING_SECURITY,
-            BootUiPanels.SECURITY_ADVISOR,
+            BootUiPanels.SECURITY,
             BootUiPanels.SECURITY_LOGS,
             BootUiPanels.PENTESTING,
             BootUiPanels.SCHEDULED,
             BootUiPanels.DATABASE_CONNECTION_POOLS,
             BootUiPanels.DATA,
-            BootUiPanels.HIBERNATE_ADVISOR,
+            BootUiPanels.HIBERNATE,
             BootUiPanels.SPRING_CACHE,
             BootUiPanels.AI,
             BootUiPanels.TRACES,
@@ -61,8 +61,8 @@ class PanelsControllerTests {
             BootUiPanels.FLYWAY,
             BootUiPanels.LIQUIBASE,
             BootUiPanels.GITHUB,
-            BootUiPanels.REST_ADVISOR,
-            BootUiPanels.SPRING_ADVISOR);
+            BootUiPanels.REST_API,
+            BootUiPanels.SPRING);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
@@ -150,9 +150,9 @@ class PanelsControllerTests {
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".unavailableReason")
                             .value("No database connection pool beans are available"))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE_ADVISOR) + ".available")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".available")
                             .value(false))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE_ADVISOR) + ".unavailableReason")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".unavailableReason")
                             .value("Hibernate ORM is not on the classpath"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_EXCHANGES) + ".available")
                             .value(false))

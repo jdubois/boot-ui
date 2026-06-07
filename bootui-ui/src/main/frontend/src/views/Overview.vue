@@ -38,44 +38,44 @@ const scannerDefs = [
     endpoint: 'api/architecture/scan'
   },
   {
-    id: 'memory-advisor',
+    id: 'memory',
     title: 'Memory',
     icon: 'bi-clipboard2-pulse',
     tone: 'warning',
-    to: '/memory-advisor',
-    endpoint: 'api/memory-advisor/scan'
+    to: '/memory',
+    endpoint: 'api/memory/scan'
   },
   {
-    id: 'rest-advisor',
+    id: 'rest-api',
     title: 'REST API',
     icon: 'bi-signpost-split',
     tone: 'primary',
-    to: '/rest-advisor',
-    endpoint: 'api/rest-advisor/scan'
+    to: '/rest-api',
+    endpoint: 'api/rest-api/scan'
   },
   {
-    id: 'spring-advisor',
+    id: 'spring',
     title: 'Spring',
     icon: 'bi-lightbulb',
     tone: 'info',
-    to: '/spring-advisor',
-    endpoint: 'api/spring-advisor/scan'
+    to: '/spring',
+    endpoint: 'api/spring/scan'
   },
   {
-    id: 'hibernate-advisor',
+    id: 'hibernate',
     title: 'Hibernate',
     icon: 'bi-database-gear',
     tone: 'info',
-    to: '/hibernate-advisor',
-    endpoint: 'api/hibernate-advisor/scan'
+    to: '/hibernate',
+    endpoint: 'api/hibernate/scan'
   },
   {
-    id: 'security-advisor',
+    id: 'security',
     title: 'Security',
     icon: 'bi-shield-check',
     tone: 'success',
-    to: '/security-advisor',
-    endpoint: 'api/security-advisor/scan'
+    to: '/security',
+    endpoint: 'api/security/scan'
   },
   {
     id: 'pentesting',

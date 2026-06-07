@@ -194,13 +194,13 @@ class PanelAccessFilterTests {
         requests.put("http-sessions", new ActionRequest("POST", "/bootui/api/http-sessions/session-key/invalidate"));
         requests.put("heap-dump", new ActionRequest("POST", "/bootui/api/heap-dump/capture"));
         requests.put("threads", new ActionRequest("POST", "/bootui/api/threads/download"));
-        requests.put("memory-advisor", new ActionRequest("POST", "/bootui/api/memory-advisor/scan"));
+        requests.put("memory", new ActionRequest("POST", "/bootui/api/memory/scan"));
         requests.put("graalvm", new ActionRequest("POST", "/bootui/api/graalvm/scan"));
         requests.put("config", new ActionRequest("POST", "/bootui/api/config/overrides"));
         requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
-        requests.put("security-advisor", new ActionRequest("POST", "/bootui/api/security-advisor/scan"));
+        requests.put("security", new ActionRequest("POST", "/bootui/api/security/scan"));
         requests.put("pentesting", new ActionRequest("POST", "/bootui/api/pentesting/scan"));
-        requests.put("hibernate-advisor", new ActionRequest("POST", "/bootui/api/hibernate-advisor/scan"));
+        requests.put("hibernate", new ActionRequest("POST", "/bootui/api/hibernate/scan"));
         requests.put("spring-cache", new ActionRequest("POST", "/bootui/api/spring-cache/clear"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/probe"));
@@ -211,8 +211,8 @@ class PanelAccessFilterTests {
         requests.put("flyway", new ActionRequest("POST", "/bootui/api/flyway/migrate"));
         requests.put("liquibase", new ActionRequest("POST", "/bootui/api/liquibase/update"));
         requests.put("github", new ActionRequest("POST", "/bootui/api/github/refresh"));
-        requests.put("rest-advisor", new ActionRequest("POST", "/bootui/api/rest-advisor/scan"));
-        requests.put("spring-advisor", new ActionRequest("POST", "/bootui/api/spring-advisor/scan"));
+        requests.put("rest-api", new ActionRequest("POST", "/bootui/api/rest-api/scan"));
+        requests.put("spring", new ActionRequest("POST", "/bootui/api/spring/scan"));
         return requests;
     }
 

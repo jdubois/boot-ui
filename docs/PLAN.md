@@ -22,7 +22,7 @@ The priorities for every item below remain unchanged:
 ### Completed for 1.0.0
 
 - Promoted the current grouped sidebar surface to the stable `1.0.0` release line.
-- Added the Security Advisor panel, `/bootui/api/security-advisor` API, panel availability/read-only wiring, tests, feature
+- Added the Security Advisor panel, `/bootui/api/security` API, panel availability/read-only wiring, tests, feature
   documentation, rule catalogue, and screenshot.
 - Redesigned Overview into an on-demand security & health scoring dashboard that aggregates the available scanner panels.
 - Added token-first activity charts to the Copilot and Claude Code dashboards and refreshed their screenshots.

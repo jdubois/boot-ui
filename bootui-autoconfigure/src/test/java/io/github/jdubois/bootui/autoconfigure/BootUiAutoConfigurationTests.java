@@ -5,14 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
-import io.github.jdubois.bootui.autoconfigure.memoryadvisor.MemoryAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
-import io.github.jdubois.bootui.autoconfigure.restadvisor.RestApiAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
-import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
-import io.github.jdubois.bootui.autoconfigure.springadvisor.SpringAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.net.URI;
 import java.nio.file.Path;
@@ -190,7 +190,7 @@ class BootUiAutoConfigurationTests {
             List.of(
                             AiController.class,
                             ArchitectureController.class,
-                            RestApiAdvisorController.class,
+                            RestApiController.class,
                             BeansController.class,
                             BootUiIndexController.class,
                             SpringCacheController.class,
@@ -223,13 +223,13 @@ class BootUiAutoConfigurationTests {
                             ProfileController.class,
                             ScheduledController.class,
                             SecurityLogsController.class,
-                            SecurityAdvisorController.class,
-                            SpringAdvisorController.class,
+                            SecurityController.class,
+                            SpringController.class,
                             SpringSecurityController.class,
                             StartupController.class,
                             TracesController.class,
                             ThreadDumpController.class,
-                            MemoryAdvisorController.class)
+                            MemoryController.class)
                     .forEach(beanType -> assertLazyBean(beanFactory, beanType));
 
             assertLazyBeanDefinition(beanFactory, "bootUiConfigOverrideService");

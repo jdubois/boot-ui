@@ -38,12 +38,12 @@ const panelOrder = [
   ['mappings', 'Mappings'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['data', 'Spring Data'],
-  ['hibernate-advisor', 'Hibernate'],
+  ['hibernate', 'Hibernate'],
   ['flyway', 'Flyway'],
   ['liquibase', 'Liquibase'],
   ['spring-security', 'Spring Security'],
   ['security-logs', 'Security Logs'],
-  ['security-advisor', 'Security'],
+  ['security', 'Security'],
   ['pentesting', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['scheduled', 'Scheduled Tasks'],
@@ -54,7 +54,7 @@ const panelOrder = [
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
-  ['rest-advisor', 'REST API'],
+  ['rest-api', 'REST API'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['copilot', 'Copilot'],
@@ -1225,7 +1225,7 @@ const cache = {
   ]
 }
 
-const security = {
+const springSecurity = {
   springSecurityPresent: true,
   chains: [
     {
@@ -1499,7 +1499,7 @@ const architecture = {
   ]
 }
 
-const restApiAdvisor = {
+const restApi = {
   localOnly: true,
   disclaimer:
     "Heuristic, project-agnostic REST API design rules run against the host application's own controllers only. " +
@@ -1528,7 +1528,7 @@ const restApiAdvisor = {
     violationsFound: 4
   },
   results: [
-    restApiAdvisorResult(
+    restApiResult(
       'RAPI-DTO-001',
       "Don't expose JPA entities in responses",
       'DTO & payload contracts',
@@ -1543,7 +1543,7 @@ const restApiAdvisor = {
       'Map entities to a response DTO/record and return that instead.',
       'https://www.rfc-editor.org/rfc/rfc9110.html'
     ),
-    restApiAdvisorResult(
+    restApiResult(
       'RAPI-NAME-001',
       'Resource paths are nouns, not verbs',
       'Naming & resource design',
@@ -1555,7 +1555,7 @@ const restApiAdvisor = {
       'Model resources as nouns (/users, /orders) and express the action with the HTTP method.',
       'https://www.rfc-editor.org/rfc/rfc9110.html'
     ),
-    restApiAdvisorResult(
+    restApiResult(
       'RAPI-VALID-001',
       '@RequestBody is validated',
       'Input validation & binding',
@@ -1567,7 +1567,7 @@ const restApiAdvisor = {
       'Annotate the @RequestBody parameter with @Valid (or @Validated) so payloads are validated.',
       'https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html'
     ),
-    restApiAdvisorResult(
+    restApiResult(
       'RAPI-MAP-005',
       'Consistent path style (no trailing slash)',
       'Routing & HTTP method mapping',
@@ -1582,7 +1582,7 @@ const restApiAdvisor = {
   ]
 }
 
-const hibernateAdvisor = {
+const hibernate = {
   localOnly: true,
   disclaimer:
     "Heuristic Hibernate/JPA mapping rules run against the host application's mapped entities only. " +
@@ -1607,7 +1607,7 @@ const hibernateAdvisor = {
     violationsFound: 4
   },
   results: [
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-FETCH-001',
       'Eager fetching should stay explicit and bounded',
       'Fetching',
@@ -1621,7 +1621,7 @@ const hibernateAdvisor = {
       ],
       'Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins, entity graphs, or DTO queries.'
     ),
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-ID-001',
       'Generated identifiers should avoid GenerationType.IDENTITY',
       'Identifiers',
@@ -1631,7 +1631,7 @@ const hibernateAdvisor = {
       ['io.github.jdubois.bootui.sample.Product#id uses GenerationType.IDENTITY.'],
       "Prefer SEQUENCE with allocationSize and Hibernate's pooled optimizer when the database supports sequences."
     ),
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-CONFIG-001',
       'Open Session in View should be disabled',
       'Configuration',
@@ -1641,7 +1641,7 @@ const hibernateAdvisor = {
       ['spring.jpa.open-in-view=true is enabled.'],
       'Set spring.jpa.open-in-view=false and fetch data inside transactional service boundaries.'
     ),
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-FETCH-002',
       'Batch fetching should cover lazy secondary-select associations',
       'Fetching',
@@ -1658,7 +1658,7 @@ const hibernateAdvisor = {
   ]
 }
 
-const securityAdvisor = {
+const security = {
   localOnly: true,
   disclaimer:
     "Heuristic Spring Security rules run against the host application's registered filter chains and security beans only. " +
@@ -1687,7 +1687,7 @@ const securityAdvisor = {
     violationsFound: 5
   },
   results: [
-    securityAdvisorResult(
+    securityResult(
       'SEC-ACT-002',
       'Sensitive actuator endpoints should not be exposed',
       'Actuator exposure',
@@ -1701,7 +1701,7 @@ const securityAdvisor = {
       ],
       'Remove sensitive endpoints from management.endpoints.web.exposure.include or protect them with authentication.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-AUTHZ-002',
       'Avoid blanket permitAll authorization',
       'Authorization',
@@ -1711,7 +1711,7 @@ const securityAdvisor = {
       ['Chain #2 (any request) permits every request anonymously even though it configures authentication.'],
       'Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for public endpoints.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-ACT-003',
       'Exposed actuator endpoints should be protected by a security chain',
       'Actuator exposure',
@@ -1721,7 +1721,7 @@ const securityAdvisor = {
       ['Actuator endpoints are exposed at /actuator but no security filter chain matches that path.'],
       'Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-AUTH-005',
       'Avoid the auto-generated login page in production',
       'Authentication',
@@ -1731,7 +1731,7 @@ const securityAdvisor = {
       ['Chain #2 (any request) serves the auto-generated Spring Security login page in production.'],
       'Provide a custom login page via formLogin().loginPage(...) for production.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-ACT-006',
       'Sensitive actuator endpoints should use an isolated management port',
       'Actuator exposure',
@@ -2195,12 +2195,12 @@ const screenshots = [
       await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
     }
   ],
-  ['hibernate-advisor', 'Hibernate', 'bootui-hibernate-advisor.png', waitForText('FetchType.EAGER')],
+  ['hibernate', 'Hibernate', 'bootui-hibernate.png', waitForText('FetchType.EAGER')],
   ['flyway', 'Flyway', 'bootui-flyway.png', waitForText('V3__add_catalog_tags.sql')],
   ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
   ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
-  ['security-advisor', 'Security', 'bootui-security-advisor.png', waitForText('SEC-ACT-002')],
+  ['security', 'Security', 'bootui-security.png', waitForText('SEC-ACT-002')],
   ['pentesting', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
@@ -2232,7 +2232,7 @@ const screenshots = [
     }
   ],
   ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
-  ['rest-advisor', 'REST API', 'bootui-rest-advisor.png', waitForText("Don't expose JPA entities in responses")],
+  ['rest-api', 'REST API', 'bootui-rest-api.png', waitForText("Don't expose JPA entities in responses")],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [
@@ -2655,7 +2655,7 @@ async function handleApiRoute(route) {
       panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
     })
   if (endpoint === 'startup') return fulfillJson(route, startup)
-  if (endpoint.startsWith('memory') || endpoint.startsWith('jvm-tuning')) return fulfillJson(route, memory)
+  if (endpoint.startsWith('live-memory') || endpoint.startsWith('jvm-tuning')) return fulfillJson(route, memory)
   if (endpoint === 'health') return fulfillJson(route, health)
   if (endpoint === 'http-sessions') return fulfillJson(route, httpSessions)
   if (endpoint.startsWith('http-sessions/') && endpoint.endsWith('/clear'))
@@ -2751,8 +2751,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'scheduled') return fulfillJson(route, scheduled)
   if (endpoint === 'data/repositories') return fulfillJson(route, dataReport)
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
-  if (endpoint === 'hibernate-advisor') return fulfillJson(route, hibernateAdvisor)
-  if (endpoint === 'hibernate-advisor/scan') return fulfillJson(route, hibernateAdvisor)
+  if (endpoint === 'hibernate') return fulfillJson(route, hibernate)
+  if (endpoint === 'hibernate/scan') return fulfillJson(route, hibernate)
   if (endpoint === 'flyway/migrations') return fulfillJson(route, flyway)
   if (endpoint === 'flyway/migrate')
     return fulfillJson(route, {status: 'success', message: 'Applied 2 pending Flyway migration(s).'})
@@ -2767,7 +2767,7 @@ async function handleApiRoute(route) {
   }
   if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
   if (endpoint === 'spring-cache') return fulfillJson(route, cache)
-  if (endpoint === 'spring-security') return fulfillJson(route, security)
+  if (endpoint === 'spring-security') return fulfillJson(route, springSecurity)
   if (endpoint === 'spring-security/endpoints') return fulfillJson(route, securityEndpoints)
   if (endpoint === 'spring-security/explain')
     return fulfillJson(route, {
@@ -2775,11 +2775,11 @@ async function handleApiRoute(route) {
       bestEffort: false,
       chainIndex: 1,
       matcherDescription: 'any request',
-      filters: security.chains[1].filters
+      filters: springSecurity.chains[1].filters
     })
   if (endpoint === 'security-logs') return fulfillJson(route, securityLogs)
-  if (endpoint === 'security-advisor') return fulfillJson(route, securityAdvisor)
-  if (endpoint === 'security-advisor/scan') return fulfillJson(route, securityAdvisor)
+  if (endpoint === 'security') return fulfillJson(route, security)
+  if (endpoint === 'security/scan') return fulfillJson(route, security)
   if (endpoint === 'http-exchanges')
     return fulfillJson(
       route,
@@ -2794,8 +2794,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'pentesting/scan') return fulfillJson(route, pentesting)
   if (endpoint === 'architecture') return fulfillJson(route, architecture)
   if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
-  if (endpoint === 'rest-advisor') return fulfillJson(route, restApiAdvisor)
-  if (endpoint === 'rest-advisor/scan') return fulfillJson(route, restApiAdvisor)
+  if (endpoint === 'rest-api') return fulfillJson(route, restApi)
+  if (endpoint === 'rest-api/scan') return fulfillJson(route, restApi)
   if (endpoint === 'graalvm') return fulfillJson(route, graalVm)
   if (endpoint === 'graalvm/scan') return fulfillJson(route, graalVm)
 
@@ -2943,7 +2943,7 @@ function architectureResult(
   }
 }
 
-function restApiAdvisorResult(
+function restApiResult(
   id,
   name,
   category,
@@ -2969,16 +2969,7 @@ function restApiAdvisorResult(
   }
 }
 
-function hibernateAdvisorResult(
-  id,
-  name,
-  category,
-  severity,
-  description,
-  violationCount,
-  sampleViolations,
-  recommendation
-) {
+function hibernateResult(id, name, category, severity, description, violationCount, sampleViolations, recommendation) {
   return {
     id,
     name,
@@ -2993,16 +2984,7 @@ function hibernateAdvisorResult(
   }
 }
 
-function securityAdvisorResult(
-  id,
-  name,
-  category,
-  severity,
-  description,
-  violationCount,
-  sampleViolations,
-  recommendation
-) {
+function securityResult(id, name, category, severity, description, violationCount, sampleViolations, recommendation) {
   return {
     id,
     name,

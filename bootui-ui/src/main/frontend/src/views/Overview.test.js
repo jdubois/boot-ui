@@ -44,7 +44,7 @@ const allPanels = {
     {id: 'vulnerabilities', available: true},
     {id: 'pentesting', available: true},
     {id: 'architecture', available: true},
-    {id: 'hibernate-advisor', available: true},
+    {id: 'hibernate', available: true},
     {id: 'github', available: true}
   ]
 }
@@ -69,7 +69,7 @@ describe('Overview', () => {
         {id: 'vulnerabilities', available: true},
         {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
-        {id: 'hibernate-advisor', available: false},
+        {id: 'hibernate', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -101,7 +101,7 @@ describe('Overview', () => {
         {id: 'vulnerabilities', available: false},
         {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
-        {id: 'hibernate-advisor', available: false},
+        {id: 'hibernate', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -121,7 +121,7 @@ describe('Overview', () => {
       'api/vulnerabilities/scan': severityReport([{severity: 'CRITICAL', count: 1}]),
       'api/pentesting/scan': severityReport([]),
       'api/architecture/scan': severityReport([]),
-      'api/hibernate-advisor/scan': severityReport([]),
+      'api/hibernate/scan': severityReport([]),
       'api/github/refresh': githubReport({alerts: 0})
     })
     const wrapper = mountOverview(allPanels)
@@ -145,11 +145,11 @@ describe('Overview', () => {
         {id: 'vulnerabilities', available: false},
         {id: 'pentesting', available: false},
         {id: 'architecture', available: false},
-        {id: 'hibernate-advisor', available: false},
-        {id: 'rest-advisor', available: false},
-        {id: 'spring-advisor', available: false},
-        {id: 'memory-advisor', available: false},
-        {id: 'security-advisor', available: false},
+        {id: 'hibernate', available: false},
+        {id: 'rest-api', available: false},
+        {id: 'spring', available: false},
+        {id: 'memory', available: false},
+        {id: 'security', available: false},
         {id: 'github', available: true}
       ]
     })

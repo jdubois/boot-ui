@@ -21,7 +21,7 @@ public final class BootUiPanels {
     public static final String JVM_TUNING = "jvm-tuning";
     public static final String HEAP_DUMP = "heap-dump";
     public static final String THREADS = "threads";
-    public static final String MEMORY_ADVISOR = "memory-advisor";
+    public static final String MEMORY = "memory";
     public static final String STARTUP = "startup";
     public static final String GRAALVM = "graalvm";
     public static final String SCHEDULED = "scheduled";
@@ -35,10 +35,10 @@ public final class BootUiPanels {
     public static final String FLYWAY = "flyway";
     public static final String LIQUIBASE = "liquibase";
     public static final String DATABASE_CONNECTION_POOLS = "database-connection-pools";
-    public static final String HIBERNATE_ADVISOR = "hibernate-advisor";
+    public static final String HIBERNATE = "hibernate";
     public static final String SPRING_CACHE = "spring-cache";
     public static final String SPRING_SECURITY = "spring-security";
-    public static final String SECURITY_ADVISOR = "security-advisor";
+    public static final String SECURITY = "security";
     public static final String SECURITY_LOGS = "security-logs";
     public static final String AI = "ai";
     public static final String TRACES = "traces";
@@ -46,7 +46,7 @@ public final class BootUiPanels {
     public static final String HTTP_EXCHANGES = "http-exchanges";
     public static final String HTTP_PROBE = "http-probe";
     public static final String ARCHITECTURE = "architecture";
-    public static final String REST_ADVISOR = "rest-advisor";
+    public static final String REST_API = "rest-api";
     public static final String PENTESTING = "pentesting";
     public static final String VULNERABILITIES = "vulnerabilities";
     public static final String DEVTOOLS = "devtools";
@@ -54,7 +54,7 @@ public final class BootUiPanels {
     public static final String COPILOT = "copilot";
     public static final String CLAUDE_CODE = "claude-code";
     public static final String GITHUB = "github";
-    public static final String SPRING_ADVISOR = "spring-advisor";
+    public static final String SPRING = "spring";
 
     private static final List<Panel> PANELS = List.of(
             new Panel(OVERVIEW, "Overview", false, "/overview"),
@@ -65,7 +65,7 @@ public final class BootUiPanels {
             new Panel(JVM_TUNING, "JVM Tuning", false, "/jvm-tuning"),
             new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
             new Panel(THREADS, "Threads", true, "/threads"),
-            new Panel(MEMORY_ADVISOR, "Memory", true, "/memory-advisor"),
+            new Panel(MEMORY, "Memory", true, "/memory"),
             new Panel(STARTUP, "Startup Timeline", false, "/startup"),
             new Panel(GRAALVM, "GraalVM", true, "/graalvm"),
             new Panel(CONFIG, "Configuration", true, "/config"),
@@ -75,13 +75,13 @@ public final class BootUiPanels {
             new Panel(CONDITIONS, "Conditions", false, "/conditions"),
             new Panel(MAPPINGS, "Mappings", false, "/mappings"),
             new Panel(SPRING_SECURITY, "Spring Security", false, "/spring-security"),
-            new Panel(SECURITY_ADVISOR, "Security", true, "/security-advisor"),
+            new Panel(SECURITY, "Security", true, "/security"),
             new Panel(SECURITY_LOGS, "Security Logs", false, "/security-logs"),
             new Panel(PENTESTING, "Pentesting", true, "/pentesting"),
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
             new Panel(DATA, "Spring Data", false, "/data"),
-            new Panel(HIBERNATE_ADVISOR, "Hibernate", true, "/hibernate-advisor"),
+            new Panel(HIBERNATE, "Hibernate", true, "/hibernate"),
             new Panel(SPRING_CACHE, "Spring Cache", true, "/spring-cache"),
             new Panel(AI, "AI Usage", false, "/ai"),
             new Panel(TRACES, "Traces", true, "/traces"),
@@ -97,8 +97,8 @@ public final class BootUiPanels {
             new Panel(FLYWAY, "Flyway", true, "/flyway"),
             new Panel(LIQUIBASE, "Liquibase", true, "/liquibase"),
             new Panel(GITHUB, "GitHub", true, "/github"),
-            new Panel(REST_ADVISOR, "REST API", true, "/rest-advisor"),
-            new Panel(SPRING_ADVISOR, "Spring", true, "/spring-advisor"));
+            new Panel(REST_API, "REST API", true, "/rest-api"),
+            new Panel(SPRING, "Spring", true, "/spring"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));
