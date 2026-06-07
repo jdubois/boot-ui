@@ -118,6 +118,8 @@ rules, sorted by severity and finding count. The heuristics complement — rathe
 contract testing. See [REST-API-CHECKS.md](REST-API-CHECKS.md) for the full catalogue of rules and what
 each one inspects.
 
+![BootUI REST API panel](./images/bootui-rest-api.png)
+
 ### Spring
 
 The Spring panel runs an explicit, read-only scan of the host application's running Spring application context and
@@ -131,6 +133,8 @@ wired runtime context instead. The report is a heuristic review prompt, not a ve
 intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
 catalogue and remediation links.
 
+![BootUI Spring panel](./images/bootui-spring.png)
+
 ### Hibernate
 
 The Hibernate panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when
@@ -140,7 +144,7 @@ generators, collection fetch pagination, unsafe cascades, cache misconfiguration
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Hibernate panel](./images/bootui-hibernate-advisor.png)
+![BootUI Hibernate panel](./images/bootui-hibernate.png)
 
 ### Memory
 
@@ -150,6 +154,8 @@ findings such as heap pressure, metaspace saturation, native-footprint risk insi
 thread deadlocks, and collection bloat. It complements the raw Live Memory and Threads panels by diagnosing the data they
 expose. The scan is on demand and caches the last report; new rules are added as small, focused classes in the `memory`
 package. See [MEMORY-CHECKS.md](MEMORY-CHECKS.md) for the full rule catalogue and remediation links.
+
+![BootUI Memory panel](./images/bootui-memory.png)
 
 ### Security
 
@@ -229,7 +235,7 @@ The Live Memory panel summarizes current live JVM heap and non-heap usage plus m
 the running process metrics so you can spot high heap pressure, non-heap growth, and pool-level saturation without the
 JVM sizing controls mixed into the view.
 
-![BootUI Live Memory panel](./images/bootui-memory.png)
+![BootUI Live Memory panel](./images/bootui-live-memory.png)
 
 ### JVM Tuning
 
@@ -419,7 +425,7 @@ classpath or no `SpringLiquibase` beans are present.
 The Spring Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
 meant to explain local security wiring without exposing credentials or replacing a full security audit.
 
-![BootUI Spring Security panel](./images/bootui-security.png)
+![BootUI Spring Security panel](./images/bootui-spring-security.png)
 
 ### Security Logs
 

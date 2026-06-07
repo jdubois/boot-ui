@@ -1128,6 +1128,10 @@ Initial endpoints:
 | `/bootui/api/architecture/scan`              | POST   | Run explicit ArchUnit hygiene checks                                                   |
 | `/bootui/api/rest-api`                   | GET    | Latest REST API Advisor scan report                                                    |
 | `/bootui/api/rest-api/scan`              | POST   | Run explicit read-only REST API best-practice checks                                   |
+| `/bootui/api/spring`                     | GET    | Latest Spring Advisor scan report                                                      |
+| `/bootui/api/spring/scan`                | POST   | Run explicit read-only Spring context and configuration checks                         |
+| `/bootui/api/memory`                     | GET    | Latest Memory Advisor scan report                                                      |
+| `/bootui/api/memory/scan`                | POST   | Run explicit read-only JVM memory, GC, and thread health checks                        |
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
@@ -1265,6 +1269,15 @@ Top-level navigation:
 - Overview:
   - Overview.
   - GitHub.
+- Advisors:
+  - Architecture.
+  - REST API.
+  - Spring.
+  - Hibernate.
+  - Memory.
+  - Security.
+  - Pentesting.
+  - Vulnerabilities.
 - Runtime:
   - Health.
   - HTTP Sessions.
@@ -1285,15 +1298,11 @@ Top-level navigation:
 - Database:
   - Database Connection Pools.
   - Spring Data.
-  - Hibernate.
   - Flyway.
   - Liquibase.
 - Security:
   - Spring Security.
   - Security Logs.
-  - Security.
-  - Pentesting.
-  - Vulnerabilities.
 - Services:
   - Scheduled Tasks.
   - Spring Cache.
@@ -1303,8 +1312,6 @@ Top-level navigation:
   - Log Tail.
   - HTTP Exchanges.
   - HTTP Probe.
-  - Architecture.
-  - REST API.
 - Developer tools:
   - DevTools.
   - Dev Services.
@@ -1398,12 +1405,12 @@ Future compatibility:
 BootUI's 1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
-  unavailable navigation groups covering Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump, Threads,
-  Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database Connection
-  Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
+- The UI shows Overview, Advisors, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and
+  Disabled / unavailable navigation groups covering Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump,
+  Threads, Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database
+  Connection Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
   Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
-  REST API,
+  REST API, Spring, Memory,
   DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.
 - Secret-like values are masked.

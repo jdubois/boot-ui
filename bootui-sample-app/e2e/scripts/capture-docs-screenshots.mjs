@@ -1744,6 +1744,161 @@ const security = {
   ]
 }
 
+const spring = {
+  localOnly: true,
+  disclaimer:
+    'Heuristic, project-agnostic Spring rules run against the running application context and Environment only. ' +
+    'These checks are review prompts, not verdicts, and should be validated against the application design and tests.',
+  rulesEvaluated: 31,
+  violationsFound: 4,
+  componentsAnalyzed: 168,
+  inspected: [
+    'Active profiles: dev',
+    'JSON mapper beans: objectMapper, jsonMapper',
+    'RestTemplate beans: restTemplate',
+    'spring.application.name: (unset)',
+    'debug flag: true',
+    'spring-boot-devtools: present on classpath'
+  ],
+  severityCounts: [
+    {severity: 'HIGH', count: 0},
+    {severity: 'MEDIUM', count: 1},
+    {severity: 'LOW', count: 3},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI Spring Advisor',
+    status: 'SCANNED',
+    message: 'Spring Advisor evaluated 31 rules against the running application context.',
+    scannedAt: nowMillis - 28_000,
+    rulesEvaluated: 31,
+    componentsAnalyzed: 168,
+    violationsFound: 4
+  },
+  results: [
+    restApiResult(
+      'SPRING-PROFILE-002',
+      'Spring Boot DevTools should be scoped to development',
+      'Profiles and environment',
+      'MEDIUM',
+      'Spring Boot DevTools is on the classpath. It enables automatic restart, a live-reload server, and relaxed caching, and must never be bundled into a production artifact.',
+      'VIOLATION',
+      1,
+      ['spring-boot-devtools is present on the classpath.'],
+      'Scope spring-boot-devtools to development only (Maven <optional>true</optional> / Gradle developmentOnly) so it is excluded from production builds.',
+      'https://docs.spring.io/spring-boot/reference/using/devtools.html'
+    ),
+    restApiResult(
+      'SPRING-WIRING-003',
+      'Avoid multiple JSON mapper beans',
+      'Bean wiring',
+      'LOW',
+      'Detects more than one Jackson JSON mapper bean with none marked @Primary, which can lead to inconsistent JSON (de)serialization depending on which one is injected.',
+      'VIOLATION',
+      2,
+      ['JSON mapper bean: objectMapper', 'JSON mapper bean: jsonMapper'],
+      'Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customise the auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.',
+      'https://docs.spring.io/spring-boot/reference/features/json.html'
+    ),
+    restApiResult(
+      'SPRING-WIRING-007',
+      'Prefer RestClient over RestTemplate',
+      'Bean wiring',
+      'LOW',
+      'A RestTemplate bean is defined. RestTemplate is in maintenance mode; Spring Boot 4 favours the fluent, modern RestClient for synchronous HTTP access.',
+      'VIOLATION',
+      1,
+      ['RestTemplate bean: restTemplate'],
+      'Migrate RestTemplate usage to RestClient (RestClient.create() or an injected RestClient.Builder). Keep RestTemplate only where a dependency still requires it.',
+      'https://docs.spring.io/spring-framework/reference/integration/rest-clients.html'
+    ),
+    restApiResult(
+      'SPRING-CONFIG-002',
+      'Disable global debug or trace logging',
+      'Configuration',
+      'LOW',
+      'Detects debug=true or trace=true, which switch on verbose auto-configuration logging and can leak internal details or slow down the application.',
+      'VIOLATION',
+      1,
+      ['debug=true is set in the environment.'],
+      'Remove the debug/trace flags and configure logging levels per package instead.',
+      'https://docs.spring.io/spring-boot/reference/features/logging.html'
+    )
+  ]
+}
+
+const memoryAdvisor = {
+  localOnly: true,
+  disclaimer:
+    'Heuristic JVM memory, GC, and thread rules run against the live management beans only. ' +
+    'Findings are review prompts; validate against the application workload and a profiler before acting.',
+  rulesEvaluated: 22,
+  violationsFound: 3,
+  summary: {
+    heapUsedPercent: 82,
+    heapUsedBytes: 1_476_395_008,
+    heapMaxBytes: 1_797_357_568,
+    liveThreads: 48,
+    peakThreads: 61,
+    loadedClasses: 18_342,
+    deadlockDetected: false,
+    histogramAvailable: true
+  },
+  severityCounts: [
+    {severity: 'CRITICAL', count: 0},
+    {severity: 'HIGH', count: 0},
+    {severity: 'MEDIUM', count: 3},
+    {severity: 'LOW', count: 0},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI Memory Advisor',
+    status: 'SCANNED',
+    message: 'Memory Advisor evaluated 22 rules against the live management beans.',
+    scannedAt: nowMillis - 24_000,
+    rulesEvaluated: 22,
+    violationsFound: 3
+  },
+  results: [
+    restApiResult(
+      'MEM-HEAP-002',
+      'Old generation is near its maximum',
+      'Heap pressure',
+      'MEDIUM',
+      'The tenured/old generation pool is nearly full, a common precursor to full GCs and promotion failures.',
+      'VIOLATION',
+      1,
+      ['G1 Old Gen: 1.30 GiB used of 1.40 GiB max (93%).'],
+      'Investigate long-lived object retention; consider raising the heap size or tuning the young/old ratio.',
+      'https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html'
+    ),
+    restApiResult(
+      'MEM-POOL-001',
+      'Metaspace is close to its maximum',
+      'Memory pools',
+      'MEDIUM',
+      'The Metaspace pool is nearly full, which can cause OutOfMemoryError: Metaspace, often from classloader leaks or excessive dynamic class generation.',
+      'VIOLATION',
+      1,
+      ['Metaspace: 246 MiB used of 256 MiB max (96%).'],
+      'Raise -XX:MaxMetaspaceSize, or investigate classloader leaks and runtime class generation (proxies, scripting).',
+      'https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html'
+    ),
+    restApiResult(
+      'MEM-GC-002',
+      'Cumulative GC time is a large share of uptime',
+      'GC configuration',
+      'MEDIUM',
+      'Compares total time spent in garbage collection since JVM start against the JVM uptime. A high lifetime ratio is a classic sign of an undersized heap or an excessive allocation rate.',
+      'VIOLATION',
+      1,
+      ['GC has consumed 12.4% of JVM uptime since start.'],
+      'Increase the heap (-Xmx/-XX:MaxRAMPercentage), reduce the allocation rate, or review the collector choice if GC consistently consumes this much time.',
+      'https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html'
+    )
+  ]
+}
+
 const graalVm = {
   localOnly: true,
   disclaimer:
@@ -2155,7 +2310,7 @@ const screenshots = [
       await page.waitForTimeout(2300)
     }
   ],
-  ['live-memory', 'Live Memory', 'bootui-memory.png', waitForText('Memory Pools')],
+  ['live-memory', 'Live Memory', 'bootui-live-memory.png', waitForText('Memory Pools')],
   ['jvm-tuning', 'JVM Tuning', 'bootui-jvm-tuning.png', waitForText('Bare metal JVM calculator')],
   [
     'heap-dump',
@@ -2198,7 +2353,7 @@ const screenshots = [
   ['hibernate', 'Hibernate', 'bootui-hibernate.png', waitForText('FetchType.EAGER')],
   ['flyway', 'Flyway', 'bootui-flyway.png', waitForText('V3__add_catalog_tags.sql')],
   ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
-  ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
+  ['spring-security', 'Spring Security', 'bootui-spring-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
   ['security', 'Security', 'bootui-security.png', waitForText('SEC-ACT-002')],
   ['pentesting', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
@@ -2233,6 +2388,8 @@ const screenshots = [
   ],
   ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
   ['rest-api', 'REST API', 'bootui-rest-api.png', waitForText("Don't expose JPA entities in responses")],
+  ['spring', 'Spring', 'bootui-spring.png', waitForText('Prefer RestClient over RestTemplate')],
+  ['memory', 'Memory', 'bootui-memory.png', waitForText('Old generation is near its maximum')],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [
@@ -2796,6 +2953,10 @@ async function handleApiRoute(route) {
   if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
   if (endpoint === 'rest-api') return fulfillJson(route, restApi)
   if (endpoint === 'rest-api/scan') return fulfillJson(route, restApi)
+  if (endpoint === 'spring') return fulfillJson(route, spring)
+  if (endpoint === 'spring/scan') return fulfillJson(route, spring)
+  if (endpoint === 'memory') return fulfillJson(route, memoryAdvisor)
+  if (endpoint === 'memory/scan') return fulfillJson(route, memoryAdvisor)
   if (endpoint === 'graalvm') return fulfillJson(route, graalVm)
   if (endpoint === 'graalvm/scan') return fulfillJson(route, graalVm)
 
