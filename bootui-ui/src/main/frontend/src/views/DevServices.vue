@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, ref} from 'vue'
+import {formatClockTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
@@ -72,12 +73,7 @@ function statusClass(status) {
 
 function formatSnapshot(timestamp) {
   if (!timestamp) return 'unknown'
-  return new Date(timestamp).toLocaleTimeString([], {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  return formatClockTime(timestamp)
 }
 
 function formatPorts(service) {
