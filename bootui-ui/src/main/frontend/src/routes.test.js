@@ -138,7 +138,8 @@ describe('routes', () => {
       {path: '/spring-advisor', redirect: '/spring'},
       {path: '/hibernate-advisor', redirect: '/hibernate'},
       {path: '/memory-advisor', redirect: '/memory'},
-      {path: '/security-advisor', redirect: '/security'}
+      {path: '/security-advisor', redirect: '/security'},
+      {path: '/profiles', redirect: '/profile-diff'}
     ])
   })
 })

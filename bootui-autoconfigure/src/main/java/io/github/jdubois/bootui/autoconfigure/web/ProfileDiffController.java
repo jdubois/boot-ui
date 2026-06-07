@@ -27,8 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
  * exactly which properties are contributed by each active profile.</p>
  */
 @RestController
-@RequestMapping("/bootui/api/profiles")
-public class ProfileController {
+@RequestMapping("/bootui/api/profile-diff")
+public class ProfileDiffController {
 
     private static final Pattern PROFILE_SOURCE_PATTERN = Pattern.compile(
             "(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
@@ -37,7 +37,7 @@ public class ProfileController {
     private final BootUiExposure exposure;
     private final SecretMasker masker = new SecretMasker();
 
-    public ProfileController(ConfigurableEnvironment environment, BootUiProperties properties) {
+    public ProfileDiffController(ConfigurableEnvironment environment, BootUiProperties properties) {
         this.environment = environment;
         this.exposure = new BootUiExposure(environment, properties);
     }

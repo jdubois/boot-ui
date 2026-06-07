@@ -15,7 +15,7 @@ const allPanelLinks = [
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
   {id: 'graalvm', title: 'GraalVM', heading: /^GraalVM/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
-  {id: 'profiles', title: 'Profile Diff', heading: /Profile Diff/},
+  {id: 'profile-diff', title: 'Profile Diff', heading: /Profile Diff/},
   {id: 'loggers', title: 'Loggers', heading: /^Loggers/},
   {id: 'beans', title: 'Beans', heading: /^Beans/},
   {id: 'conditions', title: 'Conditions', heading: /Auto-configuration conditions/},

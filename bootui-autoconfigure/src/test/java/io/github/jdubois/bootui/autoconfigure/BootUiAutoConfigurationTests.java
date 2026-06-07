@@ -220,7 +220,7 @@ class BootUiAutoConfigurationTests {
                             OverviewController.class,
                             PanelsController.class,
                             PentestingController.class,
-                            ProfileController.class,
+                            ProfileDiffController.class,
                             ScheduledController.class,
                             SecurityLogsController.class,
                             SecurityController.class,

@@ -26,7 +26,7 @@ public final class BootUiPanels {
     public static final String GRAALVM = "graalvm";
     public static final String SCHEDULED = "scheduled";
     public static final String CONFIG = "config";
-    public static final String PROFILES = "profiles";
+    public static final String PROFILE_DIFF = "profile-diff";
     public static final String LOGGERS = "loggers";
     public static final String BEANS = "beans";
     public static final String CONDITIONS = "conditions";
@@ -69,7 +69,7 @@ public final class BootUiPanels {
             new Panel(STARTUP, "Startup Timeline", false, "/startup"),
             new Panel(GRAALVM, "GraalVM", true, "/graalvm"),
             new Panel(CONFIG, "Configuration", true, "/config"),
-            new Panel(PROFILES, "Profile Diff", false, "/profiles"),
+            new Panel(PROFILE_DIFF, "Profile Diff", false, "/profile-diff"),
             new Panel(LOGGERS, "Loggers", true, "/loggers"),
             new Panel(BEANS, "Beans", false, "/beans"),
             new Panel(CONDITIONS, "Conditions", false, "/conditions"),

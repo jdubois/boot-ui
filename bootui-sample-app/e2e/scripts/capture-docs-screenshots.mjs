@@ -31,7 +31,7 @@ const panelOrder = [
   ['startup', 'Startup Timeline'],
   ['graalvm', 'GraalVM'],
   ['config', 'Configuration'],
-  ['profiles', 'Profile Diff'],
+  ['profile-diff', 'Profile Diff'],
   ['loggers', 'Loggers'],
   ['beans', 'Beans'],
   ['conditions', 'Conditions'],
@@ -2170,7 +2170,7 @@ const screenshots = [
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
   ['graalvm', 'GraalVM', 'bootui-graalvm.png', waitForText('Reflective constructor access needs metadata')],
   ['config', 'Configuration', 'bootui-configuration.png', waitForText('sample.greeting')],
-  ['profiles', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
+  ['profile-diff', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
   ['loggers', 'Loggers', 'bootui-loggers.png', waitForText('io.github.jdubois.bootui')],
   ['beans', 'Beans', 'bootui-beans.png', waitForText('sampleController')],
   ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
@@ -2670,7 +2670,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'mappings') return fulfillJson(route, mappings)
   if (endpoint === 'mappings/flat') return fulfillJson(route, pagedReport('mappings', flatMappings, url))
   if (endpoint === 'config') return fulfillJson(route, configuration)
-  if (endpoint === 'profiles') return fulfillJson(route, profileDiff)
+  if (endpoint === 'profile-diff') return fulfillJson(route, profileDiff)
   if (endpoint === 'loggers') return fulfillJson(route, loggers)
   if (endpoint === 'threads') return fulfillJson(route, pagedReport('threads', threads.threads, url, threads))
   if (endpoint === 'threads/download') return fulfillJson(route, {status: 'OK'})

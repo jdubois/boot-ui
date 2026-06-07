@@ -15,7 +15,7 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const res = await apiFetch('api/profiles')
+    const res = await apiFetch('api/profile-diff')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     data.value = await res.json()
     lastFetched.value = Date.now()

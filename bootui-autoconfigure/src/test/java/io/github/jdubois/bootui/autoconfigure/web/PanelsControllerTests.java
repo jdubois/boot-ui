@@ -33,7 +33,7 @@ class PanelsControllerTests {
             BootUiPanels.STARTUP,
             BootUiPanels.GRAALVM,
             BootUiPanels.CONFIG,
-            BootUiPanels.PROFILES,
+            BootUiPanels.PROFILE_DIFF,
             BootUiPanels.LOGGERS,
             BootUiPanels.BEANS,
             BootUiPanels.CONDITIONS,

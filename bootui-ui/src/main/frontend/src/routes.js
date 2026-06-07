@@ -7,7 +7,7 @@ const Mappings = () => import('./views/Mappings.vue')
 const Health = () => import('./views/Health.vue')
 const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
-const DatabaseConnectionsPools = () => import('./views/DatabaseConnectionsPools.vue')
+const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const Data = () => import('./views/Data.vue')
 const Hibernate = () => import('./views/Hibernate.vue')
 const Flyway = () => import('./views/Flyway.vue')
@@ -175,8 +175,8 @@ export const routes = [
     meta: {group: groups.configuration, icon: 'bi-sliders', title: 'Configuration'}
   },
   {
-    path: '/profiles',
-    name: 'profiles',
+    path: '/profile-diff',
+    name: 'profile-diff',
     component: ProfileDiff,
     meta: {group: groups.configuration, icon: 'bi-layers', title: 'Profile Diff'}
   },
@@ -207,7 +207,7 @@ export const routes = [
   {
     path: '/database-connection-pools',
     name: 'database-connection-pools',
-    component: DatabaseConnectionsPools,
+    component: DatabaseConnectionPools,
     meta: {group: groups.database, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
   },
   {
@@ -313,5 +313,6 @@ export const routes = [
   {path: '/spring-advisor', redirect: '/spring'},
   {path: '/hibernate-advisor', redirect: '/hibernate'},
   {path: '/memory-advisor', redirect: '/memory'},
-  {path: '/security-advisor', redirect: '/security'}
+  {path: '/security-advisor', redirect: '/security'},
+  {path: '/profiles', redirect: '/profile-diff'}
 ]

@@ -1116,7 +1116,7 @@ Initial endpoints:
 | `/bootui/api/ai/chats`                       | GET    | Recent AI chat span groups                                                             |
 | `/bootui/api/ai/chats/{spanId}`              | GET    | AI chat span detail                                                                    |
 | `/bootui/api/ai/tokens`                      | GET    | AI token usage time series                                                             |
-| `/bootui/api/profiles`                       | GET    | Profile-specific property sources                                                      |
+| `/bootui/api/profile-diff`                       | GET    | Profile-specific property sources                                                      |
 | `/bootui/api/dev-services`                   | GET    | Docker Compose, Testcontainers, and service connection entries                         |
 | `/bootui/api/dev-services/{id}/logs`         | GET    | Bounded log tail for a bean-backed service when available                              |
 | `/bootui/api/dev-services/{id}/restart`      | POST   | Restart a bean-backed service only when explicitly enabled                             |

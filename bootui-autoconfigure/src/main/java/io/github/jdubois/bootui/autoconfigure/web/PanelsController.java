@@ -100,7 +100,7 @@ public class PanelsController {
             case BootUiPanels.STARTUP ->
                 availability(beanPresent(StartupEndpoint.class), "Actuator startup endpoint not available");
             case BootUiPanels.SCHEDULED -> availability(scheduledAvailable(), "Scheduling is not enabled");
-            case BootUiPanels.PROFILES ->
+            case BootUiPanels.PROFILE_DIFF ->
                 availability(profilesAvailable(), "No active profiles or profile-specific config sources available");
             case BootUiPanels.LOGGERS ->
                 availability(beanPresent(LoggersEndpoint.class), "Actuator loggers endpoint not available");

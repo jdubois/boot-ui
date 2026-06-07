@@ -365,7 +365,7 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void profilesEndpointReturnsActiveProfileReport() {
-        ResponseEntity<Map> response = getMap("/bootui/api/profiles");
+        ResponseEntity<Map> response = getMap("/bootui/api/profile-diff");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
