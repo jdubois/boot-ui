@@ -70,7 +70,7 @@ classpath; otherwise they are reported as `SKIPPED`.
 |---|---|---|---|---|
 | `RAPI-RESP-001` | Creation endpoints return 201 Created | MEDIUM | A POST that creates a resource but returns the default 200 OK hides the created status and (usually) the Location of the new resource. | Return 201 via @ResponseStatus(HttpStatus.CREATED) or ResponseEntity.created(...). |
 | `RAPI-RESP-002` | Void DELETE returns 204 No Content | LOW | A DELETE handler returning void but defaulting to 200 OK sends an empty 200 instead of the more precise 204 No Content. | Annotate void DELETE handlers with @ResponseStatus(HttpStatus.NO_CONTENT) or return ResponseEntity.noContent(). |
-| `RAPI-RESP-003` | No untyped ResponseEntity body | LOW | ResponseEntity<?> or ResponseEntity<Object> erases the response contract, so clients and OpenAPI tooling cannot infer the body type. | Parameterize ResponseEntity with the concrete DTO type returned by the handler. |
+| `RAPI-RESP-003` | No untyped ResponseEntity body | LOW | `ResponseEntity<?>` or `ResponseEntity<Object>` erases the response contract, so clients and OpenAPI tooling cannot infer the body type. | Parameterize ResponseEntity with the concrete DTO type returned by the handler. |
 | `RAPI-RESP-004` | Read endpoints return a representation | LOW | A GET returning a bare String or primitive exposes a value without a stable, evolvable representation. | Return a DTO/record representation from read endpoints instead of a raw String or primitive. |
 
 ### Input validation & binding

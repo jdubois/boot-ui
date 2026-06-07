@@ -140,4 +140,3 @@ The panel is always available (a Spring application context always exists). Bean
 - **Detects**: HTTP/2 is not enabled (server.http2.enabled is not true). HTTP/2 multiplexing can improve latency for browsers and modern clients.
 - **Recommendation**: Enable server.http2.enabled=true (over TLS) once the runtime and clients support it.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
-

@@ -118,8 +118,6 @@ rules, sorted by severity and finding count. The heuristics complement — rathe
 contract testing. See [REST-API-ADVISOR-CHECKS.md](REST-API-ADVISOR-CHECKS.md) for the full catalogue of rules and what
 each one inspects.
 
-![BootUI REST API Advisor panel](./images/bootui-rest-advisor.png)
-
 ### Spring Advisor
 
 The Spring Advisor panel runs an explicit, read-only scan of the host application's running Spring application context and
