@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 class RestApiHandlerModelBuilderTests {
 
     private static final String FIXTURES = "io.github.jdubois.bootui.autoconfigure.restapi.fixtures";
+    private static final String EDGE = "io.github.jdubois.bootui.autoconfigure.restapi.edgecases";
 
     private RestApiHandlerModelBuilder model() {
         JavaClasses classes = new ClassFileImporter().importPackages(FIXTURES);
@@ -119,6 +120,28 @@ class RestApiHandlerModelBuilderTests {
                 .findFirst();
         assertThat(handler).isPresent();
         assertThat(handler.orElseThrow().returnsProblemType()).isTrue();
+    }
+
+    @Test
+    void derivesNewerHandlerFactsFromEdgeCases() {
+        JavaClasses classes = new ClassFileImporter().importPackages(EDGE);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        HandlerMethodModel getWidget = handler(model, "getWidget");
+        assertThat(getWidget.pathVariableNames()).containsExactly("widgetId");
+
+        HandlerMethodModel scan = handler(model, "scan");
+        assertThat(scan.hasUnboundedPrimitiveRequestParam()).isTrue();
+
+        HandlerMethodModel createWidget = handler(model, "createWidget");
+        assertThat(createWidget.hasRequestBody()).isTrue();
+        assertThat(createWidget.effectiveConsumes()).isEmpty();
+
+        HandlerMethodModel patchWidget = handler(model, "patchWidget");
+        assertThat(patchWidget.effectiveConsumes()).contains("application/json");
+
+        HandlerMethodModel removeWidget = handler(model, "removeWidget");
+        assertThat(removeWidget.serializesBody()).isTrue();
     }
 
     @Test

@@ -13,6 +13,7 @@ class RestApiRulesTests {
     private static final String FIXTURES = "io.github.jdubois.bootui.autoconfigure.restapi.fixtures";
     private static final String GOOD = "io.github.jdubois.bootui.autoconfigure.restapi.fixtures.good";
     private static final String BAD = "io.github.jdubois.bootui.autoconfigure.restapi.fixtures.bad";
+    private static final String EDGE = "io.github.jdubois.bootui.autoconfigure.restapi.edgecases";
 
     private RestApiContext context(boolean springdocPresent, String... packages) {
         JavaClasses classes = new ClassFileImporter().importPackages(packages);
@@ -123,6 +124,64 @@ class RestApiRulesTests {
         assertThat(status(new VoidDeleteReturns204Rule(), context)).isEqualTo("PASS");
         assertThat(status(new NoMassAssignmentViaEntitiesRule(), context)).isEqualTo("PASS");
         assertThat(status(new ResourcePathsAreNounsRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void cleanControllerPassesNewerRules() {
+        RestApiContext context = context(false, GOOD);
+
+        assertThat(status(new PathVariablesAreBoundRule(), context)).isEqualTo("PASS");
+        assertThat(status(new NoRequestBodyOnBodylessMethodsRule(), context)).isEqualTo("PASS");
+        assertThat(status(new VoidReadEndpointsReturnContentRule(), context)).isEqualTo("PASS");
+        assertThat(status(new NoContentResponsesHaveNoBodyRule(), context)).isEqualTo("PASS");
+        assertThat(status(new ResponseStatusIgnoredWithResponseEntityRule(), context))
+                .isEqualTo("PASS");
+        assertThat(status(new OptionalPrimitiveRequestParamRule(), context)).isEqualTo("PASS");
+        assertThat(status(new MutatingEndpointsDeclareMediaTypesRule(), context))
+                .isEqualTo("PASS");
+        assertThat(status(new PatchUsesPatchMediaTypeRule(), context)).isEqualTo("PASS");
+        assertThat(status(new ExceptionHandlersSetErrorStatusRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void routingEdgeRulesFlagPathVariableAndBodyMisuse() {
+        RestApiContext context = context(false, EDGE);
+
+        assertThat(status(new PathVariablesAreBoundRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new NoRequestBodyOnBodylessMethodsRule(), context)).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void responseEdgeRulesFlagStatusMismatches() {
+        RestApiContext context = context(false, EDGE);
+
+        assertThat(status(new VoidReadEndpointsReturnContentRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new NoContentResponsesHaveNoBodyRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new ResponseStatusIgnoredWithResponseEntityRule(), context))
+                .isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void validationEdgeRuleFlagsOptionalPrimitiveParam() {
+        RestApiContext context = context(false, EDGE);
+
+        assertThat(status(new OptionalPrimitiveRequestParamRule(), context)).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void versioningEdgeRulesFlagMissingConsumesAndPatchMediaType() {
+        RestApiContext context = context(false, EDGE);
+
+        assertThat(status(new MutatingEndpointsDeclareMediaTypesRule(), context))
+                .isEqualTo("VIOLATION");
+        assertThat(status(new PatchUsesPatchMediaTypeRule(), context)).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void errorHandlingEdgeRuleFlagsBodyWithoutErrorStatus() {
+        RestApiContext context = context(false, EDGE);
+
+        assertThat(status(new ExceptionHandlersSetErrorStatusRule(), context)).isEqualTo("VIOLATION");
     }
 
     @Test

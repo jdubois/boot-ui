@@ -28,9 +28,14 @@ final class RestApiModel {
         static final String REQUEST_PARAM = "org.springframework.web.bind.annotation.RequestParam";
         static final String PATH_VARIABLE = "org.springframework.web.bind.annotation.PathVariable";
         static final String RESPONSE_STATUS = "org.springframework.web.bind.annotation.ResponseStatus";
+        static final String RESPONSE_BODY = "org.springframework.web.bind.annotation.ResponseBody";
         static final String EXCEPTION_HANDLER = "org.springframework.web.bind.annotation.ExceptionHandler";
         static final String CONTROLLER_ADVICE = "org.springframework.web.bind.annotation.ControllerAdvice";
         static final String REST_CONTROLLER_ADVICE = "org.springframework.web.bind.annotation.RestControllerAdvice";
+        static final String RESPONSE_ENTITY_EXCEPTION_HANDLER =
+                "org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler";
+        static final String HTTP_SERVLET_RESPONSE = "jakarta.servlet.http.HttpServletResponse";
+        static final String SERVER_HTTP_RESPONSE = "org.springframework.http.server.ServerHttpResponse";
 
         static final String VALID = "jakarta.validation.Valid";
         static final String VALIDATED = "org.springframework.validation.annotation.Validated";
@@ -50,6 +55,7 @@ final class RestApiModel {
 
         static final String OPERATION = "io.swagger.v3.oas.annotations.Operation";
         static final String TAG = "io.swagger.v3.oas.annotations.tags.Tag";
+        static final String HIDDEN = "io.swagger.v3.oas.annotations.Hidden";
     }
 
     /** A controller class (annotated {@code @Controller} or {@code @RestController}). */
@@ -60,6 +66,7 @@ final class RestApiModel {
             List<String> typeLevelPaths,
             boolean classValidated,
             boolean hasTag,
+            boolean hidden,
             int handlerCount) {
 
         ControllerModel {
@@ -97,13 +104,24 @@ final class RestApiModel {
             boolean requestBodyIsEntity,
             boolean hasConstrainedSimpleParam,
             boolean hasPageable,
-            boolean hasUnboundedOptionalRequestParam,
+            boolean hasUnboundedPrimitiveRequestParam,
+            boolean hasExplicitPageParam,
             boolean hasResponseStatus,
             String responseStatusValue,
             boolean declaresBroadThrows,
             boolean hasOperationAnnotation,
             boolean nameLooksStateChanging,
-            boolean nameLooksLikeFindAll) {
+            boolean nameLooksLikeFindAll,
+            boolean serializesBody,
+            String mappingVersion,
+            List<String> effectiveProduces,
+            List<String> effectiveConsumes,
+            List<String> params,
+            List<String> headers,
+            List<String> pathVariableNames,
+            boolean requestBodyIsSimple,
+            boolean hasTag,
+            boolean hidden) {
 
         HandlerMethodModel {
             httpMethods = List.copyOf(httpMethods);
@@ -111,6 +129,11 @@ final class RestApiModel {
             effectivePaths = List.copyOf(effectivePaths);
             produces = List.copyOf(produces);
             consumes = List.copyOf(consumes);
+            effectiveProduces = List.copyOf(effectiveProduces);
+            effectiveConsumes = List.copyOf(effectiveConsumes);
+            params = List.copyOf(params);
+            headers = List.copyOf(headers);
+            pathVariableNames = List.copyOf(pathVariableNames);
         }
 
         String describe() {
@@ -120,7 +143,15 @@ final class RestApiModel {
         }
     }
 
-    /** An {@code @ExceptionHandler} method, used by the RFC 7807 informational rule. */
+    /** An {@code @ExceptionHandler} method, used by the ProblemDetail and error-status rules. */
     record ExceptionHandlerModel(
-            String declaringClassName, String methodName, String bodyTypeName, boolean returnsProblemType) {}
+            String declaringClassName,
+            String methodName,
+            String bodyTypeName,
+            boolean returnsProblemType,
+            boolean returnsResponseEntity,
+            boolean returnsVoid,
+            boolean hasResponseStatus,
+            boolean hasResponseParam,
+            boolean rendersBody) {}
 }

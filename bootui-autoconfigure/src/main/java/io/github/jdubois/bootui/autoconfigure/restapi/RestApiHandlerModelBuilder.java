@@ -77,6 +77,28 @@ final class RestApiHandlerModelBuilder {
             "register",
             "edit");
 
+    private static final List<String> MAPPING_ANNOTATIONS = List.of(
+            Types.GET_MAPPING,
+            Types.POST_MAPPING,
+            Types.PUT_MAPPING,
+            Types.DELETE_MAPPING,
+            Types.PATCH_MAPPING,
+            Types.REQUEST_MAPPING);
+
+    /** Request-body parameter types where bean validation is meaningless (so VALID-001 should skip). */
+    private static final Set<String> SIMPLE_BODY_TYPES = Set.of(
+            "java.lang.String",
+            "java.lang.CharSequence",
+            "org.springframework.core.io.Resource",
+            "org.springframework.web.multipart.MultipartFile",
+            "jakarta.servlet.http.Part",
+            "java.io.InputStream",
+            "byte[]");
+
+    /** Lower-cased query-parameter names that signal manual pagination (so PAGE-001 should pass). */
+    private static final Set<String> PAGE_PARAM_NAMES =
+            Set.of("page", "size", "limit", "offset", "pagenumber", "pagesize", "perpage");
+
     private final List<ControllerModel> controllers = new ArrayList<>();
     private final List<HandlerMethodModel> handlers = new ArrayList<>();
     private final List<ExceptionHandlerModel> exceptionHandlers = new ArrayList<>();
@@ -120,12 +142,29 @@ final class RestApiHandlerModelBuilder {
         boolean restController = annotated(type, Types.REST_CONTROLLER) || metaAnnotated(type, Types.REST_CONTROLLER);
         boolean classValidated = annotated(type, Types.VALIDATED);
         boolean hasTag = annotated(type, Types.TAG);
+        boolean hidden = annotated(type, Types.HIDDEN);
+        boolean classResponseBody = annotated(type, Types.RESPONSE_BODY) || metaAnnotated(type, Types.RESPONSE_BODY);
         List<String> typeLevelPaths = mappingPaths(type, Types.REQUEST_MAPPING);
+        List<String> typeLevelProduces = mappingAttribute(type, Types.REQUEST_MAPPING, "produces");
+        List<String> typeLevelConsumes = mappingAttribute(type, Types.REQUEST_MAPPING, "consumes");
+        List<String> typeLevelParams = mappingAttribute(type, Types.REQUEST_MAPPING, "params");
+        List<String> typeLevelHeaders = mappingAttribute(type, Types.REQUEST_MAPPING, "headers");
 
         int handlerCount = 0;
         for (JavaMethod method : type.getMethods()) {
             try {
-                HandlerMethodModel model = toHandler(type, method, restController, classValidated, typeLevelPaths);
+                HandlerMethodModel model = toHandler(
+                        type,
+                        method,
+                        restController,
+                        classValidated,
+                        classResponseBody,
+                        hidden,
+                        typeLevelPaths,
+                        typeLevelProduces,
+                        typeLevelConsumes,
+                        typeLevelParams,
+                        typeLevelHeaders);
                 if (model != null) {
                     handlers.add(model);
                     handlerCount++;
@@ -141,6 +180,7 @@ final class RestApiHandlerModelBuilder {
                 typeLevelPaths,
                 classValidated,
                 hasTag,
+                hidden,
                 handlerCount));
     }
 
@@ -148,16 +188,42 @@ final class RestApiHandlerModelBuilder {
         boolean isAdvice = annotated(type, Types.CONTROLLER_ADVICE)
                 || annotated(type, Types.REST_CONTROLLER_ADVICE)
                 || metaAnnotated(type, Types.CONTROLLER_ADVICE);
+        boolean rendersBody = annotated(type, Types.REST_CONTROLLER)
+                || metaAnnotated(type, Types.REST_CONTROLLER)
+                || annotated(type, Types.REST_CONTROLLER_ADVICE)
+                || metaAnnotated(type, Types.REST_CONTROLLER_ADVICE)
+                || annotated(type, Types.RESPONSE_BODY)
+                || metaAnnotated(type, Types.RESPONSE_BODY);
         boolean foundAdviceHandler = false;
         for (JavaMethod method : type.getMethods()) {
             try {
                 if (!method.isAnnotatedWith(Types.EXCEPTION_HANDLER)) {
                     continue;
                 }
-                String bodyType = resolveBodyTypeName(method.getReturnType());
+                JavaType returnType = method.getReturnType();
+                String returnTypeName = returnType.toErasure().getName();
+                String bodyType = resolveBodyTypeName(returnType);
                 boolean problemType = Types.PROBLEM_DETAIL.equals(bodyType) || Types.ERROR_RESPONSE.equals(bodyType);
-                exceptionHandlers.add(
-                        new ExceptionHandlerModel(type.getName(), method.getName(), bodyType, problemType));
+                boolean returnsResponseEntity =
+                        Types.RESPONSE_ENTITY.equals(returnTypeName) || Types.HTTP_ENTITY.equals(returnTypeName);
+                boolean returnsVoid = "void".equals(returnTypeName)
+                        || "java.lang.Void".equals(returnTypeName)
+                        || "java.lang.Void".equals(bodyType);
+                boolean hasResponseStatus =
+                        method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
+                boolean hasResponseParam = hasResponseParameter(method);
+                boolean methodRendersBody =
+                        rendersBody || method.isAnnotatedWith(Types.RESPONSE_BODY) || returnsResponseEntity;
+                exceptionHandlers.add(new ExceptionHandlerModel(
+                        type.getName(),
+                        method.getName(),
+                        bodyType,
+                        problemType,
+                        returnsResponseEntity,
+                        returnsVoid,
+                        hasResponseStatus,
+                        hasResponseParam,
+                        methodRendersBody));
                 if (isAdvice) {
                     foundAdviceHandler = true;
                 }
@@ -165,7 +231,7 @@ final class RestApiHandlerModelBuilder {
                 // Ignore an unreadable exception-handler method.
             }
         }
-        if (foundAdviceHandler) {
+        if (foundAdviceHandler || (isAdvice && extendsClass(type, Types.RESPONSE_ENTITY_EXCEPTION_HANDLER))) {
             hasExceptionHandling = true;
         }
     }
@@ -175,7 +241,13 @@ final class RestApiHandlerModelBuilder {
             JavaMethod method,
             boolean restController,
             boolean classValidated,
-            List<String> typeLevelPaths) {
+            boolean classResponseBody,
+            boolean classHidden,
+            List<String> typeLevelPaths,
+            List<String> typeLevelProduces,
+            List<String> typeLevelConsumes,
+            List<String> typeLevelParams,
+            List<String> typeLevelHeaders) {
 
         Set<String> httpMethods = new LinkedHashSet<>();
         List<String> mappingPaths = new ArrayList<>();
@@ -246,9 +318,12 @@ final class RestApiHandlerModelBuilder {
         boolean hasRequestBody = false;
         boolean requestBodyValidated = false;
         boolean requestBodyIsEntity = false;
+        boolean requestBodyIsSimple = false;
         boolean hasConstrainedSimpleParam = false;
         boolean hasPageable = false;
-        boolean hasUnboundedOptionalRequestParam = false;
+        boolean hasUnboundedPrimitiveRequestParam = false;
+        boolean hasExplicitPageParam = false;
+        List<String> pathVariableNames = new ArrayList<>();
 
         for (JavaParameter parameter : method.getParameters()) {
             try {
@@ -259,16 +334,27 @@ final class RestApiHandlerModelBuilder {
                             || parameter.isAnnotatedWith(Types.VALIDATED)
                             || hasConstraintAnnotation(parameter);
                     requestBodyIsEntity |= safeAnnotated(parameter.getRawType(), Types.ENTITY);
+                    requestBodyIsSimple |= isSimpleBodyType(parameter.getRawType());
                 }
                 boolean simpleBinding = parameter.isAnnotatedWith(Types.PATH_VARIABLE)
                         || parameter.isAnnotatedWith(Types.REQUEST_PARAM);
                 if (simpleBinding && hasConstraintAnnotation(parameter)) {
                     hasConstrainedSimpleParam = true;
                 }
-                if (parameter.isAnnotatedWith(Types.REQUEST_PARAM)
-                        && Types.OPTIONAL.equals(paramTypeName)
-                        && isUnboundedRequestParam(parameter)) {
-                    hasUnboundedOptionalRequestParam = true;
+                if (parameter.isAnnotatedWith(Types.REQUEST_PARAM)) {
+                    if (isPrimitive(parameter.getRawType()) && isOptionalRequestParam(parameter)) {
+                        hasUnboundedPrimitiveRequestParam = true;
+                    }
+                    String explicitName = explicitBindingName(parameter, Types.REQUEST_PARAM);
+                    if (explicitName != null && PAGE_PARAM_NAMES.contains(explicitName.toLowerCase(Locale.ROOT))) {
+                        hasExplicitPageParam = true;
+                    }
+                }
+                if (parameter.isAnnotatedWith(Types.PATH_VARIABLE)) {
+                    String explicitName = explicitBindingName(parameter, Types.PATH_VARIABLE);
+                    if (explicitName != null) {
+                        pathVariableNames.add(explicitName);
+                    }
                 }
                 if (Types.PAGEABLE.equals(paramTypeName)) {
                     hasPageable = true;
@@ -283,14 +369,26 @@ final class RestApiHandlerModelBuilder {
         String responseStatusValue = responseStatusValue(method, type);
         boolean declaresBroadThrows = declaresBroadThrows(method);
         boolean hasOperation = method.isAnnotatedWith(Types.OPERATION);
+        boolean stateChanging = startsWithWord(method.getName(), STATE_CHANGING_PREFIXES);
         String lowerName = method.getName().toLowerCase(Locale.ROOT);
-        boolean stateChanging = startsWithAny(lowerName, STATE_CHANGING_PREFIXES);
         boolean findAll = lowerName.startsWith("findall")
                 || lowerName.startsWith("getall")
                 || lowerName.startsWith("listall")
                 || lowerName.equals("list")
                 || lowerName.startsWith("fetchall")
                 || lowerName.startsWith("readall");
+
+        boolean serializesBody = restController
+                || classResponseBody
+                || method.isAnnotatedWith(Types.RESPONSE_BODY)
+                || returnsResponseEntity;
+        String mappingVersion = mappingString(method, "version");
+        List<String> effectiveProduces = produces.isEmpty() ? List.copyOf(typeLevelProduces) : dedupe(produces);
+        List<String> effectiveConsumes = consumes.isEmpty() ? List.copyOf(typeLevelConsumes) : dedupe(consumes);
+        List<String> params = union(typeLevelParams, mappingStrings(method, "params"));
+        List<String> headers = union(typeLevelHeaders, mappingStrings(method, "headers"));
+        boolean hasTag = method.isAnnotatedWith(Types.TAG);
+        boolean hidden = classHidden || method.isAnnotatedWith(Types.HIDDEN) || operationHidden(method);
 
         return new HandlerMethodModel(
                 type.getName(),
@@ -321,13 +419,24 @@ final class RestApiHandlerModelBuilder {
                 requestBodyIsEntity,
                 hasConstrainedSimpleParam,
                 hasPageable,
-                hasUnboundedOptionalRequestParam,
+                hasUnboundedPrimitiveRequestParam,
+                hasExplicitPageParam,
                 hasResponseStatus,
                 responseStatusValue,
                 declaresBroadThrows,
                 hasOperation,
                 stateChanging,
-                findAll);
+                findAll,
+                serializesBody,
+                mappingVersion,
+                effectiveProduces,
+                effectiveConsumes,
+                params,
+                headers,
+                List.copyOf(pathVariableNames),
+                requestBodyIsSimple,
+                hasTag,
+                hidden);
     }
 
     private static boolean readSpecificMapping(
@@ -363,6 +472,38 @@ final class RestApiHandlerModelBuilder {
             return List.of();
         }
         return stringValues(annotation.get(), "value", "path");
+    }
+
+    private static List<String> mappingAttribute(JavaClass type, String annotationName, String key) {
+        Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
+        if (annotation.isEmpty()) {
+            return List.of();
+        }
+        return stringValues(annotation.get(), key);
+    }
+
+    /** Collects a string attribute from whichever mapping annotation(s) a handler method declares. */
+    private static List<String> mappingStrings(JavaMethod method, String key) {
+        List<String> values = new ArrayList<>();
+        for (String annotationName : MAPPING_ANNOTATIONS) {
+            method.tryGetAnnotationOfType(annotationName).ifPresent(ann -> values.addAll(stringValues(ann, key)));
+        }
+        return values;
+    }
+
+    private static String mappingString(JavaMethod method, String key) {
+        for (String value : mappingStrings(method, key)) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static List<String> union(List<String> first, List<String> second) {
+        List<String> values = new ArrayList<>(first);
+        values.addAll(second);
+        return dedupe(values);
     }
 
     private static List<String> stringValues(JavaAnnotation<?> annotation, String... keys) {
@@ -487,18 +628,87 @@ final class RestApiHandlerModelBuilder {
         return false;
     }
 
-    private static boolean isUnboundedRequestParam(JavaParameter parameter) {
+    private static boolean isOptionalRequestParam(JavaParameter parameter) {
         Optional<JavaAnnotation<JavaParameter>> annotation = parameter.tryGetAnnotationOfType(Types.REQUEST_PARAM);
         if (annotation.isEmpty()) {
             return false;
         }
         JavaAnnotation<JavaParameter> ann = annotation.get();
-        boolean required =
-                ann.get("required").map(value -> !Boolean.FALSE.equals(value)).orElse(true);
+        boolean requiredFalse = ann.get("required").map(Boolean.FALSE::equals).orElse(false);
         boolean hasDefault = ann.get("defaultValue")
                 .map(value -> value instanceof String text && !text.isBlank() && text.indexOf('\uE000') < 0)
                 .orElse(false);
-        return required && !hasDefault;
+        return requiredFalse && !hasDefault;
+    }
+
+    private static String explicitBindingName(JavaParameter parameter, String annotationName) {
+        Optional<JavaAnnotation<JavaParameter>> annotation = parameter.tryGetAnnotationOfType(annotationName);
+        if (annotation.isEmpty()) {
+            return null;
+        }
+        JavaAnnotation<JavaParameter> ann = annotation.get();
+        for (String key : List.of("value", "name")) {
+            Optional<Object> raw = ann.get(key);
+            if (raw.isPresent() && raw.get() instanceof String text && !text.isBlank()) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isSimpleBodyType(JavaClass type) {
+        try {
+            if (type.isArray() || type.isPrimitive()) {
+                return true;
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // fall through to name match
+        }
+        String name = type.getName();
+        return SIMPLE_BODY_TYPES.contains(name) || SCALAR_TYPES.contains(name) || UNTYPED_TYPES.contains(name);
+    }
+
+    private static boolean operationHidden(JavaMethod method) {
+        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(Types.OPERATION);
+        return annotation.isPresent()
+                && annotation.get().get("hidden").map(Boolean.TRUE::equals).orElse(false);
+    }
+
+    private static boolean hasResponseParameter(JavaMethod method) {
+        for (JavaParameter parameter : method.getParameters()) {
+            try {
+                String name = parameter.getRawType().getName();
+                if (Types.HTTP_SERVLET_RESPONSE.equals(name) || Types.SERVER_HTTP_RESPONSE.equals(name)) {
+                    return true;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a parameter that cannot be introspected.
+            }
+        }
+        return false;
+    }
+
+    private static boolean extendsClass(JavaClass type, String superName) {
+        JavaClass current = type;
+        for (int depth = 0; depth < 10; depth++) {
+            Optional<JavaClass> superclass;
+            try {
+                superclass = current.getRawSuperclass();
+            } catch (RuntimeException | LinkageError ex) {
+                return false;
+            }
+            if (superclass.isEmpty()) {
+                return false;
+            }
+            current = superclass.get();
+            if (superName.equals(current.getName())) {
+                return true;
+            }
+            if ("java.lang.Object".equals(current.getName())) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static boolean exposesPublicSetters(JavaClass type, boolean isRecord, boolean isEntity) {
@@ -575,9 +785,15 @@ final class RestApiHandlerModelBuilder {
         return false;
     }
 
-    private static boolean startsWithAny(String value, Set<String> prefixes) {
+    private static boolean startsWithWord(String name, Set<String> prefixes) {
+        String lower = name.toLowerCase(Locale.ROOT);
         for (String prefix : prefixes) {
-            if (value.startsWith(prefix)) {
+            if (lower.equals(prefix)) {
+                return true;
+            }
+            if (lower.startsWith(prefix)
+                    && name.length() > prefix.length()
+                    && Character.isUpperCase(name.charAt(prefix.length()))) {
                 return true;
             }
         }

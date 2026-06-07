@@ -15,6 +15,8 @@ final class RestApiRuleRegistry {
             new StateChangingHandlersNotOnGetRule(),
             new PreferClassLevelBasePathRule(),
             new ConsistentPathStyleRule(),
+            new PathVariablesAreBoundRule(),
+            new NoRequestBodyOnBodylessMethodsRule(),
             // Naming & resource design
             new ResourcePathsAreNounsRule(),
             new CollectionsUsePluralNounsRule(),
@@ -24,11 +26,13 @@ final class RestApiRuleRegistry {
             new VoidDeleteReturns204Rule(),
             new NoUntypedResponseEntityRule(),
             new ReadEndpointsReturnRepresentationRule(),
+            new VoidReadEndpointsReturnContentRule(),
+            new NoContentResponsesHaveNoBodyRule(),
+            new ResponseStatusIgnoredWithResponseEntityRule(),
             // Input validation & binding
             new RequestBodyIsValidatedRule(),
-            new ControllerValidatedForParamConstraintsRule(),
             new NoMassAssignmentViaEntitiesRule(),
-            new ExplicitRequestParamBindingRule(),
+            new OptionalPrimitiveRequestParamRule(),
             // DTO & payload contracts
             new NoEntitiesInResponsesRule(),
             new NoUntypedResponseBodiesRule(),
@@ -41,10 +45,12 @@ final class RestApiRuleRegistry {
             new ApiIsVersionedRule(),
             new MutatingEndpointsDeclareMediaTypesRule(),
             new NoWildcardMediaTypesRule(),
+            new PatchUsesPatchMediaTypeRule(),
             // Error handling & documentation
             new CentralizedExceptionHandlingRule(),
             new NoBroadThrowsOnHandlersRule(),
             new PreferProblemDetailRule(),
+            new ExceptionHandlersSetErrorStatusRule(),
             new EndpointsAreDocumentedRule(),
             new ControllersAreTaggedRule());
 

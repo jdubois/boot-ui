@@ -9,10 +9,10 @@ import org.junit.jupiter.api.Test;
 class RestApiRuleRegistryTests {
 
     @Test
-    void registersThirtyRulesWithUniqueIds() {
+    void registersThirtySixRulesWithUniqueIds() {
         List<RestApiRule> rules = RestApiRuleRegistry.activeRules();
 
-        assertThat(rules).hasSize(30);
+        assertThat(rules).hasSize(36);
 
         List<String> ids = rules.stream().map(rule -> rule.definition().id()).toList();
         assertThat(ids).doesNotHaveDuplicates();

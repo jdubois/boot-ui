@@ -106,7 +106,7 @@ The REST API panel runs a curated, zero-config ruleset against the host applicat
 application's base package from the `@SpringBootApplication` configuration, imports the compiled controllers from that
 package with ArchUnit's `ClassFileImporter` (bounded to the application's own classes), and derives a read-only handler
 model — HTTP method(s), path(s), parameters and their annotations, return type, `produces`/`consumes`, validation flags,
-and declared throws. It then evaluates 30 universally-sensible REST best-practice rules across eight categories: routing
+and declared throws. It then evaluates 36 universally-sensible REST best-practice rules across eight categories: routing
 and HTTP-method mapping, resource naming, status codes and responses, input validation and binding, DTO and payload
 contracts, pagination, versioning and content negotiation, and error handling and documentation. The `RAPI-DOC-*`
 documentation rules only run when springdoc-openapi is on the host classpath.
