@@ -15,7 +15,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class SpringScannerTests {
 
-    private static final int RULE_COUNT = 16;
+    private static final int RULE_COUNT = 31;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -36,19 +36,16 @@ class SpringScannerTests {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("spring.main.allow-bean-definition-overriding", "true")
                 .withProperty("spring.main.allow-circular-references", "true")
-                .withProperty("debug", "true");
+                .withProperty("debug", "true")
+                .withProperty("server.shutdown", "immediate");
         // No active profile, DevTools on the classpath, virtual threads unsupported.
-        SpringContext context = new SpringContext(
-                environment,
-                false,
-                120,
-                List.of(new BeanRef("objectMapper", false)),
-                List.of(),
-                List.of(new BeanRef("dataSource", false)),
-                false,
-                false,
-                true,
-                false);
+        SpringContext context = SpringContext.builder(environment)
+                .virtualThreadsSupported(false)
+                .beanDefinitionCount(120)
+                .objectMappers(List.of(new BeanRef("objectMapper", false)))
+                .dataSources(List.of(new BeanRef("dataSource", false)))
+                .devToolsPresent(true)
+                .build();
         SpringScanner scanner = new SpringScanner(context, CLOCK);
 
         SpringReport report = scanner.scan();
@@ -87,6 +84,8 @@ class SpringScannerTests {
         environment.withProperty("server.compression.enabled", "true");
         environment.withProperty("server.shutdown", "graceful");
         environment.withProperty("server.http2.enabled", "true");
+        environment.withProperty("spring.application.name", "sample");
+        environment.withProperty("server.forward-headers-strategy", "framework");
         SpringContext context = cleanContext(environment);
         SpringScanner scanner = new SpringScanner(context, CLOCK);
 
@@ -101,16 +100,11 @@ class SpringScannerTests {
     }
 
     private static SpringContext cleanContext(MockEnvironment environment) {
-        return new SpringContext(
-                environment,
-                false,
-                100,
-                List.of(new BeanRef("objectMapper", false)),
-                List.of(),
-                List.of(new BeanRef("dataSource", false)),
-                false,
-                false,
-                false,
-                false);
+        return SpringContext.builder(environment)
+                .virtualThreadsSupported(false)
+                .beanDefinitionCount(100)
+                .objectMappers(List.of(new BeanRef("objectMapper", false)))
+                .dataSources(List.of(new BeanRef("dataSource", false)))
+                .build();
     }
 }

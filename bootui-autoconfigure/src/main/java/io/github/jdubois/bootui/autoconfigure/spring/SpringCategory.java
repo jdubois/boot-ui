@@ -9,7 +9,8 @@ enum SpringCategory {
     CONFIGURATION("Configuration"),
     PROFILES("Profiles and environment"),
     PERFORMANCE("Performance and concurrency"),
-    WEB("Web and HTTP");
+    WEB("Web and HTTP"),
+    MANAGEMENT("Actuator and management");
 
     private final String label;
 

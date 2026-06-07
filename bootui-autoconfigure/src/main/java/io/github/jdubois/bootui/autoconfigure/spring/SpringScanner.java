@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
@@ -34,14 +35,28 @@ final class SpringScanner {
     private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
 
     private static final String OBJECT_MAPPER_TYPE = "com.fasterxml.jackson.databind.ObjectMapper";
+    private static final String JACKSON3_OBJECT_MAPPER_TYPE = "tools.jackson.databind.ObjectMapper";
     private static final String TASK_EXECUTOR_TYPE = "org.springframework.core.task.TaskExecutor";
     private static final String POOLED_TASK_EXECUTOR_TYPE =
             "org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor";
     private static final String DATA_SOURCE_TYPE = "javax.sql.DataSource";
     private static final String HIKARI_DATA_SOURCE_TYPE = "com.zaxxer.hikari.HikariDataSource";
+    private static final String ASYNC_CONFIGURER_TYPE = "org.springframework.scheduling.annotation.AsyncConfigurer";
+    private static final String TRANSACTION_MANAGER_TYPE = "org.springframework.transaction.PlatformTransactionManager";
+    private static final String TRANSACTION_MANAGEMENT_CONFIGURER_TYPE =
+            "org.springframework.transaction.annotation.TransactionManagementConfigurer";
+    private static final String REST_TEMPLATE_TYPE = "org.springframework.web.client.RestTemplate";
+    private static final String REST_CLIENT_TYPE = "org.springframework.web.client.RestClient";
+    private static final String CACHE_MANAGER_TYPE = "org.springframework.cache.CacheManager";
     private static final String ASYNC_PROCESSOR_BEAN =
             "org.springframework.context.annotation.internalAsyncAnnotationProcessor";
+    private static final String CACHE_ADVISOR_BEAN = "org.springframework.cache.config.internalCacheAdvisor";
+    private static final String SCHEDULED_PROCESSOR_BEAN =
+            "org.springframework.context.annotation.internalScheduledAnnotationProcessor";
     private static final String DEVTOOLS_MARKER = "org.springframework.boot.devtools.restart.Restarter";
+
+    /** Hard cap on the number of default-package bean names collected, to keep the scan bounded. */
+    private static final int MAX_DEFAULT_PACKAGE_BEANS = 50;
 
     private static final Comparator<SpringRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (SpringRuleResultDto result) -> severityRank(result.severity()))
@@ -180,7 +195,9 @@ final class SpringScanner {
 
     private static SpringContext discover(ConfigurableListableBeanFactory beanFactory, Environment environment) {
         ClassLoader classLoader = SpringScanner.class.getClassLoader();
-        List<BeanRef> objectMappers = beansOfType(beanFactory, OBJECT_MAPPER_TYPE, classLoader);
+        List<BeanRef> objectMappers = unionBeans(
+                beansOfType(beanFactory, OBJECT_MAPPER_TYPE, classLoader),
+                beansOfType(beanFactory, JACKSON3_OBJECT_MAPPER_TYPE, classLoader));
         List<BeanRef> taskExecutors = beansOfType(beanFactory, TASK_EXECUTOR_TYPE, classLoader);
         List<BeanRef> dataSources = beansOfType(beanFactory, DATA_SOURCE_TYPE, classLoader);
         boolean pooledExecutor = !beansOfType(beanFactory, POOLED_TASK_EXECUTOR_TYPE, classLoader)
@@ -192,17 +209,117 @@ final class SpringScanner {
         boolean devToolsPresent = ClassUtils.isPresent(DEVTOOLS_MARKER, classLoader);
         int beanCount = beanFactory != null ? beanFactory.getBeanDefinitionCount() : 0;
 
-        return new SpringContext(
-                environment,
-                virtualThreadsSupported(),
-                beanCount,
-                objectMappers,
-                taskExecutors,
-                dataSources,
-                pooledExecutor,
-                asyncEnabled,
-                devToolsPresent,
-                hikariPresent);
+        boolean asyncConfigurerPresent =
+                !beansOfType(beanFactory, ASYNC_CONFIGURER_TYPE, classLoader).isEmpty();
+        List<BeanRef> transactionManagers = beansOfType(beanFactory, TRANSACTION_MANAGER_TYPE, classLoader);
+        boolean transactionManagementConfigurerPresent = !beansOfType(
+                        beanFactory, TRANSACTION_MANAGEMENT_CONFIGURER_TYPE, classLoader)
+                .isEmpty();
+        List<BeanRef> restTemplates = beansOfType(beanFactory, REST_TEMPLATE_TYPE, classLoader);
+        boolean restClientBeanPresent =
+                !beansOfType(beanFactory, REST_CLIENT_TYPE, classLoader).isEmpty();
+        boolean cachingEnabled = beanFactory != null && beanFactory.containsBeanDefinition(CACHE_ADVISOR_BEAN);
+        List<CacheManagerRef> cacheManagers = cacheManagers(beanFactory, classLoader);
+        boolean schedulingEnabled = beanFactory != null && beanFactory.containsBeanDefinition(SCHEDULED_PROCESSOR_BEAN);
+        List<String> defaultPackageBeans = defaultPackageBeans(beanFactory);
+
+        return SpringContext.builder(environment)
+                .virtualThreadsSupported(virtualThreadsSupported())
+                .beanDefinitionCount(beanCount)
+                .objectMappers(objectMappers)
+                .taskExecutors(taskExecutors)
+                .dataSources(dataSources)
+                .pooledTaskExecutorPresent(pooledExecutor)
+                .asyncEnabled(asyncEnabled)
+                .devToolsPresent(devToolsPresent)
+                .hikariDataSourcePresent(hikariPresent)
+                .asyncConfigurerPresent(asyncConfigurerPresent)
+                .transactionManagers(transactionManagers)
+                .transactionManagementConfigurerPresent(transactionManagementConfigurerPresent)
+                .restTemplates(restTemplates)
+                .restClientBeanPresent(restClientBeanPresent)
+                .cachingEnabled(cachingEnabled)
+                .cacheManagers(cacheManagers)
+                .schedulingEnabled(schedulingEnabled)
+                .defaultPackageBeans(defaultPackageBeans)
+                .build();
+    }
+
+    /** Merges two bean lists, de-duplicating by bean name and preserving first-seen order. */
+    private static List<BeanRef> unionBeans(List<BeanRef> first, List<BeanRef> second) {
+        Map<String, BeanRef> byName = new LinkedHashMap<>();
+        for (BeanRef ref : first) {
+            byName.putIfAbsent(ref.name(), ref);
+        }
+        for (BeanRef ref : second) {
+            byName.putIfAbsent(ref.name(), ref);
+        }
+        return List.copyOf(byName.values());
+    }
+
+    private static List<CacheManagerRef> cacheManagers(
+            ConfigurableListableBeanFactory beanFactory, ClassLoader classLoader) {
+        if (beanFactory == null || !ClassUtils.isPresent(CACHE_MANAGER_TYPE, classLoader)) {
+            return List.of();
+        }
+        Class<?> type;
+        try {
+            type = ClassUtils.forName(CACHE_MANAGER_TYPE, classLoader);
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return List.of();
+        }
+        String[] names;
+        try {
+            names = beanFactory.getBeanNamesForType(type, true, false);
+        } catch (RuntimeException | LinkageError ex) {
+            return List.of();
+        }
+        List<CacheManagerRef> refs = new ArrayList<>();
+        for (String name : names) {
+            refs.add(new CacheManagerRef(name, cacheManagerClassName(beanFactory, name)));
+        }
+        return refs;
+    }
+
+    private static String cacheManagerClassName(ConfigurableListableBeanFactory beanFactory, String name) {
+        try {
+            Class<?> resolved = beanFactory.getType(name, false);
+            return resolved != null ? resolved.getName() : null;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    /** Collects application beans whose resolved class lives in the default (unnamed) package. */
+    private static List<String> defaultPackageBeans(ConfigurableListableBeanFactory beanFactory) {
+        if (beanFactory == null) {
+            return List.of();
+        }
+        String[] names;
+        try {
+            names = beanFactory.getBeanDefinitionNames();
+        } catch (RuntimeException | LinkageError ex) {
+            return List.of();
+        }
+        List<String> defaultPackage = new ArrayList<>();
+        for (String name : names) {
+            if (defaultPackage.size() >= MAX_DEFAULT_PACKAGE_BEANS) {
+                break;
+            }
+            try {
+                BeanDefinition definition = beanFactory.getBeanDefinition(name);
+                if (definition.getRole() != BeanDefinition.ROLE_APPLICATION) {
+                    continue;
+                }
+                String className = definition.getBeanClassName();
+                if (className != null && className.indexOf('.') < 0) {
+                    defaultPackage.add(name);
+                }
+            } catch (RuntimeException ex) {
+                // Ignore beans whose definition cannot be inspected.
+            }
+        }
+        return List.copyOf(defaultPackage);
     }
 
     private static List<BeanRef> beansOfType(
