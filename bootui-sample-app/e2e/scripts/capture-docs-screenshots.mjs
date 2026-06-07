@@ -2282,7 +2282,7 @@ const screenshots = [
     async (page) => {
       await page.getByText('Understand your Spring Boot app').waitFor()
       await page.getByRole('button', {name: /Run all scanners/}).click()
-      await page.getByText('6 of 6 scanners scored').waitFor()
+      await page.getByText('9 of 9 scanners scored').waitFor()
       await page.getByText('1 security alert(s)').waitFor()
     }
   ],
