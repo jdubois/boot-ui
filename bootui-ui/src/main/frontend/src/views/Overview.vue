@@ -35,6 +35,14 @@ const scannerDefs = [
     endpoint: 'api/architecture/scan'
   },
   {
+    id: 'rest-advisor',
+    title: 'REST API Advisor',
+    icon: 'bi-braces',
+    tone: 'primary',
+    to: '/rest-advisor',
+    endpoint: 'api/rest-advisor/scan'
+  },
+  {
     id: 'hibernate-advisor',
     title: 'Hibernate Advisor',
     icon: 'bi-database-gear',

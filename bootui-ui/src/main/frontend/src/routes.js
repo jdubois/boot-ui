@@ -17,6 +17,7 @@ const Scheduled = () => import('./views/Scheduled.vue')
 const HttpProbe = () => import('./views/HttpProbe.vue')
 const Pentesting = () => import('./views/Pentesting.vue')
 const Architecture = () => import('./views/Architecture.vue')
+const RestApiAdvisor = () => import('./views/RestApiAdvisor.vue')
 const GraalVm = () => import('./views/GraalVm.vue')
 const LogTail = () => import('./views/LogTail.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
@@ -259,6 +260,12 @@ export const routes = [
     name: 'architecture',
     component: Architecture,
     meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
+  },
+  {
+    path: '/rest-advisor',
+    name: 'rest-advisor',
+    component: RestApiAdvisor,
+    meta: {group: groups.diagnostics, icon: 'bi-braces', title: 'REST API Advisor'}
   },
   {
     path: '/devtools',

@@ -44,7 +44,9 @@ const allPanels = {
     {id: 'vulnerabilities', available: true},
     {id: 'pentest', available: true},
     {id: 'architecture', available: true},
+    {id: 'rest-advisor', available: true},
     {id: 'hibernate-advisor', available: true},
+    {id: 'security-advisor', available: true},
     {id: 'github', available: true}
   ]
 }
@@ -69,7 +71,9 @@ describe('Overview', () => {
         {id: 'vulnerabilities', available: true},
         {id: 'pentest', available: false},
         {id: 'architecture', available: true},
+        {id: 'rest-advisor', available: false},
         {id: 'hibernate-advisor', available: false},
+        {id: 'security-advisor', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -101,7 +105,9 @@ describe('Overview', () => {
         {id: 'vulnerabilities', available: false},
         {id: 'pentest', available: false},
         {id: 'architecture', available: true},
+        {id: 'rest-advisor', available: false},
         {id: 'hibernate-advisor', available: false},
+        {id: 'security-advisor', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -121,7 +127,9 @@ describe('Overview', () => {
       'api/dependencies/scan': severityReport([{severity: 'CRITICAL', count: 1}]),
       'api/pentest/scan': severityReport([]),
       'api/architecture/scan': severityReport([]),
+      'api/rest-advisor/scan': severityReport([]),
       'api/hibernate-advisor/scan': severityReport([]),
+      'api/security-advisor/scan': severityReport([]),
       'api/github/refresh': githubReport({alerts: 0})
     })
     const wrapper = mountOverview(allPanels)
@@ -131,9 +139,9 @@ describe('Overview', () => {
     await runAll.trigger('click')
     await flushPromises()
 
-    // Scores: vuln 75, pentest 100, architecture 100, hibernate 100, security-advisor 100, github 100 => mean 95.83 => 96
+    // Scores: vuln 75, pentest 100, architecture 100, rest 100, hibernate 100, security 100, github 100 => mean 96.42 => 96
     expect(wrapper.text()).toContain('96')
-    expect(wrapper.text()).toContain('6 of 6 scanners scored')
+    expect(wrapper.text()).toContain('7 of 7 scanners scored')
   })
 
   it('shows a connect button for GitHub and excludes it from the score until authenticated', async () => {
@@ -145,7 +153,9 @@ describe('Overview', () => {
         {id: 'vulnerabilities', available: false},
         {id: 'pentest', available: false},
         {id: 'architecture', available: false},
+        {id: 'rest-advisor', available: false},
         {id: 'hibernate-advisor', available: false},
+        {id: 'security-advisor', available: false},
         {id: 'github', available: true}
       ]
     })

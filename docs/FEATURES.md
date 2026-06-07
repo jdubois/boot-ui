@@ -476,6 +476,18 @@ violating rules, sorted by severity and violation count. See
 
 ![BootUI Architecture panel](./images/bootui-architecture.png)
 
+### REST API Advisor
+
+The REST API Advisor panel runs an explicit, read-only static scan of the host application's
+`@RestController`/`@Controller` layer using the same application-base-package detection as the Architecture panel. It
+flags REST design review prompts such as entity exposure, missing request validation, non-paginated collection responses,
+status-code mismatch, inconsistent URI naming, missing versioning/content negotiation, and missing API documentation
+metadata. The scan is bounded to the application classes, skips optional springdoc rules when springdoc is absent, and
+never sends traffic to the application. See [REST-API-ADVISOR-CHECKS.md](REST-API-ADVISOR-CHECKS.md) for the full rule
+catalogue.
+
+![BootUI REST API Advisor panel](./images/bootui-rest-advisor.png)
+
 ## Developer tools
 
 ### DevTools

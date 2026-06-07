@@ -17,6 +17,7 @@ const coreDocs = [
 const checkDocs = [
   'ARCHITECTURE-CHECKS.md',
   'GRAALVM-READINESS-CHECKS.md',
+  'REST-API-ADVISOR-CHECKS.md',
   'HIBERNATE-CHECKS.md',
   'SECURITY-ADVISOR-CHECKS.md',
   'PENTEST-CHECKS.md'

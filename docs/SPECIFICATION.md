@@ -1126,6 +1126,8 @@ Initial endpoints:
 | `/bootui/api/hibernate-advisor/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
 | `/bootui/api/architecture`                   | GET    | Latest Architecture scan report                                                        |
 | `/bootui/api/architecture/scan`              | POST   | Run explicit ArchUnit hygiene checks                                                   |
+| `/bootui/api/rest-advisor`                   | GET    | Latest REST API Advisor report                                                         |
+| `/bootui/api/rest-advisor/scan`              | POST   | Run explicit REST controller best-practice checks                                      |
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |

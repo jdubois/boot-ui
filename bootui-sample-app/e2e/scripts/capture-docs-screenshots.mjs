@@ -54,6 +54,7 @@ const panelOrder = [
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
+  ['rest-advisor', 'REST API Advisor'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['copilot', 'Copilot'],
@@ -1498,6 +1499,89 @@ const architecture = {
   ]
 }
 
+const restApiAdvisor = {
+  localOnly: true,
+  disclaimer:
+    "Heuristic, project-agnostic REST API design rules run against the host application's own controllers only. " +
+    'These checks complement, but do not replace, an API design review or contract testing. ' +
+    'Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.',
+  basePackages: ['io.github.jdubois.bootui.sample'],
+  controllersAnalyzed: 6,
+  handlersAnalyzed: 18,
+  rulesEvaluated: 30,
+  violationsFound: 4,
+  severityCounts: [
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 2},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI REST API Advisor',
+    status: 'SCANNED',
+    message:
+      'REST API rules completed against 6 controller(s) and 18 handler method(s) under the detected base package(s).',
+    scannedAt: nowMillis - 30_000,
+    rulesEvaluated: 30,
+    controllersAnalyzed: 6,
+    handlersAnalyzed: 18,
+    violationsFound: 4
+  },
+  results: [
+    restApiAdvisorResult(
+      'RAPI-DTO-001',
+      "Don't expose JPA entities in responses",
+      'DTO & payload contracts',
+      'HIGH',
+      'Returning a JPA @Entity couples the API to the persistence model and can leak lazy associations or internal fields and trigger serialization-time queries.',
+      'VIOLATION',
+      2,
+      [
+        'io.github.jdubois.bootui.sample.order.OrderController.getOrder() returns entity Order',
+        'io.github.jdubois.bootui.sample.order.OrderController.listOrders() returns a collection of entity Order'
+      ],
+      'Map entities to a response DTO/record and return that instead.',
+      'https://www.rfc-editor.org/rfc/rfc9110.html'
+    ),
+    restApiAdvisorResult(
+      'RAPI-NAME-001',
+      'Resource paths are nouns, not verbs',
+      'Naming & resource design',
+      'MEDIUM',
+      'Verb-based path segments such as /getUser or /createOrder duplicate the HTTP method and break the resource-oriented REST model.',
+      'VIOLATION',
+      1,
+      ['GET /api/orders/getOrder uses a verb segment "getOrder"'],
+      'Model resources as nouns (/users, /orders) and express the action with the HTTP method.',
+      'https://www.rfc-editor.org/rfc/rfc9110.html'
+    ),
+    restApiAdvisorResult(
+      'RAPI-VALID-001',
+      '@RequestBody is validated',
+      'Input validation & binding',
+      'MEDIUM',
+      'A @RequestBody parameter without @Valid/@Validated is bound without bean-validation, so malformed payloads reach the business logic unchecked.',
+      'VIOLATION',
+      1,
+      ['POST /api/orders binds @RequestBody CreateOrderRequest without @Valid'],
+      'Annotate the @RequestBody parameter with @Valid (or @Validated) so payloads are validated.',
+      'https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html'
+    ),
+    restApiAdvisorResult(
+      'RAPI-MAP-005',
+      'Consistent path style (no trailing slash)',
+      'Routing & HTTP method mapping',
+      'LOW',
+      'Trailing slashes and doubled slashes in mapping paths create inconsistent URLs; trailing-slash matching is also disabled by default in Spring 6+.',
+      'VIOLATION',
+      1,
+      ['GET /api/orders/ declares a trailing slash'],
+      'Declare mapping paths without trailing slashes and without empty segments.',
+      'https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html'
+    )
+  ]
+}
+
 const hibernateAdvisor = {
   localOnly: true,
   disclaimer:
@@ -2148,6 +2232,12 @@ const screenshots = [
     }
   ],
   ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
+  [
+    'rest-advisor',
+    'REST API Advisor',
+    'bootui-rest-advisor.png',
+    waitForText("Don't expose JPA entities in responses")
+  ],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [
@@ -2709,6 +2799,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'pentest/scan') return fulfillJson(route, pentest)
   if (endpoint === 'architecture') return fulfillJson(route, architecture)
   if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
+  if (endpoint === 'rest-advisor') return fulfillJson(route, restApiAdvisor)
+  if (endpoint === 'rest-advisor/scan') return fulfillJson(route, restApiAdvisor)
   if (endpoint === 'graalvm') return fulfillJson(route, graalVm)
   if (endpoint === 'graalvm/scan') return fulfillJson(route, graalVm)
 
@@ -2853,6 +2945,33 @@ function architectureResult(
     violationCount,
     sampleViolations,
     recommendation
+  }
+}
+
+
+function restApiAdvisorResult(
+  id,
+  name,
+  category,
+  severity,
+  description,
+  status,
+  violationCount,
+  sampleViolations,
+  recommendation,
+  learnMoreUrl
+) {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description,
+    status,
+    violationCount,
+    sampleViolations,
+    recommendation,
+    learnMoreUrl
   }
 }
 

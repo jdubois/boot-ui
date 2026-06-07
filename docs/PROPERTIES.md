@@ -73,6 +73,7 @@ Panel settings are consistent across the UI and API:
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                  |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`        |
 | Diagnostics     | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`      |
+| Diagnostics     | REST API Advisor          | `rest-advisor`              | `bootui.panels.rest-advisor.enabled`              | `bootui.panels.rest-advisor.read-only`      |
 | Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`          |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`      |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                  |
@@ -168,6 +169,13 @@ Panel settings are consistent across the UI and API:
 | ------------------------------------------- | ------- | --------------------------------------------------------------------------------- |
 | `bootui.panels.hibernate-advisor.enabled`   | `true`  | Show Hibernate/JPA mapping and configuration advisor findings.                    |
 | `bootui.panels.hibernate-advisor.read-only` | `false` | Disable the explicit Hibernate Advisor scan action while keeping results visible. |
+
+### REST API Advisor
+
+| Property                                | Default | Description                                                                       |
+| --------------------------------------- | ------- | --------------------------------------------------------------------------------- |
+| `bootui.panels.rest-advisor.enabled`   | `true`  | Show REST controller best-practice advisor findings.                              |
+| `bootui.panels.rest-advisor.read-only` | `false` | Disable the explicit REST API Advisor scan action while keeping results visible.  |
 
 ### Flyway
 
