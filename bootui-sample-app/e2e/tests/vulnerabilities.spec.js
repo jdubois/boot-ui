@@ -75,7 +75,7 @@ const scannedReport = {
 }
 
 test.describe('Vulnerabilities view', () => {
-  test('renders inventory and on-demand vulnerability scan results', async ({page}) => {
+  test('renders inventory and on-demand vulnerability scan results', async ({openView, page}) => {
     await page.route(
       (url) => url.pathname === '/bootui/api/vulnerabilities',
       async (route) => {
@@ -95,13 +95,7 @@ test.describe('Vulnerabilities view', () => {
       }
     )
 
-    await page.goto('/bootui/#/vulnerabilities')
-    await expect(
-      page
-        .locator('main h2')
-        .filter({hasText: /^Vulnerabilities/})
-        .first()
-    ).toBeVisible()
+    await openView('vulnerabilities', /^Vulnerabilities/)
     await expect(page.getByText('4 of 4 dependencies')).toBeVisible()
     await expect(page.getByText('Not scanned yet')).toBeVisible()
     await expect(page.getByText('No vulnerability scan data yet')).toBeVisible()

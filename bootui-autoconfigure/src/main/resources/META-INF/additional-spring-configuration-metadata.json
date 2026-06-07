@@ -11,6 +11,12 @@
       "type": "java.lang.Integer",
       "description": "Maximum startup steps retained by BootUI's auto-installed startup buffer. Values less than or equal to zero disable the buffer.",
       "defaultValue": 4096
+    },
+    {
+      "name": "bootui.force-web",
+      "type": "java.lang.Boolean",
+      "description": "While BootUI is active, force a non-web (command-line) application into a servlet web application so the BootUI console can be served. Has no effect on applications that are already servlet web applications or that are explicitly configured as reactive. Set to false to leave the host application's web-application type untouched.",
+      "defaultValue": true
     }
   ]
 }
