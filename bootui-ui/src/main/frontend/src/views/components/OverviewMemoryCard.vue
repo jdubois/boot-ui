@@ -4,7 +4,7 @@ import {useMemoryReport, formatBytes} from '../../utils/memoryReport.js'
 import {useAutoRefresh} from '../../utils/useAutoRefresh.js'
 
 const {data, error, loading, initialLoading, load} = useMemoryReport({
-  endpoint: 'api/tuning-advisor',
+  endpoint: 'api/jvm-tuning',
   tuningInputs: true
 })
 

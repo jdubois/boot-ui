@@ -43,7 +43,7 @@ Panel settings are consistent across the UI and API:
 | Runtime         | HTTP Sessions             | `http-sessions`             | `bootui.panels.http-sessions.enabled`             | `bootui.panels.http-sessions.read-only`     |
 | Runtime         | Metrics                   | `metrics`                   | `bootui.panels.metrics.enabled`                   | Not applicable; view-only.                  |
 | Runtime         | Memory                    | `memory`                    | `bootui.panels.memory.enabled`                    | Not applicable; view-only.                  |
-| Runtime         | JVM Tuning                | `tuning-advisor`            | `bootui.panels.tuning-advisor.enabled`            | Not applicable; view-only.                  |
+| Runtime         | JVM Tuning                | `jvm-tuning`            | `bootui.panels.jvm-tuning.enabled`            | Not applicable; view-only.                  |
 | Runtime         | Heap Dump                 | `heap-dump`                 | `bootui.panels.heap-dump.enabled`                 | `bootui.panels.heap-dump.read-only`         |
 | Runtime         | Threads                   | `threads`                   | `bootui.panels.threads.enabled`                   | `bootui.panels.threads.read-only`           |
 | Runtime         | Startup Timeline          | `startup`                   | `bootui.panels.startup.enabled`                   | Not applicable; view-only.                  |

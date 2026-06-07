@@ -131,6 +131,7 @@ describe('routes', () => {
   it('keeps redirect aliases out of sidebar navigation', () => {
     expect(routes.filter((route) => route.redirect)).toEqual([
       {path: '/', redirect: '/overview'},
+      {path: '/tuning-advisor', redirect: '/jvm-tuning'},
       {path: '/dependencies', redirect: '/vulnerabilities'}
     ])
   })

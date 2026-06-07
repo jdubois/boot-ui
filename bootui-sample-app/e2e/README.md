@@ -17,7 +17,7 @@ flow) exposed by the sample app:
 | `health.spec.js`            | Health tree renders with an overall status badge                                                                      |
 | `metrics.spec.js`           | Micrometer meter browser, live graph, measurements, and type filtering                                                |
 | `memory.spec.js`            | Heap / non-heap cards and memory pools render without tuning controls                                                 |
-| `tuning-advisor.spec.js`    | JVM options, Kubernetes calculator, copy feedback, and calculator updates                                             |
+| `jvm-tuning.spec.js`        | JVM options, Kubernetes calculator, copy feedback, and calculator updates                                             |
 | `heap-dump.spec.js`         | Heap dump capture/analyze/delete controls, class histogram, and raw-download gating                                   |
 | `threads.spec.js`           | Thread state summaries, filtering, stack expansion, and raw-dump controls                                             |
 | `startup.spec.js`           | Startup timeline displays step rows                                                                                   |

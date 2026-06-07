@@ -26,7 +26,7 @@ class PanelsControllerTests {
             BootUiPanels.HTTP_SESSIONS,
             BootUiPanels.METRICS,
             BootUiPanels.MEMORY,
-            BootUiPanels.TUNING_ADVISOR,
+            BootUiPanels.JVM_TUNING,
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.THREADS,
             BootUiPanels.MEMORY_ADVISOR,
@@ -95,7 +95,7 @@ class PanelsControllerTests {
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.MEMORY) + ".available")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.TUNING_ADVISOR) + ".available")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.JVM_TUNING) + ".available")
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HEAP_DUMP) + ".available")
                             .value(true))

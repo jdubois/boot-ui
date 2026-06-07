@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping({"/bootui/api/memory", "/bootui/api/tuning-advisor"})
+@RequestMapping({"/bootui/api/memory", "/bootui/api/jvm-tuning"})
 public class MemoryController {
 
     private static final String VIRTUAL_THREADS_PROPERTY = "spring.threads.virtual.enabled";

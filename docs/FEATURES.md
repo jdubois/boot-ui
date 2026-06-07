@@ -246,7 +246,7 @@ memory limit when an operator resizes the pod. A Spring Boot Actuator probes tog
 probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
 non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
 
-![BootUI JVM Tuning panel](./images/bootui-tuning-advisor.png)
+![BootUI JVM Tuning panel](./images/bootui-jvm-tuning.png)
 
 ### Heap Dump
 

@@ -28,7 +28,7 @@ const SpringAdvisor = () => import('./views/SpringAdvisor.vue')
 const SecurityAdvisor = () => import('./views/SecurityAdvisor.vue')
 const SecurityLogs = () => import('./views/SecurityLogs.vue')
 const Memory = () => import('./views/Memory.vue')
-const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
+const JvmTuning = () => import('./views/JvmTuning.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
 const Threads = () => import('./views/Threads.vue')
 const MemoryAdvisor = () => import('./views/MemoryAdvisor.vue')
@@ -139,9 +139,9 @@ export const routes = [
     meta: {group: groups.runtime, icon: 'bi-memory', title: 'Memory'}
   },
   {
-    path: '/tuning-advisor',
-    name: 'tuning-advisor',
-    component: TuningAdvisor,
+    path: '/jvm-tuning',
+    name: 'jvm-tuning',
+    component: JvmTuning,
     meta: {group: groups.runtime, icon: 'bi-sliders2-vertical', title: 'JVM Tuning'}
   },
   {
@@ -306,5 +306,6 @@ export const routes = [
     component: Copilot,
     meta: {group: groups.developerTools, icon: 'bi-claude', title: 'Claude Code'}
   },
+  {path: '/tuning-advisor', redirect: '/jvm-tuning'},
   {path: '/dependencies', redirect: '/vulnerabilities'}
 ]

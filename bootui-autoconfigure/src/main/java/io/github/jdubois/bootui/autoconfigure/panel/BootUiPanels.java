@@ -18,7 +18,7 @@ public final class BootUiPanels {
     public static final String HTTP_SESSIONS = "http-sessions";
     public static final String METRICS = "metrics";
     public static final String MEMORY = "memory";
-    public static final String TUNING_ADVISOR = "tuning-advisor";
+    public static final String JVM_TUNING = "jvm-tuning";
     public static final String HEAP_DUMP = "heap-dump";
     public static final String THREADS = "threads";
     public static final String MEMORY_ADVISOR = "memory-advisor";
@@ -62,7 +62,7 @@ public final class BootUiPanels {
             new Panel(HTTP_SESSIONS, "HTTP Sessions", true, "/http-sessions"),
             new Panel(METRICS, "Metrics", false, "/metrics"),
             new Panel(MEMORY, "Memory", false, "/memory"),
-            new Panel(TUNING_ADVISOR, "JVM Tuning", false, "/tuning-advisor"),
+            new Panel(JVM_TUNING, "JVM Tuning", false, "/jvm-tuning"),
             new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
             new Panel(THREADS, "Threads", true, "/threads"),
             new Panel(MEMORY_ADVISOR, "Memory", true, "/memory-advisor"),

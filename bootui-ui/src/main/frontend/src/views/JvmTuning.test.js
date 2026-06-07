@@ -1,7 +1,7 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import TuningAdvisor from './TuningAdvisor.vue'
+import JvmTuning from './JvmTuning.vue'
 
 const MB = 1024 * 1024
 
@@ -91,7 +91,7 @@ function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
 
-describe('TuningAdvisor', () => {
+describe('JvmTuning', () => {
   let wrapper
 
   beforeEach(() => {
@@ -109,10 +109,10 @@ describe('TuningAdvisor', () => {
   it('renders JVM and Kubernetes tuning recommendations from the memory report', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport())))
 
-    wrapper = mount(TuningAdvisor)
+    wrapper = mount(JvmTuning)
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('api/tuning-advisor')
+    expect(fetch).toHaveBeenCalledWith('api/jvm-tuning')
     const renderedText = wrapper.text()
     const panelOrder = [
       'Current JVM Arguments',
@@ -159,10 +159,10 @@ describe('TuningAdvisor', () => {
   it('shows an information bubble when Spring virtual threads are detected', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport({virtualThreadsEnabled: true}))))
 
-    wrapper = mount(TuningAdvisor)
+    wrapper = mount(JvmTuning)
     await flushPromises()
 
-    expect(fetch).toHaveBeenCalledWith('api/tuning-advisor')
+    expect(fetch).toHaveBeenCalledWith('api/jvm-tuning')
     const virtualThreadsStatus = wrapper.find('.virtual-threads-status')
     expect(virtualThreadsStatus.classes()).toContain('alert-info')
     expect(virtualThreadsStatus.text()).toContain('Spring virtual threads enabled')
@@ -186,7 +186,7 @@ describe('TuningAdvisor', () => {
         )
     )
 
-    wrapper = mount(TuningAdvisor)
+    wrapper = mount(JvmTuning)
     await flushPromises()
 
     expect(wrapper.find('#kubernetesBurstableEnabled').element.checked).toBe(true)
@@ -198,7 +198,7 @@ describe('TuningAdvisor', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(memoryReport()))
     vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mount(TuningAdvisor)
+    wrapper = mount(JvmTuning)
     await flushPromises()
 
     await wrapper.find('#kubernetesBurstableEnabled').setValue(true)
@@ -207,7 +207,7 @@ describe('TuningAdvisor', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenLastCalledWith(
-      'api/tuning-advisor?kubernetesBurstableEnabled=true&kubernetesActuatorEnabled=false&totalMemoryMb=1024&threadCount=250&headRoomPercent=10'
+      'api/jvm-tuning?kubernetesBurstableEnabled=true&kubernetesActuatorEnabled=false&totalMemoryMb=1024&threadCount=250&headRoomPercent=10'
     )
   })
 })

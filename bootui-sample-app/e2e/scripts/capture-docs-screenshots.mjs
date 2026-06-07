@@ -25,7 +25,7 @@ const panelOrder = [
   ['http-sessions', 'HTTP Sessions'],
   ['metrics', 'Metrics'],
   ['memory', 'Memory'],
-  ['tuning-advisor', 'JVM Tuning'],
+  ['jvm-tuning', 'JVM Tuning'],
   ['heap-dump', 'Heap Dump'],
   ['threads', 'Threads'],
   ['startup', 'Startup Timeline'],
@@ -2156,7 +2156,7 @@ const screenshots = [
     }
   ],
   ['memory', 'Memory', 'bootui-memory.png', waitForText('Memory Pools')],
-  ['tuning-advisor', 'JVM Tuning', 'bootui-tuning-advisor.png', waitForText('Bare metal JVM calculator')],
+  ['jvm-tuning', 'JVM Tuning', 'bootui-jvm-tuning.png', waitForText('Bare metal JVM calculator')],
   [
     'heap-dump',
     'Heap Dump',
@@ -2655,7 +2655,7 @@ async function handleApiRoute(route) {
       panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
     })
   if (endpoint === 'startup') return fulfillJson(route, startup)
-  if (endpoint.startsWith('memory') || endpoint.startsWith('tuning-advisor')) return fulfillJson(route, memory)
+  if (endpoint.startsWith('memory') || endpoint.startsWith('jvm-tuning')) return fulfillJson(route, memory)
   if (endpoint === 'health') return fulfillJson(route, health)
   if (endpoint === 'http-sessions') return fulfillJson(route, httpSessions)
   if (endpoint.startsWith('http-sessions/') && endpoint.endsWith('/clear'))

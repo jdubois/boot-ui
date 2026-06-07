@@ -48,13 +48,11 @@ class MemoryControllerTests {
     }
 
     @Test
-    void tuningAdvisorAliasReturnsMemoryReport() throws Exception {
+    void jvmTuningAliasReturnsMemoryReport() throws Exception {
         MockMvc mvc = standaloneSetup(new MemoryController(new MemoryCalculator(JDK_25)))
                 .build();
 
-        mvc.perform(get("/bootui/api/tuning-advisor")
-                        .param("totalMemoryMb", "512")
-                        .accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/jvm-tuning").param("totalMemoryMb", "512").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.heap.name").value("Heap"))
                 .andExpect(jsonPath("$.calculation.totalMemoryBytes").value(512L * 1024L * 1024L))
@@ -172,7 +170,7 @@ class MemoryControllerTests {
     }
 
     @Test
-    void tuningAdvisorDetectedVirtualThreadsChangeStackSizingWithoutSettingSpringProperty() throws Exception {
+    void jvmTuningDetectedVirtualThreadsChangeStackSizingWithoutSettingSpringProperty() throws Exception {
         MockEnvironment enabledEnvironment =
                 new MockEnvironment().withProperty("spring.threads.virtual.enabled", "true");
         MockMvc enabledMvc = standaloneSetup(new MemoryController(
@@ -180,7 +178,7 @@ class MemoryControllerTests {
                 .build();
 
         enabledMvc
-                .perform(get("/bootui/api/tuning-advisor")
+                .perform(get("/bootui/api/jvm-tuning")
                         .param("totalMemoryMb", "1024")
                         .param("threadCount", "250")
                         .accept(MediaType.APPLICATION_JSON))
@@ -205,7 +203,7 @@ class MemoryControllerTests {
                 .build();
 
         disabledMvc
-                .perform(get("/bootui/api/tuning-advisor")
+                .perform(get("/bootui/api/jvm-tuning")
                         .param("totalMemoryMb", "1024")
                         .param("threadCount", "250")
                         .accept(MediaType.APPLICATION_JSON))
@@ -218,13 +216,13 @@ class MemoryControllerTests {
     }
 
     @Test
-    void tuningAdvisorVirtualThreadsParamDoesNotOverrideApplicationState() throws Exception {
+    void jvmTuningVirtualThreadsParamDoesNotOverrideApplicationState() throws Exception {
         MockEnvironment environment = new MockEnvironment().withProperty("spring.threads.virtual.enabled", "false");
         MockMvc mvc = standaloneSetup(new MemoryController(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), environment))
                 .build();
 
-        mvc.perform(get("/bootui/api/tuning-advisor")
+        mvc.perform(get("/bootui/api/jvm-tuning")
                         .param("totalMemoryMb", "1024")
                         .param("virtualThreadsEnabled", "true")
                         .accept(MediaType.APPLICATION_JSON))
@@ -237,14 +235,12 @@ class MemoryControllerTests {
     }
 
     @Test
-    void tuningAdvisorDoesNotEnableVirtualThreadsWhenPropertyIsAbsent() throws Exception {
+    void jvmTuningDoesNotEnableVirtualThreadsWhenPropertyIsAbsent() throws Exception {
         MockMvc mvc = standaloneSetup(new MemoryController(
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), new MockEnvironment()))
                 .build();
 
-        mvc.perform(get("/bootui/api/tuning-advisor")
-                        .param("totalMemoryMb", "1024")
-                        .accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/jvm-tuning").param("totalMemoryMb", "1024").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.calculation.virtualThreadsEnabled").value(false))
                 .andExpect(jsonPath("$.suggestedJvmOptions")
@@ -258,7 +254,7 @@ class MemoryControllerTests {
                         new MemoryController(new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled()))
                 .build();
 
-        mvc.perform(get("/bootui/api/tuning-advisor")
+        mvc.perform(get("/bootui/api/jvm-tuning")
                         .param("totalMemoryMb", "4096")
                         .param("kubernetesBurstableEnabled", "true")
                         .accept(MediaType.APPLICATION_JSON))
@@ -279,9 +275,7 @@ class MemoryControllerTests {
                         new MemoryCalculator(JDK_25), ContainerMemoryLimitDetector.disabled(), environment))
                 .build();
 
-        mvc.perform(get("/bootui/api/tuning-advisor")
-                        .param("totalMemoryMb", "1024")
-                        .accept(MediaType.APPLICATION_JSON))
+        mvc.perform(get("/bootui/api/jvm-tuning").param("totalMemoryMb", "1024").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kubernetes.actuatorProbesEnabled").value(false))
                 .andExpect(jsonPath("$.kubernetes.yaml")
@@ -290,7 +284,7 @@ class MemoryControllerTests {
                         .value(org.hamcrest.Matchers.not(
                                 org.hamcrest.Matchers.containsString("MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED"))));
 
-        mvc.perform(get("/bootui/api/tuning-advisor")
+        mvc.perform(get("/bootui/api/jvm-tuning")
                         .param("totalMemoryMb", "1024")
                         .param("kubernetesActuatorEnabled", "true")
                         .accept(MediaType.APPLICATION_JSON))

@@ -1091,7 +1091,7 @@ Initial endpoints:
 | `/bootui/api/devtools/livereload`            | POST   | Trigger a DevTools LiveReload notification when available                              |
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
 | `/bootui/api/memory`                         | GET    | JVM memory report                                                                      |
-| `/bootui/api/tuning-advisor`                 | GET    | JVM tuning advisor report                                                              |
+| `/bootui/api/jvm-tuning`                 | GET    | JVM tuning advisor report                                                              |
 | `/bootui/api/heap-dump`                      | GET    | Heap dump capture inventory and latest value-free histogram report                     |
 | `/bootui/api/heap-dump/capture`              | POST   | Capture a local heap dump after explicit confirmation                                  |
 | `/bootui/api/heap-dump/analyze`              | POST   | Analyze the latest heap dump class histogram                                           |

@@ -19,7 +19,7 @@ const {
   loading,
   initialLoading,
   load
-} = useMemoryReport({endpoint: 'api/tuning-advisor', tuningInputs: true})
+} = useMemoryReport({endpoint: 'api/jvm-tuning', tuningInputs: true})
 const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
 const springVirtualThreadsEnabled = computed(() => data.value?.calculation?.virtualThreadsEnabled === true)
