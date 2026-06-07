@@ -296,6 +296,41 @@ Panel settings are consistent across the UI and API:
 | `bootui.dev-services.restart-enabled`  | `false` | Additional action gate for restarting bean-backed Testcontainers services. Disabled by default. |
 | `bootui.dev-services.log-tail-bytes`   | `65536` | Maximum bytes returned by a single Dev Services log request.                                    |
 
+### AI Usage
+
+| Property                                | Default | Description                                                     |
+| --------------------------------------- | ------- | --------------------------------------------------------------- |
+| `bootui.panels.ai.enabled`              | `true`  | Show the AI Usage panel.                                        |
+| `bootui.ai.token-series-minutes`        | `60`    | Number of minutes retained in the AI Usage token series.        |
+| `bootui.ai.max-recent-chats`            | `100`   | Maximum recent chat completions surfaced by the AI Usage panel. |
+| `bootui.ai.show-content-capture-banner` | `true`  | Show the AI content-capture explanation banner.                 |
+
+### Copilot
+
+| Property                                | Default                    | Description                                                                                                            |
+| --------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.copilot.enabled`         | `true`                     | Show the Copilot panel in the sidebar.                                                                                 |
+| `bootui.copilot.enabled`                | `AUTO`                     | Activate the Copilot integration. `AUTO` enables it only when the session-state directory exists; `ON`/`OFF` force it. |
+| `bootui.copilot.session-state-dir`      | `~/.copilot/session-state` | Directory scanned for Copilot CLI sessions.                                                                            |
+| `bootui.copilot.max-events-per-session` | `2000`                     | Maximum Copilot events retained per parsed session.                                                                    |
+| `bootui.copilot.max-sessions`           | `100`                      | Maximum recent Copilot sessions returned by the explorer.                                                              |
+| `bootui.copilot.max-parsed-sessions`    | `100`                      | Maximum recent Copilot session files parsed and retained in memory.                                                    |
+| `bootui.copilot.stream-debounce`        | `400ms`                    | Debounce window before refreshing parsed Copilot sessions and notifying stream subscribers.                            |
+| `bootui.copilot.allow-raw-reveal`       | `true`                     | Allow explicit raw event reveal when value exposure is not `METADATA_ONLY`.                                            |
+
+### Claude Code
+
+| Property                                    | Default              | Description                                                                                                              |
+| ------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `bootui.panels.claude-code.enabled`         | `true`               | Show the Claude Code panel in the sidebar.                                                                               |
+| `bootui.claude-code.enabled`                | `AUTO`               | Activate the Claude Code integration. `AUTO` enables it only when the project log directory exists; `ON`/`OFF` force it. |
+| `bootui.claude-code.session-state-dir`      | `~/.claude/projects` | Directory scanned for Claude Code project JSONL logs.                                                                    |
+| `bootui.claude-code.max-events-per-session` | `2000`               | Maximum Claude Code events retained per parsed session.                                                                  |
+| `bootui.claude-code.max-sessions`           | `100`                | Maximum recent Claude Code sessions returned by the explorer.                                                            |
+| `bootui.claude-code.max-parsed-sessions`    | `100`                | Maximum recent Claude Code JSONL files parsed and retained in memory.                                                    |
+| `bootui.claude-code.stream-debounce`        | `400ms`              | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.                          |
+| `bootui.claude-code.allow-raw-reveal`       | `false`              | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs.           |
+
 ## Read-only examples
 
 Make the whole application read-only:
@@ -322,25 +357,3 @@ Require both an action gate and panel read-only state to allow an action:
 bootui.panels.dev-services.read-only=false
 bootui.dev-services.restart-enabled=true
 ```
-
-## Other panel-specific settings
-
-| Property                                    | Default                    | Description                                                                                                    |
-| ------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `bootui.ai.token-series-minutes`            | `60`                       | Number of minutes retained in the AI Usage token series.                                                       |
-| `bootui.ai.max-recent-chats`                | `100`                      | Maximum recent chat completions surfaced by the AI Usage panel.                                                |
-| `bootui.ai.show-content-capture-banner`     | `true`                     | Show the AI content-capture explanation banner.                                                                |
-| `bootui.copilot.enabled`                    | `AUTO`                     | Enable the Copilot panel. `AUTO` activates when the session-state directory exists.                            |
-| `bootui.copilot.session-state-dir`          | `~/.copilot/session-state` | Directory scanned for Copilot CLI sessions.                                                                    |
-| `bootui.copilot.max-events-per-session`     | `2000`                     | Maximum Copilot events retained per parsed session.                                                            |
-| `bootui.copilot.max-sessions`               | `100`                      | Maximum recent Copilot sessions returned by the explorer.                                                      |
-| `bootui.copilot.max-parsed-sessions`        | `100`                      | Maximum recent Copilot session files parsed and retained in memory.                                            |
-| `bootui.copilot.stream-debounce`            | `400ms`                    | Debounce window before refreshing parsed Copilot sessions and notifying stream subscribers.                    |
-| `bootui.copilot.allow-raw-reveal`           | `true`                     | Allow explicit raw event reveal when value exposure is not `METADATA_ONLY`.                                    |
-| `bootui.claude-code.enabled`                | `AUTO`                     | Enable the Claude Code panel. `AUTO` activates when the project log directory exists.                          |
-| `bootui.claude-code.session-state-dir`      | `~/.claude/projects`       | Directory scanned for Claude Code project JSONL logs.                                                          |
-| `bootui.claude-code.max-events-per-session` | `2000`                     | Maximum Claude Code events retained per parsed session.                                                        |
-| `bootui.claude-code.max-sessions`           | `100`                      | Maximum recent Claude Code sessions returned by the explorer.                                                  |
-| `bootui.claude-code.max-parsed-sessions`    | `100`                      | Maximum recent Claude Code JSONL files parsed and retained in memory.                                          |
-| `bootui.claude-code.stream-debounce`        | `400ms`                    | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.                |
-| `bootui.claude-code.allow-raw-reveal`       | `false`                    | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs. |
