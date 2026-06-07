@@ -167,6 +167,6 @@ describe('Overview', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Connect to GitHub to load live security metrics')
-    expect(wrapper.text()).toContain('0 of 2 scanners scored')
+    expect(wrapper.text()).toContain('0 of 1 scanners scored')
   })
 })

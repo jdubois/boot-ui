@@ -2948,7 +2948,6 @@ function architectureResult(
   }
 }
 
-
 function restApiAdvisorResult(
   id,
   name,
