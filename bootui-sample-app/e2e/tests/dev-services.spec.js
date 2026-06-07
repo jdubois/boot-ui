@@ -111,7 +111,7 @@ test.describe('Dev Services view', () => {
     await expect(details.locator('pre')).toContainText('Ready to accept connections')
   })
 
-  test('posts restart for restartable services', async ({page}) => {
+  test('posts restart for restartable services', async ({openView, page}) => {
     let restartCalled = false
     await page.route(
       (url) => url.pathname === '/bootui/api/dev-services',
@@ -138,7 +138,7 @@ test.describe('Dev Services view', () => {
       }
     )
 
-    await page.goto('/bootui/#/dev-services')
+    await openView('dev-services', /^Dev Services/)
     const redisRow = page.locator('tbody tr', {hasText: 'redis'})
     await expect(redisRow.getByRole('button', {name: 'Restart'})).toBeVisible()
 
@@ -147,7 +147,7 @@ test.describe('Dev Services view', () => {
     await expect.poll(async () => restartCalled).toBe(true)
   })
 
-  test('shows safe-inspection warnings from the report', async ({page}) => {
+  test('shows safe-inspection warnings from the report', async ({openView, page}) => {
     await page.route(
       (url) => url.pathname === '/bootui/api/dev-services',
       async (route) => {
@@ -161,7 +161,7 @@ test.describe('Dev Services view', () => {
       }
     )
 
-    await page.goto('/bootui/#/dev-services')
+    await openView('dev-services', /^Dev Services/)
     await expect(page.locator('.alert-warning')).toContainText('Some services were skipped')
     await expect(page.locator('.alert-warning')).toContainText('lazyRedis')
   })

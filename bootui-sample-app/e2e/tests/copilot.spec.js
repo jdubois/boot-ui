@@ -2,7 +2,7 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Copilot panel', () => {
-  test('shows an aggregated dashboard from sanitized Copilot telemetry', async ({page}) => {
+  test('shows an aggregated dashboard from sanitized Copilot telemetry', async ({openView, page}) => {
     const dashboard = {
       available: true,
       sessionStateDir: '/home/dev/.copilot/session-state',
@@ -158,7 +158,7 @@ test.describe('Copilot panel', () => {
       await route.fulfill({contentType: 'text/event-stream', body: ''})
     })
 
-    await page.goto('/bootui/#/copilot')
+    await openView('copilot', 'Copilot')
 
     await expect(page.getByLabel('Auto-refresh')).toBeChecked()
     await expect(page.getByTitle('Refresh', {exact: true})).toBeVisible()

@@ -90,7 +90,7 @@ test.describe('AI Usage view', () => {
     await expect(page.locator('.chat-detail-row').getByText('gen_ai.system')).toBeVisible()
   })
 
-  test('shows disabled mode when telemetry is unavailable', async ({page}) => {
+  test('shows disabled mode when telemetry is unavailable', async ({openView, page}) => {
     await stubAi(page, {
       ...overview,
       enabled: false,
@@ -105,12 +105,12 @@ test.describe('AI Usage view', () => {
       contentBanner: null
     })
 
-    await page.goto('/bootui/#/ai')
+    await openView('ai', /AI Usage/)
     await expect(page.getByText('Enable BootUI telemetry capture', {exact: true})).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })
 
-  test('shows ready empty state before the first chat is recorded', async ({page}) => {
+  test('shows ready empty state before the first chat is recorded', async ({openView, page}) => {
     await stubAi(page, {
       ...overview,
       totalChats: 0,
@@ -124,14 +124,14 @@ test.describe('AI Usage view', () => {
       recent: []
     })
 
-    await page.goto('/bootui/#/ai')
+    await openView('ai', /AI Usage/)
     await expect(page.getByText('No AI chat completions recorded yet')).toBeVisible()
     await expect(page.getByText('Telemetry ready')).toBeVisible()
     await expect(page.getByText('Enable BootUI telemetry capture')).toHaveCount(0)
     await expect(page.getByText('OTLP exporter configured')).toHaveCount(0)
   })
 
-  test('shows unavailable mode when no AI framework is on the classpath', async ({page}) => {
+  test('shows unavailable mode when no AI framework is on the classpath', async ({openView, page}) => {
     await stubAi(page, {
       ...overview,
       springAiDetected: false,
@@ -145,7 +145,7 @@ test.describe('AI Usage view', () => {
       contentBanner: null
     })
 
-    await page.goto('/bootui/#/ai')
+    await openView('ai', /AI Usage/)
     await expect(page.getByText('Spring AI or LangChain4j on classpath')).toBeVisible()
     await expect(page.getByText('No AI chat completions recorded yet')).toHaveCount(0)
   })

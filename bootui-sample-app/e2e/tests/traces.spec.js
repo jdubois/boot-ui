@@ -89,7 +89,7 @@ test.describe('Traces view', () => {
     await expect(page.locator('.trace-drawer')).toContainText('SELECT sample_products')
   })
 
-  test('shows disabled mode when telemetry is unavailable', async ({page}) => {
+  test('shows disabled mode when telemetry is unavailable', async ({openView, page}) => {
     await stubShell(page)
     await page.route(
       (url) => url.pathname === '/bootui/api/traces',
@@ -101,7 +101,7 @@ test.describe('Traces view', () => {
       }
     )
 
-    await page.goto('/bootui/#/traces')
+    await openView('traces', /^Traces/)
     await expect(page.getByText('Telemetry capture is disabled')).toBeVisible()
     await expect(page.getByText('No traces received yet')).toHaveCount(0)
   })

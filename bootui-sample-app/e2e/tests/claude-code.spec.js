@@ -2,7 +2,7 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Claude Code panel', () => {
-  test('shows an aggregated dashboard from sanitized Claude Code activity', async ({page}) => {
+  test('shows an aggregated dashboard from sanitized Claude Code activity', async ({openView, page}) => {
     const dashboard = {
       available: true,
       sessionStateDir: '/home/dev/.claude/projects',
@@ -142,7 +142,7 @@ test.describe('Claude Code panel', () => {
       await route.fulfill({contentType: 'text/event-stream', body: ''})
     })
 
-    await page.goto('/bootui/#/claude-code')
+    await openView('claude-code', 'Claude Code')
 
     await expect(page.getByLabel('Auto-refresh')).toBeChecked()
     await expect(page.getByTitle('Refresh', {exact: true})).toBeVisible()
