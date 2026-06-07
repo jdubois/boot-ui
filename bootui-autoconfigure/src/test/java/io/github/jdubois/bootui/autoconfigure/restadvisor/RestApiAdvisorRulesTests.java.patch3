@@ -1,0 +1,12 @@
+--- /tmp/workspace/jdubois/boot-ui/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restadvisor/RestApiHandlerModelBuilder.java
++++ /tmp/workspace/jdubois/boot-ui/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restadvisor/RestApiHandlerModelBuilder.java
+@@ -413,9 +413,6 @@
+         if (!collapsed.startsWith("/")) {
+             collapsed = "/" + collapsed;
+         }
+-        if (collapsed.length() > 1 && collapsed.endsWith("/")) {
+-            collapsed = collapsed.substring(0, collapsed.length() - 1);
+-        }
+         return collapsed;
+     }
+ 

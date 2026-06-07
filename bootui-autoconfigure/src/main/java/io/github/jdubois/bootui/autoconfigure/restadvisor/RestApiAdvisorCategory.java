@@ -6,6 +6,7 @@ package io.github.jdubois.bootui.autoconfigure.restadvisor;
  * validation, payloads, pagination, versioning, error handling &amp; documentation).
  */
 enum RestApiAdvisorCategory {
+    ARCHITECTURE("Architecture & Spring MVC Usage"),
     ROUTING("Routing & HTTP method mapping"),
     NAMING("Naming & resource design"),
     RESPONSES("Status codes & responses"),

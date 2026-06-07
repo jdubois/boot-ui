@@ -9,6 +9,10 @@ import java.util.List;
 final class RestApiAdvisorRuleRegistry {
 
     private static final List<RestApiAdvisorRule> ACTIVE_RULES = List.of(
+            // Architecture & Spring MVC Usage
+            new RestControllerInsteadOfControllerRule(),
+            new NoServletApiInSignaturesRule(),
+            new NoTrailingSlashInPathsRule(),
             // Routing & HTTP method mapping
             new UseHttpMethodSpecificMappingsRule(),
             new NoDuplicateRouteMappingsRule(),

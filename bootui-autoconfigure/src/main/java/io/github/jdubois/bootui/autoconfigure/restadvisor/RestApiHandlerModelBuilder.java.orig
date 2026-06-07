@@ -419,6 +419,9 @@ final class RestApiHandlerModelBuilder {
         if (!collapsed.startsWith("/")) {
             collapsed = "/" + collapsed;
         }
+        if (collapsed.length() > 1 && collapsed.endsWith("/")) {
+            collapsed = collapsed.substring(0, collapsed.length() - 1);
+        }
         return collapsed;
     }
 

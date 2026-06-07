@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.restadvisor.fixtures.bad;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,7 +22,7 @@ public class BadOrderController {
 
     // RAPI-MAP-001 (no HTTP method on @RequestMapping)
     @RequestMapping("/legacy")
-    public OrderDto legacy() {
+    public OrderDto legacy(HttpServletRequest request) {
         return new OrderDto();
     }
 

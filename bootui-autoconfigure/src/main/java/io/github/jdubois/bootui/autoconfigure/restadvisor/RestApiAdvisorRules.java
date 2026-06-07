@@ -56,6 +56,18 @@ abstract class AbstractRestApiAdvisorRule implements RestApiAdvisorRule {
         }
         return RestApiAdvisorRuleSupport.fromViolations(definition, violations);
     }
+
+    /** Collects one violation detail per controller that matches the predicate. */
+    RestApiAdvisorRuleResultDto controllersMatching(
+            RestApiAdvisorContext context, Predicate<ControllerModel> predicate, String suffix) {
+        List<String> violations = new ArrayList<>();
+        for (ControllerModel controller : context.controllers()) {
+            if (predicate.test(controller)) {
+                violations.add(controller.className() + (suffix.isEmpty() ? "" : " — " + suffix));
+            }
+        }
+        return RestApiAdvisorRuleSupport.fromViolations(definition, violations);
+    }
 }
 
 /** Shared static helpers for the REST API Advisor rules. */
@@ -1000,5 +1012,70 @@ final class ControllersAreTaggedRule extends AbstractRestApiAdvisorRule {
             }
         }
         return RestApiAdvisorRuleSupport.fromViolations(definition(), violations);
+    }
+}
+// ---------------------------------------------------------------------------------------------
+
+final class RestControllerInsteadOfControllerRule extends AbstractRestApiAdvisorRule {
+    RestControllerInsteadOfControllerRule() {
+        super(new RestApiAdvisorRuleDefinition(
+                "RAPI-ARC-001",
+                "Use @RestController instead of @Controller",
+                RestApiAdvisorCategory.ARCHITECTURE,
+                "MEDIUM",
+                "API controllers should use @RestController rather than @Controller to avoid "
+                        + "having to specify @ResponseBody on every method.",
+                "Replace @Controller with @RestController.",
+                RestApiAdvisorRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
+        return controllersMatching(context, controller -> !controller.restController() && controller.handlerCount() > 0, "using @Controller instead of @RestController");
+    }
+}
+
+final class NoServletApiInSignaturesRule extends AbstractRestApiAdvisorRule {
+    NoServletApiInSignaturesRule() {
+        super(new RestApiAdvisorRuleDefinition(
+                "RAPI-ARC-002",
+                "Avoid raw Servlet API in signatures",
+                RestApiAdvisorCategory.ARCHITECTURE,
+                "LOW",
+                "Direct injection of HttpServletRequest or HttpServletResponse couples the "
+                        + "controller to the Servlet API, complicating testing and abstraction.",
+                "Use Spring abstractions like @RequestHeader, @CookieValue, WebRequest, or return ResponseEntity.",
+                RestApiAdvisorRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
+        return handlersMatching(context, HandlerMethodModel::hasServletApiParameter, "has Servlet API parameter in signature");
+    }
+}
+
+final class NoTrailingSlashInPathsRule extends AbstractRestApiAdvisorRule {
+    NoTrailingSlashInPathsRule() {
+        super(new RestApiAdvisorRuleDefinition(
+                "RAPI-MAP-006",
+                "No trailing slash in paths",
+                RestApiAdvisorCategory.ROUTING,
+                "LOW",
+                "REST APIs should avoid trailing slashes to maintain consistent, canonical URLs "
+                        + "and avoid routing ambiguity.",
+                "Remove the trailing slash from the path mapping.",
+                RestApiAdvisorRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiAdvisorRuleResultDto doEvaluate(RestApiAdvisorContext context) {
+        return handlersMatching(context, handler -> {
+            for (String path : handler.effectivePaths()) {
+                if (path != null && path.length() > 1 && path.endsWith("/") && !path.equals("/")) {
+                    return true;
+                }
+            }
+            return false;
+        }, "path mapping has a trailing slash");
     }
 }

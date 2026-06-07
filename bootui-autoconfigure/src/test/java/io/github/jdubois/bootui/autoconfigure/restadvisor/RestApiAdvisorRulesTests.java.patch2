@@ -1,0 +1,10 @@
+--- /tmp/workspace/jdubois/boot-ui/bootui-autoconfigure/src/test/java/io/github/jdubois/bootui/autoconfigure/restadvisor/RestApiAdvisorRulesTests.java
++++ /tmp/workspace/jdubois/boot-ui/bootui-autoconfigure/src/test/java/io/github/jdubois/bootui/autoconfigure/restadvisor/RestApiAdvisorRulesTests.java
+@@ -118,7 +118,7 @@
+         RestApiAdvisorContext context = context(false, FIXTURES);
+ 
+         assertThat(status(new RestControllerInsteadOfControllerRule(), context)).isEqualTo("VIOLATION");
+         assertThat(status(new NoServletApiInSignaturesRule(), context)).isEqualTo("VIOLATION");
+-        // assertThat(status(new NoTrailingSlashInPathsRule(), context)).isEqualTo("VIOLATION"); // Temporarily disable
++        assertThat(status(new NoTrailingSlashInPathsRule(), context)).isEqualTo("VIOLATION");
+     }

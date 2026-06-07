@@ -12,7 +12,7 @@ class RestApiAdvisorRuleRegistryTests {
     void registersThirtyRulesWithUniqueIds() {
         List<RestApiAdvisorRule> rules = RestApiAdvisorRuleRegistry.activeRules();
 
-        assertThat(rules).hasSize(30);
+        assertThat(rules).hasSize(33);
 
         List<String> ids = rules.stream().map(rule -> rule.definition().id()).toList();
         assertThat(ids).doesNotHaveDuplicates();

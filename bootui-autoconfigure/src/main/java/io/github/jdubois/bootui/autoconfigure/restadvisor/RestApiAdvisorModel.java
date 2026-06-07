@@ -103,7 +103,8 @@ final class RestApiAdvisorModel {
             boolean declaresBroadThrows,
             boolean hasOperationAnnotation,
             boolean nameLooksStateChanging,
-            boolean nameLooksLikeFindAll) {
+            boolean nameLooksLikeFindAll,
+            boolean hasServletApiParameter) {
 
         HandlerMethodModel {
             httpMethods = List.copyOf(httpMethods);
