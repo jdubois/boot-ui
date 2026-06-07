@@ -556,7 +556,7 @@ Purpose: issue safe local HTTP requests to the running app from the developer co
 
 Data sources:
 
-- BootUI internal `/bootui/api/probe` endpoint using a local `HttpClient`.
+- BootUI internal `/bootui/api/http-probe` endpoint using a local `HttpClient`.
 
 Features:
 
@@ -1105,9 +1105,9 @@ Initial endpoints:
 | `/bootui/api/heap-dump/delete`               | POST   | Delete a retained heap dump                                                            |
 | `/bootui/api/heap-dump/download`             | GET    | Download a raw heap dump only when explicitly enabled                                  |
 | `/bootui/api/scheduled`                      | GET    | Scheduled tasks                                                                        |
-| `/bootui/api/probe`                          | POST   | Local HTTP probe                                                                       |
-| `/bootui/api/logs/recent`                    | GET    | Recent log lines                                                                       |
-| `/bootui/api/logs/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
+| `/bootui/api/http-probe`                          | POST   | Local HTTP probe                                                                       |
+| `/bootui/api/log-tail/recent`                    | GET    | Recent log lines                                                                       |
+| `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
 | `/bootui/api/traces/{traceId}`               | GET    | Trace waterfall detail                                                                 |
 | `/bootui/api/traces`                         | DELETE | Clear retained local traces when not read-only                                         |

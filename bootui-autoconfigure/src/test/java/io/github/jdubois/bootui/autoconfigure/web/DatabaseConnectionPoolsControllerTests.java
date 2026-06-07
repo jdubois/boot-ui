@@ -19,14 +19,14 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * HTTP-level tests for {@link HikariController}.
+ * HTTP-level tests for {@link DatabaseConnectionPoolsController}.
  *
  * <p>Covers the pools list (masked metadata and a live snapshot), the
  * closed-pool unavailable path, the snapshot endpoint, and the empty-context
  * case. The controller is read-only, so the tests only stub getters and the
  * pool MXBean counters.</p>
  */
-class HikariControllerTests {
+class DatabaseConnectionPoolsControllerTests {
 
     // Built by concatenation so the userinfo segment is never a literal credential.
     private static final String RAW_JDBC_URL =
@@ -89,7 +89,7 @@ class HikariControllerTests {
     @Test
     void poolsReturnsMaskedMetadataAndSnapshot() throws Exception {
         ListableBeanFactory factory = beanFactoryWith("dataSource", runningDataSource());
-        MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
+        MockMvc mvc = standaloneSetup(new DatabaseConnectionPoolsController(provider(factory), new BootUiProperties()))
                 .build();
 
         mvc.perform(get("/bootui/api/database-connection-pools/pools"))
@@ -114,7 +114,7 @@ class HikariControllerTests {
     void poolsDiscoverWrappedHikariDataSourceProxy() throws Exception {
         HikariDataSource target = runningDataSource();
         ListableBeanFactory factory = beanFactoryWithProxiedDataSource("dataSource", proxyFor(target));
-        MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
+        MockMvc mvc = standaloneSetup(new DatabaseConnectionPoolsController(provider(factory), new BootUiProperties()))
                 .build();
 
         mvc.perform(get("/bootui/api/database-connection-pools/pools"))
@@ -136,7 +136,7 @@ class HikariControllerTests {
         BootUiProperties properties = new BootUiProperties();
         properties.setExposeValues(ValueExposure.FULL);
         ListableBeanFactory factory = beanFactoryWith("dataSource", runningDataSource());
-        MockMvc mvc = standaloneSetup(new HikariController(provider(factory), properties))
+        MockMvc mvc = standaloneSetup(new DatabaseConnectionPoolsController(provider(factory), properties))
                 .build();
 
         mvc.perform(get("/bootui/api/database-connection-pools/pools"))
@@ -153,7 +153,7 @@ class HikariControllerTests {
         when(dataSource.getHikariPoolMXBean()).thenReturn(null);
         when(dataSource.isClosed()).thenReturn(true);
         ListableBeanFactory factory = beanFactoryWith("closedDataSource", dataSource);
-        MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
+        MockMvc mvc = standaloneSetup(new DatabaseConnectionPoolsController(provider(factory), new BootUiProperties()))
                 .build();
 
         mvc.perform(get("/bootui/api/database-connection-pools/pools"))
@@ -166,7 +166,7 @@ class HikariControllerTests {
     @Test
     void snapshotReturnsCountsForKnownPool() throws Exception {
         ListableBeanFactory factory = beanFactoryWith("dataSource", runningDataSource());
-        MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
+        MockMvc mvc = standaloneSetup(new DatabaseConnectionPoolsController(provider(factory), new BootUiProperties()))
                 .build();
 
         mvc.perform(get("/bootui/api/database-connection-pools/pools/HikariPool-1/snapshot"))
@@ -180,7 +180,7 @@ class HikariControllerTests {
     @Test
     void snapshotReturnsNotFoundForUnknownPool() throws Exception {
         ListableBeanFactory factory = beanFactoryWith("dataSource", runningDataSource());
-        MockMvc mvc = standaloneSetup(new HikariController(provider(factory), new BootUiProperties()))
+        MockMvc mvc = standaloneSetup(new DatabaseConnectionPoolsController(provider(factory), new BootUiProperties()))
                 .build();
 
         mvc.perform(get("/bootui/api/database-connection-pools/pools/does-not-exist/snapshot"))
@@ -189,7 +189,7 @@ class HikariControllerTests {
 
     @Test
     void poolsReportEmptyWhenNoBeanFactory() throws Exception {
-        MockMvc mvc = standaloneSetup(new HikariController(provider(null), new BootUiProperties()))
+        MockMvc mvc = standaloneSetup(new DatabaseConnectionPoolsController(provider(null), new BootUiProperties()))
                 .build();
 
         mvc.perform(get("/bootui/api/database-connection-pools/pools"))

@@ -36,7 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @ConditionalOnClass(HikariDataSource.class)
 @RequestMapping("/bootui/api/database-connection-pools")
-public class HikariController {
+public class DatabaseConnectionPoolsController {
 
     private static final Pattern URL_CREDENTIALS =
             Pattern.compile("([a-z][a-z0-9+.-]*://)([^:/@\\s]+):([^@\\s]+)@", Pattern.CASE_INSENSITIVE);
@@ -47,7 +47,7 @@ public class HikariController {
     private final BootUiExposure exposure;
 
     @Autowired
-    public HikariController(
+    public DatabaseConnectionPoolsController(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             BootUiProperties properties,
             BootUiExposure exposure) {
@@ -55,7 +55,8 @@ public class HikariController {
         this.exposure = exposure;
     }
 
-    HikariController(ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiProperties properties) {
+    DatabaseConnectionPoolsController(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiProperties properties) {
         this(beanFactoryProvider, properties, new BootUiExposure(properties));
     }
 

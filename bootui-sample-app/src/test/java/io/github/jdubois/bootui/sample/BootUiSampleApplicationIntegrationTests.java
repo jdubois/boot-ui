@@ -377,7 +377,7 @@ class BootUiSampleApplicationIntegrationTests {
     @Test
     void httpProbeEndpointCallsLoopbackSampleEndpoint() {
         ResponseEntity<Map> response = postMap(
-                "/bootui/api/probe",
+                "/bootui/api/http-probe",
                 Map.of("method", "get", "path", "api/hello", "headers", Map.of("X-Ignored", "ok")));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -391,7 +391,7 @@ class BootUiSampleApplicationIntegrationTests {
 
     @Test
     void logTailRecentEndpointReturnsSerializedLogLines() {
-        ResponseEntity<List> response = getList("/bootui/api/logs/recent");
+        ResponseEntity<List> response = getList("/bootui/api/log-tail/recent");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();

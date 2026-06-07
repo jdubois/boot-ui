@@ -53,7 +53,7 @@ const statusClass = computed(
 function connect() {
   disconnect(false)
   status.value = 'Disconnected'
-  eventSource = new EventSource('api/logs/stream')
+  eventSource = new EventSource('api/log-tail/stream')
   eventSource.onopen = () => {
     status.value = 'Connected'
   }

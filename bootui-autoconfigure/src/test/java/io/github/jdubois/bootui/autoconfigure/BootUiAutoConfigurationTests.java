@@ -206,7 +206,7 @@ class BootUiAutoConfigurationTests {
                             GitHubController.class,
                             GraalVmController.class,
                             HealthController.class,
-                            HikariController.class,
+                            DatabaseConnectionPoolsController.class,
                             HttpExchangesController.class,
                             HttpSessionsController.class,
                             HttpProbeController.class,
@@ -415,7 +415,7 @@ class BootUiAutoConfigurationTests {
                 .run(context -> assertThat(context)
                         .hasSingleBean(SpringCacheController.class)
                         .hasSingleBean(DataController.class)
-                        .hasSingleBean(HikariController.class)
+                        .hasSingleBean(DatabaseConnectionPoolsController.class)
                         .hasSingleBean(HttpSessionsController.class)
                         .hasSingleBean(LogTailController.class)
                         .hasSingleBean(ScheduledController.class)
@@ -434,7 +434,7 @@ class BootUiAutoConfigurationTests {
     void skipsHikariPanelWhenHikariCpIsMissing() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("com.zaxxer.hikari.HikariDataSource"))
-                .run(context -> assertThat(context).doesNotHaveBean(HikariController.class));
+                .run(context -> assertThat(context).doesNotHaveBean(DatabaseConnectionPoolsController.class));
     }
 
     @Test
