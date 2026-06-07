@@ -139,7 +139,7 @@ generators, collection fetch pagination, unsafe cascades, cache misconfiguration
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Hibernate panel](./images/bootui-hibernate.png)
+![BootUI Hibernate panel](./images/bootui-hibernate-advisor.png)
 
 ### Memory
 
