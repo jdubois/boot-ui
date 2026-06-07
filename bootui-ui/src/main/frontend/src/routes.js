@@ -7,9 +7,9 @@ const Mappings = () => import('./views/Mappings.vue')
 const Health = () => import('./views/Health.vue')
 const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
-const DatabaseConnectionsPools = () => import('./views/DatabaseConnectionsPools.vue')
+const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const Data = () => import('./views/Data.vue')
-const HibernateAdvisor = () => import('./views/HibernateAdvisor.vue')
+const Hibernate = () => import('./views/Hibernate.vue')
 const Flyway = () => import('./views/Flyway.vue')
 const Liquibase = () => import('./views/Liquibase.vue')
 const Startup = () => import('./views/Startup.vue')
@@ -17,20 +17,23 @@ const Scheduled = () => import('./views/Scheduled.vue')
 const HttpProbe = () => import('./views/HttpProbe.vue')
 const Pentesting = () => import('./views/Pentesting.vue')
 const Architecture = () => import('./views/Architecture.vue')
+const RestApi = () => import('./views/RestApi.vue')
 const GraalVm = () => import('./views/GraalVm.vue')
 const LogTail = () => import('./views/LogTail.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
 const SpringSecurity = () => import('./views/SpringSecurity.vue')
-const SecurityAdvisor = () => import('./views/SecurityAdvisor.vue')
+const Spring = () => import('./views/Spring.vue')
+const Security = () => import('./views/Security.vue')
 const SecurityLogs = () => import('./views/SecurityLogs.vue')
-const Memory = () => import('./views/Memory.vue')
-const TuningAdvisor = () => import('./views/TuningAdvisor.vue')
+const LiveMemory = () => import('./views/LiveMemory.vue')
+const JvmTuning = () => import('./views/JvmTuning.vue')
 const HeapDump = () => import('./views/HeapDump.vue')
 const Threads = () => import('./views/Threads.vue')
+const Memory = () => import('./views/Memory.vue')
 const Metrics = () => import('./views/Metrics.vue')
-const Vulnerabilities = () => import('./views/Dependencies.vue')
+const Vulnerabilities = () => import('./views/Vulnerabilities.vue')
 const DevServices = () => import('./views/DevServices.vue')
 const DevTools = () => import('./views/DevTools.vue')
 const Traces = () => import('./views/Traces.vue')
@@ -39,6 +42,7 @@ const Copilot = () => import('./views/Copilot.vue')
 
 export const groups = {
   overview: 'overview',
+  advisors: 'advisors',
   runtime: 'runtime',
   configuration: 'configuration',
   database: 'database',
@@ -63,6 +67,54 @@ export const routes = [
     meta: {group: groups.overview, icon: 'bi-github', title: 'GitHub'}
   },
   {
+    path: '/architecture',
+    name: 'architecture',
+    component: Architecture,
+    meta: {group: groups.advisors, icon: 'bi-diagram-2', title: 'Architecture'}
+  },
+  {
+    path: '/rest-api',
+    name: 'rest-api',
+    component: RestApi,
+    meta: {group: groups.advisors, icon: 'bi-signpost-split', title: 'REST API'}
+  },
+  {
+    path: '/spring',
+    name: 'spring',
+    component: Spring,
+    meta: {group: groups.advisors, icon: 'bi-lightbulb', title: 'Spring'}
+  },
+  {
+    path: '/hibernate',
+    name: 'hibernate',
+    component: Hibernate,
+    meta: {group: groups.advisors, icon: 'bi-database-gear', title: 'Hibernate'}
+  },
+  {
+    path: '/memory',
+    name: 'memory',
+    component: Memory,
+    meta: {group: groups.advisors, icon: 'bi-clipboard2-pulse', title: 'Memory'}
+  },
+  {
+    path: '/security',
+    name: 'security',
+    component: Security,
+    meta: {group: groups.advisors, icon: 'bi-shield-check', title: 'Security'}
+  },
+  {
+    path: '/pentesting',
+    name: 'pentesting',
+    component: Pentesting,
+    meta: {group: groups.advisors, icon: 'bi-shield-exclamation', title: 'Pentesting'}
+  },
+  {
+    path: '/vulnerabilities',
+    name: 'vulnerabilities',
+    component: Vulnerabilities,
+    meta: {group: groups.advisors, icon: 'bi-bug', title: 'Vulnerabilities'}
+  },
+  {
     path: '/health',
     name: 'health',
     component: Health,
@@ -81,16 +133,16 @@ export const routes = [
     meta: {group: groups.runtime, icon: 'bi-activity', title: 'Metrics'}
   },
   {
-    path: '/memory',
-    name: 'memory',
-    component: Memory,
-    meta: {group: groups.runtime, icon: 'bi-memory', title: 'Memory'}
+    path: '/live-memory',
+    name: 'live-memory',
+    component: LiveMemory,
+    meta: {group: groups.runtime, icon: 'bi-memory', title: 'Live Memory'}
   },
   {
-    path: '/tuning-advisor',
-    name: 'tuning-advisor',
-    component: TuningAdvisor,
-    meta: {group: groups.runtime, icon: 'bi-sliders2-vertical', title: 'Tuning Advisor'}
+    path: '/jvm-tuning',
+    name: 'jvm-tuning',
+    component: JvmTuning,
+    meta: {group: groups.runtime, icon: 'bi-sliders2-vertical', title: 'JVM Tuning'}
   },
   {
     path: '/heap-dump',
@@ -123,8 +175,8 @@ export const routes = [
     meta: {group: groups.configuration, icon: 'bi-sliders', title: 'Configuration'}
   },
   {
-    path: '/profiles',
-    name: 'profiles',
+    path: '/profile-diff',
+    name: 'profile-diff',
     component: ProfileDiff,
     meta: {group: groups.configuration, icon: 'bi-layers', title: 'Profile Diff'}
   },
@@ -155,7 +207,7 @@ export const routes = [
   {
     path: '/database-connection-pools',
     name: 'database-connection-pools',
-    component: DatabaseConnectionsPools,
+    component: DatabaseConnectionPools,
     meta: {group: groups.database, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
   },
   {
@@ -163,12 +215,6 @@ export const routes = [
     name: 'data',
     component: Data,
     meta: {group: groups.database, icon: 'bi-database', title: 'Spring Data'}
-  },
-  {
-    path: '/hibernate-advisor',
-    name: 'hibernate-advisor',
-    component: HibernateAdvisor,
-    meta: {group: groups.database, icon: 'bi-database-gear', title: 'Hibernate Advisor'}
   },
   {
     path: '/flyway',
@@ -193,24 +239,6 @@ export const routes = [
     name: 'security-logs',
     component: SecurityLogs,
     meta: {group: groups.security, icon: 'bi-shield-lock', title: 'Security Logs'}
-  },
-  {
-    path: '/security-advisor',
-    name: 'security-advisor',
-    component: SecurityAdvisor,
-    meta: {group: groups.security, icon: 'bi-shield-check', title: 'Security Advisor'}
-  },
-  {
-    path: '/pentest',
-    name: 'pentest',
-    component: Pentesting,
-    meta: {group: groups.security, icon: 'bi-shield-exclamation', title: 'Pentesting'}
-  },
-  {
-    path: '/vulnerabilities',
-    name: 'vulnerabilities',
-    component: Vulnerabilities,
-    meta: {group: groups.security, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
     path: '/scheduled',
@@ -255,12 +283,6 @@ export const routes = [
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe'}
   },
   {
-    path: '/architecture',
-    name: 'architecture',
-    component: Architecture,
-    meta: {group: groups.diagnostics, icon: 'bi-diagram-2', title: 'Architecture'}
-  },
-  {
     path: '/devtools',
     name: 'devtools',
     component: DevTools,
@@ -284,5 +306,13 @@ export const routes = [
     component: Copilot,
     meta: {group: groups.developerTools, icon: 'bi-claude', title: 'Claude Code'}
   },
-  {path: '/dependencies', redirect: '/vulnerabilities'}
+  {path: '/tuning-advisor', redirect: '/jvm-tuning'},
+  {path: '/pentest', redirect: '/pentesting'},
+  {path: '/dependencies', redirect: '/vulnerabilities'},
+  {path: '/rest-advisor', redirect: '/rest-api'},
+  {path: '/spring-advisor', redirect: '/spring'},
+  {path: '/hibernate-advisor', redirect: '/hibernate'},
+  {path: '/memory-advisor', redirect: '/memory'},
+  {path: '/security-advisor', redirect: '/security'},
+  {path: '/profiles', redirect: '/profile-diff'}
 ]

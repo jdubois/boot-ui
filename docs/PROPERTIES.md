@@ -36,47 +36,50 @@ Panel settings are consistent across the UI and API:
 
 ## Panel access settings
 
-| Group           | Panel                     | Panel id                    | Enable property                                   | Read-only property                          |
-| --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ------------------------------------------- |
-| Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                  |
-| Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`            |
-| Runtime         | Health                    | `health`                    | `bootui.panels.health.enabled`                    | Not applicable; view-only.                  |
-| Runtime         | HTTP Sessions             | `http-sessions`             | `bootui.panels.http-sessions.enabled`             | `bootui.panels.http-sessions.read-only`     |
-| Runtime         | Metrics                   | `metrics`                   | `bootui.panels.metrics.enabled`                   | Not applicable; view-only.                  |
-| Runtime         | Memory                    | `memory`                    | `bootui.panels.memory.enabled`                    | Not applicable; view-only.                  |
-| Runtime         | Tuning Advisor            | `tuning-advisor`            | `bootui.panels.tuning-advisor.enabled`            | Not applicable; view-only.                  |
-| Runtime         | Heap Dump                 | `heap-dump`                 | `bootui.panels.heap-dump.enabled`                 | `bootui.panels.heap-dump.read-only`         |
-| Runtime         | Threads                   | `threads`                   | `bootui.panels.threads.enabled`                   | `bootui.panels.threads.read-only`           |
-| Runtime         | Startup Timeline          | `startup`                   | `bootui.panels.startup.enabled`                   | Not applicable; view-only.                  |
-| Runtime         | GraalVM                   | `graalvm`                   | `bootui.panels.graalvm.enabled`                   | `bootui.panels.graalvm.read-only`           |
-| Configuration   | Configuration             | `config`                    | `bootui.panels.config.enabled`                    | `bootui.panels.config.read-only`            |
-| Configuration   | Profile Diff              | `profiles`                  | `bootui.panels.profiles.enabled`                  | Not applicable; view-only.                  |
-| Configuration   | Loggers                   | `loggers`                   | `bootui.panels.loggers.enabled`                   | `bootui.panels.loggers.read-only`           |
-| Configuration   | Beans                     | `beans`                     | `bootui.panels.beans.enabled`                     | Not applicable; view-only.                  |
-| Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                  |
-| Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                  |
-| Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                  |
-| Database        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                  |
-| Database        | Hibernate Advisor         | `hibernate-advisor`         | `bootui.panels.hibernate-advisor.enabled`         | `bootui.panels.hibernate-advisor.read-only` |
-| Database        | Flyway                    | `flyway`                    | `bootui.panels.flyway.enabled`                    | `bootui.panels.flyway.read-only`            |
-| Database        | Liquibase                 | `liquibase`                 | `bootui.panels.liquibase.enabled`                 | `bootui.panels.liquibase.read-only`         |
-| Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                  |
-| Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                  |
-| Security        | Security Advisor          | `security-advisor`          | `bootui.panels.security-advisor.enabled`          | `bootui.panels.security-advisor.read-only`  |
-| Security        | Pentesting                | `pentest`                   | `bootui.panels.pentest.enabled`                   | `bootui.panels.pentest.read-only`           |
-| Security        | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only`   |
-| Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                  |
-| Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`      |
-| Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                  |
-| Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`            |
-| Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                  |
-| Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                  |
-| Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`        |
-| Diagnostics     | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`      |
-| Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`          |
-| Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`      |
-| Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                  |
-| Developer tools | Claude Code               | `claude-code`               | `bootui.panels.claude-code.enabled`               | Not applicable; view-only.                  |
+| Group           | Panel                     | Panel id                    | Enable property                                   | Read-only property                        |
+| --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |
+| Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
+| Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
+| Advisors        | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
+| Advisors        | REST API                  | `rest-api`                  | `bootui.panels.rest-api.enabled`                  | `bootui.panels.rest-api.read-only`        |
+| Advisors        | Spring                    | `spring`                    | `bootui.panels.spring.enabled`                    | `bootui.panels.spring.read-only`          |
+| Advisors        | Hibernate                 | `hibernate`                 | `bootui.panels.hibernate.enabled`                 | `bootui.panels.hibernate.read-only`       |
+| Advisors        | Memory                    | `memory`                    | `bootui.panels.memory.enabled`                    | `bootui.panels.memory.read-only`          |
+| Advisors        | Security                  | `security`                  | `bootui.panels.security.enabled`                  | `bootui.panels.security.read-only`        |
+| Advisors        | Pentesting                | `pentesting`                | `bootui.panels.pentesting.enabled`                | `bootui.panels.pentesting.read-only`      |
+| Advisors        | Vulnerabilities           | `vulnerabilities`           | `bootui.panels.vulnerabilities.enabled`           | `bootui.panels.vulnerabilities.read-only` |
+| Runtime         | Health                    | `health`                    | `bootui.panels.health.enabled`                    | Not applicable; view-only.                |
+| Runtime         | HTTP Sessions             | `http-sessions`             | `bootui.panels.http-sessions.enabled`             | `bootui.panels.http-sessions.read-only`   |
+| Runtime         | Metrics                   | `metrics`                   | `bootui.panels.metrics.enabled`                   | Not applicable; view-only.                |
+| Runtime         | Live Memory               | `live-memory`               | `bootui.panels.live-memory.enabled`               | Not applicable; view-only.                |
+| Runtime         | JVM Tuning                | `jvm-tuning`                | `bootui.panels.jvm-tuning.enabled`                | Not applicable; view-only.                |
+| Runtime         | Heap Dump                 | `heap-dump`                 | `bootui.panels.heap-dump.enabled`                 | `bootui.panels.heap-dump.read-only`       |
+| Runtime         | Threads                   | `threads`                   | `bootui.panels.threads.enabled`                   | `bootui.panels.threads.read-only`         |
+| Runtime         | Startup Timeline          | `startup`                   | `bootui.panels.startup.enabled`                   | Not applicable; view-only.                |
+| Runtime         | GraalVM                   | `graalvm`                   | `bootui.panels.graalvm.enabled`                   | `bootui.panels.graalvm.read-only`         |
+| Configuration   | Configuration             | `config`                    | `bootui.panels.config.enabled`                    | `bootui.panels.config.read-only`          |
+| Configuration   | Profile Diff              | `profile-diff`              | `bootui.panels.profile-diff.enabled`              | Not applicable; view-only.                |
+| Configuration   | Loggers                   | `loggers`                   | `bootui.panels.loggers.enabled`                   | `bootui.panels.loggers.read-only`         |
+| Configuration   | Beans                     | `beans`                     | `bootui.panels.beans.enabled`                     | Not applicable; view-only.                |
+| Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                |
+| Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
+| Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
+| Database        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                |
+| Database        | Flyway                    | `flyway`                    | `bootui.panels.flyway.enabled`                    | `bootui.panels.flyway.read-only`          |
+| Database        | Liquibase                 | `liquibase`                 | `bootui.panels.liquibase.enabled`                 | `bootui.panels.liquibase.read-only`       |
+| Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
+| Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
+| Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                |
+| Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`    |
+| Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
+| Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
+| Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
+| Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
+| Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
+| Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
+| Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
+| Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                |
+| Developer tools | Claude Code               | `claude-code`               | `bootui.panels.claude-code.enabled`               | Not applicable; view-only.                |
 
 ## Per-panel action details
 
@@ -127,6 +130,20 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.loggers.enabled`   | `true`  | Show logger data from the Actuator loggers endpoint. |
 | `bootui.panels.loggers.read-only` | `false` | Disable runtime logger level updates and resets.     |
 
+### REST API
+
+| Property                           | Default | Description                                          |
+| ---------------------------------- | ------- | ---------------------------------------------------- |
+| `bootui.panels.rest-api.enabled`   | `true`  | Show read-only REST API design best-practice checks. |
+| `bootui.panels.rest-api.read-only` | `false` | Disable the explicit REST API Advisor scan action.   |
+
+### Spring
+
+| Property                         | Default | Description                                                     |
+| -------------------------------- | ------- | --------------------------------------------------------------- |
+| `bootui.panels.spring.enabled`   | `true`  | Show read-only Spring application-context best-practice checks. |
+| `bootui.panels.spring.read-only` | `false` | Disable the explicit Spring Advisor scan action.                |
+
 ### Spring Security
 
 | Property                                | Default | Description                                                                    |
@@ -140,19 +157,19 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.security-logs.enabled` | `true`  | Show Spring Boot audit/security events and auto-contribute an in-memory `AuditEventRepository` when the host has none. |
 | `bootui.security-logs.max-logs`       | `500`   | Maximum recent audit events returned in one Security Logs response.                                                    |
 
-### Security Advisor
+### Security
 
-| Property                                  | Default | Description                                                        |
-| ----------------------------------------- | ------- | ------------------------------------------------------------------ |
-| `bootui.panels.security-advisor.enabled`  | `true`  | Show read-only Spring Security hardening checks.                   |
-| `bootui.panels.security-advisor.read-only` | `false` | Disable the explicit Spring Security Advisor scan action.          |
+| Property                           | Default | Description                                               |
+| ---------------------------------- | ------- | --------------------------------------------------------- |
+| `bootui.panels.security.enabled`   | `true`  | Show read-only Spring Security hardening checks.          |
+| `bootui.panels.security.read-only` | `false` | Disable the explicit Spring Security Advisor scan action. |
 
 ### Pentesting
 
-| Property                          | Default | Description                                                          |
-| --------------------------------- | ------- | -------------------------------------------------------------------- |
-| `bootui.panels.pentest.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
-| `bootui.panels.pentest.read-only` | `false` | Disable the explicit local scan action.                              |
+| Property                             | Default | Description                                                          |
+| ------------------------------------ | ------- | ------------------------------------------------------------------- |
+| `bootui.panels.pentesting.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
+| `bootui.panels.pentesting.read-only` | `false` | Disable the explicit local scan action.                              |
 
 ### Spring Cache
 
@@ -162,12 +179,19 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.spring-cache.read-only` | `false` | Disable cache clear actions.                                                                      |
 | `bootui.cache.clear-enabled`           | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing. |
 
-### Hibernate Advisor
+### Hibernate
 
-| Property                                    | Default | Description                                                                       |
-| ------------------------------------------- | ------- | --------------------------------------------------------------------------------- |
-| `bootui.panels.hibernate-advisor.enabled`   | `true`  | Show Hibernate/JPA mapping and configuration advisor findings.                    |
-| `bootui.panels.hibernate-advisor.read-only` | `false` | Disable the explicit Hibernate Advisor scan action while keeping results visible. |
+| Property                            | Default | Description                                                                       |
+| ----------------------------------- | ------- | --------------------------------------------------------------------------------- |
+| `bootui.panels.hibernate.enabled`   | `true`  | Show Hibernate/JPA mapping and configuration advisor findings.                    |
+| `bootui.panels.hibernate.read-only` | `false` | Disable the explicit Hibernate Advisor scan action while keeping results visible. |
+
+### Memory
+
+| Property                         | Default | Description                                                    |
+| -------------------------------- | ------- | -------------------------------------------------------------- |
+| `bootui.panels.memory.enabled`   | `true`  | Show read-only JVM memory configuration best-practice checks. |
+| `bootui.panels.memory.read-only` | `false` | Disable the explicit Memory Advisor scan action.              |
 
 ### Flyway
 
@@ -217,10 +241,10 @@ Panel settings are consistent across the UI and API:
 | ----------------------------------------- | ------- | ------------------------------------------------------- |
 | `bootui.panels.vulnerabilities.enabled`   | `true`  | Show dependency inventory and local scan results.       |
 | `bootui.panels.vulnerabilities.read-only` | `false` | Disable on-demand OSV scan requests.                    |
-| `bootui.dependencies.osv-enabled`         | `true`  | Additional action gate for OSV.dev scans.               |
-| `bootui.dependencies.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
-| `bootui.dependencies.max-packages`        | `250`   | Maximum packages included in one OSV batch query.       |
-| `bootui.dependencies.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
+| `bootui.vulnerabilities.osv-enabled`         | `true`  | Additional action gate for OSV.dev scans.               |
+| `bootui.vulnerabilities.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
+| `bootui.vulnerabilities.max-packages`        | `250`   | Maximum packages included in one OSV batch query.       |
+| `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
 
 ### Heap Dump
 
@@ -272,6 +296,41 @@ Panel settings are consistent across the UI and API:
 | `bootui.dev-services.restart-enabled`  | `false` | Additional action gate for restarting bean-backed Testcontainers services. Disabled by default. |
 | `bootui.dev-services.log-tail-bytes`   | `65536` | Maximum bytes returned by a single Dev Services log request.                                    |
 
+### AI Usage
+
+| Property                                | Default | Description                                                     |
+| --------------------------------------- | ------- | --------------------------------------------------------------- |
+| `bootui.panels.ai.enabled`              | `true`  | Show the AI Usage panel.                                        |
+| `bootui.ai.token-series-minutes`        | `60`    | Number of minutes retained in the AI Usage token series.        |
+| `bootui.ai.max-recent-chats`            | `100`   | Maximum recent chat completions surfaced by the AI Usage panel. |
+| `bootui.ai.show-content-capture-banner` | `true`  | Show the AI content-capture explanation banner.                 |
+
+### Copilot
+
+| Property                                | Default                    | Description                                                                                                            |
+| --------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.copilot.enabled`         | `true`                     | Show the Copilot panel in the sidebar.                                                                                 |
+| `bootui.copilot.enabled`                | `AUTO`                     | Activate the Copilot integration. `AUTO` enables it only when the session-state directory exists; `ON`/`OFF` force it. |
+| `bootui.copilot.session-state-dir`      | `~/.copilot/session-state` | Directory scanned for Copilot CLI sessions.                                                                            |
+| `bootui.copilot.max-events-per-session` | `2000`                     | Maximum Copilot events retained per parsed session.                                                                    |
+| `bootui.copilot.max-sessions`           | `100`                      | Maximum recent Copilot sessions returned by the explorer.                                                              |
+| `bootui.copilot.max-parsed-sessions`    | `100`                      | Maximum recent Copilot session files parsed and retained in memory.                                                    |
+| `bootui.copilot.stream-debounce`        | `400ms`                    | Debounce window before refreshing parsed Copilot sessions and notifying stream subscribers.                            |
+| `bootui.copilot.allow-raw-reveal`       | `true`                     | Allow explicit raw event reveal when value exposure is not `METADATA_ONLY`.                                            |
+
+### Claude Code
+
+| Property                                    | Default              | Description                                                                                                              |
+| ------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `bootui.panels.claude-code.enabled`         | `true`               | Show the Claude Code panel in the sidebar.                                                                               |
+| `bootui.claude-code.enabled`                | `AUTO`               | Activate the Claude Code integration. `AUTO` enables it only when the project log directory exists; `ON`/`OFF` force it. |
+| `bootui.claude-code.session-state-dir`      | `~/.claude/projects` | Directory scanned for Claude Code project JSONL logs.                                                                    |
+| `bootui.claude-code.max-events-per-session` | `2000`               | Maximum Claude Code events retained per parsed session.                                                                  |
+| `bootui.claude-code.max-sessions`           | `100`                | Maximum recent Claude Code sessions returned by the explorer.                                                            |
+| `bootui.claude-code.max-parsed-sessions`    | `100`                | Maximum recent Claude Code JSONL files parsed and retained in memory.                                                    |
+| `bootui.claude-code.stream-debounce`        | `400ms`              | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.                          |
+| `bootui.claude-code.allow-raw-reveal`       | `false`              | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs.           |
+
 ## Read-only examples
 
 Make the whole application read-only:
@@ -298,25 +357,3 @@ Require both an action gate and panel read-only state to allow an action:
 bootui.panels.dev-services.read-only=false
 bootui.dev-services.restart-enabled=true
 ```
-
-## Other panel-specific settings
-
-| Property                                    | Default                    | Description                                                                                                    |
-| ------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `bootui.ai.token-series-minutes`            | `60`                       | Number of minutes retained in the AI Usage token series.                                                       |
-| `bootui.ai.max-recent-chats`                | `100`                      | Maximum recent chat completions surfaced by the AI Usage panel.                                                |
-| `bootui.ai.show-content-capture-banner`     | `true`                     | Show the AI content-capture explanation banner.                                                                |
-| `bootui.copilot.enabled`                    | `AUTO`                     | Enable the Copilot panel. `AUTO` activates when the session-state directory exists.                            |
-| `bootui.copilot.session-state-dir`          | `~/.copilot/session-state` | Directory scanned for Copilot CLI sessions.                                                                    |
-| `bootui.copilot.max-events-per-session`     | `2000`                     | Maximum Copilot events retained per parsed session.                                                            |
-| `bootui.copilot.max-sessions`               | `100`                      | Maximum recent Copilot sessions returned by the explorer.                                                      |
-| `bootui.copilot.max-parsed-sessions`        | `100`                      | Maximum recent Copilot session files parsed and retained in memory.                                            |
-| `bootui.copilot.stream-debounce`            | `400ms`                    | Debounce window before refreshing parsed Copilot sessions and notifying stream subscribers.                    |
-| `bootui.copilot.allow-raw-reveal`           | `true`                     | Allow explicit raw event reveal when value exposure is not `METADATA_ONLY`.                                    |
-| `bootui.claude-code.enabled`                | `AUTO`                     | Enable the Claude Code panel. `AUTO` activates when the project log directory exists.                          |
-| `bootui.claude-code.session-state-dir`      | `~/.claude/projects`       | Directory scanned for Claude Code project JSONL logs.                                                          |
-| `bootui.claude-code.max-events-per-session` | `2000`                     | Maximum Claude Code events retained per parsed session.                                                        |
-| `bootui.claude-code.max-sessions`           | `100`                      | Maximum recent Claude Code sessions returned by the explorer.                                                  |
-| `bootui.claude-code.max-parsed-sessions`    | `100`                      | Maximum recent Claude Code JSONL files parsed and retained in memory.                                          |
-| `bootui.claude-code.stream-debounce`        | `400ms`                    | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.                |
-| `bootui.claude-code.allow-raw-reveal`       | `false`                    | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs. |

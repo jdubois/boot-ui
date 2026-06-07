@@ -66,11 +66,11 @@ Useful URLs:
    `.bootui/application-bootui.properties` under the repo's working directory.
 6. **Loggers** — set `io.github.jdubois.bootui.sample` to `TRACE`, exercise an
    endpoint, then clear the level and observe the inherited level reappear.
-7. **Health, HTTP Sessions, Metrics, Memory, Tuning Advisor, Heap Dump, Threads, Startup Timeline, GraalVM** —
+7. **Health, HTTP Sessions, Metrics, Memory, JVM Tuning, Heap Dump, Threads, Startup Timeline, GraalVM** —
    sanity-check the live runtime values, inspect session/thread activity, calculate JVM/container sizing, run native-image
    readiness checks, and use Heap Dump to analyze a value-free class histogram.
-8. **Spring Data and Hibernate Advisor** — open `BootUiSampleRepository` to inspect its query methods and domain type,
-   then run Hibernate Advisor to review the sample JPA mappings.
+8. **Spring Data and Hibernate** — open `BootUiSampleRepository` to inspect its query methods and domain type,
+   then run the Hibernate panel to review the sample JPA mappings.
 9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
 10. **Flyway** — inspect the applied and pending `catalog_*` migrations (versions,

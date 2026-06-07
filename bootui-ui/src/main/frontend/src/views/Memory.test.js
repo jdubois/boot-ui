@@ -1,99 +1,108 @@
 import {flushPromises, mount} from '@vue/test-utils'
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import Memory from './Memory.vue'
 
-const MB = 1024 * 1024
-
-function memoryReport() {
+function ruleResult(id, name, severity, status, violationCount = 0) {
   return {
-    heap: {name: 'Heap', usedBytes: 128 * MB, committedBytes: 256 * MB, maxBytes: 512 * MB, usedPercent: 25},
-    nonHeap: {name: 'Non-Heap', usedBytes: 64 * MB, committedBytes: 128 * MB, maxBytes: -1, usedPercent: 50},
-    pools: [{name: 'G1 Eden Space', usedBytes: 32 * MB, committedBytes: 64 * MB, maxBytes: 128 * MB, usedPercent: 25}],
-    jvmInputArguments: [],
-    suggestedJvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
-    calculation: {
-      totalMemoryBytes: 1024 * MB,
-      heapBytes: 512 * MB,
-      metaspaceBytes: 64 * MB,
-      codeCacheBytes: 240 * MB,
-      directMemoryBytes: 10 * MB,
-      stackBytesPerThread: MB,
-      stackBytesTotal: 250 * MB,
-      headRoomBytes: 102 * MB,
-      fixedRegionsBytes: 564 * MB,
-      threadCount: 250,
-      loadedClasses: 5000,
-      liveThreadCount: 40,
-      liveLoadedClassCount: 5000,
-      headRoomPercent: 10,
-      jvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
-      valid: true,
-      error: null
-    },
-    kubernetes: {
-      requestMemoryBytes: 1024 * MB,
-      limitMemoryBytes: 1024 * MB,
-      burstableRequestMemoryBytes: 512 * MB,
-      currentSnapshotBytes: 432 * MB,
-      detectedContainerLimitBytes: 1024 * MB,
-      requestMemory: '1024Mi',
-      limitMemory: '1024Mi',
-      burstableRequestMemory: '512Mi',
-      currentSnapshotMemory: '432Mi',
-      detectedContainerLimitMemory: '1024Mi',
-      qosClass: 'Guaranteed',
-      confidence: 'High',
-      warnings: ['Request equals limit for Kubernetes Guaranteed QoS.'],
-      yaml:
-        'resources:\n' +
-        '  requests:\n' +
-        '    memory: "1024Mi"\n' +
-        '  limits:\n' +
-        '    memory: "1024Mi"\n' +
-        'env:\n' +
-        '  - name: JAVA_TOOL_OPTIONS\n' +
-        '    value: "-Xms512m -Xmx512m -XX:+UseG1GC"'
-    }
+    id,
+    name,
+    category: 'Threads',
+    severity,
+    description: `${name} description.`,
+    status,
+    violationCount,
+    sampleViolations: violationCount > 0 ? [`${id} detail`] : [],
+    recommendation: `${name} recommendation.`,
+    learnMoreUrl: 'https://example.com/memory-check'
   }
 }
 
-function jsonResponse(body, ok = true, status = 200) {
-  return {ok, status, json: () => Promise.resolve(body)}
+function advisorReport(results, violationsFound = results.filter((result) => result.status === 'VIOLATION').length) {
+  return {
+    localOnly: true,
+    disclaimer: 'Memory disclaimer.',
+    rulesEvaluated: 22,
+    violationsFound,
+    summary: {
+      heapUsedBytes: 536_870_912,
+      heapMaxBytes: 2_147_483_648,
+      heapUsedPercent: 25,
+      liveThreads: 30,
+      peakThreads: 35,
+      deadlockDetected: false,
+      loadedClasses: 9000,
+      histogramAvailable: false
+    },
+    severityCounts: [
+      {severity: 'CRITICAL', count: severityCount(results, 'CRITICAL')},
+      {severity: 'HIGH', count: severityCount(results, 'HIGH')},
+      {severity: 'MEDIUM', count: severityCount(results, 'MEDIUM')},
+      {severity: 'LOW', count: severityCount(results, 'LOW')},
+      {severity: 'INFO', count: severityCount(results, 'INFO')}
+    ],
+    scan: {
+      analyzer: 'BootUI Memory Advisor',
+      status: 'SCANNED',
+      message: 'Memory Advisor completed.',
+      scannedAt: 1_700_000_000_000,
+      rulesEvaluated: 22,
+      violationsFound
+    },
+    results
+  }
+}
+
+function severityCount(results, severity) {
+  return results.filter((result) => result.status === 'VIOLATION' && result.severity === severity).length
+}
+
+async function mountWithReport(report) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => Promise.resolve(new Response(JSON.stringify(report), {status: 200})))
+  )
+
+  const wrapper = mount(Memory)
+  await flushPromises()
+  return wrapper
 }
 
 describe('Memory', () => {
-  let wrapper
-
-  beforeEach(() => {
-    vi.useFakeTimers()
-    Object.defineProperty(document, 'visibilityState', {configurable: true, value: 'visible'})
-  })
-
   afterEach(() => {
-    wrapper?.unmount()
-    wrapper = null
-    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
-  it('renders current live memory metrics from the memory report', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport())))
+  it('shows only advisor findings sorted by importance with CRITICAL first', async () => {
+    const wrapper = await mountWithReport(
+      advisorReport([
+        ruleResult('MEM-CONTENT-001', 'Informational big objects', 'INFO', 'VIOLATION', 2),
+        ruleResult('MEM-HEAP-002', 'Passing old gen rule', 'MEDIUM', 'PASS'),
+        ruleResult('MEM-THREAD-002', 'Medium blocked finding', 'MEDIUM', 'VIOLATION', 1),
+        ruleResult('MEM-THREAD-001', 'Deadlock detected', 'CRITICAL', 'VIOLATION', 1)
+      ])
+    )
 
-    wrapper = mount(Memory)
-    await flushPromises()
+    expect(wrapper.text()).toContain('Scan complete')
+    expect(wrapper.text()).toContain('3 findings, sorted by importance')
+    expect(wrapper.text()).toContain('What happened:')
+    expect(wrapper.text()).toContain('2 observations found for this rule.')
+    expect(wrapper.text()).toContain('Learn more')
+    expect(wrapper.text()).toContain('Runtime snapshot')
+    expect(wrapper.text()).not.toContain('Passing old gen rule')
+    expect(wrapper.findAll('.list-group-item h3').map((title) => title.text())).toEqual([
+      'Deadlock detected',
+      'Medium blocked finding',
+      'Informational big objects'
+    ])
+  })
 
-    expect(fetch).toHaveBeenCalledWith('api/memory')
-    const renderedText = wrapper.text()
-    const panelOrder = ['Heap Memory', 'Non-Heap Memory', 'Memory Pools']
-    const panelPositions = panelOrder.map((label) => {
-      const position = renderedText.indexOf(label)
-      expect(position).toBeGreaterThanOrEqual(0)
-      return position
-    })
-    expect(panelPositions).toEqual([...panelPositions].sort((a, b) => a - b))
-    expect(renderedText).not.toContain('JVM memory calculator')
-    expect(renderedText).not.toContain('Recommended JVM Options')
-    expect(renderedText).not.toContain('Kubernetes calculator')
+  it('shows an empty findings state when every evaluated rule passes', async () => {
+    const wrapper = await mountWithReport(
+      advisorReport([ruleResult('MEM-HEAP-002', 'Passing old gen rule', 'MEDIUM', 'PASS')], 0)
+    )
+
+    expect(wrapper.text()).toContain('No Memory Advisor findings')
+    expect(wrapper.text()).not.toContain('Passing old gen rule')
   })
 })

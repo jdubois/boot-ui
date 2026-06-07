@@ -7,27 +7,28 @@ const allPanelLinks = [
   {id: 'health', title: 'Health', heading: /^Health/},
   {id: 'http-sessions', title: 'HTTP Sessions', heading: /^HTTP Sessions/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
-  {id: 'memory', title: 'Memory', heading: /^Memory/},
-  {id: 'tuning-advisor', title: 'Tuning Advisor', heading: /^Tuning Advisor/},
+  {id: 'live-memory', title: 'Live Memory', heading: /^Live Memory/},
+  {id: 'jvm-tuning', title: 'JVM Tuning', heading: /^JVM Tuning/},
   {id: 'heap-dump', title: 'Heap Dump', heading: /^Heap Dump/},
   {id: 'threads', title: 'Threads', heading: /^Threads/},
+  {id: 'memory', title: 'Memory', heading: /^Memory/},
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
   {id: 'graalvm', title: 'GraalVM', heading: /^GraalVM/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
-  {id: 'profiles', title: 'Profile Diff', heading: /Profile Diff/},
+  {id: 'profile-diff', title: 'Profile Diff', heading: /Profile Diff/},
   {id: 'loggers', title: 'Loggers', heading: /^Loggers/},
   {id: 'beans', title: 'Beans', heading: /^Beans/},
   {id: 'conditions', title: 'Conditions', heading: /Auto-configuration conditions/},
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
-  {id: 'hibernate-advisor', title: 'Hibernate Advisor', heading: /^Hibernate Advisor/},
+  {id: 'hibernate', title: 'Hibernate', heading: /^Hibernate/},
   {id: 'flyway', title: 'Flyway', heading: /Flyway migrations/},
   {id: 'liquibase', title: 'Liquibase', heading: /Liquibase change sets/},
   {id: 'spring-security', title: 'Spring Security', heading: /Spring Security/},
   {id: 'security-logs', title: 'Security Logs', heading: /Security Logs/},
-  {id: 'security-advisor', title: 'Security Advisor', heading: /^Security Advisor/},
-  {id: 'pentest', title: 'Pentesting', heading: /^Pentesting/},
+  {id: 'security', title: 'Security', heading: /^Security/},
+  {id: 'pentesting', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
@@ -37,6 +38,7 @@ const allPanelLinks = [
   {id: 'http-exchanges', title: 'HTTP Exchanges', heading: /HTTP Exchanges/},
   {id: 'http-probe', title: 'HTTP Probe', heading: /HTTP Probe/},
   {id: 'architecture', title: 'Architecture', heading: /^Architecture/},
+  {id: 'rest-api', title: 'REST API', heading: /^REST API/},
   {id: 'devtools', title: 'DevTools', heading: /^DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
@@ -97,37 +99,45 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
+      {title: 'Advisors', count: 8},
       {title: 'Runtime', count: 9},
       {title: 'Configuration', count: 6},
-      {title: 'Database', count: 5},
-      {title: 'Security', count: 5},
+      {title: 'Database', count: 4},
+      {title: 'Security', count: 2},
       {title: 'Services', count: 3},
-      {title: 'Diagnostics', count: 5},
+      {title: 'Diagnostics', count: 4},
       {title: 'Developer tools', count: 4}
     ]
 
     for (const group of groups) {
       const toggle = page.getByRole('button', {name: new RegExp(`${group.title}\\s+${group.count}`)})
       await expect(toggle).toBeVisible()
-      await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Runtime' ? 'true' : 'false')
+      await expect(toggle).toHaveAttribute('aria-expanded', group.title === 'Advisors' ? 'true' : 'false')
     }
 
-    await page.getByRole('button', {name: /Database\s+5/}).click()
+    await expect(page.getByRole('group', {name: 'Advisors panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Architecture',
+      'REST API',
+      'Spring',
+      'Hibernate',
+      'Memory',
+      'Security',
+      'Pentesting',
+      'Vulnerabilities'
+    ])
+
+    await page.getByRole('button', {name: /Database\s+4/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
       'Spring Data',
-      'Hibernate Advisor',
       'Flyway',
       'Liquibase'
     ])
 
-    await page.getByRole('button', {name: /Security\s+5/}).click()
+    await page.getByRole('button', {name: /Security\s+2/}).click()
     await expect(page.getByRole('group', {name: 'Security panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Spring Security',
-      'Security Logs',
-      'Security Advisor',
-      'Pentesting',
-      'Vulnerabilities'
+      'Security Logs'
     ])
 
     await page.getByRole('button', {name: /Services\s+3/}).click()
@@ -137,13 +147,12 @@ test.describe('BootUI app shell', () => {
       'AI Usage'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+5/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+4/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Traces',
       'Log Tail',
       'HTTP Exchanges',
-      'HTTP Probe',
-      'Architecture'
+      'HTTP Probe'
     ])
   })
 
@@ -216,7 +225,9 @@ test.describe('BootUI app shell', () => {
     await expandAllSidebarGroups(page)
 
     for (const link of allPanelLinks) {
-      await page.getByRole('link', {name: link.title, exact: true}).click()
+      const navLink = page.locator(`aside a.bootui-nav-link[href$="#/${link.id}"]`)
+      await expect(navLink).toHaveCount(1)
+      await navLink.click()
       await expect(page.locator('main h2').filter({hasText: link.heading}).first()).toBeVisible({timeout: 15_000})
     }
   })

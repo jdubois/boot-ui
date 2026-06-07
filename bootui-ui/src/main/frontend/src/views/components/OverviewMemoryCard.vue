@@ -4,7 +4,7 @@ import {useMemoryReport, formatBytes} from '../../utils/memoryReport.js'
 import {useAutoRefresh} from '../../utils/useAutoRefresh.js'
 
 const {data, error, loading, initialLoading, load} = useMemoryReport({
-  endpoint: 'api/tuning-advisor',
+  endpoint: 'api/jvm-tuning',
   tuningInputs: true
 })
 
@@ -89,7 +89,7 @@ const totalBytes = computed(() => {
       </div>
 
       <div class="d-flex gap-2 mt-3">
-        <router-link to="/memory" class="btn btn-sm btn-outline-secondary ms-auto">
+        <router-link to="/live-memory" class="btn btn-sm btn-outline-secondary ms-auto">
           Open panel<i class="bi bi-arrow-right-short"></i>
         </router-link>
       </div>

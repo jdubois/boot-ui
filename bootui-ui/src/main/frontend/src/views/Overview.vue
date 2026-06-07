@@ -25,6 +25,9 @@ function panelAvailable(id) {
 }
 
 // Severity-based scanners share the same {severityCounts, scan.status} contract.
+// GitHub renders as the first grid card, so the scanner order below lays out the
+// remaining cards into a 3-column grid: Architecture, Memory, REST API / Spring,
+// Hibernate, Security / Pentesting, Vulnerabilities.
 const scannerDefs = [
   {
     id: 'architecture',
@@ -35,20 +38,52 @@ const scannerDefs = [
     endpoint: 'api/architecture/scan'
   },
   {
-    id: 'hibernate-advisor',
-    title: 'Hibernate Advisor',
-    icon: 'bi-database-gear',
-    tone: 'info',
-    to: '/hibernate-advisor',
-    endpoint: 'api/hibernate-advisor/scan'
+    id: 'memory',
+    title: 'Memory',
+    icon: 'bi-clipboard2-pulse',
+    tone: 'warning',
+    to: '/memory',
+    endpoint: 'api/memory/scan'
   },
   {
-    id: 'security-advisor',
-    title: 'Security Advisor',
+    id: 'rest-api',
+    title: 'REST API',
+    icon: 'bi-signpost-split',
+    tone: 'primary',
+    to: '/rest-api',
+    endpoint: 'api/rest-api/scan'
+  },
+  {
+    id: 'spring',
+    title: 'Spring',
+    icon: 'bi-lightbulb',
+    tone: 'info',
+    to: '/spring',
+    endpoint: 'api/spring/scan'
+  },
+  {
+    id: 'hibernate',
+    title: 'Hibernate',
+    icon: 'bi-database-gear',
+    tone: 'info',
+    to: '/hibernate',
+    endpoint: 'api/hibernate/scan'
+  },
+  {
+    id: 'security',
+    title: 'Security',
     icon: 'bi-shield-check',
     tone: 'success',
-    to: '/security-advisor',
-    endpoint: 'api/security-advisor/scan'
+    to: '/security',
+    endpoint: 'api/security/scan'
+  },
+  {
+    id: 'pentesting',
+    title: 'Pentesting',
+    icon: 'bi-shield-exclamation',
+    tone: 'warning',
+    to: '/pentesting',
+    endpoint: 'api/pentesting/scan'
   },
   {
     id: 'vulnerabilities',
@@ -56,15 +91,7 @@ const scannerDefs = [
     icon: 'bi-bug',
     tone: 'danger',
     to: '/vulnerabilities',
-    endpoint: 'api/dependencies/scan'
-  },
-  {
-    id: 'pentest',
-    title: 'Pentesting',
-    icon: 'bi-shield-exclamation',
-    tone: 'warning',
-    to: '/pentest',
-    endpoint: 'api/pentest/scan'
+    endpoint: 'api/vulnerabilities/scan'
   }
 ]
 

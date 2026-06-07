@@ -54,7 +54,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("get", "/api/ping", null, null))))
                 .andExpect(status().isOk())
@@ -72,7 +72,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest(null, "/default-method", null, null))))
                 .andExpect(status().isOk())
@@ -92,7 +92,7 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         // path "hello" (no leading slash) should be normalized to "/hello"
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "hello", null, null))))
                 .andExpect(status().isOk())
@@ -109,7 +109,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", null, null, null))))
                 .andExpect(status().isOk())
@@ -132,7 +132,7 @@ class HttpProbeControllerTests {
         MockMvc mvc = buildMvc();
 
         // Normal loopback probe succeeds
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "/safe", null, null))))
                 .andExpect(status().isOk())
@@ -155,7 +155,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "/headers", null, null))))
                 .andExpect(status().isOk())
@@ -175,7 +175,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "/redirect-me", null, null))))
                 .andExpect(status().isOk())
@@ -197,7 +197,7 @@ class HttpProbeControllerTests {
         MockMvc mvc = standaloneSetup(new HttpProbeController(new HttpProbeService(env)))
                 .build();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "/", null, null))))
                 // The controller returns HTTP 200; error details are in the DTO
@@ -220,7 +220,7 @@ class HttpProbeControllerTests {
         MockMvc mvc = standaloneSetup(new HttpProbeController(new HttpProbeService(env)))
                 .build();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest(null, null, null, null))))
                 .andExpect(status().isOk())
@@ -239,7 +239,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "/body", null, null))))
                 .andExpect(status().isOk())
@@ -256,7 +256,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("POST", "/echo", "request-payload", null))))
                 .andExpect(status().isOk())
@@ -274,7 +274,7 @@ class HttpProbeControllerTests {
         });
         MockMvc mvc = buildMvc();
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "/fast", null, null))))
                 .andExpect(status().isOk())
@@ -300,7 +300,7 @@ class HttpProbeControllerTests {
         headers.put("X-Custom", "forwarded");
         headers.put("Host", "evil.example.com");
 
-        mvc.perform(post("/bootui/api/probe")
+        mvc.perform(post("/bootui/api/http-probe")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(toJson(new HttpProbeRequest("GET", "/echo-headers", null, headers))))
                 .andExpect(status().isOk())

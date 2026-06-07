@@ -24,27 +24,27 @@ const panelOrder = [
   ['health', 'Health'],
   ['http-sessions', 'HTTP Sessions'],
   ['metrics', 'Metrics'],
-  ['memory', 'Memory'],
-  ['tuning-advisor', 'Tuning Advisor'],
+  ['live-memory', 'Live Memory'],
+  ['jvm-tuning', 'JVM Tuning'],
   ['heap-dump', 'Heap Dump'],
   ['threads', 'Threads'],
   ['startup', 'Startup Timeline'],
   ['graalvm', 'GraalVM'],
   ['config', 'Configuration'],
-  ['profiles', 'Profile Diff'],
+  ['profile-diff', 'Profile Diff'],
   ['loggers', 'Loggers'],
   ['beans', 'Beans'],
   ['conditions', 'Conditions'],
   ['mappings', 'Mappings'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['data', 'Spring Data'],
-  ['hibernate-advisor', 'Hibernate Advisor'],
+  ['hibernate', 'Hibernate'],
   ['flyway', 'Flyway'],
   ['liquibase', 'Liquibase'],
   ['spring-security', 'Spring Security'],
   ['security-logs', 'Security Logs'],
-  ['security-advisor', 'Security Advisor'],
-  ['pentest', 'Pentesting'],
+  ['security', 'Security'],
+  ['pentesting', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['scheduled', 'Scheduled Tasks'],
   ['spring-cache', 'Spring Cache'],
@@ -54,6 +54,7 @@ const panelOrder = [
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
+  ['rest-api', 'REST API'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['copilot', 'Copilot'],
@@ -1224,7 +1225,7 @@ const cache = {
   ]
 }
 
-const security = {
+const springSecurity = {
   springSecurityPresent: true,
   chains: [
     {
@@ -1323,7 +1324,7 @@ const securityEndpoints = {
   ]
 }
 
-const pentest = {
+const pentesting = {
   checksRun: 41,
   findingsFound: 4,
   disclaimer: 'These local-only checks target the host application and exclude BootUI /bootui paths.',
@@ -1388,7 +1389,7 @@ const pentest = {
       severity: 'MEDIUM',
       confidence: 'MEDIUM',
       title: 'Missing hardening response headers',
-      target: '/__bootui_pentest__/missing-resource',
+      target: '/__bootui_pentesting__/missing-resource',
       owaspCategory: 'A05 Security Misconfiguration',
       evidence: 'Missing X-Content-Type-Options and Content-Security-Policy headers on the synthetic 404 response.',
       recommendation: 'Configure security headers globally and verify they apply to error responses.'
@@ -1408,7 +1409,7 @@ const pentest = {
       severity: 'INFO',
       confidence: 'LOW',
       title: 'Strict-Transport-Security not observed',
-      target: '/__bootui_pentest__/missing-resource',
+      target: '/__bootui_pentesting__/missing-resource',
       owaspCategory: 'A05 Security Misconfiguration',
       evidence:
         'No Strict-Transport-Security header was seen on the synthetic localhost response (expected over plain HTTP).',
@@ -1498,7 +1499,90 @@ const architecture = {
   ]
 }
 
-const hibernateAdvisor = {
+const restApi = {
+  localOnly: true,
+  disclaimer:
+    "Heuristic, project-agnostic REST API design rules run against the host application's own controllers only. " +
+    'These checks complement, but do not replace, an API design review or contract testing. ' +
+    'Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.',
+  basePackages: ['io.github.jdubois.bootui.sample'],
+  controllersAnalyzed: 6,
+  handlersAnalyzed: 18,
+  rulesEvaluated: 30,
+  violationsFound: 4,
+  severityCounts: [
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 2},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI REST API Advisor',
+    status: 'SCANNED',
+    message:
+      'REST API rules completed against 6 controller(s) and 18 handler method(s) under the detected base package(s).',
+    scannedAt: nowMillis - 30_000,
+    rulesEvaluated: 30,
+    controllersAnalyzed: 6,
+    handlersAnalyzed: 18,
+    violationsFound: 4
+  },
+  results: [
+    restApiResult(
+      'RAPI-DTO-001',
+      "Don't expose JPA entities in responses",
+      'DTO & payload contracts',
+      'HIGH',
+      'Returning a JPA @Entity couples the API to the persistence model and can leak lazy associations or internal fields and trigger serialization-time queries.',
+      'VIOLATION',
+      2,
+      [
+        'io.github.jdubois.bootui.sample.order.OrderController.getOrder() returns entity Order',
+        'io.github.jdubois.bootui.sample.order.OrderController.listOrders() returns a collection of entity Order'
+      ],
+      'Map entities to a response DTO/record and return that instead.',
+      'https://www.rfc-editor.org/rfc/rfc9110.html'
+    ),
+    restApiResult(
+      'RAPI-NAME-001',
+      'Resource paths are nouns, not verbs',
+      'Naming & resource design',
+      'MEDIUM',
+      'Verb-based path segments such as /getUser or /createOrder duplicate the HTTP method and break the resource-oriented REST model.',
+      'VIOLATION',
+      1,
+      ['GET /api/orders/getOrder uses a verb segment "getOrder"'],
+      'Model resources as nouns (/users, /orders) and express the action with the HTTP method.',
+      'https://www.rfc-editor.org/rfc/rfc9110.html'
+    ),
+    restApiResult(
+      'RAPI-VALID-001',
+      '@RequestBody is validated',
+      'Input validation & binding',
+      'MEDIUM',
+      'A @RequestBody parameter without @Valid/@Validated is bound without bean-validation, so malformed payloads reach the business logic unchecked.',
+      'VIOLATION',
+      1,
+      ['POST /api/orders binds @RequestBody CreateOrderRequest without @Valid'],
+      'Annotate the @RequestBody parameter with @Valid (or @Validated) so payloads are validated.',
+      'https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html'
+    ),
+    restApiResult(
+      'RAPI-MAP-005',
+      'Consistent path style (no trailing slash)',
+      'Routing & HTTP method mapping',
+      'LOW',
+      'Trailing slashes and doubled slashes in mapping paths create inconsistent URLs; trailing-slash matching is also disabled by default in Spring 6+.',
+      'VIOLATION',
+      1,
+      ['GET /api/orders/ declares a trailing slash'],
+      'Declare mapping paths without trailing slashes and without empty segments.',
+      'https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html'
+    )
+  ]
+}
+
+const hibernate = {
   localOnly: true,
   disclaimer:
     "Heuristic Hibernate/JPA mapping rules run against the host application's mapped entities only. " +
@@ -1523,7 +1607,7 @@ const hibernateAdvisor = {
     violationsFound: 4
   },
   results: [
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-FETCH-001',
       'Eager fetching should stay explicit and bounded',
       'Fetching',
@@ -1537,7 +1621,7 @@ const hibernateAdvisor = {
       ],
       'Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins, entity graphs, or DTO queries.'
     ),
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-ID-001',
       'Generated identifiers should avoid GenerationType.IDENTITY',
       'Identifiers',
@@ -1547,7 +1631,7 @@ const hibernateAdvisor = {
       ['io.github.jdubois.bootui.sample.Product#id uses GenerationType.IDENTITY.'],
       "Prefer SEQUENCE with allocationSize and Hibernate's pooled optimizer when the database supports sequences."
     ),
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-CONFIG-001',
       'Open Session in View should be disabled',
       'Configuration',
@@ -1557,7 +1641,7 @@ const hibernateAdvisor = {
       ['spring.jpa.open-in-view=true is enabled.'],
       'Set spring.jpa.open-in-view=false and fetch data inside transactional service boundaries.'
     ),
-    hibernateAdvisorResult(
+    hibernateResult(
       'HIB-FETCH-002',
       'Batch fetching should cover lazy secondary-select associations',
       'Fetching',
@@ -1574,7 +1658,7 @@ const hibernateAdvisor = {
   ]
 }
 
-const securityAdvisor = {
+const security = {
   localOnly: true,
   disclaimer:
     "Heuristic Spring Security rules run against the host application's registered filter chains and security beans only. " +
@@ -1603,7 +1687,7 @@ const securityAdvisor = {
     violationsFound: 5
   },
   results: [
-    securityAdvisorResult(
+    securityResult(
       'SEC-ACT-002',
       'Sensitive actuator endpoints should not be exposed',
       'Actuator exposure',
@@ -1617,7 +1701,7 @@ const securityAdvisor = {
       ],
       'Remove sensitive endpoints from management.endpoints.web.exposure.include or protect them with authentication.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-AUTHZ-002',
       'Avoid blanket permitAll authorization',
       'Authorization',
@@ -1627,7 +1711,7 @@ const securityAdvisor = {
       ['Chain #2 (any request) permits every request anonymously even though it configures authentication.'],
       'Restrict sensitive paths and finish with anyRequest().authenticated(); keep permitAll only for public endpoints.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-ACT-003',
       'Exposed actuator endpoints should be protected by a security chain',
       'Actuator exposure',
@@ -1637,7 +1721,7 @@ const securityAdvisor = {
       ['Actuator endpoints are exposed at /actuator but no security filter chain matches that path.'],
       'Add a SecurityFilterChain with a securityMatcher for the actuator base path that requires authentication.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-AUTH-005',
       'Avoid the auto-generated login page in production',
       'Authentication',
@@ -1647,7 +1731,7 @@ const securityAdvisor = {
       ['Chain #2 (any request) serves the auto-generated Spring Security login page in production.'],
       'Provide a custom login page via formLogin().loginPage(...) for production.'
     ),
-    securityAdvisorResult(
+    securityResult(
       'SEC-ACT-006',
       'Sensitive actuator endpoints should use an isolated management port',
       'Actuator exposure',
@@ -1656,6 +1740,161 @@ const securityAdvisor = {
       1,
       ['Sensitive actuator endpoints are exposed but management.server.port is unset.'],
       'Set management.server.port to a separate, network-restricted port.'
+    )
+  ]
+}
+
+const spring = {
+  localOnly: true,
+  disclaimer:
+    'Heuristic, project-agnostic Spring rules run against the running application context and Environment only. ' +
+    'These checks are review prompts, not verdicts, and should be validated against the application design and tests.',
+  rulesEvaluated: 31,
+  violationsFound: 4,
+  componentsAnalyzed: 168,
+  inspected: [
+    'Active profiles: dev',
+    'JSON mapper beans: objectMapper, jsonMapper',
+    'RestTemplate beans: restTemplate',
+    'spring.application.name: (unset)',
+    'debug flag: true',
+    'spring-boot-devtools: present on classpath'
+  ],
+  severityCounts: [
+    {severity: 'HIGH', count: 0},
+    {severity: 'MEDIUM', count: 1},
+    {severity: 'LOW', count: 3},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI Spring Advisor',
+    status: 'SCANNED',
+    message: 'Spring Advisor evaluated 31 rules against the running application context.',
+    scannedAt: nowMillis - 28_000,
+    rulesEvaluated: 31,
+    componentsAnalyzed: 168,
+    violationsFound: 4
+  },
+  results: [
+    restApiResult(
+      'SPRING-PROFILE-002',
+      'Spring Boot DevTools should be scoped to development',
+      'Profiles and environment',
+      'MEDIUM',
+      'Spring Boot DevTools is on the classpath. It enables automatic restart, a live-reload server, and relaxed caching, and must never be bundled into a production artifact.',
+      'VIOLATION',
+      1,
+      ['spring-boot-devtools is present on the classpath.'],
+      'Scope spring-boot-devtools to development only (Maven <optional>true</optional> / Gradle developmentOnly) so it is excluded from production builds.',
+      'https://docs.spring.io/spring-boot/reference/using/devtools.html'
+    ),
+    restApiResult(
+      'SPRING-WIRING-003',
+      'Avoid multiple JSON mapper beans',
+      'Bean wiring',
+      'LOW',
+      'Detects more than one Jackson JSON mapper bean with none marked @Primary, which can lead to inconsistent JSON (de)serialization depending on which one is injected.',
+      'VIOLATION',
+      2,
+      ['JSON mapper bean: objectMapper', 'JSON mapper bean: jsonMapper'],
+      'Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customise the auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.',
+      'https://docs.spring.io/spring-boot/reference/features/json.html'
+    ),
+    restApiResult(
+      'SPRING-WIRING-007',
+      'Prefer RestClient over RestTemplate',
+      'Bean wiring',
+      'LOW',
+      'A RestTemplate bean is defined. RestTemplate is in maintenance mode; Spring Boot 4 favours the fluent, modern RestClient for synchronous HTTP access.',
+      'VIOLATION',
+      1,
+      ['RestTemplate bean: restTemplate'],
+      'Migrate RestTemplate usage to RestClient (RestClient.create() or an injected RestClient.Builder). Keep RestTemplate only where a dependency still requires it.',
+      'https://docs.spring.io/spring-framework/reference/integration/rest-clients.html'
+    ),
+    restApiResult(
+      'SPRING-CONFIG-002',
+      'Disable global debug or trace logging',
+      'Configuration',
+      'LOW',
+      'Detects debug=true or trace=true, which switch on verbose auto-configuration logging and can leak internal details or slow down the application.',
+      'VIOLATION',
+      1,
+      ['debug=true is set in the environment.'],
+      'Remove the debug/trace flags and configure logging levels per package instead.',
+      'https://docs.spring.io/spring-boot/reference/features/logging.html'
+    )
+  ]
+}
+
+const memoryAdvisor = {
+  localOnly: true,
+  disclaimer:
+    'Heuristic JVM memory, GC, and thread rules run against the live management beans only. ' +
+    'Findings are review prompts; validate against the application workload and a profiler before acting.',
+  rulesEvaluated: 22,
+  violationsFound: 3,
+  summary: {
+    heapUsedPercent: 82,
+    heapUsedBytes: 1_476_395_008,
+    heapMaxBytes: 1_797_357_568,
+    liveThreads: 48,
+    peakThreads: 61,
+    loadedClasses: 18_342,
+    deadlockDetected: false,
+    histogramAvailable: true
+  },
+  severityCounts: [
+    {severity: 'CRITICAL', count: 0},
+    {severity: 'HIGH', count: 0},
+    {severity: 'MEDIUM', count: 3},
+    {severity: 'LOW', count: 0},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI Memory Advisor',
+    status: 'SCANNED',
+    message: 'Memory Advisor evaluated 22 rules against the live management beans.',
+    scannedAt: nowMillis - 24_000,
+    rulesEvaluated: 22,
+    violationsFound: 3
+  },
+  results: [
+    restApiResult(
+      'MEM-HEAP-002',
+      'Old generation is near its maximum',
+      'Heap pressure',
+      'MEDIUM',
+      'The tenured/old generation pool is nearly full, a common precursor to full GCs and promotion failures.',
+      'VIOLATION',
+      1,
+      ['G1 Old Gen: 1.30 GiB used of 1.40 GiB max (93%).'],
+      'Investigate long-lived object retention; consider raising the heap size or tuning the young/old ratio.',
+      'https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html'
+    ),
+    restApiResult(
+      'MEM-POOL-001',
+      'Metaspace is close to its maximum',
+      'Memory pools',
+      'MEDIUM',
+      'The Metaspace pool is nearly full, which can cause OutOfMemoryError: Metaspace, often from classloader leaks or excessive dynamic class generation.',
+      'VIOLATION',
+      1,
+      ['Metaspace: 246 MiB used of 256 MiB max (96%).'],
+      'Raise -XX:MaxMetaspaceSize, or investigate classloader leaks and runtime class generation (proxies, scripting).',
+      'https://docs.oracle.com/en/java/javase/21/vm/class-metadata.html'
+    ),
+    restApiResult(
+      'MEM-GC-002',
+      'Cumulative GC time is a large share of uptime',
+      'GC configuration',
+      'MEDIUM',
+      'Compares total time spent in garbage collection since JVM start against the JVM uptime. A high lifetime ratio is a classic sign of an undersized heap or an excessive allocation rate.',
+      'VIOLATION',
+      1,
+      ['GC has consumed 12.4% of JVM uptime since start.'],
+      'Increase the heap (-Xmx/-XX:MaxRAMPercentage), reduce the allocation rate, or review the collector choice if GC consistently consumes this much time.',
+      'https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html'
     )
   ]
 }
@@ -2071,8 +2310,8 @@ const screenshots = [
       await page.waitForTimeout(2300)
     }
   ],
-  ['memory', 'Memory', 'bootui-memory.png', waitForText('Memory Pools')],
-  ['tuning-advisor', 'Tuning Advisor', 'bootui-tuning-advisor.png', waitForText('Bare metal JVM calculator')],
+  ['live-memory', 'Live Memory', 'bootui-live-memory.png', waitForText('Memory Pools')],
+  ['jvm-tuning', 'JVM Tuning', 'bootui-jvm-tuning.png', waitForText('Bare metal JVM calculator')],
   [
     'heap-dump',
     'Heap Dump',
@@ -2086,7 +2325,7 @@ const screenshots = [
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
   ['graalvm', 'GraalVM', 'bootui-graalvm.png', waitForText('Reflective constructor access needs metadata')],
   ['config', 'Configuration', 'bootui-configuration.png', waitForText('sample.greeting')],
-  ['profiles', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
+  ['profile-diff', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
   ['loggers', 'Loggers', 'bootui-loggers.png', waitForText('io.github.jdubois.bootui')],
   ['beans', 'Beans', 'bootui-beans.png', waitForText('sampleController')],
   ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
@@ -2111,13 +2350,13 @@ const screenshots = [
       await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
     }
   ],
-  ['hibernate-advisor', 'Hibernate Advisor', 'bootui-hibernate-advisor.png', waitForText('FetchType.EAGER')],
+  ['hibernate', 'Hibernate', 'bootui-hibernate.png', waitForText('FetchType.EAGER')],
   ['flyway', 'Flyway', 'bootui-flyway.png', waitForText('V3__add_catalog_tags.sql')],
   ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
-  ['spring-security', 'Spring Security', 'bootui-security.png', waitForText('/api/sample/hello')],
+  ['spring-security', 'Spring Security', 'bootui-spring-security.png', waitForText('/api/sample/hello')],
   ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
-  ['security-advisor', 'Security Advisor', 'bootui-security-advisor.png', waitForText('SEC-ACT-002')],
-  ['pentest', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
+  ['security', 'Security', 'bootui-security.png', waitForText('SEC-ACT-002')],
+  ['pentesting', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
@@ -2148,6 +2387,9 @@ const screenshots = [
     }
   ],
   ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
+  ['rest-api', 'REST API', 'bootui-rest-api.png', waitForText("Don't expose JPA entities in responses")],
+  ['spring', 'Spring', 'bootui-spring.png', waitForText('Prefer RestClient over RestTemplate')],
+  ['memory', 'Memory', 'bootui-memory.png', waitForText('Old generation is near its maximum')],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [
@@ -2570,7 +2812,7 @@ async function handleApiRoute(route) {
       panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
     })
   if (endpoint === 'startup') return fulfillJson(route, startup)
-  if (endpoint.startsWith('memory') || endpoint.startsWith('tuning-advisor')) return fulfillJson(route, memory)
+  if (endpoint.startsWith('live-memory') || endpoint.startsWith('jvm-tuning')) return fulfillJson(route, memory)
   if (endpoint === 'health') return fulfillJson(route, health)
   if (endpoint === 'http-sessions') return fulfillJson(route, httpSessions)
   if (endpoint.startsWith('http-sessions/') && endpoint.endsWith('/clear'))
@@ -2585,7 +2827,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'mappings') return fulfillJson(route, mappings)
   if (endpoint === 'mappings/flat') return fulfillJson(route, pagedReport('mappings', flatMappings, url))
   if (endpoint === 'config') return fulfillJson(route, configuration)
-  if (endpoint === 'profiles') return fulfillJson(route, profileDiff)
+  if (endpoint === 'profile-diff') return fulfillJson(route, profileDiff)
   if (endpoint === 'loggers') return fulfillJson(route, loggers)
   if (endpoint === 'threads') return fulfillJson(route, pagedReport('threads', threads.threads, url, threads))
   if (endpoint === 'threads/download') return fulfillJson(route, {status: 'OK'})
@@ -2666,8 +2908,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'scheduled') return fulfillJson(route, scheduled)
   if (endpoint === 'data/repositories') return fulfillJson(route, dataReport)
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
-  if (endpoint === 'hibernate-advisor') return fulfillJson(route, hibernateAdvisor)
-  if (endpoint === 'hibernate-advisor/scan') return fulfillJson(route, hibernateAdvisor)
+  if (endpoint === 'hibernate') return fulfillJson(route, hibernate)
+  if (endpoint === 'hibernate/scan') return fulfillJson(route, hibernate)
   if (endpoint === 'flyway/migrations') return fulfillJson(route, flyway)
   if (endpoint === 'flyway/migrate')
     return fulfillJson(route, {status: 'success', message: 'Applied 2 pending Flyway migration(s).'})
@@ -2682,7 +2924,7 @@ async function handleApiRoute(route) {
   }
   if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
   if (endpoint === 'spring-cache') return fulfillJson(route, cache)
-  if (endpoint === 'spring-security') return fulfillJson(route, security)
+  if (endpoint === 'spring-security') return fulfillJson(route, springSecurity)
   if (endpoint === 'spring-security/endpoints') return fulfillJson(route, securityEndpoints)
   if (endpoint === 'spring-security/explain')
     return fulfillJson(route, {
@@ -2690,11 +2932,11 @@ async function handleApiRoute(route) {
       bestEffort: false,
       chainIndex: 1,
       matcherDescription: 'any request',
-      filters: security.chains[1].filters
+      filters: springSecurity.chains[1].filters
     })
   if (endpoint === 'security-logs') return fulfillJson(route, securityLogs)
-  if (endpoint === 'security-advisor') return fulfillJson(route, securityAdvisor)
-  if (endpoint === 'security-advisor/scan') return fulfillJson(route, securityAdvisor)
+  if (endpoint === 'security') return fulfillJson(route, security)
+  if (endpoint === 'security/scan') return fulfillJson(route, security)
   if (endpoint === 'http-exchanges')
     return fulfillJson(
       route,
@@ -2703,12 +2945,18 @@ async function handleApiRoute(route) {
         unavailableReason: null
       })
     )
-  if (endpoint === 'dependencies') return fulfillJson(route, dependencies)
-  if (endpoint === 'dependencies/scan') return fulfillJson(route, dependencies)
-  if (endpoint === 'pentest') return fulfillJson(route, pentest)
-  if (endpoint === 'pentest/scan') return fulfillJson(route, pentest)
+  if (endpoint === 'vulnerabilities') return fulfillJson(route, dependencies)
+  if (endpoint === 'vulnerabilities/scan') return fulfillJson(route, dependencies)
+  if (endpoint === 'pentesting') return fulfillJson(route, pentesting)
+  if (endpoint === 'pentesting/scan') return fulfillJson(route, pentesting)
   if (endpoint === 'architecture') return fulfillJson(route, architecture)
   if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
+  if (endpoint === 'rest-api') return fulfillJson(route, restApi)
+  if (endpoint === 'rest-api/scan') return fulfillJson(route, restApi)
+  if (endpoint === 'spring') return fulfillJson(route, spring)
+  if (endpoint === 'spring/scan') return fulfillJson(route, spring)
+  if (endpoint === 'memory') return fulfillJson(route, memoryAdvisor)
+  if (endpoint === 'memory/scan') return fulfillJson(route, memoryAdvisor)
   if (endpoint === 'graalvm') return fulfillJson(route, graalVm)
   if (endpoint === 'graalvm/scan') return fulfillJson(route, graalVm)
 
@@ -2856,16 +3104,33 @@ function architectureResult(
   }
 }
 
-function hibernateAdvisorResult(
+function restApiResult(
   id,
   name,
   category,
   severity,
   description,
+  status,
   violationCount,
   sampleViolations,
-  recommendation
+  recommendation,
+  learnMoreUrl
 ) {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description,
+    status,
+    violationCount,
+    sampleViolations,
+    recommendation,
+    learnMoreUrl
+  }
+}
+
+function hibernateResult(id, name, category, severity, description, violationCount, sampleViolations, recommendation) {
   return {
     id,
     name,
@@ -2880,16 +3145,7 @@ function hibernateAdvisorResult(
   }
 }
 
-function securityAdvisorResult(
-  id,
-  name,
-  category,
-  severity,
-  description,
-  violationCount,
-  sampleViolations,
-  recommendation
-) {
+function securityResult(id, name, category, severity, description, violationCount, sampleViolations, recommendation) {
   return {
     id,
     name,

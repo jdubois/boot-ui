@@ -3,13 +3,19 @@ package io.github.jdubois.bootui.core.dto;
 import java.util.List;
 
 /**
- * Snapshot of JVM memory metrics.
+ * Top-level report for the local Memory Advisor panel. The results list contains violating
+ * checks only, ordered by severity and impact.
+ *
+ * <p>The advisor reuses the JVM data already surfaced by the Memory, Threads, and Heap Dump
+ * panels and evaluates a bounded, static ruleset that produces health findings with severities
+ * (heap pressure, memory pools, GC configuration, threads, heap content, and class loading).</p>
  */
 public record MemoryReport(
-        MemoryPoolDto heap,
-        MemoryPoolDto nonHeap,
-        List<MemoryPoolDto> pools,
-        List<String> jvmInputArguments,
-        String suggestedJvmOptions,
-        MemoryCalculationDto calculation,
-        KubernetesMemoryRecommendationDto kubernetes) {}
+        boolean localOnly,
+        String disclaimer,
+        int rulesEvaluated,
+        int violationsFound,
+        MemorySummaryDto summary,
+        List<MemorySeverityCountDto> severityCounts,
+        MemoryScanStatusDto scan,
+        List<MemoryRuleResultDto> results) {}

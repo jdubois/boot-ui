@@ -58,7 +58,7 @@ async function sendProbe() {
   }
   loading.value = true
   try {
-    const res = await apiFetch('api/probe', {
+    const res = await apiFetch('api/http-probe', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({

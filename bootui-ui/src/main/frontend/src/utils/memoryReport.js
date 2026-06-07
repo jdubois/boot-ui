@@ -28,7 +28,7 @@ export function confidenceBadgeClass(confidence) {
   return 'text-bg-secondary'
 }
 
-export function useMemoryReport({endpoint = 'api/memory', tuningInputs = false} = {}) {
+export function useMemoryReport({endpoint = 'api/live-memory', tuningInputs = false} = {}) {
   const data = ref(null)
   const error = ref(null)
   const lastUpdated = ref(null)

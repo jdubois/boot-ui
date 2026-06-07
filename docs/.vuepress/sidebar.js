@@ -16,10 +16,13 @@ const coreDocs = [
 ]
 const checkDocs = [
   'ARCHITECTURE-CHECKS.md',
-  'GRAALVM-READINESS-CHECKS.md',
+  'REST-API-CHECKS.md',
+  'SPRING-CHECKS.md',
   'HIBERNATE-CHECKS.md',
-  'SECURITY-ADVISOR-CHECKS.md',
-  'PENTEST-CHECKS.md'
+  'SECURITY-CHECKS.md',
+  'MEMORY-CHECKS.md',
+  'PENTEST-CHECKS.md',
+  'GRAALVM-READINESS-CHECKS.md'
 ]
 
 export function createDocsSidebar() {

@@ -14,9 +14,9 @@ import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Masking edge-case tests for {@link ProfileController}.
+ * Masking edge-case tests for {@link ProfileDiffController}.
  *
- * <p>The existing {@code ProfileControllerTests} covers the three main exposure modes
+ * <p>The existing {@code ProfileDiffControllerTests} covers the three main exposure modes
  * (masked by default, METADATA_ONLY, FULL). This class focuses exclusively on
  * masking corner cases that those tests do not exercise:</p>
  * <ul>
@@ -45,10 +45,10 @@ class ProfileDiffMaskingTests {
                                 "db.url", "jdbc:h2:mem:test")));
 
         BootUiProperties properties = new BootUiProperties(); // defaults: MASKED, maskSecrets=true
-        MockMvc mvc =
-                standaloneSetup(new ProfileController(environment, properties)).build();
+        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+                .build();
 
-        mvc.perform(get("/bootui/api/profiles"))
+        mvc.perform(get("/bootui/api/profile-diff"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profileSources[0].profile").value("staging"))
                 // secret-named key must be masked
@@ -79,10 +79,10 @@ class ProfileDiffMaskingTests {
                         "application-prod.properties", Map.of("spring.datasource.password", "prod-pass-different")));
 
         BootUiProperties properties = new BootUiProperties();
-        MockMvc mvc =
-                standaloneSetup(new ProfileController(environment, properties)).build();
+        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+                .build();
 
-        mvc.perform(get("/bootui/api/profiles"))
+        mvc.perform(get("/bootui/api/profile-diff"))
                 .andExpect(status().isOk())
                 // Two profile source entries; both must mask the password key
                 .andExpect(jsonPath(
@@ -111,10 +111,10 @@ class ProfileDiffMaskingTests {
         environment.getPropertySources().addFirst(new MapPropertySource("application-test.properties", props));
 
         BootUiProperties properties = new BootUiProperties();
-        MockMvc mvc =
-                standaloneSetup(new ProfileController(environment, properties)).build();
+        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+                .build();
 
-        mvc.perform(get("/bootui/api/profiles"))
+        mvc.perform(get("/bootui/api/profile-diff"))
                 .andExpect(status().isOk())
                 // Non-secret integer: stringified value exposed
                 .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='server.port')].value")
@@ -139,10 +139,10 @@ class ProfileDiffMaskingTests {
         BootUiProperties properties = new BootUiProperties();
         properties.setMaskSecrets(false); // opt-out of masking
         // exposeValues stays at default MASKED
-        MockMvc mvc =
-                standaloneSetup(new ProfileController(environment, properties)).build();
+        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+                .build();
 
-        mvc.perform(get("/bootui/api/profiles"))
+        mvc.perform(get("/bootui/api/profile-diff"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='api.token')].masked")
                         .value(false))
@@ -162,10 +162,10 @@ class ProfileDiffMaskingTests {
                         "application-perf.properties", Map.of("spring.application.name", "boot-ui-perf")));
 
         BootUiProperties properties = new BootUiProperties(); // default: MASKED, maskSecrets=true
-        MockMvc mvc =
-                standaloneSetup(new ProfileController(environment, properties)).build();
+        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+                .build();
 
-        mvc.perform(get("/bootui/api/profiles"))
+        mvc.perform(get("/bootui/api/profile-diff"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='spring.application.name')].masked")
                         .value(false))
@@ -184,10 +184,10 @@ class ProfileDiffMaskingTests {
         environment.getPropertySources().addFirst(new MapPropertySource("application-nulltest.properties", props));
 
         BootUiProperties properties = new BootUiProperties();
-        MockMvc mvc =
-                standaloneSetup(new ProfileController(environment, properties)).build();
+        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+                .build();
 
-        mvc.perform(get("/bootui/api/profiles"))
+        mvc.perform(get("/bootui/api/profile-diff"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profileSources[0].properties[?(@.name=='nullable.key')].value[0]")
                         .doesNotExist());

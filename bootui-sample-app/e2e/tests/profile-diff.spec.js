@@ -3,7 +3,7 @@ import {expect, test} from './fixtures.js'
 
 test.describe('Profile Diff view', () => {
   test('renders the active-profile badges and the property table or empty state', async ({openView, page}) => {
-    await openView('profiles', 'Profile Diff')
+    await openView('profile-diff', 'Profile Diff')
 
     await expect(page.locator('text=Loading…')).toHaveCount(0)
 

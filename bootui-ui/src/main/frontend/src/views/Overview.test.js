@@ -42,9 +42,9 @@ function mountOverview(panels) {
 const allPanels = {
   panels: [
     {id: 'vulnerabilities', available: true},
-    {id: 'pentest', available: true},
+    {id: 'pentesting', available: true},
     {id: 'architecture', available: true},
-    {id: 'hibernate-advisor', available: true},
+    {id: 'hibernate', available: true},
     {id: 'github', available: true}
   ]
 }
@@ -67,9 +67,9 @@ describe('Overview', () => {
     const wrapper = mountOverview({
       panels: [
         {id: 'vulnerabilities', available: true},
-        {id: 'pentest', available: false},
+        {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
-        {id: 'hibernate-advisor', available: false},
+        {id: 'hibernate', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -77,7 +77,7 @@ describe('Overview', () => {
     expect(wrapper.text()).toContain('Vulnerabilities')
     expect(wrapper.text()).toContain('Architecture')
     expect(wrapper.text()).not.toContain('Pentesting')
-    expect(wrapper.text()).not.toContain('Hibernate Advisor')
+    expect(wrapper.text()).not.toContain('Hibernate')
     expect(wrapper.text()).not.toContain('Connect to GitHub')
   })
 
@@ -99,9 +99,9 @@ describe('Overview', () => {
     const wrapper = mountOverview({
       panels: [
         {id: 'vulnerabilities', available: false},
-        {id: 'pentest', available: false},
+        {id: 'pentesting', available: false},
         {id: 'architecture', available: true},
-        {id: 'hibernate-advisor', available: false},
+        {id: 'hibernate', available: false},
         {id: 'github', available: false}
       ]
     })
@@ -118,10 +118,10 @@ describe('Overview', () => {
 
   it('aggregates scanner scores into the overall score with Run all', async () => {
     stubFetch({
-      'api/dependencies/scan': severityReport([{severity: 'CRITICAL', count: 1}]),
-      'api/pentest/scan': severityReport([]),
+      'api/vulnerabilities/scan': severityReport([{severity: 'CRITICAL', count: 1}]),
+      'api/pentesting/scan': severityReport([]),
       'api/architecture/scan': severityReport([]),
-      'api/hibernate-advisor/scan': severityReport([]),
+      'api/hibernate/scan': severityReport([]),
       'api/github/refresh': githubReport({alerts: 0})
     })
     const wrapper = mountOverview(allPanels)
@@ -131,9 +131,9 @@ describe('Overview', () => {
     await runAll.trigger('click')
     await flushPromises()
 
-    // Scores: vuln 75, pentest 100, architecture 100, hibernate 100, security-advisor 100, github 100 => mean 95.83 => 96
-    expect(wrapper.text()).toContain('96')
-    expect(wrapper.text()).toContain('6 of 6 scanners scored')
+    // Scores: vuln 75, all other advisors 100, github 100 => mean 875/9 => 97
+    expect(wrapper.text()).toContain('97')
+    expect(wrapper.text()).toContain('9 of 9 scanners scored')
   })
 
   it('shows a connect button for GitHub and excludes it from the score until authenticated', async () => {
@@ -143,9 +143,13 @@ describe('Overview', () => {
     const wrapper = mountOverview({
       panels: [
         {id: 'vulnerabilities', available: false},
-        {id: 'pentest', available: false},
+        {id: 'pentesting', available: false},
         {id: 'architecture', available: false},
-        {id: 'hibernate-advisor', available: false},
+        {id: 'hibernate', available: false},
+        {id: 'rest-api', available: false},
+        {id: 'spring', available: false},
+        {id: 'memory', available: false},
+        {id: 'security', available: false},
         {id: 'github', available: true}
       ]
     })
@@ -157,6 +161,6 @@ describe('Overview', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Connect to GitHub to load live security metrics')
-    expect(wrapper.text()).toContain('0 of 2 scanners scored')
+    expect(wrapper.text()).toContain('0 of 1 scanners scored')
   })
 })

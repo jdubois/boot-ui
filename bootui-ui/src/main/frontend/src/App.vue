@@ -83,6 +83,7 @@ function onSystemThemeChange(e) {
 }
 
 const semanticNavigationGroups = [
+  {key: 'advisors', title: 'Advisors', icon: 'bi-clipboard2-check'},
   {key: 'runtime', title: 'Runtime', icon: 'bi-activity'},
   {key: 'configuration', title: 'Configuration', icon: 'bi-sliders'},
   {key: 'database', title: 'Database', icon: 'bi-database'},
@@ -100,7 +101,7 @@ const routes = router.options.routes.filter((r) => r.name)
 const EXPANDED_GROUPS_STORAGE_KEY = 'bootui.expandedGroups'
 
 function loadExpandedGroups() {
-  const defaults = {runtime: true}
+  const defaults = {advisors: true}
   try {
     const stored = window.localStorage?.getItem(EXPANDED_GROUPS_STORAGE_KEY)
     if (stored) {

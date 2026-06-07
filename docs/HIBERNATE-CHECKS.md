@@ -1,6 +1,6 @@
 # Hibernate Advisor checks
 
-The Hibernate Advisor panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
+The Hibernate panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
 the JPA `EntityManagerFactory` metamodel, selected persistence properties, and Spring Data repository metadata when
 available; it does not intercept runtime queries, invoke repositories, execute SQL, or modify mappings.
 
@@ -85,7 +85,7 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: annotate `@Lob` fields with `@Basic(fetch = FetchType.LAZY)`; lazy loading of non-association
   attributes requires Hibernate's bytecode enhancer to actually defer the SQL.
 
-### HIB-FETCH-007 - Collection associations should not declare @Fetch(JOIN)
+### HIB-FETCH-006 - Collection associations should not declare @Fetch(JOIN)
 
 - **Severity**: MEDIUM
 - **Inspects**: collection associations annotated with Hibernate's `@Fetch`.
@@ -583,9 +583,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
   preserves proxy substitution and bytecode-enhancer guarantees.
 
-### HIB-CONFIG-016 - Query failure on pagination over collection fetch should be enabled
+### HIB-CONFIG-016 - Fail on pagination over collection fetch
 
-- **Severity**: MEDIUM
+- **Severity**: HIGH
 - **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property.
 - **Fires when**: Hibernate is 7.4 or earlier (or the runtime version cannot be detected) and the property is absent,
   false, or unparseable. The check is skipped for Hibernate versions newer than 7.4, where pagination over collection
@@ -593,29 +593,29 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: by default, if a query uses pagination (`setMaxResults()`) and fetches a collection, Hibernate performs the pagination in memory instead of the database. This silently retrieves the entire result set, causing severe memory and performance issues in production.
 - **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to fail fast during development rather than silently suffering memory exhaustion in production.
 
-### HIB-CONFIG-017 - IN-clause parameter padding should be configured
+### HIB-CONFIG-017 - Disable SQL formatting in production
 
 - **Severity**: LOW
-- **Inspects**: the `hibernate.query.in_clause_parameter_padding` property.
-- **Fires when**: the property is absent, false, or unparseable.
-- **Why it matters**: database engines cache execution plans based on exact statement strings. An `IN (...)` query dynamically expanding its parameters per element list size creates many unique statements, polluting the execution plan cache.
-- **Recommendation**: set `spring.jpa.properties.hibernate.query.in_clause_parameter_padding=true` so Hibernate pads lists up to the next power of 2, drastically reducing the number of distinct SQL strings generated and improving statement cache hit rates.
+- **Inspects**: the `hibernate.format_sql` property and the active Spring profiles.
+- **Fires when**: a production profile is active and `hibernate.format_sql` is `true`.
+- **Why it matters**: pretty-printing SQL adds CPU and memory overhead, and Hibernate formats the statements even when SQL logging is disabled, so it is wasted work in production.
+- **Recommendation**: disable `hibernate.format_sql` in production profiles and keep it enabled only for local development where readable SQL helps.
 
-### HIB-MAP-018 - Missing @Index on Foreign Key (ManyToOne/OneToOne)
-
-- **Severity**: HIGH
-- **Inspects**: foreign key columns represented by `@ManyToOne` and owning `@OneToOne` associations.
-- **Fires when**: an association declares a join column but the corresponding `@Table` lacks an `@Index` declaration for it.
-- **Why it matters**: databases do not always automatically index foreign keys. Unindexed foreign keys cause full table scans when deleting rows from the parent table (to check constraints or perform cascades), which can lead to severe lock contention and deadlocks.
-- **Recommendation**: declare an `@Index` in the `@Table(indexes = ...)` annotation for every foreign key column to optimize cascading operations and constraint checks.
-
-### HIB-MAP-019 - Missing @Index on ElementCollection table
+### HIB-MAP-018 - Non-owning @OneToOne triggers N+1 queries
 
 - **Severity**: HIGH
-- **Inspects**: `@ElementCollection` mappings.
-- **Fires when**: the element collection is mapped via a `@CollectionTable` but lacks an `@Index` for the joining column.
-- **Why it matters**: operations on element collections generally fetch the entire collection using the owning entity's ID. Without an index on that join column, loading the collection requires scanning the entire collection table.
-- **Recommendation**: add an index to the join column in the collection table using `@CollectionTable(indexes = @Index(columnList = "owner_id"))`.
+- **Inspects**: non-owning (`mappedBy`) `@OneToOne` associations and whether Hibernate bytecode enhancement is enabled.
+- **Fires when**: bytecode enhancement is disabled and an entity declares a non-owning `@OneToOne` association.
+- **Why it matters**: without bytecode enhancement Hibernate cannot create a lazy proxy for a non-owning `@OneToOne`, so it loads the association eagerly with an extra query per parent row — the classic N+1 pattern.
+- **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key (`@MapsId`) and a unidirectional mapping.
+
+### HIB-MAP-019 - Missing foreign key indexes
+
+- **Severity**: INFO
+- **Inspects**: `@ManyToOne` and owning `@OneToOne` join columns against the `@Index` declarations in the entity's `@Table` mapping.
+- **Fires when**: a foreign-key association's join column has no matching `@Index` in the entity's `@Table(indexes = ...)`.
+- **Why it matters**: databases do not always index foreign keys automatically. An unindexed foreign key forces full table scans when joining the association or when deleting parent rows (constraint and cascade checks), which can lead to lock contention and deadlocks.
+- **Recommendation**: declare an `@Index` in `@Table` for each foreign-key column; if you manage the schema with Flyway/Liquibase, ensure the index exists in your migrations.
 
 ### HIB-ENTITY-006 - Avoid primitive @Id or @Version types
 

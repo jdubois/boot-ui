@@ -465,7 +465,7 @@ Acceptance criteria:
 - Polling does not overlap slow requests.
 - Switching meter, tag filters, or statistic resets the live graph history.
 
-### 5.10 JVM Memory and Tuning Advisor Panels
+### 5.10 Live Memory and JVM Tuning Panels
 
 Purpose: answer "How much heap/non-heap memory is this app using, and what JVM/container options would be reasonable
 locally?"
@@ -477,26 +477,26 @@ Data sources:
 
 Features:
 
-- The Memory panel shows live heap and non-heap usage summaries.
-- The Memory panel shows memory pool usage.
-- The Tuning Advisor panel shows JVM input arguments.
-- The Tuning Advisor panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
+- The Live Memory panel shows live heap and non-heap usage summaries.
+- The Live Memory panel shows memory pool usage.
+- The JVM Tuning panel shows JVM input arguments.
+- The JVM Tuning panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
   enabled in the current application, and shows an information or warning bubble. The detected state feeds the sizing
   calculations, but generated JVM or Kubernetes snippets do not set the Spring property.
-- The Tuning Advisor panel provides a bare-metal JVM memory calculator that partitions a user-chosen
+- The JVM Tuning panel provides a bare-metal JVM memory calculator that partitions a user-chosen
   target JVM process memory into JVM regions
   (`heap = total − headRoom − directMemory − metaspace − codeCache − stack×threads`),
   using the live loaded-class count from `ClassLoadingMXBean` (with a 1.25× safety
   factor) and a live-or-floored platform-thread count. When virtual threads are enabled, the calculator uses a smaller
   platform-thread floor and stack size because request concurrency no longer reserves one native stack per request.
-- The Tuning Advisor panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
+- The JVM Tuning panel suggests bare-metal JVM options derived from the calculator output, including `-Xms`/`-Xmx`
   (equal for predictable startup), `-XX:MaxMetaspaceSize`, `-XX:ReservedCodeCacheSize`,
   `-XX:MaxDirectMemorySize`, `-Xss`, GC selection (G1 below 4 GB, ZGC above), and
   out-of-memory safeguards.
-- The Tuning Advisor panel suggests Kubernetes resources and `JAVA_TOOL_OPTIONS` with `requests.memory == limits.memory`
+- The JVM Tuning panel suggests Kubernetes resources and `JAVA_TOOL_OPTIONS` with `requests.memory == limits.memory`
   for Guaranteed QoS and percentage-based heap sizing (`-XX:MaxRAMPercentage` / `-XX:InitialRAMPercentage`) instead of
   fixed `-Xmx` / `-Xms`, while keeping fixed non-heap caps and warnings visible.
-- The Tuning Advisor panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
+- The JVM Tuning panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
   and lets the user include or omit Spring Boot Actuator startup/readiness/liveness probes. The Actuator toggle
   initializes from the current application health-probe configuration and is recommended for Kubernetes deployments.
 
@@ -522,7 +522,7 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Support disabling OSV scans with `bootui.dependencies.osv-enabled=false`.
+- Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
 
 Acceptance criteria:
 
@@ -556,7 +556,7 @@ Purpose: issue safe local HTTP requests to the running app from the developer co
 
 Data sources:
 
-- BootUI internal `/bootui/api/probe` endpoint using a local `HttpClient`.
+- BootUI internal `/bootui/api/http-probe` endpoint using a local `HttpClient`.
 
 Features:
 
@@ -725,7 +725,7 @@ Acceptance criteria:
 - Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
 - No repository method is invoked as a side effect of opening the panel.
 
-### 5.17.1 Hibernate Advisor Panel
+### 5.17.1 Hibernate Panel
 
 Purpose: answer "Which Hibernate/JPA mapping and configuration risks should I review before they become production
 performance issues?"
@@ -753,7 +753,7 @@ Acceptance criteria:
 
 - When Hibernate/JPA infrastructure is unavailable, the panel shows a clear unavailable state.
 - Opening the panel never executes application queries or mutates persistence metadata.
-- The scan action is blocked by global read-only mode and `bootui.panels.hibernate-advisor.read-only`.
+- The scan action is blocked by global read-only mode and `bootui.panels.hibernate.read-only`.
 - Findings are presented as heuristic review prompts, not definitive performance verdicts.
 
 ### 5.17.2 Flyway Panel
@@ -1092,22 +1092,22 @@ Initial endpoints:
 | `/bootui/api/metrics/detail`                 | GET    | Micrometer meter detail and live measurements                                          |
 | `/bootui/api/database-connection-pools/pools` | GET    | JDBC connection pool metadata                                                          |
 | `/bootui/api/database-connection-pools/pools/{name}/snapshot` | GET | Live connection pool utilization snapshot                                   |
-| `/bootui/api/dependencies`                   | GET    | Runtime Maven dependency inventory without external scanning                           |
-| `/bootui/api/dependencies/scan`              | POST   | Explicit on-demand OSV.dev vulnerability scan                                          |
+| `/bootui/api/vulnerabilities`                   | GET    | Runtime Maven dependency inventory without external scanning                           |
+| `/bootui/api/vulnerabilities/scan`              | POST   | Explicit on-demand OSV.dev vulnerability scan                                          |
 | `/bootui/api/devtools`                       | GET    | Spring Boot DevTools status                                                            |
 | `/bootui/api/devtools/livereload`            | POST   | Trigger a DevTools LiveReload notification when available                              |
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
-| `/bootui/api/memory`                         | GET    | JVM memory report                                                                      |
-| `/bootui/api/tuning-advisor`                 | GET    | JVM tuning advisor report                                                              |
+| `/bootui/api/live-memory`                         | GET    | JVM memory report                                                                      |
+| `/bootui/api/jvm-tuning`                 | GET    | JVM tuning advisor report                                                              |
 | `/bootui/api/heap-dump`                      | GET    | Heap dump capture inventory and latest value-free histogram report                     |
 | `/bootui/api/heap-dump/capture`              | POST   | Capture a local heap dump after explicit confirmation                                  |
 | `/bootui/api/heap-dump/analyze`              | POST   | Analyze the latest heap dump class histogram                                           |
 | `/bootui/api/heap-dump/delete`               | POST   | Delete a retained heap dump                                                            |
 | `/bootui/api/heap-dump/download`             | GET    | Download a raw heap dump only when explicitly enabled                                  |
 | `/bootui/api/scheduled`                      | GET    | Scheduled tasks                                                                        |
-| `/bootui/api/probe`                          | POST   | Local HTTP probe                                                                       |
-| `/bootui/api/logs/recent`                    | GET    | Recent log lines                                                                       |
-| `/bootui/api/logs/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
+| `/bootui/api/http-probe`                          | POST   | Local HTTP probe                                                                       |
+| `/bootui/api/log-tail/recent`                    | GET    | Recent log lines                                                                       |
+| `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
 | `/bootui/api/traces/{traceId}`               | GET    | Trace waterfall detail                                                                 |
 | `/bootui/api/traces`                         | DELETE | Clear retained local traces when not read-only                                         |
@@ -1116,16 +1116,22 @@ Initial endpoints:
 | `/bootui/api/ai/chats`                       | GET    | Recent AI chat span groups                                                             |
 | `/bootui/api/ai/chats/{spanId}`              | GET    | AI chat span detail                                                                    |
 | `/bootui/api/ai/tokens`                      | GET    | AI token usage time series                                                             |
-| `/bootui/api/profiles`                       | GET    | Profile-specific property sources                                                      |
+| `/bootui/api/profile-diff`                       | GET    | Profile-specific property sources                                                      |
 | `/bootui/api/dev-services`                   | GET    | Docker Compose, Testcontainers, and service connection entries                         |
 | `/bootui/api/dev-services/{id}/logs`         | GET    | Bounded log tail for a bean-backed service when available                              |
 | `/bootui/api/dev-services/{id}/restart`      | POST   | Restart a bean-backed service only when explicitly enabled                             |
 | `/bootui/api/data/repositories`              | GET    | Detected Spring Data repositories (summary)                                            |
 | `/bootui/api/data/repositories/{name}`       | GET    | Spring Data repository detail with query methods                                       |
-| `/bootui/api/hibernate-advisor`              | GET    | Latest Hibernate/JPA advisor report                                                    |
-| `/bootui/api/hibernate-advisor/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
+| `/bootui/api/hibernate`              | GET    | Latest Hibernate/JPA advisor report                                                    |
+| `/bootui/api/hibernate/scan`         | POST   | Run explicit read-only Hibernate/JPA advisor checks                                    |
 | `/bootui/api/architecture`                   | GET    | Latest Architecture scan report                                                        |
 | `/bootui/api/architecture/scan`              | POST   | Run explicit ArchUnit hygiene checks                                                   |
+| `/bootui/api/rest-api`                   | GET    | Latest REST API Advisor scan report                                                    |
+| `/bootui/api/rest-api/scan`              | POST   | Run explicit read-only REST API best-practice checks                                   |
+| `/bootui/api/spring`                     | GET    | Latest Spring Advisor scan report                                                      |
+| `/bootui/api/spring/scan`                | POST   | Run explicit read-only Spring context and configuration checks                         |
+| `/bootui/api/memory`                     | GET    | Latest Memory Advisor scan report                                                      |
+| `/bootui/api/memory/scan`                | POST   | Run explicit read-only JVM memory, GC, and thread health checks                        |
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
@@ -1140,10 +1146,10 @@ Initial endpoints:
 | `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
-| `/bootui/api/security-advisor`               | GET    | Latest Spring Security Advisor report                                                  |
-| `/bootui/api/security-advisor/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
-| `/bootui/api/pentest`                        | GET    | Latest local OWASP hygiene report                                                      |
-| `/bootui/api/pentest/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
+| `/bootui/api/security`               | GET    | Latest Spring Security Advisor report                                                  |
+| `/bootui/api/security/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
+| `/bootui/api/pentesting`                        | GET    | Latest local OWASP hygiene report                                                      |
+| `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded localhost OWASP hygiene checks                                    |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, token usage, explorer, raw reveal, SSE    |
 
@@ -1177,10 +1183,10 @@ Initial properties:
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
-| `bootui.dependencies.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
-| `bootui.dependencies.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
-| `bootui.dependencies.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
-| `bootui.dependencies.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
+| `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
+| `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
+| `bootui.vulnerabilities.max-packages`           | `250`                                   | Maximum packages sent in one OSV batch query.                                                     |
+| `bootui.vulnerabilities.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
 | `bootui.github.api-enabled`                  | `true`                                  | Allow GitHub panel refresh calls to GitHub APIs.                                                  |
 | `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                             |
 | `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                        |
@@ -1263,12 +1269,21 @@ Top-level navigation:
 - Overview:
   - Overview.
   - GitHub.
+- Advisors:
+  - Architecture.
+  - REST API.
+  - Spring.
+  - Hibernate.
+  - Memory.
+  - Security.
+  - Pentesting.
+  - Vulnerabilities.
 - Runtime:
   - Health.
   - HTTP Sessions.
   - Metrics.
-  - Memory.
-  - Tuning Advisor.
+  - Live Memory.
+  - JVM Tuning.
   - Heap Dump.
   - Threads.
   - Startup Timeline.
@@ -1283,15 +1298,11 @@ Top-level navigation:
 - Database:
   - Database Connection Pools.
   - Spring Data.
-  - Hibernate Advisor.
   - Flyway.
   - Liquibase.
 - Security:
   - Spring Security.
   - Security Logs.
-  - Security Advisor.
-  - Pentesting.
-  - Vulnerabilities.
 - Services:
   - Scheduled Tasks.
   - Spring Cache.
@@ -1301,7 +1312,6 @@ Top-level navigation:
   - Log Tail.
   - HTTP Exchanges.
   - HTTP Probe.
-  - Architecture.
 - Developer tools:
   - DevTools.
   - Dev Services.
@@ -1395,11 +1405,12 @@ Future compatibility:
 BootUI's 1.0 release surface is complete when:
 
 - A sample Spring Boot app can add the starter and open `/bootui`.
-- The UI shows Overview, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and Disabled /
-  unavailable navigation groups covering Health, HTTP Sessions, Metrics, Memory, Tuning Advisor, Heap Dump, Threads,
-  Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database Connection
-  Pools, Spring Data, Hibernate Advisor, Flyway, Liquibase, Spring Security, Security Logs, Security Advisor, Pentesting,
+- The UI shows Overview, Advisors, Runtime, Configuration, Database, Security, Services, Diagnostics, Developer tools, and
+  Disabled / unavailable navigation groups covering Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump,
+  Threads, Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database
+  Connection Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
   Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
+  REST API, Spring, Memory,
   DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.
 - Secret-like values are masked.

@@ -38,7 +38,7 @@ test.describe('Read-only properties', () => {
         readOnlyReason: 'BootUI is read-only via bootui.read-only=true'
       })
 
-      const probeResponse = await request.post(`${app.baseUrl}/bootui/api/probe`, {
+      const probeResponse = await request.post(`${app.baseUrl}/bootui/api/http-probe`, {
         data: {method: 'GET', path: '/api/hello', headers: {}, body: ''}
       })
       expect(probeResponse.status()).toBe(403)
@@ -70,7 +70,7 @@ test.describe('Read-only properties', () => {
         readOnlyReason: 'Panel is read-only via bootui.panels.http-probe.read-only=true'
       })
 
-      const probeResponse = await request.post(`${app.baseUrl}/bootui/api/probe`, {
+      const probeResponse = await request.post(`${app.baseUrl}/bootui/api/http-probe`, {
         data: {method: 'GET', path: '/api/hello', headers: {}, body: ''}
       })
       expect(probeResponse.status()).toBe(403)

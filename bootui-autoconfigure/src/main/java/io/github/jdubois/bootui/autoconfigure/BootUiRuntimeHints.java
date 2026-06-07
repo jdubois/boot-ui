@@ -21,7 +21,7 @@ import org.springframework.util.ClassUtils;
  * <ul>
  *   <li><b>Classpath resources</b> that BootUI reads at runtime through {@link ClassLoader} or
  *       {@code PathMatchingResourcePatternResolver} scanning. These are excluded from a native image
- *       unless registered, which would otherwise leave the Dependencies and Config panels empty and
+ *       unless registered, which would otherwise leave the Vulnerabilities and Config panels empty and
  *       the BootUI version reported as {@code unknown}.
  *   <li><b>Reflective method invocations</b> on well-known JDK and Spring Security types that BootUI
  *       discovers at runtime and calls reflectively.
@@ -37,7 +37,7 @@ import org.springframework.util.ClassUtils;
  */
 class BootUiRuntimeHints implements RuntimeHintsRegistrar {
 
-    /** Maven metadata scanned by {@code DependencyCatalog} for the Dependencies panel. */
+    /** Maven metadata scanned by {@code DependencyCatalog} for the Vulnerabilities panel. */
     private static final String MAVEN_POM_PROPERTIES_PATTERN = "META-INF/maven/*/*/pom.properties";
 
     /** Configuration metadata scanned by {@code ConfigMetadataCatalog} for the Config panel. */
@@ -53,7 +53,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
     /** JDK MXBean invoked reflectively by {@code HeapDumpService} for heap dumps. */
     private static final String HOTSPOT_DIAGNOSTIC_MXBEAN = "com.sun.management.HotSpotDiagnosticMXBean";
 
-    /** Spring Security filter chain whose {@code getFilters()} is invoked reflectively by the pentest scanner. */
+    /** Spring Security filter chain whose {@code getFilters()} is invoked reflectively by the pentesting scanner. */
     private static final String SECURITY_FILTER_CHAIN = "org.springframework.security.web.SecurityFilterChain";
 
     /** Spring Security authority whose {@code getAuthority()} is invoked reflectively by {@code SpringSecurityService}. */
@@ -79,7 +79,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         hints.reflection()
                 .registerTypeIfPresent(classLoader, HOTSPOT_DIAGNOSTIC_MXBEAN, MemberCategory.INVOKE_PUBLIC_METHODS);
 
-        // Security / Pentest panels: BootUI reflectively invokes public getters on these Spring
+        // Security / Pentesting panels: BootUI reflectively invokes public getters on these Spring
         // Security types. registerTypeIfPresent keeps the hints harmless when Spring Security is absent.
         hints.reflection()
                 .registerTypeIfPresent(classLoader, SECURITY_FILTER_CHAIN, MemberCategory.INVOKE_PUBLIC_METHODS);

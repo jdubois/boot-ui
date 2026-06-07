@@ -121,21 +121,21 @@ class BootUiPropertiesTests {
     }
 
     @Test
-    void defaultDependenciesOsvEnabledIsTrue() {
+    void defaultVulnerabilitiesOsvEnabledIsTrue() {
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getDependencies().isOsvEnabled()).isTrue();
+        assertThat(props.getVulnerabilities().isOsvEnabled()).isTrue();
     }
 
     @Test
-    void defaultDependenciesRequestTimeoutIsTenSeconds() {
+    void defaultVulnerabilitiesRequestTimeoutIsTenSeconds() {
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getDependencies().getRequestTimeout()).isEqualTo(Duration.ofSeconds(10));
+        assertThat(props.getVulnerabilities().getRequestTimeout()).isEqualTo(Duration.ofSeconds(10));
     }
 
     @Test
-    void defaultDependenciesMaxPackagesIs250() {
+    void defaultVulnerabilitiesMaxPackagesIs250() {
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getDependencies().getMaxPackages()).isEqualTo(250);
+        assertThat(props.getVulnerabilities().getMaxPackages()).isEqualTo(250);
     }
 
     // -------------------------------------------------------------------------
@@ -143,9 +143,9 @@ class BootUiPropertiesTests {
     // -------------------------------------------------------------------------
 
     @Test
-    void defaultDependenciesMaxAdvisoriesIs200() {
+    void defaultVulnerabilitiesMaxAdvisoriesIs200() {
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getDependencies().getMaxAdvisories()).isEqualTo(200);
+        assertThat(props.getVulnerabilities().getMaxAdvisories()).isEqualTo(200);
     }
 
     @Test
@@ -372,43 +372,43 @@ class BootUiPropertiesTests {
     }
 
     @Test
-    void bindsDependenciesOsvEnabledFalse() {
+    void bindsVulnerabilitiesOsvEnabledFalse() {
         MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.dependencies.osv-enabled", "false");
+        env.setProperty("bootui.vulnerabilities.osv-enabled", "false");
 
         BootUiProperties props = bind(env);
 
-        assertThat(props.getDependencies().isOsvEnabled()).isFalse();
+        assertThat(props.getVulnerabilities().isOsvEnabled()).isFalse();
     }
 
     @Test
-    void bindsDependenciesRequestTimeout() {
+    void bindsVulnerabilitiesRequestTimeout() {
         MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.dependencies.request-timeout", "20s");
+        env.setProperty("bootui.vulnerabilities.request-timeout", "20s");
 
         BootUiProperties props = bind(env);
 
-        assertThat(props.getDependencies().getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
+        assertThat(props.getVulnerabilities().getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
     }
 
     @Test
-    void bindsDependenciesMaxPackages() {
+    void bindsVulnerabilitiesMaxPackages() {
         MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.dependencies.max-packages", "100");
+        env.setProperty("bootui.vulnerabilities.max-packages", "100");
 
         BootUiProperties props = bind(env);
 
-        assertThat(props.getDependencies().getMaxPackages()).isEqualTo(100);
+        assertThat(props.getVulnerabilities().getMaxPackages()).isEqualTo(100);
     }
 
     @Test
-    void bindsDependenciesMaxAdvisories() {
+    void bindsVulnerabilitiesMaxAdvisories() {
         MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.dependencies.max-advisories", "50");
+        env.setProperty("bootui.vulnerabilities.max-advisories", "50");
 
         BootUiProperties props = bind(env);
 
-        assertThat(props.getDependencies().getMaxAdvisories()).isEqualTo(50);
+        assertThat(props.getVulnerabilities().getMaxAdvisories()).isEqualTo(50);
     }
 
     @Test

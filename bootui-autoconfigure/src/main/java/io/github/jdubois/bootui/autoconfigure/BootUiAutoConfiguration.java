@@ -4,15 +4,18 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
-import io.github.jdubois.bootui.autoconfigure.hibernateadvisor.HibernateAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
-import io.github.jdubois.bootui.autoconfigure.pentest.*;
+import io.github.jdubois.bootui.autoconfigure.pentesting.*;
+import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
-import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -77,28 +80,31 @@ import org.springframework.core.env.Environment;
     LoggersController.class,
     StartupController.class,
     DataController.class,
-    HibernateAdvisorController.class,
+    HibernateController.class,
     FlywayController.class,
     LiquibaseController.class,
-    HikariController.class,
+    DatabaseConnectionPoolsController.class,
     SpringCacheController.class,
     DevServicesController.class,
-    DependenciesController.class,
+    VulnerabilitiesController.class,
     BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration.class,
     BootUiAutoConfiguration.SecurityAuditRepositoryConfiguration.class,
     ScheduledController.class,
     HttpProbeService.class,
     HttpProbeController.class,
-    PentestController.class,
+    PentestingController.class,
     HeapDumpController.class,
     ArchitectureController.class,
+    RestApiController.class,
     LogTailController.class,
     HttpExchangesController.class,
-    ProfileController.class,
+    ProfileDiffController.class,
     SpringSecurityController.class,
-    SecurityAdvisorController.class,
+    SecurityController.class,
+    SpringController.class,
     SecurityLogsController.class,
-    MemoryController.class,
+    LiveMemoryController.class,
+    JvmTuningController.class,
     MetricsController.class,
     HttpSessionsController.class,
     DevToolsController.class,
@@ -109,6 +115,7 @@ import org.springframework.core.env.Environment;
     ClaudeCodeController.class,
     GraalVmController.class,
     ThreadDumpController.class,
+    MemoryController.class,
     BootUiIndexController.class,
     BootUiOpenTelemetryConfiguration.class
 })
@@ -119,9 +126,10 @@ public class BootUiAutoConfiguration {
     private static final Set<String> LAZY_CONTROLLER_CLASS_NAMES = Set.of(
             AiController.class.getName(),
             ArchitectureController.class.getName(),
+            RestApiController.class.getName(),
             BeansController.class.getName(),
             BootUiIndexController.class.getName(),
-            HibernateAdvisorController.class.getName(),
+            HibernateController.class.getName(),
             SpringCacheController.class.getName(),
             ClaudeCodeController.class.getName(),
             ConditionsController.class.getName(),
@@ -130,32 +138,35 @@ public class BootUiAutoConfiguration {
             DataController.class.getName(),
             FlywayController.class.getName(),
             LiquibaseController.class.getName(),
-            DependenciesController.class.getName(),
+            VulnerabilitiesController.class.getName(),
             DevToolsController.class.getName(),
             GitHubController.class.getName(),
             GraalVmController.class.getName(),
             HealthController.class.getName(),
-            HikariController.class.getName(),
+            DatabaseConnectionPoolsController.class.getName(),
             HttpExchangesController.class.getName(),
             HttpSessionsController.class.getName(),
             HttpProbeController.class.getName(),
             HeapDumpController.class.getName(),
             LoggersController.class.getName(),
             MappingsController.class.getName(),
-            MemoryController.class.getName(),
+            LiveMemoryController.class.getName(),
+            JvmTuningController.class.getName(),
             MetricsController.class.getName(),
             OtlpReceiverController.class.getName(),
             OverviewController.class.getName(),
             PanelsController.class.getName(),
-            PentestController.class.getName(),
-            ProfileController.class.getName(),
+            PentestingController.class.getName(),
+            ProfileDiffController.class.getName(),
             ScheduledController.class.getName(),
             SecurityLogsController.class.getName(),
-            SecurityAdvisorController.class.getName(),
+            SecurityController.class.getName(),
+            SpringController.class.getName(),
             SpringSecurityController.class.getName(),
             StartupController.class.getName(),
             TracesController.class.getName(),
-            ThreadDumpController.class.getName());
+            ThreadDumpController.class.getName(),
+            MemoryController.class.getName());
 
     private static final Set<String> LAZY_BEAN_NAMES =
             Set.of("bootUiConfigOverrideService", "bootUiDevToolsBridge", "bootUiOtlpSpanDecoder");

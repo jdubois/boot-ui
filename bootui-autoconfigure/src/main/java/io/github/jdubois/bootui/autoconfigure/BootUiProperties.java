@@ -89,7 +89,7 @@ public class BootUiProperties {
     /**
      * Dependency inventory and vulnerability scanning settings.
      */
-    private Dependencies dependencies = new Dependencies();
+    private Vulnerabilities vulnerabilities = new Vulnerabilities();
     /**
      * GitHub panel settings.
      */
@@ -284,12 +284,12 @@ public class BootUiProperties {
         this.securityLogs = securityLogs == null ? new SecurityLogs() : securityLogs;
     }
 
-    public Dependencies getDependencies() {
-        return dependencies;
+    public Vulnerabilities getVulnerabilities() {
+        return vulnerabilities;
     }
 
-    public void setDependencies(Dependencies dependencies) {
-        this.dependencies = dependencies;
+    public void setVulnerabilities(Vulnerabilities vulnerabilities) {
+        this.vulnerabilities = vulnerabilities;
     }
 
     public GitHub getGithub() {
@@ -473,7 +473,7 @@ public class BootUiProperties {
         }
     }
 
-    public static class Dependencies {
+    public static class Vulnerabilities {
 
         /**
          * Allow on-demand vulnerability scans against OSV.dev.

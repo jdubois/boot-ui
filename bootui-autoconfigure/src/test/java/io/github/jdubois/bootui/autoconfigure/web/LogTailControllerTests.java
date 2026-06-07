@@ -174,7 +174,7 @@ class LogTailControllerTests {
         // LogTailController's no-arg ctor calls BootUiLogAppender.install() → same instance
         MockMvc mvc = standaloneSetup(new LogTailController()).build();
 
-        mvc.perform(get("/bootui/api/logs/recent"))
+        mvc.perform(get("/bootui/api/log-tail/recent"))
                 .andExpect(status().isOk())
                 .andExpect(
                         jsonPath("$[?(@.message == '" + uniqueMsg + "')].level").value("ERROR"))
@@ -198,7 +198,7 @@ class LogTailControllerTests {
 
         MockMvc mvc = standaloneSetup(new LogTailController()).build();
 
-        mvc.perform(get("/bootui/api/logs/recent"))
+        mvc.perform(get("/bootui/api/log-tail/recent"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].timestamp")
                         .value(ts))

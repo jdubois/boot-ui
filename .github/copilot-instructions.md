@@ -173,8 +173,8 @@ never need npm.
   `BootUiProperties.exposeValues`) before serialization. See `ConfigController.toDto` and
   `ConfigOverrideService.displayValue` for the pattern.
 - Do not perform dependency vulnerability lookups on page load. The Vulnerabilities panel lists local dependency
-  inventory first and calls OSV.dev only after the explicit `/bootui/api/dependencies/scan` action; honor
-  `bootui.dependencies.osv-enabled=false`.
+  inventory first and calls OSV.dev only after the explicit `/bootui/api/vulnerabilities/scan` action; honor
+  `bootui.vulnerabilities.osv-enabled=false`.
 - Dev Services must sanitize service connection details, keep Docker Compose entries as startup snapshots, cap service
   logs by `bootui.dev-services.log-tail-bytes`, and leave restart controls disabled unless
   `bootui.dev-services.restart-enabled=true`.
@@ -219,7 +219,7 @@ Playwright coverage aligned for:
 
 - Package root: `io.github.jdubois.bootui.<module>`. Simple controllers live in `...autoconfigure.web`; more complex
   features with their own backing services live in a dedicated sub-package (e.g., `...autoconfigure.architecture`,
-  `...autoconfigure.pentest`, `...autoconfigure.otlp`). Safety code is in `...autoconfigure.safety`, override plumbing
+  `...autoconfigure.pentesting`, `...autoconfigure.otlp`). Safety code is in `...autoconfigure.safety`, override plumbing
   in `...autoconfigure.config`.
 - DTOs are immutable Java `record`s (Jackson-friendly with Spring Boot defaults — no annotations needed).
 - Compiler is configured with `-parameters` (root `pom.xml` `<parameters>true</parameters>`); rely on that for

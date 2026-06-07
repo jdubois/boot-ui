@@ -5,11 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
-import io.github.jdubois.bootui.autoconfigure.pentest.*;
+import io.github.jdubois.bootui.autoconfigure.pentesting.*;
+import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
-import io.github.jdubois.bootui.autoconfigure.securityadvisor.SecurityAdvisorController;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.net.URI;
 import java.nio.file.Path;
@@ -62,8 +65,8 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(OverviewController.class)
                         .hasSingleBean(GitHubController.class)
                         .hasSingleBean(DevServicesController.class)
-                        .hasSingleBean(DependenciesController.class)
-                        .hasSingleBean(PentestController.class)
+                        .hasSingleBean(VulnerabilitiesController.class)
+                        .hasSingleBean(PentestingController.class)
                         .hasSingleBean(AuditEventRepository.class)
                         .hasSingleBean(HttpExchangeRepository.class)
                         .hasSingleBean(HttpExchangesController.class)
@@ -147,9 +150,9 @@ class BootUiAutoConfigurationTests {
                         "bootui.cache.clear-enabled=false",
                         "bootui.http-exchanges.max-exchanges=2",
                         "bootui.http-sessions.max-sessions=12",
-                        "bootui.dependencies.osv-enabled=false",
-                        "bootui.dependencies.max-packages=42",
-                        "bootui.dependencies.max-advisories=24",
+                        "bootui.vulnerabilities.osv-enabled=false",
+                        "bootui.vulnerabilities.max-packages=42",
+                        "bootui.vulnerabilities.max-advisories=24",
                         "bootui.copilot.max-parsed-sessions=12",
                         "bootui.claude-code.max-parsed-sessions=8")
                 .run(context -> {
@@ -167,9 +170,10 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getCache().isClearEnabled()).isFalse();
                     assertThat(properties.getHttpExchanges().getMaxExchanges()).isEqualTo(2);
                     assertThat(properties.getHttpSessions().getMaxSessions()).isEqualTo(12);
-                    assertThat(properties.getDependencies().isOsvEnabled()).isFalse();
-                    assertThat(properties.getDependencies().getMaxPackages()).isEqualTo(42);
-                    assertThat(properties.getDependencies().getMaxAdvisories()).isEqualTo(24);
+                    assertThat(properties.getVulnerabilities().isOsvEnabled()).isFalse();
+                    assertThat(properties.getVulnerabilities().getMaxPackages()).isEqualTo(42);
+                    assertThat(properties.getVulnerabilities().getMaxAdvisories())
+                            .isEqualTo(24);
                     assertThat(properties.getGithub().isApiEnabled()).isTrue();
                     assertThat(properties.getGithub().getMaxApiCalls()).isEqualTo(17);
                     assertThat(properties.getCopilot().getMaxParsedSessions()).isEqualTo(12);
@@ -186,6 +190,7 @@ class BootUiAutoConfigurationTests {
             List.of(
                             AiController.class,
                             ArchitectureController.class,
+                            RestApiController.class,
                             BeansController.class,
                             BootUiIndexController.class,
                             SpringCacheController.class,
@@ -196,32 +201,35 @@ class BootUiAutoConfigurationTests {
                             DataController.class,
                             FlywayController.class,
                             LiquibaseController.class,
-                            DependenciesController.class,
+                            VulnerabilitiesController.class,
                             DevToolsController.class,
                             GitHubController.class,
                             GraalVmController.class,
                             HealthController.class,
-                            HikariController.class,
+                            DatabaseConnectionPoolsController.class,
                             HttpExchangesController.class,
                             HttpSessionsController.class,
                             HttpProbeController.class,
                             HeapDumpController.class,
                             LoggersController.class,
                             MappingsController.class,
-                            MemoryController.class,
+                            LiveMemoryController.class,
+                            JvmTuningController.class,
                             MetricsController.class,
                             OtlpReceiverController.class,
                             OverviewController.class,
                             PanelsController.class,
-                            PentestController.class,
-                            ProfileController.class,
+                            PentestingController.class,
+                            ProfileDiffController.class,
                             ScheduledController.class,
                             SecurityLogsController.class,
-                            SecurityAdvisorController.class,
+                            SecurityController.class,
+                            SpringController.class,
                             SpringSecurityController.class,
                             StartupController.class,
                             TracesController.class,
-                            ThreadDumpController.class)
+                            ThreadDumpController.class,
+                            MemoryController.class)
                     .forEach(beanType -> assertLazyBean(beanFactory, beanType));
 
             assertLazyBeanDefinition(beanFactory, "bootUiConfigOverrideService");
@@ -407,7 +415,7 @@ class BootUiAutoConfigurationTests {
                 .run(context -> assertThat(context)
                         .hasSingleBean(SpringCacheController.class)
                         .hasSingleBean(DataController.class)
-                        .hasSingleBean(HikariController.class)
+                        .hasSingleBean(DatabaseConnectionPoolsController.class)
                         .hasSingleBean(HttpSessionsController.class)
                         .hasSingleBean(LogTailController.class)
                         .hasSingleBean(ScheduledController.class)
@@ -426,7 +434,7 @@ class BootUiAutoConfigurationTests {
     void skipsHikariPanelWhenHikariCpIsMissing() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("com.zaxxer.hikari.HikariDataSource"))
-                .run(context -> assertThat(context).doesNotHaveBean(HikariController.class));
+                .run(context -> assertThat(context).doesNotHaveBean(DatabaseConnectionPoolsController.class));
     }
 
     @Test

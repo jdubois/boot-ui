@@ -25,26 +25,27 @@ class PanelsControllerTests {
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_SESSIONS,
             BootUiPanels.METRICS,
-            BootUiPanels.MEMORY,
-            BootUiPanels.TUNING_ADVISOR,
+            BootUiPanels.LIVE_MEMORY,
+            BootUiPanels.JVM_TUNING,
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.THREADS,
+            BootUiPanels.MEMORY,
             BootUiPanels.STARTUP,
             BootUiPanels.GRAALVM,
             BootUiPanels.CONFIG,
-            BootUiPanels.PROFILES,
+            BootUiPanels.PROFILE_DIFF,
             BootUiPanels.LOGGERS,
             BootUiPanels.BEANS,
             BootUiPanels.CONDITIONS,
             BootUiPanels.MAPPINGS,
             BootUiPanels.SPRING_SECURITY,
-            BootUiPanels.SECURITY_ADVISOR,
+            BootUiPanels.SECURITY,
             BootUiPanels.SECURITY_LOGS,
-            BootUiPanels.PENTEST,
+            BootUiPanels.PENTESTING,
             BootUiPanels.SCHEDULED,
             BootUiPanels.DATABASE_CONNECTION_POOLS,
             BootUiPanels.DATA,
-            BootUiPanels.HIBERNATE_ADVISOR,
+            BootUiPanels.HIBERNATE,
             BootUiPanels.SPRING_CACHE,
             BootUiPanels.AI,
             BootUiPanels.TRACES,
@@ -59,7 +60,9 @@ class PanelsControllerTests {
             BootUiPanels.CLAUDE_CODE,
             BootUiPanels.FLYWAY,
             BootUiPanels.LIQUIBASE,
-            BootUiPanels.GITHUB);
+            BootUiPanels.GITHUB,
+            BootUiPanels.REST_API,
+            BootUiPanels.SPRING);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
@@ -90,9 +93,9 @@ class PanelsControllerTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath(panelPath(BootUiPanels.OVERVIEW) + ".available")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.MEMORY) + ".available")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.LIVE_MEMORY) + ".available")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.TUNING_ADVISOR) + ".available")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.JVM_TUNING) + ".available")
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HEAP_DUMP) + ".available")
                             .value(true))
@@ -100,7 +103,7 @@ class PanelsControllerTests {
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.CONFIG) + ".available")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".available")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".available")
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.TRACES) + ".available")
                             .value(true))
@@ -147,9 +150,9 @@ class PanelsControllerTests {
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".unavailableReason")
                             .value("No database connection pool beans are available"))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE_ADVISOR) + ".available")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".available")
                             .value(false))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE_ADVISOR) + ".unavailableReason")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".unavailableReason")
                             .value("Hibernate ORM is not on the classpath"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_EXCHANGES) + ".available")
                             .value(false))
@@ -234,7 +237,7 @@ class PanelsControllerTests {
             BootUiProperties properties = new BootUiProperties();
             properties.panel("config").setEnabled(false);
             properties.panel("loggers").setReadOnly(true);
-            properties.panel("pentest").setReadOnly(true);
+            properties.panel("pentesting").setReadOnly(true);
             MockMvc mvc = standaloneSetup(new PanelsController(context, context.getEnvironment(), properties))
                     .build();
 
@@ -252,12 +255,12 @@ class PanelsControllerTests {
                             .value(true))
                     .andExpect(jsonPath(panelPath(BootUiPanels.LOGGERS) + ".readOnlyReason")
                             .value("Panel is read-only via bootui.panels.loggers.read-only=true"))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".enabled")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".enabled")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".readOnly")
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".readOnly")
                             .value(true))
-                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTEST) + ".readOnlyReason")
-                            .value("Panel is read-only via bootui.panels.pentest.read-only=true"));
+                    .andExpect(jsonPath(panelPath(BootUiPanels.PENTESTING) + ".readOnlyReason")
+                            .value("Panel is read-only via bootui.panels.pentesting.read-only=true"));
         }
     }
 

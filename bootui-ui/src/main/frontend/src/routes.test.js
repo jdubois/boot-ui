@@ -8,11 +8,19 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
       'Overview',
       'GitHub',
+      'Architecture',
+      'REST API',
+      'Spring',
+      'Hibernate',
+      'Memory',
+      'Security',
+      'Pentesting',
+      'Vulnerabilities',
       'Health',
       'HTTP Sessions',
       'Metrics',
-      'Memory',
-      'Tuning Advisor',
+      'Live Memory',
+      'JVM Tuning',
       'Heap Dump',
       'Threads',
       'Startup Timeline',
@@ -25,14 +33,10 @@ describe('routes', () => {
       'Mappings',
       'Database Connection Pools',
       'Spring Data',
-      'Hibernate Advisor',
       'Flyway',
       'Liquibase',
       'Spring Security',
       'Security Logs',
-      'Security Advisor',
-      'Pentesting',
-      'Vulnerabilities',
       'Scheduled Tasks',
       'Spring Cache',
       'AI Usage',
@@ -40,7 +44,6 @@ describe('routes', () => {
       'Log Tail',
       'HTTP Exchanges',
       'HTTP Probe',
-      'Architecture',
       'DevTools',
       'Dev Services',
       'Copilot',
@@ -60,7 +63,7 @@ describe('routes', () => {
         title: expect.any(String),
         icon: expect.stringMatching(/^bi-/),
         group: expect.stringMatching(
-          /^(overview|runtime|configuration|database|security|services|diagnostics|developer-tools)$/
+          /^(overview|advisors|runtime|configuration|database|security|services|diagnostics|developer-tools)$/
         )
       })
     }
@@ -69,6 +72,7 @@ describe('routes', () => {
   it('uses navigation group keys understood by the app shell', () => {
     expect(Object.values(groups)).toEqual([
       'overview',
+      'advisors',
       'runtime',
       'configuration',
       'database',
@@ -81,6 +85,14 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
       groups.overview,
       groups.overview,
+      groups.advisors,
+      groups.advisors,
+      groups.advisors,
+      groups.advisors,
+      groups.advisors,
+      groups.advisors,
+      groups.advisors,
+      groups.advisors,
       groups.runtime,
       groups.runtime,
       groups.runtime,
@@ -100,16 +112,11 @@ describe('routes', () => {
       groups.database,
       groups.database,
       groups.database,
-      groups.database,
-      groups.security,
-      groups.security,
-      groups.security,
       groups.security,
       groups.security,
       groups.services,
       groups.services,
       groups.services,
-      groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
@@ -124,7 +131,15 @@ describe('routes', () => {
   it('keeps redirect aliases out of sidebar navigation', () => {
     expect(routes.filter((route) => route.redirect)).toEqual([
       {path: '/', redirect: '/overview'},
-      {path: '/dependencies', redirect: '/vulnerabilities'}
+      {path: '/tuning-advisor', redirect: '/jvm-tuning'},
+      {path: '/pentest', redirect: '/pentesting'},
+      {path: '/dependencies', redirect: '/vulnerabilities'},
+      {path: '/rest-advisor', redirect: '/rest-api'},
+      {path: '/spring-advisor', redirect: '/spring'},
+      {path: '/hibernate-advisor', redirect: '/hibernate'},
+      {path: '/memory-advisor', redirect: '/memory'},
+      {path: '/security-advisor', redirect: '/security'},
+      {path: '/profiles', redirect: '/profile-diff'}
     ])
   })
 })
