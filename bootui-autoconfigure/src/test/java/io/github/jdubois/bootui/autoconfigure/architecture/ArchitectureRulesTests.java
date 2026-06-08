@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -13,10 +14,13 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -343,6 +347,162 @@ class ArchitectureRulesTests {
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
 
+    @Test
+    void noSystemExitFlagsRuntimeExitAndHalt() {
+        ArchitectureRuleResultDto result = evaluate(new NoSystemExitRule(), JvmTerminator.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-006");
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("exit"))
+                .anySatisfy(sample -> assertThat(sample).contains("halt"));
+    }
+
+    @Test
+    void noJdkInternalApiDoesNotFlagExportedComSunApi() {
+        ArchitectureRuleResultDto result = evaluate(new NoJdkInternalApiRule(), ExportedComSunUser.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void loggersShouldBePrivateStaticFinalFlagsCommonsLoggingLoggers() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LoggersShouldBePrivateStaticFinalRule(), VisibleCommonsLoggerComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-012");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("LOG"));
+    }
+
+    @Test
+    void proxiedMethodsShouldBePublicAndNonStaticFlagsProtectedMethods() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ProxiedMethodsShouldNotBePrivateOrStaticRule(), ProtectedProxyAnnotationComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-010");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("protected"));
+    }
+
+    @Test
+    void noSelfInvocationFlagsClassLevelAsyncSelfCall() {
+        ArchitectureRuleResultDto result =
+                evaluate(new NoSelfInvocationOfProxiedMethodsRule(), ClassLevelAsyncBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-004");
+    }
+
+    @Test
+    void noSelfInvocationDoesNotFlagClassLevelTransactionalSelfCall() {
+        ArchitectureRuleResultDto result =
+                evaluate(new NoSelfInvocationOfProxiedMethodsRule(), ClassLevelTransactionalBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void liteModeBeanMethodsFlagsSiblingBeanCallInLiteClass() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule(), LiteBeanComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-017");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("first").contains("directly calls sibling"));
+    }
+
+    @Test
+    void liteModeBeanMethodsFlagsProxyBeanMethodsFalseConfiguration() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule(), LiteConfiguration.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-017");
+    }
+
+    @Test
+    void liteModeBeanMethodsPassesForFullConfiguration() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule(), FullConfiguration.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void lifecycleCallbacksShouldNotBeProxyDrivenFlagsAnnotatedLifecycleMethods() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LifecycleCallbacksShouldNotBeProxyDrivenRule(), TransactionalLifecycleBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-018");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("init"));
+    }
+
+    @Test
+    void lifecycleCallbacksShouldNotBeProxyDrivenPassesForPlainLifecycleMethods() {
+        ArchitectureRuleResultDto result =
+                evaluate(new LifecycleCallbacksShouldNotBeProxyDrivenRule(), CleanLifecycleBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void asyncAndTransactionalShouldNotBeCombinedFlagsMethodsWithBothAnnotations() {
+        ArchitectureRuleResultDto result =
+                evaluate(new AsyncAndTransactionalShouldNotBeCombinedRule(), AsyncTransactionalBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-019");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("doWork"));
+    }
+
+    @Test
+    void asyncAndTransactionalShouldNotBeCombinedPassesForAsyncOnlyMethods() {
+        ArchitectureRuleResultDto result =
+                evaluate(new AsyncAndTransactionalShouldNotBeCombinedRule(), AsyncOnlyBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void beanPostProcessorFactoryMethodsShouldBeStaticFlagsNonStaticFactoryMethods() {
+        ArchitectureRuleResultDto result = evaluate(
+                new BeanPostProcessorFactoryMethodsShouldBeStaticRule(),
+                PostProcessorConfiguration.class,
+                SampleBeanPostProcessor.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-021");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("nonStaticPostProcessor"));
+    }
+
+    @Test
+    void internalPackagesShouldNotBeAccessedExternallyFlagsCrossModuleInternalAccess() {
+        JavaClasses importedClasses = new ClassFileImporter()
+                .importPackages("io.github.jdubois.bootui.autoconfigure.architecture.modulefixtures");
+        ArchitectureRuleResultDto result = new InternalPackagesShouldNotBeAccessedExternallyRule()
+                .evaluate(new ArchitectureContext(
+                        importedClasses,
+                        List.of("io.github.jdubois.bootui.autoconfigure.architecture.modulefixtures")));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-MOD-001");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample ->
+                        assertThat(sample).contains("ModuleTwoConsumer").contains("internal"));
+        assertThat(result.sampleViolations())
+                .noneSatisfy(sample -> assertThat(sample).contains("ModuleOnePublic"));
+    }
+
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
         return rule.evaluate(
@@ -590,4 +750,136 @@ class ArchitectureRulesTests {
 
     @Repository
     private static class CompliantRepository {}
+
+    private static class JvmTerminator {
+
+        void terminate() {
+            System.exit(0);
+            Runtime.getRuntime().exit(1);
+            Runtime.getRuntime().halt(2);
+        }
+    }
+
+    private static class ExportedComSunUser {
+
+        String osName(com.sun.management.OperatingSystemMXBean osBean) {
+            return osBean.getName();
+        }
+    }
+
+    private static class VisibleCommonsLoggerComponent {
+
+        static final org.apache.commons.logging.Log LOG =
+                org.apache.commons.logging.LogFactory.getLog(VisibleCommonsLoggerComponent.class);
+    }
+
+    private static class ProtectedProxyAnnotationComponent {
+
+        @Transactional
+        protected void protectedTransactional() {}
+    }
+
+    @Async
+    private static class ClassLevelAsyncBean {
+
+        void outer() {
+            inner();
+        }
+
+        void inner() {}
+    }
+
+    @Transactional
+    private static class ClassLevelTransactionalBean {
+
+        void outer() {
+            inner();
+        }
+
+        void inner() {}
+    }
+
+    @Component
+    private static class LiteBeanComponent {
+
+        @Bean
+        String first() {
+            return second() + "x";
+        }
+
+        @Bean
+        String second() {
+            return "s";
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    private static class LiteConfiguration {
+
+        @Bean
+        String one() {
+            return two() + "x";
+        }
+
+        @Bean
+        String two() {
+            return "t";
+        }
+    }
+
+    @Configuration
+    private static class FullConfiguration {
+
+        @Bean
+        String alpha() {
+            return beta() + "x";
+        }
+
+        @Bean
+        String beta() {
+            return "b";
+        }
+    }
+
+    private static class TransactionalLifecycleBean {
+
+        @PostConstruct
+        @Transactional
+        void init() {}
+    }
+
+    private static class CleanLifecycleBean {
+
+        @PostConstruct
+        void init() {}
+    }
+
+    private static class AsyncTransactionalBean {
+
+        @Async
+        @Transactional
+        void doWork() {}
+    }
+
+    private static class AsyncOnlyBean {
+
+        @Async
+        void doWork() {}
+    }
+
+    @Configuration
+    private static class PostProcessorConfiguration {
+
+        @Bean
+        SampleBeanPostProcessor nonStaticPostProcessor() {
+            return new SampleBeanPostProcessor();
+        }
+
+        @Bean
+        static SampleBeanPostProcessor staticPostProcessor() {
+            return new SampleBeanPostProcessor();
+        }
+    }
+
+    private static class SampleBeanPostProcessor implements BeanPostProcessor {}
 }

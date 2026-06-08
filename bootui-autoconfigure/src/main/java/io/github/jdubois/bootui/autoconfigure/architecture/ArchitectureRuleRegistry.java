@@ -40,7 +40,12 @@ final class ArchitectureRuleRegistry {
             new NoPublicMutableStaticFieldsRule(),
             new UtilityClassesShouldBeFinalWithPrivateConstructorRule(),
             new ConfigurationPropertiesShouldBeImmutableRule(),
-            new LayeredArchitectureDirectionRule());
+            new LayeredArchitectureDirectionRule(),
+            new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule(),
+            new LifecycleCallbacksShouldNotBeProxyDrivenRule(),
+            new AsyncAndTransactionalShouldNotBeCombinedRule(),
+            new BeanPostProcessorFactoryMethodsShouldBeStaticRule(),
+            new InternalPackagesShouldNotBeAccessedExternallyRule());
 
     private ArchitectureRuleRegistry() {}
 

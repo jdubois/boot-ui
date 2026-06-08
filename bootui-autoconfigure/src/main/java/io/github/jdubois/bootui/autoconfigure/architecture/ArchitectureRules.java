@@ -9,6 +9,8 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
+import com.tngtech.archunit.core.domain.Dependency;
+import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaField;
@@ -27,7 +29,9 @@ import com.tngtech.archunit.library.ProxyRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -90,6 +94,14 @@ final class SpringStereotypes {
     static final String SCHEDULED = "org.springframework.scheduling.annotation.Scheduled";
     static final String CONFIGURATION_PROPERTIES =
             "org.springframework.boot.context.properties.ConfigurationProperties";
+    static final String BEAN = "org.springframework.context.annotation.Bean";
+    static final String SPRING_BOOT_APPLICATION = "org.springframework.boot.autoconfigure.SpringBootApplication";
+    static final String SPRING_BOOT_CONFIGURATION = "org.springframework.boot.SpringBootConfiguration";
+    static final String POST_CONSTRUCT = "jakarta.annotation.PostConstruct";
+    static final String PRE_DESTROY = "jakarta.annotation.PreDestroy";
+    static final String BEAN_FACTORY_POST_PROCESSOR =
+            "org.springframework.beans.factory.config.BeanFactoryPostProcessor";
+    static final String BEAN_POST_PROCESSOR = "org.springframework.beans.factory.config.BeanPostProcessor";
 
     static final DescribedPredicate<CanBeAnnotated> CONTROLLER_ANNOTATED = annotatedWith(CONTROLLER)
             .or(annotatedWith(REST_CONTROLLER))
@@ -128,10 +140,23 @@ final class SpringStereotypes {
     static final DescribedPredicate<CanBeAnnotated> CONFIGURATION_PROPERTIES_ANNOTATED =
             annotatedWith(CONFIGURATION_PROPERTIES).as("annotated with @ConfigurationProperties");
 
+    static final DescribedPredicate<CanBeAnnotated> BEAN_ANNOTATED =
+            annotatedWith(BEAN).as("annotated with @Bean");
+
+    static final DescribedPredicate<CanBeAnnotated> LIFECYCLE_CALLBACK_ANNOTATED = annotatedWith(POST_CONSTRUCT)
+            .or(annotatedWith(PRE_DESTROY))
+            .as("annotated with @PostConstruct or @PreDestroy");
+
     static final DescribedPredicate<CanBeAnnotated> PROXIED_METHOD_ANNOTATED = TRANSACTIONAL_ANNOTATED
             .or(annotatedWith(ASYNC))
             .or(annotatedWith(CACHEABLE))
             .as("annotated with @Transactional, @Async, or @Cacheable");
+
+    // Class-level @Async / @Cacheable make every method proxied, so self-invocation always loses the
+    // behaviour. Class-level @Transactional is deliberately excluded here: a self-call to another method
+    // of the same class simply joins the existing class-level transaction, so flagging it is noise.
+    static final DescribedPredicate<CanBeAnnotated> CLASS_LEVEL_PROXY_ANNOTATED =
+            annotatedWith(ASYNC).or(annotatedWith(CACHEABLE)).as("a class annotated with @Async or @Cacheable");
 
     private SpringStereotypes() {}
 }
@@ -149,7 +174,7 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                 "ARCH-PKG-001",
                 "Packages should be free of cycles",
                 ArchitectureCategory.PACKAGE_STRUCTURE,
-                "MEDIUM",
+                "HIGH",
                 "Detects cyclic dependencies between the top-level package slices under the application base package.",
                 "Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_cycle_checks"));
@@ -319,30 +344,40 @@ final class NoPrintStackTraceRule extends AbstractArchitectureRule {
 }
 
 /**
- * Flags calls to {@code System.exit(int)}, which abruptly terminates the JVM.
+ * Flags calls that forcibly terminate the JVM ({@code System.exit(int)}, {@code Runtime.exit(int)},
+ * or {@code Runtime.halt(int)}), which bypass orderly application and container shutdown.
  */
 final class NoSystemExitRule extends AbstractArchitectureRule {
 
     NoSystemExitRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-CODE-006",
-                "Classes should not call System.exit",
+                "Classes should not forcibly terminate the JVM",
                 ArchitectureCategory.CODING_PRACTICES,
-                "MEDIUM",
-                "Detects calls to System.exit(int), which abruptly terminate the JVM and bypass orderly shutdown.",
-                "Let the container or application framework manage the lifecycle instead of calling System.exit().",
+                "HIGH",
+                "Detects calls to System.exit(int), Runtime.exit(int), or Runtime.halt(int), which abruptly terminate the JVM and bypass orderly shutdown.",
+                "Let the container or application framework manage the lifecycle instead of calling System.exit() or Runtime.exit()/halt().",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/System.html#exit(int)"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return noClasses().should().callMethod(System.class, "exit", int.class);
+        return noClasses()
+                .should()
+                .callMethod(System.class, "exit", int.class)
+                .orShould()
+                .callMethod(Runtime.class, "exit", int.class)
+                .orShould()
+                .callMethod(Runtime.class, "halt", int.class)
+                .as("Classes should not forcibly terminate the JVM");
     }
 }
 
 /**
- * Flags dependencies on unsupported JDK-internal packages ({@code sun..}, {@code com.sun..},
- * {@code jdk.internal..}), which are not part of the public API and may change or disappear.
+ * Flags dependencies on unsupported JDK-internal packages ({@code sun..}, {@code jdk.internal..},
+ * and the internal {@code com.sun..internal..} subtrees), which are not part of the public API and
+ * may change or disappear. Exported {@code com.sun.*} APIs (for example {@code com.sun.net.httpserver}
+ * or {@code com.sun.management}) are intentionally not flagged.
  */
 final class NoJdkInternalApiRule extends AbstractArchitectureRule {
 
@@ -352,14 +387,17 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
                 "Classes should not access JDK-internal APIs",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects dependencies on unsupported JDK-internal packages such as sun.., com.sun.., or jdk.internal...",
+                "Detects dependencies on unsupported JDK-internal packages such as sun.., jdk.internal.., or com.sun..internal.. subtrees.",
                 "Depend only on public, supported APIs so the code stays portable across JDK versions.",
                 "https://openjdk.org/jeps/260"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return noClasses().should().dependOnClassesThat().resideInAnyPackage("sun..", "com.sun..", "jdk.internal..");
+        return noClasses()
+                .should()
+                .dependOnClassesThat()
+                .resideInAnyPackage("sun..", "jdk.internal..", "com.sun..internal..");
     }
 }
 
@@ -442,7 +480,7 @@ final class ControllersShouldNotDependOnRepositoriesRule extends AbstractArchite
                 "ARCH-SPRING-002",
                 "Controllers should not depend on repositories",
                 ArchitectureCategory.SPRING_STEREOTYPES,
-                "LOW",
+                "MEDIUM",
                 "Detects @Controller / @RestController classes that depend directly on @Repository beans, bypassing a service layer.",
                 "Introduce a service layer between controllers and repositories to keep web and persistence concerns separated.",
                 "https://www.archunit.org/userguide/html/000_Index.html#_layer_checks"));
@@ -495,15 +533,22 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                 "Beans should not self-invoke their own proxied methods",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "HIGH",
-                "Detects direct self-invocation of @Transactional, @Async, or @Cacheable methods, which bypasses the Spring proxy and silently disables the behaviour.",
-                "Move the proxied method to a separate bean (or inject a self-reference) so the call goes through the Spring proxy.",
+                "Detects direct self-invocation of methods that are proxied through @Transactional, @Async, or @Cacheable (declared on the method, or @Async/@Cacheable declared on the class), which bypasses the Spring proxy and silently disables the behaviour.",
+                "Refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or, only if necessary, inject a @Lazy self-reference and call through it.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return ProxyRules.no_classes_should_directly_call_other_methods_declared_in_the_same_class_that(
-                SpringStereotypes.PROXIED_METHOD_ANNOTATED);
+                new DescribedPredicate<MethodCallTarget>(
+                        "are proxied through @Transactional, @Async, or @Cacheable on the method (or @Async/@Cacheable on the declaring class)") {
+                    @Override
+                    public boolean test(MethodCallTarget target) {
+                        return SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(target)
+                                || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(target.getOwner());
+                    }
+                });
     }
 }
 
@@ -614,7 +659,7 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 "Loggers should be private static final",
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
-                "Detects logger fields that are not private, static, and final.",
+                "Detects logger fields (SLF4J, Log4j2, Commons Logging, JBoss Logging, java.util.logging, or Logback) that are not private, static, and final.",
                 "Make logger fields private, static, and final to avoid visibility issues and unnecessary allocations.",
                 "https://www.slf4j.org/manual.html"));
     }
@@ -625,6 +670,14 @@ final class LoggersShouldBePrivateStaticFinalRule extends AbstractArchitectureRu
                 .haveRawType("org.slf4j.Logger")
                 .or()
                 .haveRawType("java.util.logging.Logger")
+                .or()
+                .haveRawType("org.apache.logging.log4j.Logger")
+                .or()
+                .haveRawType("org.apache.commons.logging.Log")
+                .or()
+                .haveRawType("org.jboss.logging.Logger")
+                .or()
+                .haveRawType("ch.qos.logback.classic.Logger")
                 .should()
                 .bePrivate()
                 .andShould()
@@ -772,30 +825,32 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
 }
 
 /**
- * Flags private or static methods annotated with proxy-driven Spring annotations. Such methods
- * cannot be invoked through the Spring proxy and the annotation is therefore misleading.
+ * Flags non-public or static methods annotated with proxy-driven Spring annotations. Interface-based
+ * proxies and the default transaction advisor only apply to public instance methods, so the proxy
+ * behaviour can be silently skipped and the annotation is therefore misleading.
  */
 final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchitectureRule {
 
     ProxiedMethodsShouldNotBePrivateOrStaticRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-SPRING-010",
-                "Proxy-driven methods should not be private or static",
+                "Proxy-driven methods should be public and non-static",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects private or static methods annotated with @Transactional, @Async, or @Cacheable.",
-                "Move the annotation to an instance method that can be invoked through a Spring proxy.",
+                "Detects non-public or static methods annotated with @Transactional, @Async, or @Cacheable. Interface-based proxies and the default transaction advisor only apply to public instance methods, so the proxy behaviour can be silently skipped.",
+                "Make the annotated method public and non-static so it can be invoked through a Spring proxy, or move the annotation to a method that can be.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return classes()
-                .should(new ArchCondition<JavaClass>("not declare private or static proxy-driven methods") {
+                .should(new ArchCondition<JavaClass>("not declare non-public or static proxy-driven methods") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : javaClass.getMethods()) {
-                            if (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method) && isPrivateOrStatic(method)) {
+                            if (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)
+                                    && isNonPublicOrStatic(method)) {
                                 events.add(SimpleConditionEvent.violated(
                                         method,
                                         "Method " + method.getFullName()
@@ -805,23 +860,30 @@ final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchite
                         }
                     }
                 })
-                .as("Proxy-driven methods should not be private or static");
+                .as("Proxy-driven methods should be public and non-static");
     }
 
-    private static boolean isPrivateOrStatic(JavaMethod method) {
+    private static boolean isNonPublicOrStatic(JavaMethod method) {
         Set<JavaModifier> modifiers = method.getModifiers();
-        return modifiers.contains(JavaModifier.PRIVATE) || modifiers.contains(JavaModifier.STATIC);
+        return modifiers.contains(JavaModifier.STATIC) || !modifiers.contains(JavaModifier.PUBLIC);
     }
 
     private static String visibilityProblem(JavaMethod method) {
         Set<JavaModifier> modifiers = method.getModifiers();
-        if (modifiers.contains(JavaModifier.PRIVATE) && modifiers.contains(JavaModifier.STATIC)) {
-            return "private and static";
+        List<String> problems = new ArrayList<>();
+        if (!modifiers.contains(JavaModifier.PUBLIC)) {
+            if (modifiers.contains(JavaModifier.PRIVATE)) {
+                problems.add("private");
+            } else if (modifiers.contains(JavaModifier.PROTECTED)) {
+                problems.add("protected");
+            } else {
+                problems.add("package-private");
+            }
         }
-        if (modifiers.contains(JavaModifier.PRIVATE)) {
-            return "private";
+        if (modifiers.contains(JavaModifier.STATIC)) {
+            problems.add("static");
         }
-        return "static";
+        return String.join(" and ", problems);
     }
 }
 
@@ -1213,5 +1275,306 @@ final class LayeredArchitectureDirectionRule extends AbstractArchitectureRule {
                 .whereLayer("Persistence")
                 .mayOnlyBeAccessedByLayers("Service", "Persistence")
                 .as("Layered architecture dependencies should flow from web to service to repository");
+    }
+}
+
+/**
+ * Flags direct calls between {@code @Bean} methods declared in the same class when that class is not
+ * a full {@code @Configuration(proxyBeanMethods=true)}. In lite mode such a call is a plain method
+ * invocation, so the Spring container does not intercept it and a second, unmanaged instance is
+ * created instead of returning the shared singleton.
+ */
+final class LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule extends AbstractArchitectureRule {
+
+    LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-017",
+                        "Lite-mode @Bean methods should not call sibling @Bean methods",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "HIGH",
+                        "Detects direct calls between @Bean methods declared in the same class when that class is not a full @Configuration(proxyBeanMethods=true). In lite mode the call bypasses the Spring container, creating a second unmanaged instance instead of the shared singleton.",
+                        "Declare the class as @Configuration (the default proxyBeanMethods=true), or pass the dependency as a @Bean method parameter instead of calling the sibling @Bean method directly.",
+                        "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Bean.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not call sibling @Bean methods from lite-mode @Bean methods") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        if (isFullConfiguration(javaClass)) {
+                            return;
+                        }
+                        Set<JavaMethod> beanMethods = new HashSet<>();
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (SpringStereotypes.BEAN_ANNOTATED.test(method)) {
+                                beanMethods.add(method);
+                            }
+                        }
+                        if (beanMethods.isEmpty()) {
+                            return;
+                        }
+                        for (JavaMethod beanMethod : beanMethods) {
+                            for (JavaMethodCall call : beanMethod.getMethodCallsFromSelf()) {
+                                Optional<JavaMethod> target = call.getTarget().resolveMember();
+                                if (target.isEmpty()) {
+                                    continue;
+                                }
+                                JavaMethod targetMethod = target.get();
+                                if (targetMethod.equals(beanMethod) || !beanMethods.contains(targetMethod)) {
+                                    continue;
+                                }
+                                events.add(SimpleConditionEvent.violated(
+                                        beanMethod,
+                                        "@Bean method " + beanMethod.getFullName()
+                                                + " directly calls sibling @Bean method " + targetMethod.getFullName()
+                                                + " in lite mode, bypassing the Spring container"));
+                            }
+                        }
+                    }
+                })
+                .as("Lite-mode @Bean methods should not call sibling @Bean methods");
+    }
+
+    private static boolean isFullConfiguration(JavaClass javaClass) {
+        boolean configuration = javaClass.isAnnotatedWith(SpringStereotypes.CONFIGURATION)
+                || javaClass.isMetaAnnotatedWith(SpringStereotypes.CONFIGURATION);
+        return configuration && !proxyBeanMethodsExplicitlyDisabled(javaClass);
+    }
+
+    private static boolean proxyBeanMethodsExplicitlyDisabled(JavaClass javaClass) {
+        for (JavaAnnotation<?> annotation : javaClass.getAnnotations()) {
+            String type = annotation.getRawType().getName();
+            if (type.equals(SpringStereotypes.CONFIGURATION)
+                    || type.equals(SpringStereotypes.SPRING_BOOT_APPLICATION)
+                    || type.equals(SpringStereotypes.SPRING_BOOT_CONFIGURATION)) {
+                Object value = annotation.get("proxyBeanMethods").orElse(Boolean.TRUE);
+                if (Boolean.FALSE.equals(value)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+}
+
+/**
+ * Flags {@code @PostConstruct} / {@code @PreDestroy} lifecycle callbacks that are also annotated with
+ * a proxy-driven annotation ({@code @Transactional}, {@code @Async}, or {@code @Cacheable}). Spring
+ * invokes lifecycle callbacks before the bean is wrapped in its proxy (and after it is unwrapped at
+ * destruction), so the proxy behaviour never applies.
+ */
+final class LifecycleCallbacksShouldNotBeProxyDrivenRule extends AbstractArchitectureRule {
+
+    LifecycleCallbacksShouldNotBeProxyDrivenRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-SPRING-018",
+                "Lifecycle callbacks should not be proxy-driven",
+                ArchitectureCategory.SPRING_STEREOTYPES,
+                "HIGH",
+                "Detects @PostConstruct or @PreDestroy methods that are also annotated with @Transactional, @Async, or @Cacheable. The proxy is not active during bean initialization or destruction, so the transactional, asynchronous, or caching behaviour is silently lost.",
+                "Move the transactional, asynchronous, or cached work to a separate proxied bean method and invoke it after initialization rather than annotating the lifecycle callback itself.",
+                "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not annotate lifecycle callbacks with proxy-driven annotations") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (SpringStereotypes.LIFECYCLE_CALLBACK_ANNOTATED.test(method)
+                                    && SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)) {
+                                events.add(
+                                        SimpleConditionEvent.violated(
+                                                method,
+                                                "Lifecycle callback " + method.getFullName()
+                                                        + " is annotated with a proxy-driven annotation (@Transactional, @Async, or @Cacheable), which does not apply during initialization or destruction"));
+                            }
+                        }
+                    }
+                })
+                .as("Lifecycle callbacks should not be proxy-driven");
+    }
+}
+
+/**
+ * Flags methods annotated with both {@code @Async} and {@code @Transactional}. The transaction runs
+ * on the async worker thread, so the caller's transaction and security context do not propagate and
+ * the returned {@code Future} completes outside the transaction boundary; the combination is usually
+ * unintended.
+ */
+final class AsyncAndTransactionalShouldNotBeCombinedRule extends AbstractArchitectureRule {
+
+    AsyncAndTransactionalShouldNotBeCombinedRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-019",
+                        "Async and transactional semantics on one method should be reviewed",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects methods annotated with both @Async and @Transactional. The transaction runs on the async worker thread, so the caller's transaction and security context do not propagate.",
+                        "Review the design: usually the transactional work belongs in a separate bean method that the @Async method calls, so the transaction is scoped correctly on the async thread.",
+                        "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not combine @Async and @Transactional on one method") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        for (JavaMethod method : javaClass.getMethods()) {
+                            if (SpringStereotypes.ASYNC_ANNOTATED.test(method)
+                                    && SpringStereotypes.TRANSACTIONAL_ANNOTATED.test(method)) {
+                                events.add(
+                                        SimpleConditionEvent.violated(
+                                                method,
+                                                "Method " + method.getFullName()
+                                                        + " combines @Async and @Transactional; the transaction runs on the async thread and the caller's context does not propagate"));
+                            }
+                        }
+                    }
+                })
+                .as("Async and transactional semantics on one method should be reviewed");
+    }
+}
+
+/**
+ * Flags non-static {@code @Bean} methods that return a {@code BeanFactoryPostProcessor} or
+ * {@code BeanPostProcessor}. A non-static post-processor factory method forces its configuration
+ * class to be instantiated very early, before bean post-processing is fully set up, which can
+ * disable post-processing of other beans and trigger autowiring warnings.
+ */
+final class BeanPostProcessorFactoryMethodsShouldBeStaticRule extends AbstractArchitectureRule {
+
+    BeanPostProcessorFactoryMethodsShouldBeStaticRule() {
+        super(
+                new ArchitectureRuleDefinition(
+                        "ARCH-SPRING-021",
+                        "BeanPostProcessor and BeanFactoryPostProcessor @Bean methods should be static",
+                        ArchitectureCategory.SPRING_STEREOTYPES,
+                        "MEDIUM",
+                        "Detects non-static @Bean methods that return a BeanPostProcessor or BeanFactoryPostProcessor, which forces the configuration class to be instantiated before post-processing is set up and can disable post-processing of other beans.",
+                        "Declare these @Bean methods static so the post-processor can be created without instantiating the surrounding configuration class.",
+                        "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Bean.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(
+                        new ArchCondition<JavaClass>(
+                                "declare BeanPostProcessor/BeanFactoryPostProcessor @Bean methods static") {
+                            @Override
+                            public void check(JavaClass javaClass, ConditionEvents events) {
+                                for (JavaMethod method : javaClass.getMethods()) {
+                                    if (!SpringStereotypes.BEAN_ANNOTATED.test(method)
+                                            || method.getModifiers().contains(JavaModifier.STATIC)) {
+                                        continue;
+                                    }
+                                    JavaClass returnType = method.getRawReturnType();
+                                    if (returnType.isAssignableTo(SpringStereotypes.BEAN_FACTORY_POST_PROCESSOR)
+                                            || returnType.isAssignableTo(SpringStereotypes.BEAN_POST_PROCESSOR)) {
+                                        events.add(
+                                                SimpleConditionEvent.violated(
+                                                        method,
+                                                        "@Bean method " + method.getFullName() + " returns "
+                                                                + returnType.getName()
+                                                                + " but is not static; post-processor factory methods should be static"));
+                                    }
+                                }
+                            }
+                        })
+                .as("BeanPostProcessor and BeanFactoryPostProcessor @Bean methods should be static");
+    }
+}
+
+/**
+ * Flags dependencies that reach into another module's {@code internal} package (for example
+ * {@code base.order} accessing {@code base.inventory.internal}). The literal {@code internal} segment
+ * marks an encapsulation boundary; only code within the owning module (the packages above its
+ * {@code internal} subpackage) may depend on it.
+ */
+final class InternalPackagesShouldNotBeAccessedExternallyRule extends AbstractArchitectureRule {
+
+    InternalPackagesShouldNotBeAccessedExternallyRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-MOD-001",
+                "Internal packages should not be accessed from other modules",
+                ArchitectureCategory.PACKAGE_STRUCTURE,
+                "HIGH",
+                "Detects dependencies that reach into another module's 'internal' package, e.g. base.order accessing base.inventory.internal. Reaching across an internal boundary couples modules to each other's implementation details.",
+                "Depend only on a module's public API (the packages outside its 'internal' subpackage), or move the shared type into a published package.",
+                "https://docs.spring.io/spring-modulith/reference/verification.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        List<String> basePackages = context.basePackages();
+        return classes()
+                .should(new ArchCondition<JavaClass>("not access internal packages of other modules") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        String originPackage = javaClass.getPackageName();
+                        for (Dependency dependency : javaClass.getDirectDependenciesFromSelf()) {
+                            JavaClass target = dependency.getTargetClass();
+                            if (target.equals(javaClass)) {
+                                continue;
+                            }
+                            String targetPackage = target.getPackageName();
+                            if (!isUnderBasePackages(targetPackage, basePackages)) {
+                                continue;
+                            }
+                            String modulePrefix = owningModulePrefix(targetPackage);
+                            if (modulePrefix == null) {
+                                continue;
+                            }
+                            if (originPackage.equals(modulePrefix) || originPackage.startsWith(modulePrefix + ".")) {
+                                continue;
+                            }
+                            events.add(SimpleConditionEvent.violated(
+                                    javaClass,
+                                    javaClass.getName() + " accesses internal package " + targetPackage
+                                            + " of another module (" + target.getName() + ")"));
+                        }
+                    }
+                })
+                .as("Internal packages should not be accessed from other modules");
+    }
+
+    private static boolean isUnderBasePackages(String packageName, List<String> basePackages) {
+        if (basePackages.isEmpty()) {
+            return true;
+        }
+        for (String base : basePackages) {
+            if (packageName.equals(base) || packageName.startsWith(base + ".")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String owningModulePrefix(String packageName) {
+        String[] segments = packageName.split("\\.");
+        for (int i = 0; i < segments.length; i++) {
+            if (segments[i].equals("internal")) {
+                if (i == 0) {
+                    return null; // no owning module sits above a leading 'internal' segment
+                }
+                StringBuilder prefix = new StringBuilder();
+                for (int j = 0; j < i; j++) {
+                    if (j > 0) {
+                        prefix.append('.');
+                    }
+                    prefix.append(segments[j]);
+                }
+                return prefix.toString();
+            }
+        }
+        return null;
     }
 }
