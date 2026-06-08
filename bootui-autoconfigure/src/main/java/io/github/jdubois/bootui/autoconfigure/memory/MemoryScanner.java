@@ -107,7 +107,8 @@ final class MemoryScanner {
                 summary,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                analysisErrors(results));
     }
 
     MemoryReport applyDismissals(MemoryReport report, Set<String> dismissedIds) {
@@ -136,7 +137,15 @@ final class MemoryScanner {
                 report.summary(),
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.analysisErrors());
+    }
+
+    static List<MemoryRuleResultDto> analysisErrors(List<MemoryRuleResultDto> results) {
+        return results.stream()
+                .filter(result -> MemoryRuleSupport.ERROR.equals(result.status()))
+                .sorted(Comparator.comparing(MemoryRuleResultDto::id))
+                .toList();
     }
 
     private MemorySummaryDto summary(MemoryContext context) {

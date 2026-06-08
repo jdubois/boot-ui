@@ -372,4 +372,33 @@ class MemoryScannerTests {
                 List.of("G1 Young Generation", "G1 Old Generation"),
                 null);
     }
+
+    @Test
+    void analysisErrorsKeepsOnlyErrorResultsSortedById() {
+        MemoryRuleResultDto pass = result("MEM-T-001", MemoryRuleSupport.PASS);
+        MemoryRuleResultDto violation = result("MEM-T-002", MemoryRuleSupport.VIOLATION);
+        MemoryRuleResultDto errorB = result("MEM-T-004", MemoryRuleSupport.ERROR);
+        MemoryRuleResultDto errorA = result("MEM-T-003", MemoryRuleSupport.ERROR);
+        MemoryRuleResultDto skipped = result("MEM-T-005", MemoryRuleSupport.SKIPPED);
+
+        List<MemoryRuleResultDto> errors =
+                MemoryScanner.analysisErrors(List.of(pass, violation, errorB, errorA, skipped));
+
+        assertThat(errors).extracting(MemoryRuleResultDto::id).containsExactly("MEM-T-003", "MEM-T-004");
+        assertThat(errors).extracting(MemoryRuleResultDto::status).containsOnly(MemoryRuleSupport.ERROR);
+    }
+
+    private static MemoryRuleResultDto result(String id, String status) {
+        return new MemoryRuleResultDto(
+                id,
+                "name",
+                "Category",
+                "HIGH",
+                "description",
+                status,
+                0,
+                List.of("detail"),
+                "recommendation",
+                "https://example.com");
+    }
 }

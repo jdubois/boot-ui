@@ -11,4 +11,5 @@ record ArchitectureRuleDefinition(
         ArchitectureCategory category,
         String severity,
         String description,
-        String recommendation) {}
+        String recommendation,
+        String learnMoreUrl) {}

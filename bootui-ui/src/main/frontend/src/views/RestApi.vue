@@ -18,6 +18,7 @@ const loading = ref(false)
 const {dismissLoading, dismiss, restore} = useDismissedRules(loadReport)
 
 const severityClasses = {
+  CRITICAL: 'text-bg-danger',
   HIGH: 'text-bg-danger',
   MEDIUM: 'text-bg-warning',
   LOW: 'text-bg-info',
@@ -31,7 +32,7 @@ const statusClasses = {
   ERROR: 'text-bg-warning'
 }
 
-const severityOrder = ['HIGH', 'MEDIUM', 'LOW', 'INFO']
+const severityOrder = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 
 const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
 

@@ -18,4 +18,5 @@ public record MemoryReport(
         MemorySummaryDto summary,
         List<MemorySeverityCountDto> severityCounts,
         MemoryScanStatusDto scan,
-        List<MemoryRuleResultDto> results) {}
+        List<MemoryRuleResultDto> results,
+        List<MemoryRuleResultDto> analysisErrors) {}

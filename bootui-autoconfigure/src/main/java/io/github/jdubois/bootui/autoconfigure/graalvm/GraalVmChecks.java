@@ -78,14 +78,14 @@ final class ReflectionUsageCheck extends AbstractArchUnitGraalVmCheck {
             "getConstructors");
 
     ReflectionUsageCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-REFLECT-001",
-                        "Reflective API usage may need reflection metadata",
-                        GraalVmCategory.REFLECTION,
-                        "MEDIUM",
-                        "Detects calls to the reflection API (Class.forName, Method.invoke, Field access, Class.getDeclared*, Constructor.newInstance) that GraalVM cannot resolve at build time.",
-                        "Register the reflectively accessed types in reachability-metadata.json, or replace reflection with direct calls. Spring AOT already covers Spring-managed beans."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-REFLECT-001",
+                "Reflective API usage may need reflection metadata",
+                GraalVmCategory.REFLECTION,
+                "MEDIUM",
+                "Detects calls to the reflection API (Class.forName, Method.invoke, Field access, Class.getDeclared*, Constructor.newInstance) that GraalVM cannot resolve at build time.",
+                "Register the reflectively accessed types in reachability-metadata.json, or replace reflection with direct calls. Spring AOT already covers Spring-managed beans.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
     }
 
     @Override
@@ -124,14 +124,14 @@ final class ReflectionUsageCheck extends AbstractArchUnitGraalVmCheck {
 final class DynamicProxyCheck extends AbstractArchUnitGraalVmCheck {
 
     DynamicProxyCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-PROXY-001",
-                        "Dynamic JDK proxies may need proxy metadata",
-                        GraalVmCategory.PROXIES,
-                        "MEDIUM",
-                        "Detects calls to Proxy.newProxyInstance, which create JDK dynamic proxies whose interface lists must be known to native-image.",
-                        "Declare the proxied interfaces in reachability-metadata.json, or prefer Spring's proxy mechanisms which are covered by Spring AOT."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-PROXY-001",
+                "Dynamic JDK proxies may need proxy metadata",
+                GraalVmCategory.PROXIES,
+                "MEDIUM",
+                "Detects calls to Proxy.newProxyInstance, which create JDK dynamic proxies whose interface lists must be known to native-image.",
+                "Declare the proxied interfaces in reachability-metadata.json, or prefer Spring's proxy mechanisms which are covered by Spring AOT.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/DynamicProxy/"));
     }
 
     @Override
@@ -158,14 +158,14 @@ final class DynamicProxyCheck extends AbstractArchUnitGraalVmCheck {
 final class ResourceAccessCheck extends AbstractArchUnitGraalVmCheck {
 
     ResourceAccessCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-RES-001",
-                        "Runtime resource loading may need resource metadata",
-                        GraalVmCategory.RESOURCES,
-                        "LOW",
-                        "Detects calls to Class/ClassLoader getResource and getResourceAsStream, whose resources must be embedded in the native image to be available at runtime.",
-                        "Register the loaded resource paths (as globs) in reachability-metadata.json so native-image bundles them."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-RES-001",
+                "Runtime resource loading may need resource metadata",
+                GraalVmCategory.RESOURCES,
+                "LOW",
+                "Detects calls to Class/ClassLoader getResource and getResourceAsStream, whose resources must be embedded in the native image to be available at runtime.",
+                "Register the loaded resource paths (as globs) in reachability-metadata.json so native-image bundles them.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Resources/"));
     }
 
     @Override
@@ -200,7 +200,8 @@ final class SerializationCheck implements GraalVmCheck {
             GraalVmCategory.SERIALIZATION,
             "INFO",
             "Detects application classes that implement java.io.Serializable; types that are actually serialized at runtime require serialization metadata.",
-            "If these types are serialized (e.g. via the JDK serialization protocol), register them under serialization in reachability-metadata.json.");
+            "If these types are serialized (e.g. via the JDK serialization protocol), register them under serialization in reachability-metadata.json.",
+            "https://www.graalvm.org/latest/reference-manual/native-image/metadata/");
 
     @Override
     public GraalVmCheckDefinition definition() {
@@ -236,14 +237,14 @@ final class SerializationCheck implements GraalVmCheck {
 final class NativeAccessCheck extends AbstractArchUnitGraalVmCheck {
 
     NativeAccessCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-NATIVE-001",
-                        "Native access (JNI / Unsafe) may need native-image configuration",
-                        GraalVmCategory.NATIVE_ACCESS,
-                        "LOW",
-                        "Detects loading of native libraries (System.loadLibrary, Runtime.load) and use of sun.misc.Unsafe / jdk.internal.misc.Unsafe, which often require JNI or extra native-image configuration.",
-                        "Confirm the native libraries are available to the native image and add JNI configuration if needed; prefer supported APIs over Unsafe."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-NATIVE-001",
+                "Native access (JNI / Unsafe) may need native-image configuration",
+                GraalVmCategory.NATIVE_ACCESS,
+                "LOW",
+                "Detects loading of native libraries (System.loadLibrary, Runtime.load) and use of sun.misc.Unsafe / jdk.internal.misc.Unsafe, which often require JNI or extra native-image configuration.",
+                "Confirm the native libraries are available to the native image and add JNI configuration if needed; prefer supported APIs over Unsafe.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/JNI/"));
     }
 
     @Override
@@ -277,14 +278,14 @@ final class NativeAccessCheck extends AbstractArchUnitGraalVmCheck {
 final class ClassLoaderUsageCheck extends AbstractArchUnitGraalVmCheck {
 
     ClassLoaderUsageCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-REFLECT-002",
-                        "Dynamic class loading may need reflection metadata",
-                        GraalVmCategory.REFLECTION,
-                        "MEDIUM",
-                        "Detects calls to ClassLoader.loadClass, which load classes by name at run time; native-image cannot discover such types statically.",
-                        "Register the dynamically loaded types under reflection in reachability-metadata.json, or replace ClassLoader.loadClass with direct class literals where possible."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-REFLECT-002",
+                "Dynamic class loading may need reflection metadata",
+                GraalVmCategory.REFLECTION,
+                "MEDIUM",
+                "Detects calls to ClassLoader.loadClass, which load classes by name at run time; native-image cannot discover such types statically.",
+                "Register the dynamically loaded types under reflection in reachability-metadata.json, or replace ClassLoader.loadClass with direct class literals where possible.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
     }
 
     @Override
@@ -313,14 +314,14 @@ final class DeepReflectionCheck extends AbstractArchUnitGraalVmCheck {
     private static final Set<String> ACCESSIBLE_METHODS = Set.of("setAccessible", "trySetAccessible");
 
     DeepReflectionCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-REFLECT-003",
-                        "Deep reflection (setAccessible / private lookups) may need reflection metadata",
-                        GraalVmCategory.REFLECTION,
-                        "MEDIUM",
-                        "Detects deep reflection that bypasses access checks: AccessibleObject.setAccessible/trySetAccessible and MethodHandles.privateLookupIn, which native-image must be told about to keep the members reachable.",
-                        "Register the accessed members (with allowWrite where needed) under reflection in reachability-metadata.json and ensure the required module opens are configured; prefer public APIs over deep reflection."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-REFLECT-003",
+                "Deep reflection (setAccessible / private lookups) may need reflection metadata",
+                GraalVmCategory.REFLECTION,
+                "MEDIUM",
+                "Detects deep reflection that bypasses access checks: AccessibleObject.setAccessible/trySetAccessible and MethodHandles.privateLookupIn, which native-image must be told about to keep the members reachable.",
+                "Register the accessed members (with allowWrite where needed) under reflection in reachability-metadata.json and ensure the required module opens are configured; prefer public APIs over deep reflection.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
     }
 
     @Override
@@ -362,14 +363,14 @@ final class AnnotationReflectionCheck extends AbstractArchUnitGraalVmCheck {
             "isAnnotationPresent");
 
     AnnotationReflectionCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-REFLECT-004",
-                        "Reflective annotation access may need reflection metadata",
-                        GraalVmCategory.REFLECTION,
-                        "LOW",
-                        "Detects reflective annotation queries on reflected members (Method, Field, Constructor, Parameter), whose annotations native-image only retains when the element is registered for reflection.",
-                        "Register the inspected members under reflection in reachability-metadata.json so their annotations are available at run time."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-REFLECT-004",
+                "Reflective annotation access may need reflection metadata",
+                GraalVmCategory.REFLECTION,
+                "LOW",
+                "Detects reflective annotation queries on reflected members (Method, Field, Constructor, Parameter), whose annotations native-image only retains when the element is registered for reflection.",
+                "Register the inspected members under reflection in reachability-metadata.json so their annotations are available at run time.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
     }
 
     @Override
@@ -401,14 +402,14 @@ final class AnnotationReflectionCheck extends AbstractArchUnitGraalVmCheck {
 final class ResourceBundleCheck extends AbstractArchUnitGraalVmCheck {
 
     ResourceBundleCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-RES-002",
-                        "Resource bundle loading may need resource-bundle metadata",
-                        GraalVmCategory.RESOURCES,
-                        "LOW",
-                        "Detects calls to ResourceBundle.getBundle, whose localized .properties files must be registered so native-image embeds them.",
-                        "Register the bundle base names under bundles in reachability-metadata.json so native-image includes every locale variant."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-RES-002",
+                "Resource bundle loading may need resource-bundle metadata",
+                GraalVmCategory.RESOURCES,
+                "LOW",
+                "Detects calls to ResourceBundle.getBundle, whose localized .properties files must be registered so native-image embeds them.",
+                "Register the bundle base names under bundles in reachability-metadata.json so native-image includes every locale variant.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Resources/"));
     }
 
     @Override
@@ -438,14 +439,14 @@ final class ServiceLoaderCheck extends AbstractArchUnitGraalVmCheck {
     private static final Set<String> SERVICE_LOADS = Set.of("load", "loadInstalled");
 
     ServiceLoaderCheck() {
-        super(
-                new GraalVmCheckDefinition(
-                        "GRAAL-SERVICE-001",
-                        "Service loading may need service metadata",
-                        GraalVmCategory.SERVICE_LOADER,
-                        "LOW",
-                        "Detects calls to ServiceLoader.load, which discover providers via META-INF/services; native-image must reach the provider configuration and reflectively instantiate the implementations.",
-                        "Ensure the META-INF/services provider files are on the classpath and register the provider implementations under reflection in reachability-metadata.json."));
+        super(new GraalVmCheckDefinition(
+                "GRAAL-SERVICE-001",
+                "Service loading may need service metadata",
+                GraalVmCategory.SERVICE_LOADER,
+                "LOW",
+                "Detects calls to ServiceLoader.load, which discover providers via META-INF/services; native-image must reach the provider configuration and reflectively instantiate the implementations.",
+                "Ensure the META-INF/services provider files are on the classpath and register the provider implementations under reflection in reachability-metadata.json.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
     }
 
     @Override
@@ -488,7 +489,8 @@ final class BuildTimeInitializationCheck extends AbstractArchUnitGraalVmCheck {
                         GraalVmCategory.BUILD_TIME_INIT,
                         "LOW",
                         "Detects static initializers that perform file I/O or start threads/processes directly; with build-time class initialization these run during the native build, capturing build-time state or failing the build.",
-                        "Move the side effect out of the static initializer, or initialize the class at run time (e.g. --initialize-at-run-time=<class>) so the I/O or thread starts when the application runs."));
+                        "Move the side effect out of the static initializer, or initialize the class at run time (e.g. --initialize-at-run-time=<class>) so the I/O or thread starts when the application runs.",
+                        "https://www.graalvm.org/latest/reference-manual/native-image/optimizations-and-performance/ClassInitialization/"));
     }
 
     @Override
@@ -537,7 +539,8 @@ final class NativeMethodCheck implements GraalVmCheck {
             GraalVmCategory.NATIVE_ACCESS,
             "LOW",
             "Detects application classes that declare native methods; the JNI entry points and their backing native library must be configured for the native image.",
-            "Provide JNI configuration under jni in reachability-metadata.json and ensure the native library is bundled with and loadable by the native image.");
+            "Provide JNI configuration under jni in reachability-metadata.json and ensure the native library is bundled with and loadable by the native image.",
+            "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/JNI/");
 
     @Override
     public GraalVmCheckDefinition definition() {

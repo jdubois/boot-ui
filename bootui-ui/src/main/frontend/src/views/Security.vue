@@ -19,6 +19,7 @@ const loading = ref(false)
 const {dismissLoading, dismiss, restore} = useDismissedRules(loadReport)
 
 const severityClasses = {
+  CRITICAL: 'text-bg-danger',
   HIGH: 'text-bg-danger',
   MEDIUM: 'text-bg-warning',
   LOW: 'text-bg-info',
@@ -32,7 +33,7 @@ const statusClasses = {
   ERROR: 'text-bg-warning'
 }
 
-const severityOrder = ['HIGH', 'MEDIUM', 'LOW', 'INFO']
+const severityOrder = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 
 const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
 
@@ -43,6 +44,8 @@ const violations = computed(() =>
 const visibleResults = computed(() => violations.value.filter((result) => !result.dismissed))
 
 const dismissedResults = computed(() => violations.value.filter((result) => result.dismissed))
+
+const analysisErrors = computed(() => report.value?.analysisErrors || [])
 
 const maxSeverityCount = computed(() => {
   if (!report.value?.severityCounts?.length) return 1
@@ -328,6 +331,25 @@ onMounted(loadReport)
             </div>
           </div>
         </div>
+        <template v-if="analysisErrors.length > 0">
+          <div class="card-header text-muted small">
+            <i class="bi bi-exclamation-triangle me-1"></i>Analysis errors ({{ analysisErrors.length }}) — rules that
+            could not be evaluated and were excluded from the findings above
+          </div>
+          <div class="list-group list-group-flush">
+            <div v-for="result in analysisErrors" :key="result.id" class="list-group-item">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <span class="badge text-bg-secondary">{{ result.status }}</span>
+                <span class="badge text-bg-light border">{{ result.category }}</span>
+                <span class="text-muted small">{{ result.id }}</span>
+              </div>
+              <div class="small fw-semibold">{{ result.name }}</div>
+              <ul v-if="result.sampleViolations && result.sampleViolations.length" class="small mb-0 mt-1">
+                <li v-for="(sample, index) in result.sampleViolations" :key="index">{{ sample }}</li>
+              </ul>
+            </div>
+          </div>
+        </template>
         <template v-if="dismissedResults.length > 0">
           <div class="card-header text-muted small">
             <i class="bi bi-eye-slash me-1"></i>Dismissed rules ({{ dismissedResults.length }}) — not counted in score

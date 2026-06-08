@@ -19,6 +19,15 @@ import org.junit.jupiter.api.Test;
 /** Positive and negative coverage for each curated readiness check in isolation. */
 class GraalVmChecksTests {
 
+    @Test
+    void everyActiveCheckExposesAnHttpsLearnMoreUrl() {
+        assertThat(GraalVmCheckRegistry.activeChecks())
+                .allSatisfy(check -> assertThat(check.definition().learnMoreUrl())
+                        .as("learnMoreUrl for %s", check.definition().id())
+                        .isNotBlank()
+                        .startsWith("https://"));
+    }
+
     private GraalVmFindingDto evaluate(GraalVmCheck check, Class<?>... classes) {
         JavaClasses imported = new ClassFileImporter().importClasses(classes);
         return check.evaluate(new GraalVmContext(imported, List.of("io.github.jdubois.bootui")));

@@ -48,7 +48,8 @@ final class ArchitectureRuleSupport {
                 status,
                 violationCount,
                 List.copyOf(sampleViolations),
-                definition.recommendation());
+                definition.recommendation(),
+                definition.learnMoreUrl());
     }
 
     /**

@@ -83,6 +83,10 @@ class HibernateScannerTests {
                         "HIB-MAP-003",
                         "HIB-FETCH-002",
                         "HIB-CONFIG-002");
+        // The severity histogram leads with CRITICAL so promoted rules sort and count correctly.
+        assertThat(report.severityCounts())
+                .extracting("severity")
+                .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
         assertThat(report.results())
                 .anySatisfy(result -> assertThat(result.sampleViolations())
                         .anySatisfy(sample -> assertThat(sample).contains("customer is mapped as FetchType.EAGER.")));

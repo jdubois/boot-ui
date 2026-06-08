@@ -62,7 +62,10 @@ class ArchitectureScannerTests {
         assertThat(standardStreams.violationCount()).isPositive();
         assertThat(standardStreams.sampleViolations()).isNotEmpty();
         assertThat(report.violationsFound()).isPositive();
-        assertThat(report.severityCounts()).extracting("severity").containsExactly("HIGH", "MEDIUM", "LOW", "INFO");
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.severityCounts())
+                .extracting("severity")
+                .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     }
 
     @Test
@@ -120,7 +123,8 @@ class ArchitectureScannerTests {
                 ArchitectureCategory.CODING_PRACTICES,
                 "LOW",
                 "Test-only rule used to exercise the fail-closed base.",
-                "No action required.");
+                "No action required.",
+                "https://www.archunit.org/userguide/html/000_Index.html");
     }
 
     private static final class ThrowingRule extends AbstractArchitectureRule {
@@ -159,7 +163,36 @@ class ArchitectureScannerTests {
         }
     }
 
+    @Test
+    void analysisErrorsKeepsOnlyErrorResultsSortedById() {
+        ArchitectureRuleResultDto pass = result("ARCH-T-001", ArchitectureRuleSupport.PASS);
+        ArchitectureRuleResultDto violation = result("ARCH-T-002", ArchitectureRuleSupport.VIOLATION);
+        ArchitectureRuleResultDto errorB = result("ARCH-T-004", ArchitectureRuleSupport.ERROR);
+        ArchitectureRuleResultDto errorA = result("ARCH-T-003", ArchitectureRuleSupport.ERROR);
+        ArchitectureRuleResultDto skipped = result("ARCH-T-005", ArchitectureRuleSupport.SKIPPED);
+
+        List<ArchitectureRuleResultDto> errors =
+                ArchitectureScanner.analysisErrors(List.of(pass, violation, errorB, errorA, skipped));
+
+        assertThat(errors).extracting(ArchitectureRuleResultDto::id).containsExactly("ARCH-T-003", "ARCH-T-004");
+        assertThat(errors).extracting(ArchitectureRuleResultDto::status).containsOnly(ArchitectureRuleSupport.ERROR);
+    }
+
+    private static ArchitectureRuleResultDto result(String id, String status) {
+        return new ArchitectureRuleResultDto(
+                id,
+                "name",
+                "Category",
+                "HIGH",
+                "description",
+                status,
+                0,
+                List.of("detail"),
+                "recommendation",
+                "https://example.com");
+    }
+
     private static int severityRank(String severity) {
-        return List.of("HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
+        return List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
     }
 }

@@ -35,7 +35,7 @@ final class HibernateScanner {
             "Heuristic Hibernate/JPA mapping rules run against the host application's mapped entities only. "
                     + "These checks are review prompts, not verdicts, and should be validated against the "
                     + "application's data access patterns.";
-    private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
+    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<HibernateRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (HibernateRuleResultDto result) -> severityRank(result.severity()))
             .thenComparing(Comparator.comparingInt(HibernateRuleResultDto::violationCount)

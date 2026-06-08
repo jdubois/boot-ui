@@ -21,7 +21,7 @@ class RestApiRuleRegistryTests {
 
     @Test
     void everyRuleHasCompleteMetadata() {
-        Set<String> severities = Set.of("HIGH", "MEDIUM", "LOW", "INFO");
+        Set<String> severities = Set.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
 
         for (RestApiRule rule : RestApiRuleRegistry.activeRules()) {
             RestApiRuleDefinition definition = rule.definition();

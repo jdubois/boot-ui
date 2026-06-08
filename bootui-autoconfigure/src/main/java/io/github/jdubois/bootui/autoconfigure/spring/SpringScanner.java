@@ -33,7 +33,7 @@ final class SpringScanner {
             "Heuristic Spring rules run against the running application context and environment only. "
                     + "These checks are review prompts, not verdicts, and should be validated against the "
                     + "application's own requirements.";
-    private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
+    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
 
     private static final String OBJECT_MAPPER_TYPE = "com.fasterxml.jackson.databind.ObjectMapper";
     private static final String JACKSON3_OBJECT_MAPPER_TYPE = "tools.jackson.databind.ObjectMapper";
@@ -147,7 +147,8 @@ final class SpringScanner {
                 violationsFound,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                analysisErrors(results));
     }
 
     SpringReport applyDismissals(SpringReport report, Set<String> dismissedIds) {
@@ -178,7 +179,15 @@ final class SpringScanner {
                 violationsFound,
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.analysisErrors());
+    }
+
+    static List<SpringRuleResultDto> analysisErrors(List<SpringRuleResultDto> results) {
+        return results.stream()
+                .filter(result -> SpringRuleSupport.ERROR.equals(result.status()))
+                .sorted(Comparator.comparing(SpringRuleResultDto::id))
+                .toList();
     }
 
     private static List<String> describe(SpringContext context) {

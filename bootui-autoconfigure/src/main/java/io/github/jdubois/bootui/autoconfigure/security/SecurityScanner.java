@@ -53,7 +53,7 @@ final class SecurityScanner {
             "Heuristic Spring Security rules run against the host application's registered filter chains "
                     + "and security beans only. These checks are review prompts, not verdicts, and should be "
                     + "validated against the application's threat model.";
-    private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
+    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final int MAX_BEAN_SCAN = 5000;
 
     private static final Comparator<SecurityRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
@@ -136,7 +136,8 @@ final class SecurityScanner {
                 violationsFound,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                analysisErrors(results));
     }
 
     // The most recent context, captured so the report can list chain matchers.
@@ -170,7 +171,15 @@ final class SecurityScanner {
                 violationsFound,
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.analysisErrors());
+    }
+
+    static List<SecurityRuleResultDto> analysisErrors(List<SecurityRuleResultDto> results) {
+        return results.stream()
+                .filter(result -> SecurityRuleSupport.ERROR.equals(result.status()))
+                .sorted(Comparator.comparing(SecurityRuleResultDto::id))
+                .toList();
     }
 
     private SecurityDiscovery safeDiscovery() {

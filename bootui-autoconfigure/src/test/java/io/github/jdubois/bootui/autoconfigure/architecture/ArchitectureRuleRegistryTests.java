@@ -20,7 +20,11 @@ class ArchitectureRuleRegistryTests {
             assertThat(definition.description()).isNotBlank();
             assertThat(definition.recommendation()).isNotBlank();
             assertThat(definition.category()).isNotNull();
-            assertThat(definition.severity()).isIn("HIGH", "MEDIUM", "LOW", "INFO");
+            assertThat(definition.severity()).isIn("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
+            assertThat(definition.learnMoreUrl())
+                    .as("learnMoreUrl for %s", definition.id())
+                    .isNotBlank()
+                    .startsWith("https://");
         });
     }
 

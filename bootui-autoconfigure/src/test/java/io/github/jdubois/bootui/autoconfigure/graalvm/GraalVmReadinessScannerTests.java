@@ -69,7 +69,9 @@ class GraalVmReadinessScannerTests {
                         "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
                 .isSortedAccordingTo(Comparator.comparingInt(GraalVmReadinessScannerTests::severityRank));
-        assertThat(report.severityCounts()).extracting("severity").containsExactly("HIGH", "MEDIUM", "LOW", "INFO");
+        assertThat(report.severityCounts())
+                .extracting("severity")
+                .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
 
         assertThat(report.includeDependencies()).isTrue();
         assertThat(report.findingsFound()).isEqualTo(report.findings().size());
@@ -186,7 +188,8 @@ class GraalVmReadinessScannerTests {
                 GraalVmCategory.REFLECTION,
                 "INFO",
                 "Test-only check used to exercise the fail-closed base.",
-                "No action required.");
+                "No action required.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/");
     }
 
     private static final class ThrowingCheck extends AbstractArchUnitGraalVmCheck {
@@ -226,6 +229,6 @@ class GraalVmReadinessScannerTests {
     }
 
     private static int severityRank(String severity) {
-        return List.of("HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
+        return List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
     }
 }
