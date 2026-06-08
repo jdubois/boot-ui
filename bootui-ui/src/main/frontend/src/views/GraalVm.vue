@@ -17,6 +17,7 @@ const loading = ref(false)
 const includeDependencies = ref(true)
 
 const severityClasses = {
+  CRITICAL: 'text-bg-danger',
   HIGH: 'text-bg-danger',
   MEDIUM: 'text-bg-warning',
   LOW: 'text-bg-info',
@@ -347,6 +348,15 @@ onMounted(loadReport)
             <div class="small">
               <strong>Recommendation:</strong>
               {{ finding.recommendation }}
+              <a
+                v-if="finding.learnMoreUrl"
+                :href="finding.learnMoreUrl"
+                class="ms-1"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Learn more
+              </a>
             </div>
           </div>
         </div>

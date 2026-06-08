@@ -17,6 +17,7 @@ final class RestApiRuleRegistry {
             new ConsistentPathStyleRule(),
             new PathVariablesAreBoundRule(),
             new NoRequestBodyOnBodylessMethodsRule(),
+            new MutatingItemMethodsTargetResourceRule(),
             // Naming & resource design
             new ResourcePathsAreNounsRule(),
             new CollectionsUsePluralNounsRule(),
@@ -29,6 +30,7 @@ final class RestApiRuleRegistry {
             new VoidReadEndpointsReturnContentRule(),
             new NoContentResponsesHaveNoBodyRule(),
             new ResponseStatusIgnoredWithResponseEntityRule(),
+            new CreatedResponsesExposeLocationRule(),
             // Input validation & binding
             new RequestBodyIsValidatedRule(),
             new NoMassAssignmentViaEntitiesRule(),
@@ -46,6 +48,7 @@ final class RestApiRuleRegistry {
             new MutatingEndpointsDeclareMediaTypesRule(),
             new NoWildcardMediaTypesRule(),
             new PatchUsesPatchMediaTypeRule(),
+            new ResponseProducingEndpointsDeclareProducesRule(),
             // Error handling & documentation
             new CentralizedExceptionHandlingRule(),
             new NoBroadThrowsOnHandlersRule(),

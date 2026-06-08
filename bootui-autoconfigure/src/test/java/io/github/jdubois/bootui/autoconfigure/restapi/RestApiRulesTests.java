@@ -14,6 +14,8 @@ class RestApiRulesTests {
     private static final String GOOD = "io.github.jdubois.bootui.autoconfigure.restapi.fixtures.good";
     private static final String BAD = "io.github.jdubois.bootui.autoconfigure.restapi.fixtures.bad";
     private static final String EDGE = "io.github.jdubois.bootui.autoconfigure.restapi.edgecases";
+    private static final String PHASE2_BAD = "io.github.jdubois.bootui.autoconfigure.restapi.phase2.bad";
+    private static final String PHASE2_GOOD = "io.github.jdubois.bootui.autoconfigure.restapi.phase2.good";
 
     private RestApiContext context(boolean springdocPresent, String... packages) {
         JavaClasses classes = new ClassFileImporter().importPackages(packages);
@@ -69,7 +71,6 @@ class RestApiRulesTests {
         RestApiContext context = context(false, FIXTURES);
 
         assertThat(status(new NoEntitiesInResponsesRule(), context)).isEqualTo("VIOLATION");
-        assertThat(status(new WrapTopLevelCollectionsRule(), context)).isEqualTo("VIOLATION");
         assertThat(status(new DtosAreImmutableRule(), context)).isEqualTo("VIOLATION");
     }
 
@@ -84,10 +85,13 @@ class RestApiRulesTests {
     void versioningRulesFlagWildcardAndMissingVersion() {
         assertThat(status(new NoWildcardMediaTypesRule(), context(false, FIXTURES)))
                 .isEqualTo("VIOLATION");
-        // A version signal (/api/v1) exists across the full fixtures, so the versioned rule passes.
-        assertThat(status(new ApiIsVersionedRule(), context(false, FIXTURES))).isEqualTo("PASS");
-        // The bad controller alone has no version signal.
+        // The full fixtures mix versioned (/api/v1) and unversioned controllers, so the
+        // consistent-strategy rule reports the inconsistency.
+        assertThat(status(new ApiIsVersionedRule(), context(false, FIXTURES))).isEqualTo("VIOLATION");
+        // The bad controller alone has no version signal at all.
         assertThat(status(new ApiIsVersionedRule(), context(false, BAD))).isEqualTo("VIOLATION");
+        // The good controller alone applies /api/v1 consistently.
+        assertThat(status(new ApiIsVersionedRule(), context(false, GOOD))).isEqualTo("PASS");
     }
 
     @Test
@@ -182,6 +186,37 @@ class RestApiRulesTests {
         RestApiContext context = context(false, EDGE);
 
         assertThat(status(new ExceptionHandlersSetErrorStatusRule(), context)).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void phase2RulesFlagBadPhase2Controller() {
+        RestApiContext context = context(false, PHASE2_BAD);
+
+        assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
+                .isEqualTo("VIOLATION");
+        assertThat(status(new WrapTopLevelCollectionsRule(), context)).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void phase2RulesPassCleanPhase2Controller() {
+        RestApiContext context = context(false, PHASE2_GOOD);
+
+        assertThat(status(new MutatingItemMethodsTargetResourceRule(), context)).isEqualTo("PASS");
+        assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("PASS");
+        assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
+                .isEqualTo("PASS");
+        assertThat(status(new WrapTopLevelCollectionsRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void requestBodyValidationDistinguishesValidatedFromUnvalidatedBodies() {
+        // Unvalidated @RequestBody parameters are flagged; @Validated bodies pass.
+        assertThat(status(new RequestBodyIsValidatedRule(), context(false, PHASE2_BAD)))
+                .isEqualTo("VIOLATION");
+        assertThat(status(new RequestBodyIsValidatedRule(), context(false, PHASE2_GOOD)))
+                .isEqualTo("PASS");
     }
 
     @Test

@@ -16,7 +16,7 @@ import org.springframework.mock.env.MockEnvironment;
 
 class SpringScannerTests {
 
-    private static final int RULE_COUNT = 31;
+    private static final int RULE_COUNT = 35;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -75,6 +75,10 @@ class SpringScannerTests {
                         .mapToInt(SpringSeverityCountDto::count)
                         .sum())
                 .isEqualTo(report.violationsFound());
+        // The severity histogram leads with CRITICAL so promoted rules sort and count correctly.
+        assertThat(report.severityCounts())
+                .extracting(SpringSeverityCountDto::severity)
+                .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
         assertThat(report.inspected()).isNotEmpty();
     }
 
@@ -160,5 +164,34 @@ class SpringScannerTests {
                 .objectMappers(List.of(new BeanRef("objectMapper", false)))
                 .dataSources(List.of(new BeanRef("dataSource", false)))
                 .build();
+    }
+
+    @Test
+    void analysisErrorsKeepsOnlyErrorResultsSortedById() {
+        SpringRuleResultDto pass = result("SPRING-T-001", SpringRuleSupport.PASS);
+        SpringRuleResultDto violation = result("SPRING-T-002", SpringRuleSupport.VIOLATION);
+        SpringRuleResultDto errorB = result("SPRING-T-004", SpringRuleSupport.ERROR);
+        SpringRuleResultDto errorA = result("SPRING-T-003", SpringRuleSupport.ERROR);
+        SpringRuleResultDto skipped = result("SPRING-T-005", SpringRuleSupport.SKIPPED);
+
+        List<SpringRuleResultDto> errors =
+                SpringScanner.analysisErrors(List.of(pass, violation, errorB, errorA, skipped));
+
+        assertThat(errors).extracting(SpringRuleResultDto::id).containsExactly("SPRING-T-003", "SPRING-T-004");
+        assertThat(errors).extracting(SpringRuleResultDto::status).containsOnly(SpringRuleSupport.ERROR);
+    }
+
+    private static SpringRuleResultDto result(String id, String status) {
+        return new SpringRuleResultDto(
+                id,
+                "name",
+                "Category",
+                "HIGH",
+                "description",
+                status,
+                0,
+                List.of("detail"),
+                "recommendation",
+                "https://example.com");
     }
 }

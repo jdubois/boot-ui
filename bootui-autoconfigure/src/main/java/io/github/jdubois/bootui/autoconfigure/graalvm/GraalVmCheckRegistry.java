@@ -18,9 +18,15 @@ final class GraalVmCheckRegistry {
             new ResourceBundleCheck(),
             new ServiceLoaderCheck(),
             new SerializationCheck(),
+            new ActiveSerializationCheck(),
             new BuildTimeInitializationCheck(),
+            new BuildTimeStateCaptureCheck(),
             new NativeAccessCheck(),
-            new NativeMethodCheck());
+            new NativeMethodCheck(),
+            new RuntimeClassGenerationCheck(),
+            new RuntimeClasspathScanningCheck(),
+            new RuntimeSingletonRegistrationCheck(),
+            new RuntimeInstanceSupplierCheck());
 
     private GraalVmCheckRegistry() {}
 

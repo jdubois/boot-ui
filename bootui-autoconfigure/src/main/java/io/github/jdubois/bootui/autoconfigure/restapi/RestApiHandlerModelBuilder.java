@@ -330,9 +330,11 @@ final class RestApiHandlerModelBuilder {
                 String paramTypeName = parameter.getRawType().getName();
                 if (parameter.isAnnotatedWith(Types.REQUEST_BODY)) {
                     hasRequestBody = true;
-                    requestBodyValidated |= parameter.isAnnotatedWith(Types.VALID)
-                            || parameter.isAnnotatedWith(Types.VALIDATED)
-                            || hasConstraintAnnotation(parameter);
+                    // Field constraints on the DTO only cascade with @Valid/@Validated; a bare
+                    // constraint annotation (e.g. @NotNull) on the parameter validates only the
+                    // body reference itself, so it does not count as request-body validation.
+                    requestBodyValidated |=
+                            parameter.isAnnotatedWith(Types.VALID) || parameter.isAnnotatedWith(Types.VALIDATED);
                     requestBodyIsEntity |= safeAnnotated(parameter.getRawType(), Types.ENTITY);
                     requestBodyIsSimple |= isSimpleBodyType(parameter.getRawType());
                 }
@@ -389,6 +391,7 @@ final class RestApiHandlerModelBuilder {
         List<String> headers = union(typeLevelHeaders, mappingStrings(method, "headers"));
         boolean hasTag = method.isAnnotatedWith(Types.TAG);
         boolean hidden = classHidden || method.isAnnotatedWith(Types.HIDDEN) || operationHidden(method);
+        boolean handlerHasResponseParam = hasResponseParameter(method);
 
         return new HandlerMethodModel(
                 type.getName(),
@@ -436,7 +439,8 @@ final class RestApiHandlerModelBuilder {
                 List.copyOf(pathVariableNames),
                 requestBodyIsSimple,
                 hasTag,
-                hidden);
+                hidden,
+                handlerHasResponseParam);
     }
 
     private static boolean readSpecificMapping(

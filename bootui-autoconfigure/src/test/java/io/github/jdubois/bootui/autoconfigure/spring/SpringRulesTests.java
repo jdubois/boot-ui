@@ -135,7 +135,7 @@ class SpringRulesTests {
     void renamedOrRemovedPropertiesFlagged() {
         RemovedOrRenamedPropertyRule rule = new RemovedOrRenamedPropertyRule();
 
-        assertThat(rule.evaluate(context(env().withProperty("management.tracing.enabled", "true"))
+        assertThat(rule.evaluate(context(env().withProperty("spring.dao.exceptiontranslation.enabled", "true"))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
@@ -143,6 +143,11 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
+        // management.tracing.enabled is a valid Boot 4 key again, so it must no longer be flagged.
+        assertThat(rule.evaluate(context(env().withProperty("management.tracing.enabled", "true"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
         assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
     }
 
@@ -255,10 +260,42 @@ class SpringRulesTests {
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("server.error.include-exception", "true"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
         assertThat(rule.evaluate(context(env().withProperty("spring.web.error.include-stacktrace", "never"))
                                 .build())
                         .status())
                 .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env().withProperty("server.error.include-exception", "false"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    // ── SPRING-CONFIG-002: debug/trace flags and verbose framework logging ───────
+
+    @Test
+    void verboseLoggingFlaggedForFlagsAndLevels() {
+        DebugOrTraceLoggingRule rule = new DebugOrTraceLoggingRule();
+
+        assertThat(rule.evaluate(context(env().withProperty("debug", "true")).build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("logging.level.org.springframework", "DEBUG"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("logging.level.root", "trace"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("logging.level.org.springframework", "INFO"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
     }
 
     // ── SPRING-WEB-005 ───────────────────────────────────────────────────────────
@@ -271,7 +308,19 @@ class SpringRulesTests {
         assertThat(rule.evaluate(context(env()).restClientBeanPresent(true).build())
                         .status())
                 .isEqualTo("VIOLATION");
+        // Only one of the two timeouts is still a violation: outbound calls can still hang.
         assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.connect-timeout", "2s"))
+                                .restClientBeanPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.read-timeout", "5s"))
+                                .restClientBeanPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.http.clients.connect-timeout", "2s")
+                                        .withProperty("spring.http.clients.read-timeout", "5s"))
                                 .restClientBeanPresent(true)
                                 .build())
                         .status())
@@ -319,13 +368,202 @@ class SpringRulesTests {
     void actuatorExposeAllFlagged() {
         ActuatorExposeAllRule rule = new ActuatorExposeAllRule();
 
-        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*"))
-                                .build())
-                        .status())
-                .isEqualTo("VIOLATION");
+        SpringRuleResultDto exposeAll =
+                rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*"))
+                        .build());
+        assertThat(exposeAll.status()).isEqualTo("VIOLATION");
+        assertThat(exposeAll.severity()).isEqualTo("MEDIUM");
         assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "health,info"))
                                 .build())
                         .status())
                 .isEqualTo("PASS");
+        // Disabled management web port: exposure no longer reachable, so not flagged.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*")
+                                        .withProperty("management.server.port", "-1"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        // exclude=* cancels the wildcard include, so nothing is actually exposed.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*")
+                                        .withProperty("management.endpoints.web.exposure.exclude", "*"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void actuatorExposeAllIsHighInProductionOnApplicationPort() {
+        ActuatorExposeAllRule rule = new ActuatorExposeAllRule();
+
+        MockEnvironment prod = env();
+        prod.setActiveProfiles("prod");
+        prod.withProperty("management.endpoints.web.exposure.include", "*");
+        SpringRuleResultDto result = rule.evaluate(context(prod).build());
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.severity()).isEqualTo("HIGH");
+
+        // A separate management port keeps it at the base MEDIUM severity.
+        MockEnvironment prodSeparate = env();
+        prodSeparate.setActiveProfiles("prod");
+        prodSeparate.withProperty("management.endpoints.web.exposure.include", "*");
+        prodSeparate.withProperty("management.server.port", "9001");
+        assertThat(rule.evaluate(context(prodSeparate).build()).severity()).isEqualTo("MEDIUM");
+    }
+
+    // ── SPRING-MGMT-002: explicitly-named sensitive endpoints ────────────────────
+
+    @Test
+    void sensitiveActuatorEndpointsFlaggedWhenExplicitlyExposed() {
+        SensitiveActuatorEndpointsExposedRule rule = new SensitiveActuatorEndpointsExposedRule();
+
+        assertThat(rule.evaluate(context(env().withProperty(
+                                                "management.endpoints.web.exposure.include", "health,info,env,beans"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // The wildcard case is owned by MGMT-001, so MGMT-002 stays silent for it.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "health,info"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        // Excluded again → not reachable.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
+                                        .withProperty("management.endpoints.web.exposure.exclude", "env"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        // Access forced to none → not readable.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
+                                        .withProperty("management.endpoint.env.access", "none"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    // ── SPRING-MGMT-003: show-values / show-details = always ─────────────────────
+
+    @Test
+    void actuatorShowValuesAlwaysFlaggedWhenReadable() {
+        ActuatorShowValuesAlwaysRule rule = new ActuatorShowValuesAlwaysRule();
+
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
+                                        .withProperty("management.endpoint.env.show-values", "ALWAYS"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "health")
+                                        .withProperty("management.endpoint.health.show-details", "always"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // health is web-exposed by default even without an explicit include list.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoint.health.show-details", "always"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // show-values=ALWAYS but the endpoint is not exposed → not reachable, so no finding.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoint.env.show-values", "ALWAYS"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "env")
+                                        .withProperty("management.endpoint.env.show-values", "WHEN_AUTHORIZED"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    // ── SPRING-MGMT-004: shutdown / heapdump reachable ───────────────────────────
+
+    @Test
+    void dangerousActuatorEndpointsFlagged() {
+        DangerousActuatorEndpointsAccessibleRule rule = new DangerousActuatorEndpointsAccessibleRule();
+
+        // Legacy enabled flag + exposed → write reachable.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "shutdown")
+                                        .withProperty("management.endpoint.shutdown.enabled", "true"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // Boot 4 access model.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "shutdown")
+                                        .withProperty("management.endpoint.shutdown.access", "unrestricted"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // Heapdump defaults to read-only access, so being exposed is enough.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "heapdump"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // Shutdown exposed but left at default access (none) → not reachable, no finding.
+        assertThat(rule.evaluate(context(env().withProperty("management.endpoints.web.exposure.include", "*")
+                                        .withProperty("management.endpoints.web.exposure.exclude", "heapdump"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void shutdownOnApplicationPortInProductionIsCritical() {
+        DangerousActuatorEndpointsAccessibleRule rule = new DangerousActuatorEndpointsAccessibleRule();
+
+        MockEnvironment prod = env();
+        prod.setActiveProfiles("prod");
+        prod.withProperty("management.endpoints.web.exposure.include", "shutdown");
+        prod.withProperty("management.endpoint.shutdown.access", "unrestricted");
+        SpringRuleResultDto result = rule.evaluate(context(prod).build());
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.severity()).isEqualTo("CRITICAL");
+    }
+
+    // ── SPRING-JPA-001: Open Session in View ─────────────────────────────────────
+
+    @Test
+    void openSessionInViewFlaggedOnlyWithJpaAndWeb() {
+        OpenSessionInViewEnabledRule rule = new OpenSessionInViewEnabledRule();
+
+        // No EntityManagerFactory / DispatcherServlet → inapplicable.
+        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("SKIPPED");
+
+        // JPA + web present, property absent → defaults to enabled → violation.
+        assertThat(rule.evaluate(context(env())
+                                .entityManagerFactoryPresent(true)
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // Explicit true → violation.
+        assertThat(rule.evaluate(context(env().withProperty("spring.jpa.open-in-view", "true"))
+                                .entityManagerFactoryPresent(true)
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // Explicit false → pass.
+        assertThat(rule.evaluate(context(env().withProperty("spring.jpa.open-in-view", "false"))
+                                .entityManagerFactoryPresent(true)
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void openSessionInViewIsHighInProduction() {
+        OpenSessionInViewEnabledRule rule = new OpenSessionInViewEnabledRule();
+
+        MockEnvironment prod = env();
+        prod.setActiveProfiles("prod");
+        SpringRuleResultDto result = rule.evaluate(context(prod)
+                .entityManagerFactoryPresent(true)
+                .dispatcherServletPresent(true)
+                .build());
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.severity()).isEqualTo("HIGH");
     }
 }

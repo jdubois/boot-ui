@@ -5,6 +5,7 @@ import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -46,6 +47,14 @@ abstract class AbstractHibernateRule implements HibernateRule {
 
     HibernateRuleResultDto violation(List<String> details) {
         return details.isEmpty() ? pass() : HibernateRuleSupport.violation(definition, details);
+    }
+
+    HibernateRuleResultDto violation(String severityOverride, List<String> details) {
+        return details.isEmpty() ? pass() : HibernateRuleSupport.violation(definition, severityOverride, details);
+    }
+
+    HibernateRuleResultDto violation(String severityOverride, String detail) {
+        return HibernateRuleSupport.violation(definition, severityOverride, List.of(detail));
     }
 }
 
@@ -115,6 +124,46 @@ final class HibernateRuleModelSupport {
         String remainder = path.substring(prefix.length());
         int dot = remainder.indexOf('.');
         return dot == -1 ? remainder : remainder.substring(0, dot);
+    }
+
+    /**
+     * Returns one detail per Spring Data repository method that pages (Pageable parameter) a JPQL query whose
+     * {@code JOIN FETCH} targets a collection association declared directly on the query root. Shared by HIB-FETCH-003
+     * (which reports these as violations) and HIB-CONFIG-016 (which uses their presence to pick a dynamic severity).
+     */
+    static List<String> paginatedCollectionFetchFindings(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            HibernateEntityModel domainEntity = entityForDomainType(context, repository.domainType());
+            if (domainEntity == null) {
+                continue;
+            }
+            Set<String> collectionNames = collectionAttributeNames(domainEntity);
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (!method.hasPageableParameter() || method.nativeQuery() || method.query() == null) {
+                    continue;
+                }
+                String rootAlias = rootAlias(method.query());
+                if (rootAlias == null) {
+                    continue;
+                }
+                for (String path : joinFetchPaths(method.query())) {
+                    String attributeName = directAttribute(rootAlias, path);
+                    if (attributeName != null && collectionNames.contains(attributeName)) {
+                        details.add(method.description() + " pages a collection JOIN FETCH path " + path + ".");
+                    }
+                }
+            }
+        }
+        return details;
+    }
+
+    static Set<String> collectionAttributeNames(HibernateEntityModel entity) {
+        Set<String> names = new HashSet<>();
+        for (HibernateAttributeModel attribute : entity.collectionAttributes()) {
+            names.add(attribute.name());
+        }
+        return names;
     }
 
     /**
@@ -313,8 +362,8 @@ final class UnidirectionalOneToManyRule extends AbstractHibernateRule {
                         "One-to-many associations should be bidirectional or join-column based",
                         HibernateCategory.MAPPING,
                         "MEDIUM",
-                        "Detects unidirectional @OneToMany mappings without mappedBy or @JoinColumn.",
-                        "Use mappedBy for bidirectional ownership, or add @JoinColumn when a unidirectional one-to-many is intentional.",
+                        "Detects unidirectional @OneToMany mappings without mappedBy or @JoinColumn, which Hibernate maps through a join table and maintains with extra DELETE/INSERT statements.",
+                        "Prefer a bidirectional association: put @ManyToOne on the child and @OneToMany(mappedBy=...) on the parent so the child's foreign key owns the relationship. If a unidirectional mapping is intentional, add @JoinColumn to drop the join table (note the extra UPDATE statements flagged by HIB-MAP-020).",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-one-to-many"));
     }
 
@@ -450,7 +499,8 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        List<String> dependentDetails = new ArrayList<>();
+        List<String> plainDetails = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 Annotation oneToOne = attribute.oneToOneAnnotation();
@@ -458,12 +508,34 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
                     continue;
                 }
                 String mappedBy = attribute.annotationStringValue(oneToOne, "mappedBy");
-                if (mappedBy == null || mappedBy.isBlank()) {
-                    details.add(attribute.description() + " is an owning @OneToOne without @MapsId.");
+                if (mappedBy != null && !mappedBy.isBlank()) {
+                    continue;
+                }
+                if (hasDependentSignal(attribute, oneToOne)) {
+                    dependentDetails.add(
+                            attribute.description()
+                                    + " is an owning @OneToOne that looks lifecycle-dependent (optional=false or cascade REMOVE/ALL) but does not use @MapsId.");
+                } else {
+                    plainDetails.add(
+                            attribute.description()
+                                    + " is an owning @OneToOne without @MapsId; consider a shared primary key when the child shares the parent's lifecycle and identifier.");
                 }
             }
         }
-        return violation(details);
+        if (!dependentDetails.isEmpty()) {
+            List<String> all = new ArrayList<>(dependentDetails);
+            all.addAll(plainDetails);
+            return violation(HibernateRuleSupport.MEDIUM, all);
+        }
+        return violation(HibernateRuleSupport.LOW, plainDetails);
+    }
+
+    private boolean hasDependentSignal(HibernateAttributeModel attribute, Annotation oneToOne) {
+        Boolean optional = attribute.annotationBooleanValue(oneToOne, "optional");
+        boolean mandatory = Boolean.FALSE.equals(optional);
+        boolean cascadesRemove = attribute.annotationEnumArrayContains(oneToOne, "cascade", "REMOVE")
+                || attribute.annotationEnumArrayContains(oneToOne, "cascade", "ALL");
+        return mandatory || cascadesRemove;
     }
 }
 
@@ -730,46 +802,15 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.hasHibernateCollectionFetchPaginationFix()) {
-            return skipped("Hibernate "
-                    + context.hibernateVersionDisplay()
-                    + " is newer than 7.4, where pagination over collection fetch joins was fixed.");
+            return skipped(
+                    "Hibernate "
+                            + context.hibernateVersionDisplay()
+                            + " is 7.4 or newer, where pagination over a collection JOIN FETCH is handled in memory with a warning instead of the legacy silent full-table fetch.");
         }
         if (context.repositories().isEmpty()) {
             return skipped("No Spring Data repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
-        for (HibernateRepositoryModel repository : context.repositories()) {
-            HibernateEntityModel domainEntity =
-                    HibernateRuleModelSupport.entityForDomainType(context, repository.domainType());
-            if (domainEntity == null) {
-                continue;
-            }
-            Set<String> collectionNames = collectionAttributeNames(domainEntity);
-            for (HibernateRepositoryMethodModel method : repository.methods()) {
-                if (!method.hasPageableParameter() || method.nativeQuery() || method.query() == null) {
-                    continue;
-                }
-                String rootAlias = HibernateRuleModelSupport.rootAlias(method.query());
-                if (rootAlias == null) {
-                    continue;
-                }
-                for (String path : HibernateRuleModelSupport.joinFetchPaths(method.query())) {
-                    String attributeName = HibernateRuleModelSupport.directAttribute(rootAlias, path);
-                    if (attributeName != null && collectionNames.contains(attributeName)) {
-                        details.add(method.description() + " pages a collection JOIN FETCH path " + path + ".");
-                    }
-                }
-            }
-        }
-        return violation(details);
-    }
-
-    private Set<String> collectionAttributeNames(HibernateEntityModel entity) {
-        Set<String> names = new HashSet<>();
-        for (HibernateAttributeModel attribute : entity.collectionAttributes()) {
-            names.add(attribute.name());
-        }
-        return names;
+        return violation(HibernateRuleModelSupport.paginatedCollectionFetchFindings(context));
     }
 }
 
@@ -936,11 +977,22 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
                 "hibernate.connection.provider_disables_autocommit")) {
             return pass();
         }
-        return violation(List.of("hibernate.connection.provider_disables_autocommit is not enabled."));
+        Boolean hikariAutoCommit =
+                context.environment().getProperty("spring.datasource.hikari.auto-commit", Boolean.class);
+        if (Boolean.FALSE.equals(hikariAutoCommit)) {
+            return violation(
+                    List.of(
+                            "spring.datasource.hikari.auto-commit=false but hibernate.connection.provider_disables_autocommit is not enabled, so Hibernate acquires the JDBC connection eagerly on transaction start."));
+        }
+        return skipped(
+                "Auto-commit handling could not be confirmed; set hibernate.connection.provider_disables_autocommit=true when the connection pool disables auto-commit.");
     }
 }
 
 final class InClausePaddingRule extends AbstractHibernateRule {
+
+    private static final Pattern QUOTED_LITERAL = Pattern.compile("'(?:''|[^'])*'");
+    private static final Pattern IN_PREDICATE = Pattern.compile("(?is)\\b(?:not\\s+)?in\\s*(?:\\(|:|\\?)");
 
     InClausePaddingRule() {
         super(
@@ -967,12 +1019,17 @@ final class InClausePaddingRule extends AbstractHibernateRule {
                 if (method.nativeQuery() || method.query() == null || !method.hasCollectionParameter()) {
                     continue;
                 }
-                if (method.query().toLowerCase(Locale.ROOT).contains(" in ")) {
+                if (hasInPredicate(method.query())) {
                     details.add(method.description() + " has a collection parameter in an IN predicate.");
                 }
             }
         }
         return violation(details);
+    }
+
+    private boolean hasInPredicate(String query) {
+        String stripped = QUOTED_LITERAL.matcher(query).replaceAll(" ");
+        return IN_PREDICATE.matcher(stripped).find();
     }
 }
 
@@ -1068,17 +1125,54 @@ final class RiskyDdlAutoRule extends AbstractHibernateRule {
             return pass();
         }
         String normalized = ddlAuto.toLowerCase(Locale.ROOT);
-        if (!RISKY_VALUES.contains(normalized)
-                || hasTestProfile(context.environment().getActiveProfiles())) {
+        if (!RISKY_VALUES.contains(normalized)) {
             return pass();
         }
-        return violation(List.of("ddl-auto is set to " + ddlAuto + " outside a test profile."));
+        String[] profiles = context.environment().getActiveProfiles();
+        boolean creates = normalized.equals("create") || normalized.equals("create-drop");
+        // Highest-risk profile wins: a production-like profile is dangerous even if a test/dev profile is also active.
+        if (context.isProductionProfileActive()) {
+            String severity = creates ? HibernateRuleSupport.CRITICAL : HibernateRuleSupport.HIGH;
+            return violation(
+                    severity,
+                    "ddl-auto is set to " + ddlAuto
+                            + " while a production-like profile is active, so application startup can "
+                            + (creates ? "drop and recreate" : "mutate") + " the live schema.");
+        }
+        if (hasTestProfile(profiles)) {
+            return pass();
+        }
+        if (isDisposableProfile(profiles)) {
+            return violation(
+                    HibernateRuleSupport.INFO,
+                    "ddl-auto is set to " + ddlAuto
+                            + " under a dev/local profile; this is fine for a disposable database but must not reach shared or production environments.");
+        }
+        return violation(
+                HibernateRuleSupport.MEDIUM,
+                "ddl-auto is set to " + ddlAuto
+                        + " with no profile pinning it to a disposable database; use versioned migrations for any shared database.");
     }
 
     private boolean hasTestProfile(String[] profiles) {
         for (String profile : profiles) {
             String normalized = profile.toLowerCase(Locale.ROOT);
             if (normalized.equals("test") || normalized.startsWith("test-") || normalized.endsWith("-test")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isDisposableProfile(String[] profiles) {
+        for (String profile : profiles) {
+            String normalized = profile.toLowerCase(Locale.ROOT);
+            if (normalized.equals("dev")
+                    || normalized.equals("local")
+                    || normalized.startsWith("dev-")
+                    || normalized.endsWith("-dev")
+                    || normalized.startsWith("local-")
+                    || normalized.endsWith("-local")) {
                 return true;
             }
         }
@@ -1853,16 +1947,17 @@ final class DeferDatasourceInitializationRule extends AbstractHibernateRule {
                 "spring.jpa.properties.hibernate.hbm2ddl.auto",
                 "hibernate.hbm2ddl.auto");
         if (ddlAuto == null) {
-            return violation(
-                    List.of(
-                            "spring.jpa.defer-datasource-initialization=true but ddl-auto is not configured; the property has no effect."));
+            return skipped(
+                    "ddl-auto is not set; for an embedded database Spring Boot defaults to create-drop, which makes defer-datasource-initialization meaningful, so this cannot be flagged without knowing the datasource.");
         }
         String normalized = ddlAuto.toLowerCase(Locale.ROOT);
         if (normalized.equals("create") || normalized.equals("create-drop") || normalized.equals("update")) {
             return pass();
         }
-        return violation(List.of("spring.jpa.defer-datasource-initialization=true while ddl-auto=" + ddlAuto
-                + "; the property has no effect."));
+        return violation(
+                List.of(
+                        "spring.jpa.defer-datasource-initialization=true while ddl-auto=" + ddlAuto
+                                + "; Hibernate does not generate the schema, so the property has no effect and data.sql must be loaded by your migration tool."));
     }
 }
 
@@ -1964,16 +2059,27 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.hasHibernateCollectionFetchPaginationFix()) {
-            return skipped("Hibernate "
-                    + context.hibernateVersionDisplay()
-                    + " is newer than 7.4, where pagination over collection fetch joins was fixed.");
+            return skipped(
+                    "Hibernate "
+                            + context.hibernateVersionDisplay()
+                            + " is 7.4 or newer, where pagination over a collection JOIN FETCH is handled in memory with a warning instead of the legacy silent full-table fetch.");
         }
-        if (!context.isPropertyTrue(
+        if (context.isPropertyTrue(
                 "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch",
                 "hibernate.query.fail_on_pagination_over_collection_fetch")) {
-            return violation(List.of("hibernate.query.fail_on_pagination_over_collection_fetch is not enabled."));
+            return pass();
         }
-        return pass();
+        List<String> riskyQueries = HibernateRuleModelSupport.paginatedCollectionFetchFindings(context);
+        List<String> details = new ArrayList<>();
+        if (riskyQueries.isEmpty()) {
+            details.add(
+                    "hibernate.query.fail_on_pagination_over_collection_fetch is not enabled; enable it as a safety net so a future paginated collection JOIN FETCH fails fast instead of fetching the whole table into memory.");
+            return violation(HibernateRuleSupport.INFO, details);
+        }
+        details.add(
+                "hibernate.query.fail_on_pagination_over_collection_fetch is not enabled while paginated collection JOIN FETCH queries exist.");
+        details.addAll(riskyQueries);
+        return violation(HibernateRuleSupport.HIGH, details);
     }
 }
 
@@ -2048,9 +2154,9 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
                 "Missing foreign key indexes",
                 HibernateCategory.MAPPING,
                 "INFO",
-                "Detects foreign key associations without a corresponding @Index on the entity's @Table mapping.",
-                "Declare @Index in @Table so schema generators create indexes; if you use Flyway/Liquibase, ensure the index exists in your migrations.",
-                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a11145"));
+                "Detects owning foreign key associations whose join column is not the leading column of any @Index declared on the entity's @Table mapping.",
+                "Declare the foreign key column as the leading column of an @Index in @Table so the schema generator creates it; if you manage schema with Flyway/Liquibase, make sure the migration creates the index. Unindexed foreign keys slow down joins and parent deletes.",
+                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html"));
     }
 
     // Optional JPA type: compare by class name instead of hard-referencing a class that may be absent at runtime.
@@ -2058,49 +2164,141 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         List<String> details = new ArrayList<>();
+        List<String> unresolved = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
-            List<String> indexedColumns = new ArrayList<>();
-            for (java.lang.annotation.Annotation ann : entity.javaType().getAnnotations()) {
-                if ("jakarta.persistence.Table".equals(ann.annotationType().getName())) {
-                    try {
-                        java.lang.annotation.Annotation[] indexes = (java.lang.annotation.Annotation[])
-                                ann.annotationType().getMethod("indexes").invoke(ann);
-                        for (java.lang.annotation.Annotation index : indexes) {
-                            String columnList = (String) index.annotationType()
-                                    .getMethod("columnList")
-                                    .invoke(index);
-                            for (String col : columnList.split(",")) {
-                                indexedColumns.add(col.trim().toLowerCase());
-                            }
-                        }
-                    } catch (Exception ignored) {
-                    }
-                    break;
-                }
+            Set<String> leadingIndexColumns;
+            try {
+                leadingIndexColumns = leadingIndexColumns(entity.javaType());
+            } catch (RuntimeException ex) {
+                unresolved.add(entity.name() + " (@Table index metadata could not be resolved)");
+                continue;
             }
-
             for (HibernateAttributeModel attribute : entity.attributes()) {
-                if (attribute.manyToOneAnnotation() != null
-                        || (attribute.oneToOneAnnotation() != null
-                                && (attribute.annotationStringValue(attribute.oneToOneAnnotation(), "mappedBy") == null
-                                        || attribute
-                                                .annotationStringValue(attribute.oneToOneAnnotation(), "mappedBy")
-                                                .isBlank()))) {
-                    String name;
-                    java.lang.annotation.Annotation joinColumn = attribute.joinColumnAnnotation();
-                    if (joinColumn != null) {
-                        name = attribute.annotationStringValue(joinColumn, "name");
-                    } else {
-                        name = attribute.name() + "_id";
-                    }
-                    if (name != null && !name.isBlank() && !indexedColumns.contains(name.toLowerCase())) {
-                        details.add(attribute.description() + " is a foreign key (" + name
-                                + ") but no @Index is declared on the @Table.");
-                    }
+                if (!isOwningToOne(attribute)) {
+                    continue;
+                }
+                List<String> fkColumns = foreignKeyColumns(attribute);
+                if (fkColumns.isEmpty()) {
+                    continue;
+                }
+                boolean anyLeadingIndexed = fkColumns.stream().anyMatch(leadingIndexColumns::contains);
+                if (!anyLeadingIndexed) {
+                    String reported = fkColumns.get(0);
+                    details.add(attribute.description() + " is a foreign key (" + reported
+                            + ") with no JPA-declared index leading on that column.");
                 }
             }
         }
-        return violation(details);
+        if (!details.isEmpty()) {
+            return violation(details);
+        }
+        if (!unresolved.isEmpty()) {
+            return skipped("Foreign key index metadata could not be resolved for: " + String.join(", ", unresolved));
+        }
+        return pass();
+    }
+
+    private boolean isOwningToOne(HibernateAttributeModel attribute) {
+        if (attribute.manyToOneAnnotation() != null) {
+            return true;
+        }
+        Annotation oneToOne = attribute.oneToOneAnnotation();
+        if (oneToOne == null) {
+            return false;
+        }
+        String mappedBy = attribute.annotationStringValue(oneToOne, "mappedBy");
+        return mappedBy == null || mappedBy.isBlank();
+    }
+
+    private List<String> foreignKeyColumns(HibernateAttributeModel attribute) {
+        List<String> columns = new ArrayList<>();
+        Annotation joinColumn = attribute.joinColumnAnnotation();
+        if (joinColumn != null) {
+            String name = attribute.annotationStringValue(joinColumn, "name");
+            columns.add(normalizeColumn(name, attribute.name()));
+            return columns;
+        }
+        Annotation joinColumns = attribute.annotation("jakarta.persistence.JoinColumns");
+        if (joinColumns != null) {
+            for (String name : joinColumnsNames(joinColumns)) {
+                columns.add(normalizeColumn(name, attribute.name()));
+            }
+            if (!columns.isEmpty()) {
+                return columns;
+            }
+        }
+        columns.add(snakeCase(attribute.name()) + "_id");
+        return columns;
+    }
+
+    private List<String> joinColumnsNames(Annotation joinColumns) {
+        List<String> names = new ArrayList<>();
+        try {
+            Object value = joinColumns.annotationType().getMethod("value").invoke(joinColumns);
+            if (value instanceof Annotation[] entries) {
+                for (Annotation entry : entries) {
+                    Object name = entry.annotationType().getMethod("name").invoke(entry);
+                    names.add(name instanceof String s ? s : null);
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // Treat an unreadable @JoinColumns as no declared names so the inferred fallback applies.
+        }
+        return names;
+    }
+
+    private String normalizeColumn(String declaredName, String attributeName) {
+        if (declaredName != null && !declaredName.isBlank()) {
+            return declaredName.trim().toLowerCase(Locale.ROOT);
+        }
+        return snakeCase(attributeName) + "_id";
+    }
+
+    private Set<String> leadingIndexColumns(Class<?> javaType) {
+        Set<String> leading = new HashSet<>();
+        Class<?> current = javaType;
+        while (current != null && current != Object.class) {
+            for (Annotation ann : current.getDeclaredAnnotations()) {
+                if (!"jakarta.persistence.Table".equals(ann.annotationType().getName())) {
+                    continue;
+                }
+                try {
+                    Annotation[] indexes = (Annotation[])
+                            ann.annotationType().getMethod("indexes").invoke(ann);
+                    for (Annotation index : indexes) {
+                        String columnList = (String)
+                                index.annotationType().getMethod("columnList").invoke(index);
+                        if (columnList == null || columnList.isBlank()) {
+                            continue;
+                        }
+                        String first = columnList.split(",")[0].trim().toLowerCase(Locale.ROOT);
+                        if (!first.isEmpty()) {
+                            leading.add(first);
+                        }
+                    }
+                } catch (ReflectiveOperationException ex) {
+                    throw new IllegalStateException(ex);
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return leading;
+    }
+
+    private String snakeCase(String name) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < name.length(); i++) {
+            char ch = name.charAt(i);
+            if (Character.isUpperCase(ch)) {
+                if (builder.length() > 0) {
+                    builder.append('_');
+                }
+                builder.append(Character.toLowerCase(ch));
+            } else {
+                builder.append(ch);
+            }
+        }
+        return builder.toString();
     }
 }
 
@@ -2360,5 +2558,165 @@ final class MissingVersionRule extends AbstractHibernateRule {
             return true;
         }
         return false;
+    }
+}
+
+final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
+
+    IdentityDisablesBatchingRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-ID-006",
+                        "GenerationType.IDENTITY disables JDBC batch inserts",
+                        HibernateCategory.IDENTIFIERS,
+                        "HIGH",
+                        "Detects entities using @GeneratedValue(strategy=IDENTITY) while hibernate.jdbc.batch_size is configured; Hibernate cannot batch inserts for IDENTITY-generated keys because it must read each generated key back immediately.",
+                        "Switch IDENTITY identifiers to SEQUENCE with a pooled allocationSize so Hibernate can batch inserts, or drop the JDBC batch size expectation for these entities.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-session-batch"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        Integer batchSize = context.firstIntegerProperty(
+                "spring.jpa.properties.hibernate.jdbc.batch_size", "hibernate.jdbc.batch_size");
+        if (batchSize == null || batchSize <= 0) {
+            return skipped(
+                    "hibernate.jdbc.batch_size is not configured with a positive value, so there is no insert batching for IDENTITY generation to disable.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation generatedValue = attribute.generatedValueAnnotation();
+                if (generatedValue == null) {
+                    continue;
+                }
+                if ("IDENTITY".equals(attribute.annotationValueName(generatedValue, "strategy"))) {
+                    details.add(attribute.description()
+                            + " uses GenerationType.IDENTITY, so Hibernate cannot batch its inserts despite hibernate.jdbc.batch_size="
+                            + batchSize + ".");
+                }
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class UnidirectionalOneToManyJoinColumnRule extends AbstractHibernateRule {
+
+    UnidirectionalOneToManyJoinColumnRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-MAP-020",
+                "Unidirectional @OneToMany with @JoinColumn issues extra UPDATE statements",
+                HibernateCategory.MAPPING,
+                "MEDIUM",
+                "Detects unidirectional @OneToMany associations that use @JoinColumn instead of mappedBy; Hibernate inserts the child rows first and then issues separate UPDATE statements to set the foreign key.",
+                "Make the association bidirectional with @ManyToOne on the child and @OneToMany(mappedBy=...) on the parent so the child's foreign key is written in the INSERT. A read-only @JoinColumn(insertable=false, updatable=false) is exempt.",
+                "https://vladmihalcea.com/the-best-way-to-map-a-onetomany-relationship-with-jpa-and-hibernate/"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<String> details = new ArrayList<>();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                Annotation oneToMany = attribute.oneToManyAnnotation();
+                if (!attribute.isOneToMany() || oneToMany == null) {
+                    continue;
+                }
+                String mappedBy = attribute.annotationStringValue(oneToMany, "mappedBy");
+                if (mappedBy != null && !mappedBy.isBlank()) {
+                    continue;
+                }
+                if (!attribute.hasJoinColumn() || isReadOnlyJoinColumn(attribute)) {
+                    continue;
+                }
+                details.add(
+                        attribute.description()
+                                + " is a unidirectional @OneToMany with @JoinColumn, so Hibernate issues extra UPDATE statements to maintain the foreign key.");
+            }
+        }
+        return violation(details);
+    }
+
+    private boolean isReadOnlyJoinColumn(HibernateAttributeModel attribute) {
+        Annotation joinColumn = attribute.joinColumnAnnotation();
+        if (joinColumn == null) {
+            return false;
+        }
+        Boolean insertable = attribute.annotationBooleanValue(joinColumn, "insertable");
+        Boolean updatable = attribute.annotationBooleanValue(joinColumn, "updatable");
+        return Boolean.FALSE.equals(insertable) && Boolean.FALSE.equals(updatable);
+    }
+}
+
+final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
+
+    MultipleCollectionJoinFetchRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-QUERY-007",
+                "Queries should not JOIN FETCH more than one collection",
+                HibernateCategory.QUERY,
+                "HIGH",
+                "Detects repository @Query methods that JOIN FETCH two or more collection associations from the same root entity; fetching multiple bags throws MultipleBagFetchException and fetching multiple collections multiplies the result set into a Cartesian product.",
+                "Fetch at most one collection per query. Initialize the remaining collections with separate queries, @EntityGraph attribute nodes, or @BatchSize/default_batch_fetch_size, and use Set collections to avoid MultipleBagFetchException.",
+                "https://vladmihalcea.com/hibernate-multiplebagfetchexception/"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No Spring Data repository metadata was detected.");
+        }
+        List<String> bagDetails = new ArrayList<>();
+        List<String> collectionDetails = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            HibernateEntityModel domainEntity =
+                    HibernateRuleModelSupport.entityForDomainType(context, repository.domainType());
+            if (domainEntity == null) {
+                continue;
+            }
+            Map<String, Boolean> collectionIsBag = new LinkedHashMap<>();
+            for (HibernateAttributeModel attribute : domainEntity.collectionAttributes()) {
+                collectionIsBag.put(attribute.name(), attribute.isBagAttribute());
+            }
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (method.nativeQuery() || method.query() == null) {
+                    continue;
+                }
+                String rootAlias = HibernateRuleModelSupport.rootAlias(method.query());
+                if (rootAlias == null) {
+                    continue;
+                }
+                Set<String> fetchedCollections = new LinkedHashSet<>();
+                int bagCount = 0;
+                for (String path : HibernateRuleModelSupport.joinFetchPaths(method.query())) {
+                    String attributeName = HibernateRuleModelSupport.directAttribute(rootAlias, path);
+                    if (attributeName == null || !collectionIsBag.containsKey(attributeName)) {
+                        continue;
+                    }
+                    if (fetchedCollections.add(attributeName)
+                            && Boolean.TRUE.equals(collectionIsBag.get(attributeName))) {
+                        bagCount++;
+                    }
+                }
+                if (fetchedCollections.size() < 2) {
+                    continue;
+                }
+                String joined = String.join(", ", fetchedCollections);
+                if (bagCount >= 2) {
+                    bagDetails.add(method.description() + " JOIN FETCHes multiple bag collections (" + joined
+                            + "), which throws MultipleBagFetchException.");
+                } else {
+                    collectionDetails.add(method.description() + " JOIN FETCHes multiple collections (" + joined
+                            + "), producing a Cartesian product.");
+                }
+            }
+        }
+        if (!bagDetails.isEmpty()) {
+            List<String> all = new ArrayList<>(bagDetails);
+            all.addAll(collectionDetails);
+            return violation(HibernateRuleSupport.HIGH, all);
+        }
+        return violation(HibernateRuleSupport.MEDIUM, collectionDetails);
     }
 }

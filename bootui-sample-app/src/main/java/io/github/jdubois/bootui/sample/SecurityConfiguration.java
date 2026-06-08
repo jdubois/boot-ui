@@ -17,11 +17,13 @@ import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
@@ -79,8 +81,21 @@ class SecurityConfiguration {
     }
 
     @Bean
+    @Primary
     PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    /**
+     * Intentionally insecure bean that demonstrates the Security Advisor's only CRITICAL rule,
+     * SEC-AUTH-001 (a NoOpPasswordEncoder stores credentials in clear text). The application
+     * authenticates with the {@code @Primary} delegating bcrypt encoder above; this bean exists
+     * purely so the sample app surfaces a real CRITICAL finding in the Security panel.
+     */
+    @Bean
+    @SuppressWarnings("deprecation")
+    PasswordEncoder insecureDemoPasswordEncoder() {
+        return NoOpPasswordEncoder.getInstance();
     }
 
     @Bean

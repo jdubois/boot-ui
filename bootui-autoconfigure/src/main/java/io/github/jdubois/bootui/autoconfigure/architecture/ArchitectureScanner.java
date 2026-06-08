@@ -27,7 +27,7 @@ final class ArchitectureScanner {
             "Heuristic, project-agnostic architecture rules run against the host application's own classes only. "
                     + "These checks complement, but do not replace, a project-specific ArchUnit test suite or an "
                     + "architecture review.";
-    private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
+    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<ArchitectureRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (ArchitectureRuleResultDto result) -> severityRank(result.severity()))
             .thenComparing(Comparator.comparingInt(ArchitectureRuleResultDto::violationCount)
@@ -143,7 +143,8 @@ final class ArchitectureScanner {
                 violationsFound,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                analysisErrors(results));
     }
 
     ArchitectureReport applyDismissals(ArchitectureReport report, Set<String> dismissedIds) {
@@ -174,7 +175,15 @@ final class ArchitectureScanner {
                 violationsFound,
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.analysisErrors());
+    }
+
+    static List<ArchitectureRuleResultDto> analysisErrors(List<ArchitectureRuleResultDto> results) {
+        return results.stream()
+                .filter(result -> ArchitectureRuleSupport.ERROR.equals(result.status()))
+                .sorted(Comparator.comparing(ArchitectureRuleResultDto::id))
+                .toList();
     }
 
     private List<ArchitectureSeverityCountDto> severityCounts(List<ArchitectureRuleResultDto> results) {

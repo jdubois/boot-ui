@@ -13,6 +13,7 @@ final class MemoryRuleRegistry {
             new PendingFinalizationBacklogRule(),
             // Native memory
             new CommittedFootprintNearContainerLimitRule(),
+            new PlatformThreadStackReservationRule(),
             // Memory pools
             new MetaspaceSaturationRule(),
             new CodeCacheSaturationRule(),
@@ -21,6 +22,7 @@ final class MemoryRuleRegistry {
             // GC configuration
             new MissingHeapSizingInContainerRule(),
             new HighGcOverheadRule(),
+            new RecentGcOverheadRule(),
             new UnequalInitialAndMaxHeapRule(),
             // Threads
             new DeadlockDetectedRule(),
@@ -31,6 +33,7 @@ final class MemoryRuleRegistry {
             new BigObjectsRule(),
             new CollectionBloatRule(),
             new DominantClassRule(),
+            new ArrayDominanceRule(),
             // Class loading
             new ExcessiveLoadedClassesRule(),
             new ClassLoadingChurnRule());

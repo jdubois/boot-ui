@@ -15,4 +15,5 @@ public record GraalVmFindingDto(
         String status,
         int occurrenceCount,
         List<String> sampleOccurrences,
-        String recommendation) {}
+        String recommendation,
+        String learnMoreUrl) {}

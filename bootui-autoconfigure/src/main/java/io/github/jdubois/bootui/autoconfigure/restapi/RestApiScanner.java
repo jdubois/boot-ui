@@ -30,7 +30,7 @@ final class RestApiScanner {
             "Heuristic, project-agnostic REST API design rules run against the host application's own controllers "
                     + "only. These checks complement, but do not replace, an API design review or contract testing. "
                     + "Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.";
-    private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
+    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<RestApiRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (RestApiRuleResultDto result) -> severityRank(result.severity()))
             .thenComparing(Comparator.comparingInt(RestApiRuleResultDto::violationCount)

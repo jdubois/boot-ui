@@ -35,11 +35,13 @@ final class SecurityRuleRegistry {
             new ContentTypeOptionsRule(),
             new ReferrerPolicyHeaderRule(),
             new PermissionsPolicyHeaderRule(),
+            new HeaderWritersDisabledRule(),
             // CORS
             new CorsWildcardOriginRule(),
             new CorsWildcardWithCredentialsRule(),
             new CorsNotInSecurityChainRule(),
             new CorsWildcardMethodsHeadersRule(),
+            new BroadCorsOriginPatternRule(),
             // Method security
             new MethodSecurityAnnotationsIgnoredRule(),
             new LegacyGlobalMethodSecurityRule(),
@@ -50,6 +52,7 @@ final class SecurityRuleRegistry {
             new HealthDetailsExposureRule(),
             new ShutdownEndpointEnabledRule(),
             new ManagementPortIsolationRule(),
+            new ActuatorShowValuesRule(),
             // OAuth2 / JWT resource server
             new ResourceServerValidationRule(),
             new JwtAudienceValidationRule(),
@@ -58,7 +61,6 @@ final class SecurityRuleRegistry {
             new SecurityDebugRule(),
             new H2ConsoleFrameOptionsRule(),
             new WebSecurityConfigurerAdapterRule(),
-            new WebIgnoringRule(),
             new ErrorResponseDisclosureRule(),
             new HttpsEnforcementRule());
 

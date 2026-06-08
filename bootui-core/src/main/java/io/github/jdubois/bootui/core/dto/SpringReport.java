@@ -15,4 +15,5 @@ public record SpringReport(
         int violationsFound,
         List<SpringSeverityCountDto> severityCounts,
         SpringScanStatusDto scan,
-        List<SpringRuleResultDto> results) {}
+        List<SpringRuleResultDto> results,
+        List<SpringRuleResultDto> analysisErrors) {}

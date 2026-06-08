@@ -40,9 +40,17 @@ no controllers can be imported.
 
 ## Severities
 
-Findings are ranked `HIGH` / `MEDIUM` / `LOW` / `INFO`. The catalogue below ships **36 rules across 8 categories**
-(7 HIGH, 9 MEDIUM, 11 LOW, 9 INFO). The `RAPI-DOC-*` documentation rules only run when springdoc-openapi is on the host
-classpath; otherwise they are reported as `SKIPPED`.
+Findings are ranked in the scanner's severity order:
+
+- `CRITICAL` — supported by the scanner, but no active REST API rule currently assigns it.
+- `HIGH`
+- `MEDIUM`
+- `LOW`
+- `INFO`
+
+The catalogue below ships **39 rules across 8 categories** (7 HIGH, 10 MEDIUM, 13 LOW, 9 INFO; no active CRITICAL
+rules). The `RAPI-DOC-*` documentation rules only run when springdoc-openapi is on the host classpath; otherwise they are
+reported as `SKIPPED`.
 
 ---
 
@@ -79,7 +87,7 @@ classpath; otherwise they are reported as `SKIPPED`.
 ### RAPI-MAP-005 - Consistent path style (no trailing slash)
 
 - **Severity**: LOW
-- **Detects**: Trailing slashes and doubled slashes in mapping paths create inconsistent URLs; trailing-slash matching is also disabled by default in Spring 6+.
+- **Detects**: Trailing slashes and doubled slashes in class-level or method mapping paths create inconsistent URLs; trailing-slash matching is also disabled by default in Spring 6+.
 - **Recommendation**: Declare mapping paths without trailing slashes and without empty segments.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
@@ -95,6 +103,13 @@ classpath; otherwise they are reported as `SKIPPED`.
 - **Severity**: MEDIUM
 - **Detects**: A @RequestBody on a GET, HEAD, or DELETE handler relies on a request body that proxies, caches, and HTTP clients may strip, so the payload is unreliable.
 - **Recommendation**: Move the payload to query/path parameters, or use POST/PUT/PATCH when a request body is required.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
+
+### RAPI-MAP-008 - Mutating item methods target an identified resource
+
+- **Severity**: LOW
+- **Detects**: PUT/PATCH/DELETE handlers with a path but no {id} (or other path variable), excluding explicit bulk/batch/all and singleton/current-resource endpoints, mutate a collection URI rather than a specific resource.
+- **Recommendation**: Add a path variable that identifies the resource (e.g. /orders/{id}); for intentional collection-wide mutations, name the endpoint explicitly (e.g. /orders/bulk).
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
 ## Naming & resource design
@@ -126,8 +141,8 @@ classpath; otherwise they are reported as `SKIPPED`.
 
 - **Severity**: MEDIUM
 - **Detects**: A POST that creates a resource but returns the default 200 OK hides the created status and (usually) the Location of the new resource.
-- **Recommendation**: Return 201 via @ResponseStatus(HttpStatus.CREATED) or ResponseEntity.created(...).
-- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
+- **Recommendation**: Prefer ResponseEntity.created(uri) so the response carries both 201 and the Location header; use @ResponseStatus(HttpStatus.CREATED) only when the Location is set another way.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2>
 
 ### RAPI-RESP-002 - Void DELETE returns 204 No Content
 
@@ -146,7 +161,7 @@ classpath; otherwise they are reported as `SKIPPED`.
 ### RAPI-RESP-004 - Read endpoints return a representation
 
 - **Severity**: INFO
-- **Detects**: A GET returning a bare String or primitive exposes a value without a stable, evolvable representation.
+- **Detects**: A GET returning a bare String or primitive without explicitly producing text/* exposes a value without a stable, evolvable representation.
 - **Recommendation**: Return a DTO/record representation from read endpoints instead of a raw String or primitive.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
@@ -171,12 +186,19 @@ classpath; otherwise they are reported as `SKIPPED`.
 - **Recommendation**: Set the status through ResponseEntity (e.g. ResponseEntity.status(...)) and drop the redundant @ResponseStatus.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
+### RAPI-RESP-008 - Created responses expose a Location
+
+- **Severity**: MEDIUM
+- **Detects**: A handler annotated @ResponseStatus(CREATED) that returns a plain body (not ResponseEntity and with no servlet response argument) has no way to set the Location header of the newly created resource.
+- **Recommendation**: Return ResponseEntity.created(uri).body(...) so the 201 response also carries the Location of the new resource.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2>
+
 ## Input validation & binding
 
 ### RAPI-VALID-001 - @RequestBody is validated
 
 - **Severity**: HIGH
-- **Detects**: A @RequestBody parameter without @Valid/@Validated is bound without bean-validation, so malformed payloads reach the business logic unchecked.
+- **Detects**: A complex @RequestBody parameter without @Valid/@Validated is bound without bean-validation, so malformed payloads reach the business logic unchecked.
 - **Recommendation**: Annotate @RequestBody parameters with @Valid (or @Validated) and declare constraints on the DTO.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html>
 
@@ -213,8 +235,8 @@ classpath; otherwise they are reported as `SKIPPED`.
 ### RAPI-DTO-003 - Wrap top-level collections
 
 - **Severity**: INFO
-- **Detects**: Returning a raw top-level array or List makes the response impossible to evolve (you cannot add paging or metadata without a breaking change).
-- **Recommendation**: Wrap collections in an object (e.g. a page/result wrapper) rather than returning a bare List/array.
+- **Detects**: Returning a raw non-GET top-level array or List outside ResponseEntity makes the response impossible to evolve (you cannot add metadata without a breaking change); GET collection reads are covered by RAPI-PAGE-001.
+- **Recommendation**: Wrap non-GET collection responses in an object (e.g. a result wrapper) rather than returning a bare List/array.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
 ### RAPI-DTO-004 - Request/response DTOs are immutable
@@ -242,12 +264,12 @@ classpath; otherwise they are reported as `SKIPPED`.
 
 ## Versioning & content negotiation
 
-### RAPI-VER-001 - API is versioned
+### RAPI-VER-001 - API uses a consistent versioning strategy
 
 - **Severity**: INFO
-- **Detects**: No version signal (no /vN path segment, version header, or versioned media type) was found, which makes breaking changes hard to roll out.
-- **Recommendation**: Adopt a versioning strategy (path, header, or media-type versioning) before the API is consumed externally.
-- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
+- **Detects**: No version signal (no /vN path segment, version header/param, or versioned media type) was found, or only some handlers are versioned, which makes breaking changes hard to roll out consistently.
+- **Recommendation**: Adopt one versioning strategy (path, header/param, or media-type versioning) and apply it across all API endpoints before the API is consumed externally.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html>
 
 ### RAPI-VER-002 - Mutating endpoints declare a consumes media type
 
@@ -267,8 +289,15 @@ classpath; otherwise they are reported as `SKIPPED`.
 
 - **Severity**: INFO
 - **Detects**: A PATCH handler that declares a consumes media type other than application/merge-patch+json or application/json-patch+json does not signal which patch document format it expects.
-- **Recommendation**: Declare consumes = application/merge-patch+json or application/json-patch+json on PATCH handlers.
-- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
+- **Recommendation**: Declare consumes = application/merge-patch+json (RFC 7396) or application/json-patch+json (RFC 6902) on PATCH handlers.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc5789.html>
+
+### RAPI-VER-005 - Response-producing endpoints declare produces consistently
+
+- **Severity**: LOW
+- **Detects**: Within a controller that declares produces media types on some response handlers, other body-returning handlers that omit produces create an inconsistent content contract.
+- **Recommendation**: Declare produces (e.g. application/json) consistently on the response-producing handlers of a controller.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
 ## Error handling & documentation
 
@@ -296,7 +325,7 @@ classpath; otherwise they are reported as `SKIPPED`.
 ### RAPI-ERR-004 - Exception handlers set an explicit error status
 
 - **Severity**: MEDIUM
-- **Detects**: An @ExceptionHandler that renders a body but neither returns ResponseEntity nor declares @ResponseStatus falls back to 200 OK, masking the failure from clients.
+- **Detects**: An @ExceptionHandler that renders a non-ProblemDetail body but neither returns ResponseEntity, declares @ResponseStatus, nor accepts a servlet response argument falls back to 200 OK, masking the failure from clients.
 - **Recommendation**: Return ResponseEntity/ProblemDetail or add @ResponseStatus so the handler responds with an error status.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 

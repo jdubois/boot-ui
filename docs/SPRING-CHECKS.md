@@ -12,6 +12,7 @@ The panel is always available (a Spring application context always exists). Bean
 
 ## Severity scale
 
+- **CRITICAL** - an immediately dangerous exposure that should be fixed before production; currently emitted by SPRING-MGMT-004 when a write-accessible shutdown endpoint is exposed on the application port with a production-like profile.
 - **HIGH** - a setting that commonly causes problems and usually needs attention before production.
 - **MEDIUM** - a hardening or correctness gap that warrants review.
 - **LOW** - lower-impact hygiene or optimization findings.
@@ -89,14 +90,14 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-CONFIG-002 - Disable global debug or trace logging
 
 - **Severity**: LOW
-- **Detects**: Detects debug=true or trace=true, which switch on verbose auto-configuration logging and can leak internal details or slow down the application.
-- **Recommendation**: Remove the debug/trace flags and configure logging levels per package instead.
+- **Detects**: Detects debug=true or trace=true, or broad root/web/sql/org.springframework/org.hibernate loggers set to DEBUG or TRACE, which enable verbose framework logging that can leak internal details or slow down the application.
+- **Recommendation**: Remove the debug/trace flags and configure logging levels only for narrow packages that need them.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html>
 
 ### SPRING-CONFIG-003 - Remove renamed or deleted Spring Boot 4 properties
 
 - **Severity**: MEDIUM
-- **Detects**: Detects configuration keys that were renamed or removed in Spring Boot 4 and therefore no longer take effect, which can silently change behaviour after an upgrade. The current curated set covers management.tracing.enabled (renamed to management.tracing.export.enabled), spring.dao.exceptiontranslation.enabled (renamed to spring.persistence.exceptiontranslation.enabled), and common server.undertow.* keys (Undertow was removed in Spring Boot 4).
+- **Detects**: Detects configuration keys that were renamed or removed in Spring Boot 4 and therefore no longer take effect, which can silently change behaviour after an upgrade. The current curated set covers spring.dao.exceptiontranslation.enabled (renamed to spring.persistence.exceptiontranslation.enabled) and common server.undertow.* keys (Undertow was removed in Spring Boot 4).
 - **Recommendation**: Update each key to its Spring Boot 4 equivalent (the spring-boot-properties-migrator module lists the replacements at startup) and remove keys for dropped features.
 - **Learn more**: <https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide>
 
@@ -170,7 +171,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-PERF-005 - Scheduler runs on a single thread
 
 - **Severity**: INFO
-- **Detects**: @EnableScheduling is active but the scheduling pool size is at its default of one thread (spring.task.scheduling.pool.size), so a long-running or overlapping @Scheduled task can delay every other scheduled task.
+- **Detects**: @EnableScheduling is active, virtual threads are not enabled, and the scheduling pool size is at its default of one thread (spring.task.scheduling.pool.size), so a long-running or overlapping @Scheduled task can delay every other scheduled task.
 - **Recommendation**: Increase spring.task.scheduling.pool.size to match the number of concurrent scheduled tasks, or enable virtual threads (spring.threads.virtual.enabled=true).
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
@@ -214,14 +215,14 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WEB-004 - Do not always expose error details
 
 - **Severity**: MEDIUM
-- **Detects**: An error-detail property is set to 'always', so stack traces, exception messages, or binding errors are returned in error responses to every client - a common way to leak internal implementation details. Both spring.web.error.* (Spring Boot 4) and the legacy server.error.* prefixes are checked.
-- **Recommendation**: Use 'never' (or 'on-param') for include-stacktrace / include-message / include-binding-errors under spring.web.error.* so details are not exposed to arbitrary callers.
+- **Detects**: An error-detail property is set to 'always', or include-exception is true, so stack traces, exception messages, binding errors, or exception types are returned in error responses to every client - a common way to leak internal implementation details. Both spring.web.error.* and legacy server.error.* prefixes are checked.
+- **Recommendation**: Use 'never' (or 'on-param') for include-stacktrace / include-message / include-binding-errors, and leave include-exception false, so details are not exposed to arbitrary callers.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
 ### SPRING-WEB-005 - Set HTTP client timeouts
 
 - **Severity**: INFO
-- **Detects**: A RestClient or RestTemplate bean is defined but no global HTTP client timeouts are set (spring.http.clients.connect-timeout / read-timeout), so a slow or unresponsive dependency can block threads indefinitely.
+- **Detects**: A RestClient or RestTemplate bean is defined but one or both global HTTP client timeouts are unset (spring.http.clients.connect-timeout / read-timeout), so a slow or unresponsive dependency can block threads indefinitely.
 - **Recommendation**: Set spring.http.clients.connect-timeout and spring.http.clients.read-timeout (or configure timeouts per client) so outbound calls fail fast.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/io/rest-client.html>
 
@@ -239,20 +240,50 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: Remove server.tomcat.threads.max when running on virtual threads, or confirm the cap is a deliberate back-pressure limit.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
+## Data and persistence
+
+### SPRING-JPA-001 - Disable Open Session in View
+
+- **Severity**: MEDIUM (HIGH when a production-like profile is active)
+- **Detects**: Detects a servlet JPA application where spring.jpa.open-in-view is not set (and therefore defaults to enabled) or is explicitly true. Open Session in View keeps a JPA persistence context (and often its database connection) open for the whole web request, hides lazy-loading boundaries, encourages N+1 queries, and holds connections longer under load.
+- **Recommendation**: Set spring.jpa.open-in-view=false and load the associations each request needs explicitly (fetch joins, entity graphs, or DTO projections).
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view>
+
 ## Actuator and management
 
 ### SPRING-MGMT-001 - Avoid exposing all Actuator endpoints
 
-- **Severity**: LOW
-- **Detects**: management.endpoints.web.exposure.include is set to '*', which exposes every Actuator endpoint (including sensitive ones such as env, configprops, and loggers) over the web. This is convenient in development but rarely intended in production.
+- **Severity**: MEDIUM (HIGH when a production-like profile is active and management endpoints share the application port)
+- **Detects**: management.endpoints.web.exposure.include is set to '*' (unless web exposure is disabled or excluded with '*'), which exposes every non-excluded Actuator endpoint (including sensitive ones such as env, configprops, and loggers) over the web. This is convenient in development but rarely intended in production.
 - **Recommendation**: List only the endpoints you need (for example health,info,metrics) instead of '*', and use management.endpoints.web.exposure.exclude to trim further. Endpoint authorization is handled separately by the Security advisor.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
+
+### SPRING-MGMT-002 - Do not web-expose sensitive Actuator endpoints
+
+- **Severity**: MEDIUM (HIGH when a production-like profile is active and management endpoints share the application port)
+- **Detects**: Sensitive Actuator endpoints (env, configprops, beans, threaddump, loggers, httpexchanges, startup, or mappings) are explicitly listed in management.endpoints.web.exposure.include and remain readable. Wildcard exposure is handled by SPRING-MGMT-001, and shutdown/heapdump are handled by SPRING-MGMT-004.
+- **Recommendation**: Expose only health and info publicly; keep diagnostic endpoints off the web exposure list, move them to a separate, firewalled management port, and require authentication. The Security advisor covers endpoint authorization.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
+
+### SPRING-MGMT-003 - Do not always show Actuator values or health details
+
+- **Severity**: MEDIUM
+- **Detects**: management.endpoint.env.show-values=ALWAYS or management.endpoint.configprops.show-values=ALWAYS on readable endpoints, or management.endpoint.health.show-details=always while health is readable. Property values, including credentials, and internal health probe details are then returned to every caller.
+- **Recommendation**: Use show-values=WHEN_AUTHORIZED and show-details=when-authorized so sensitive values and health details are only revealed to authenticated, authorized users.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization>
+
+### SPRING-MGMT-004 - Do not web-expose shutdown or heapdump endpoints
+
+- **Severity**: HIGH (CRITICAL when shutdown is write-accessible with a production-like profile and management endpoints share the application port)
+- **Detects**: The shutdown endpoint is web-exposed with write access, or heapdump is web-exposed and readable. Shutdown permits a remote caller to stop the application, and heapdump streams a full heap dump that can contain credentials, tokens, and personal data.
+- **Recommendation**: Keep shutdown disabled (its default access is 'none') and never web-expose it; exclude heapdump from the web exposure list or restrict it to an authenticated, firewalled management port.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
 
 ---
 
 ## Rule summary
 
-The Spring Advisor ships **31 curated rules** across six categories. By severity: **0 HIGH**, **13 MEDIUM**, **10 LOW**, **8 INFO**.
+The Spring Advisor ships **35 curated rules** across seven categories. By declared default severity: **0 CRITICAL**, **1 HIGH**, **17 MEDIUM**, **9 LOW**, **8 INFO**. Context-aware rules can raise SPRING-JPA-001, SPRING-MGMT-001, and SPRING-MGMT-002 to HIGH, and SPRING-MGMT-004 to CRITICAL.
 
 | Category | Rules |
 | --- | --- |
@@ -261,4 +292,5 @@ The Spring Advisor ships **31 curated rules** across six categories. By severity
 | Profiles and environment | SPRING-PROFILE-001 ... SPRING-PROFILE-003 |
 | Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-006, SPRING-CACHE-001 |
 | Web and HTTP | SPRING-WEB-001 ... SPRING-WEB-007 |
-| Actuator and management | SPRING-MGMT-001 |
+| Data and persistence | SPRING-JPA-001 |
+| Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |

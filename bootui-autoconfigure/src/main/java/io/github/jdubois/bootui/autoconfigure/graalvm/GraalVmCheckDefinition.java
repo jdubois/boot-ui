@@ -6,4 +6,10 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
  * triggers and produces an outcome.
  */
 record GraalVmCheckDefinition(
-        String id, String name, GraalVmCategory category, String severity, String description, String recommendation) {}
+        String id,
+        String name,
+        GraalVmCategory category,
+        String severity,
+        String description,
+        String recommendation,
+        String learnMoreUrl) {}

@@ -23,7 +23,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 46;
+    private static final int RULE_COUNT = 48;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -82,6 +82,10 @@ class SecurityScannerTests {
                         "SEC-CONFIG-001");
         // Results are ordered by severity; the first finding must be HIGH.
         assertThat(report.results().get(0).severity()).isEqualTo("HIGH");
+        // The severity histogram leads with CRITICAL so promoted rules sort and count correctly.
+        assertThat(report.severityCounts())
+                .extracting("severity")
+                .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
         assertThat(report.filterChains()).containsExactly("any request");
     }
 
@@ -516,5 +520,34 @@ class SecurityScannerTests {
                         "health,info,beans,conditions,configprops,env,loggers,mappings,metrics,startup,scheduledtasks",
                         "management.endpoint.health.show-details",
                         "always"));
+    }
+
+    @Test
+    void analysisErrorsKeepsOnlyErrorResultsSortedById() {
+        SecurityRuleResultDto pass = result("SEC-T-001", SecurityRuleSupport.PASS);
+        SecurityRuleResultDto violation = result("SEC-T-002", SecurityRuleSupport.VIOLATION);
+        SecurityRuleResultDto errorB = result("SEC-T-004", SecurityRuleSupport.ERROR);
+        SecurityRuleResultDto errorA = result("SEC-T-003", SecurityRuleSupport.ERROR);
+        SecurityRuleResultDto skipped = result("SEC-T-005", SecurityRuleSupport.SKIPPED);
+
+        List<SecurityRuleResultDto> errors =
+                SecurityScanner.analysisErrors(List.of(pass, violation, errorB, errorA, skipped));
+
+        assertThat(errors).extracting(SecurityRuleResultDto::id).containsExactly("SEC-T-003", "SEC-T-004");
+        assertThat(errors).extracting(SecurityRuleResultDto::status).containsOnly(SecurityRuleSupport.ERROR);
+    }
+
+    private static SecurityRuleResultDto result(String id, String status) {
+        return new SecurityRuleResultDto(
+                id,
+                "name",
+                "Category",
+                "HIGH",
+                "description",
+                status,
+                0,
+                List.of("detail"),
+                "recommendation",
+                "https://example.com");
     }
 }

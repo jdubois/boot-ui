@@ -15,4 +15,5 @@ public record SecurityReport(
         int violationsFound,
         List<SecuritySeverityCountDto> severityCounts,
         SecurityScanStatusDto scan,
-        List<SecurityRuleResultDto> results) {}
+        List<SecurityRuleResultDto> results,
+        List<SecurityRuleResultDto> analysisErrors) {}

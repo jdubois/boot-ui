@@ -53,7 +53,8 @@ final class GraalVmCheckSupport {
                 status,
                 occurrenceCount,
                 List.copyOf(sampleOccurrences),
-                definition.recommendation());
+                definition.recommendation(),
+                definition.learnMoreUrl());
     }
 
     /**

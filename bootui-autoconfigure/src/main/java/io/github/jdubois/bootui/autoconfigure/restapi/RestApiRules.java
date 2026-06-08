@@ -72,6 +72,10 @@ final class RestApiRuleHelp {
     static final String PAGINATION_DOCS =
             "https://docs.spring.io/spring-data/commons/reference/repositories/core-extensions.html";
     static final String OPENAPI_DOCS = "https://springdoc.org/";
+    static final String CREATED_DOCS = "https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2";
+    static final String PATCH_DOCS = "https://www.rfc-editor.org/rfc/rfc5789.html";
+    static final String API_VERSIONING_DOCS =
+            "https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html";
 
     private static final Pattern VERSION_SEGMENT = Pattern.compile("v\\d+", Pattern.CASE_INSENSITIVE);
     private static final Pattern PATH_VARIABLE_TOKEN = Pattern.compile("\\{([^}/]+)\\}");
@@ -80,6 +84,58 @@ final class RestApiRuleHelp {
             "patch", "read");
     private static final Set<String> CREATION_PREFIXES = Set.of("create", "add", "save", "insert", "register", "new");
     static final Set<String> PATCH_MEDIA_TYPES = Set.of("application/merge-patch+json", "application/json-patch+json");
+
+    /** Exact mapping param/header names (case-insensitive) that signal header/param API versioning. */
+    private static final Set<String> VERSION_PARAM_NAMES =
+            Set.of("version", "api-version", "x-api-version", "accept-version", "api_version");
+
+    /**
+     * Leading static path segments that denote operational, documentation, or auth endpoints which
+     * are conventionally left unversioned; they should not make an otherwise versioned API look
+     * "mixed".
+     */
+    private static final Set<String> NON_API_SEGMENTS = Set.of(
+            "actuator",
+            "health",
+            "info",
+            "ready",
+            "readiness",
+            "live",
+            "liveness",
+            "metrics",
+            "prometheus",
+            "error",
+            "login",
+            "logout",
+            "oauth",
+            "oauth2",
+            "token",
+            "swagger-ui",
+            "swagger",
+            "api-docs",
+            "v3",
+            "webjars",
+            "favicon.ico");
+
+    /** Path/method tokens that mark an intentional collection-wide mutation (no single id needed). */
+    private static final Set<String> BULK_SEGMENTS = Set.of("bulk", "batch", "all");
+
+    /**
+     * Path segments that identify a singleton or current-principal resource, where a mutating method
+     * legitimately needs no {id} token (e.g. {@code PUT /users/me}, {@code PATCH /settings}).
+     */
+    private static final Set<String> SINGLETON_SEGMENTS = Set.of(
+            "me",
+            "self",
+            "current",
+            "profile",
+            "settings",
+            "preferences",
+            "session",
+            "account",
+            "config",
+            "configuration",
+            "cart");
 
     private RestApiRuleHelp() {}
 
@@ -173,7 +229,80 @@ final class RestApiRuleHelp {
                 return true;
             }
         }
+        return hasVersionParam(handler.params()) || hasVersionParam(handler.headers());
+    }
+
+    /** True when a mapping {@code params}/{@code headers} entry keys on a known API-version name. */
+    private static boolean hasVersionParam(List<String> conditions) {
+        for (String condition : conditions) {
+            String key = conditionKey(condition);
+            if (VERSION_PARAM_NAMES.contains(key)) {
+                return true;
+            }
+        }
         return false;
+    }
+
+    /** Extracts the lower-cased key of a Spring mapping condition such as {@code "X-API-Version=1"}. */
+    private static String conditionKey(String condition) {
+        String key = condition;
+        if (key.startsWith("!")) {
+            key = key.substring(1);
+        }
+        int cut = key.length();
+        for (char delimiter : new char[] {'=', '<', '>', '!'}) {
+            int index = key.indexOf(delimiter);
+            if (index >= 0 && index < cut) {
+                cut = index;
+            }
+        }
+        return key.substring(0, cut).trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** True when the handler's first static path segment is an operational/doc/auth endpoint. */
+    static boolean isNonApiEndpoint(HandlerMethodModel handler) {
+        for (String path : handler.effectivePaths()) {
+            List<String> statics = staticSegments(path);
+            if (!statics.isEmpty() && NON_API_SEGMENTS.contains(statics.get(0).toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** True when any path segment marks a bulk/batch (collection-wide) mutation. */
+    static boolean isBulkMutation(HandlerMethodModel handler) {
+        if (containsSegment(handler, BULK_SEGMENTS)) {
+            return true;
+        }
+        String name = handler.methodName().toLowerCase(Locale.ROOT);
+        return name.contains("bulk") || name.contains("batch") || name.contains("all");
+    }
+
+    /** True when any path segment denotes a singleton / current-principal resource. */
+    static boolean isSingletonResource(HandlerMethodModel handler) {
+        return containsSegment(handler, SINGLETON_SEGMENTS);
+    }
+
+    private static boolean containsSegment(HandlerMethodModel handler, Set<String> needles) {
+        for (String path : handler.effectivePaths()) {
+            for (String segment : staticSegments(path)) {
+                if (needles.contains(segment.toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Normalizes a media type for comparison: lower-cased, parameters ({@code ;charset=...}) stripped. */
+    static String normalizeMediaType(String mediaType) {
+        String value = mediaType.trim().toLowerCase(Locale.ROOT);
+        int semicolon = value.indexOf(';');
+        if (semicolon >= 0) {
+            value = value.substring(0, semicolon);
+        }
+        return value.trim();
     }
 
     private static boolean isVersionedMediaType(String mediaType) {
@@ -405,16 +534,28 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         List<String> violations = new ArrayList<>();
+        for (ControllerModel controller : context.controllers()) {
+            for (String path : controller.typeLevelPaths()) {
+                if (hasIrregularSlash(path)) {
+                    violations.add(controller.simpleName() + " — class-level mapping path '" + path
+                            + "' has an irregular slash");
+                }
+            }
+        }
         for (HandlerMethodModel handler : context.handlers()) {
             for (String path : handler.mappingPaths()) {
-                boolean trailing = path.length() > 1 && path.endsWith("/");
-                boolean doubled = path.contains("//");
-                if (trailing || doubled) {
+                if (hasIrregularSlash(path)) {
                     violations.add(handler.describe() + " — mapping path '" + path + "' has an irregular slash");
                 }
             }
         }
         return RestApiRuleSupport.fromViolations(definition(), violations);
+    }
+
+    private static boolean hasIrregularSlash(String path) {
+        boolean trailing = path.length() > 1 && path.endsWith("/");
+        boolean doubled = path.contains("//");
+        return trailing || doubled;
     }
 }
 
@@ -444,12 +585,15 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
                 continue;
             }
             Set<String> tokens = RestApiRuleHelp.pathVariableTokens(handler);
+            List<String> unmatched = new ArrayList<>();
             for (String name : handler.pathVariableNames()) {
                 if (!tokens.contains(name)) {
-                    violations.add(handler.describe() + " — @PathVariable '" + name + "' has no matching {" + name
-                            + "} path token");
-                    break;
+                    unmatched.add(name);
                 }
+            }
+            if (!unmatched.isEmpty()) {
+                violations.add(handler.describe() + " — @PathVariable name(s) " + unmatched
+                        + " have no matching {token} in the mapping path");
             }
         }
         return RestApiRuleSupport.fromViolations(definition(), violations);
@@ -610,8 +754,9 @@ final class CreationReturns201Rule extends AbstractRestApiRule {
                 "MEDIUM",
                 "A POST that creates a resource but returns the default 200 OK hides the created status and (usually)"
                         + " the Location of the new resource.",
-                "Return 201 via @ResponseStatus(HttpStatus.CREATED) or ResponseEntity.created(...).",
-                RestApiRuleHelp.REST_GUIDELINES));
+                "Prefer ResponseEntity.created(uri) so the response carries both 201 and the Location header; use"
+                        + " @ResponseStatus(HttpStatus.CREATED) only when the Location is set another way.",
+                RestApiRuleHelp.CREATED_DOCS));
     }
 
     @Override
@@ -918,8 +1063,10 @@ final class WrapTopLevelCollectionsRule extends AbstractRestApiRule {
                 RestApiCategory.PAYLOADS,
                 "INFO",
                 "Returning a raw top-level array or List makes the response impossible to evolve (you cannot add"
-                        + " paging or metadata without a breaking change).",
-                "Wrap collections in an object (e.g. a page/result wrapper) rather than returning a bare List/array.",
+                        + " metadata without a breaking change). GET collection reads are covered separately by"
+                        + " RAPI-PAGE-001.",
+                "Wrap non-GET collection responses in an object (e.g. a result wrapper) rather than returning a bare"
+                        + " List/array.",
                 RestApiRuleHelp.REST_GUIDELINES));
     }
 
@@ -930,6 +1077,8 @@ final class WrapTopLevelCollectionsRule extends AbstractRestApiRule {
                 handler -> handler.returnsCollection()
                         && !handler.returnsPageOrSlice()
                         && !handler.hasPageable()
+                        && !handler.returnsResponseEntity()
+                        && !handler.httpMethods().contains("GET")
                         && handler.serializesBody(),
                 "returns a raw top-level collection");
     }
@@ -1022,14 +1171,15 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
     ApiIsVersionedRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VER-001",
-                "API is versioned",
+                "API uses a consistent versioning strategy",
                 RestApiCategory.VERSIONING,
                 "INFO",
-                "No version signal (no /vN path segment, version header, or versioned media type) was found, which"
-                        + " makes breaking changes hard to roll out.",
-                "Adopt a versioning strategy (path, header, or media-type versioning) before the API is consumed"
-                        + " externally.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                "No version signal (no /vN path segment, version header/param, or versioned media type) was found, or"
+                        + " only some handlers are versioned, which makes breaking changes hard to roll out"
+                        + " consistently.",
+                "Adopt one versioning strategy (path, header/param, or media-type versioning) and apply it across all"
+                        + " API endpoints before the API is consumed externally.",
+                RestApiRuleHelp.API_VERSIONING_DOCS));
     }
 
     @Override
@@ -1037,15 +1187,33 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
         if (context.handlers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
+        List<HandlerMethodModel> versionable = new ArrayList<>();
+        List<HandlerMethodModel> unversioned = new ArrayList<>();
         for (HandlerMethodModel handler : context.handlers()) {
-            if (RestApiRuleHelp.hasVersionSignal(handler)) {
-                return RestApiRuleSupport.pass(definition());
+            if (RestApiRuleHelp.isNonApiEndpoint(handler)) {
+                continue;
+            }
+            versionable.add(handler);
+            if (!RestApiRuleHelp.hasVersionSignal(handler)) {
+                unversioned.add(handler);
             }
         }
+        if (versionable.isEmpty() || unversioned.isEmpty()) {
+            return RestApiRuleSupport.pass(definition());
+        }
+        if (unversioned.size() == versionable.size()) {
+            return RestApiRuleSupport.fromViolations(
+                    definition(),
+                    List.of("No API version signal (no /vN path, version header/param, or versioned media type) was"
+                            + " detected across " + versionable.size() + " handler(s)."));
+        }
+        List<String> examples =
+                unversioned.stream().limit(5).map(HandlerMethodModel::describe).toList();
         return RestApiRuleSupport.fromViolations(
                 definition(),
-                List.of("No API version signal (no /vN path, version header, or versioned media type) was detected"
-                        + " across " + context.handlers().size() + " handler(s)."));
+                List.of("Versioning is applied inconsistently: " + unversioned.size() + " of " + versionable.size()
+                        + " API handler(s) have no version signal while others do. Unversioned example(s): "
+                        + String.join("; ", examples)));
     }
 }
 
@@ -1111,8 +1279,9 @@ final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
                 "INFO",
                 "A PATCH handler that declares a consumes media type other than application/merge-patch+json or"
                         + " application/json-patch+json does not signal which patch document format it expects.",
-                "Declare consumes = application/merge-patch+json or application/json-patch+json on PATCH handlers.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                "Declare consumes = application/merge-patch+json (RFC 7396) or application/json-patch+json (RFC 6902)"
+                        + " on PATCH handlers.",
+                RestApiRuleHelp.PATCH_DOCS));
     }
 
     @Override
@@ -1127,7 +1296,7 @@ final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
 
     private static boolean declaresPatchMediaType(HandlerMethodModel handler) {
         for (String mediaType : handler.effectiveConsumes()) {
-            if (RestApiRuleHelp.PATCH_MEDIA_TYPES.contains(mediaType)) {
+            if (RestApiRuleHelp.PATCH_MEDIA_TYPES.contains(RestApiRuleHelp.normalizeMediaType(mediaType))) {
                 return true;
             }
         }
@@ -1318,5 +1487,108 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
             }
         }
         return RestApiRuleSupport.fromViolations(definition(), violations);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Phase 2 additions
+// ---------------------------------------------------------------------------------------------
+
+final class MutatingItemMethodsTargetResourceRule extends AbstractRestApiRule {
+    MutatingItemMethodsTargetResourceRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-MAP-008",
+                "Mutating item methods target an identified resource",
+                RestApiCategory.ROUTING,
+                "LOW",
+                "A PUT/PATCH/DELETE whose path has no {id} (or other path variable) mutates a collection URI rather"
+                        + " than a specific resource, which is usually a missing identifier rather than an intended"
+                        + " collection-wide operation.",
+                "Add a path variable that identifies the resource (e.g. /orders/{id}); for intentional collection-wide"
+                        + " mutations, name the endpoint explicitly (e.g. /orders/bulk).",
+                RestApiRuleHelp.REST_GUIDELINES));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return handlersMatching(
+                context,
+                handler -> isItemMutation(handler)
+                        && !handler.effectivePaths().isEmpty()
+                        && RestApiRuleHelp.pathVariableTokens(handler).isEmpty()
+                        && !RestApiRuleHelp.isBulkMutation(handler)
+                        && !RestApiRuleHelp.isSingletonResource(handler),
+                "mutating item method has no resource identifier in the path");
+    }
+
+    private static boolean isItemMutation(HandlerMethodModel handler) {
+        return handler.httpMethods().contains("PUT")
+                || handler.httpMethods().contains("PATCH")
+                || handler.httpMethods().contains("DELETE");
+    }
+}
+
+final class CreatedResponsesExposeLocationRule extends AbstractRestApiRule {
+    CreatedResponsesExposeLocationRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-RESP-008",
+                "Created responses expose a Location",
+                RestApiCategory.RESPONSES,
+                "MEDIUM",
+                "A handler annotated @ResponseStatus(CREATED) that returns a plain body (not ResponseEntity and with"
+                        + " no servlet response argument) has no way to set the Location header of the newly created"
+                        + " resource.",
+                "Return ResponseEntity.created(uri).body(...) so the 201 response also carries the Location of the new"
+                        + " resource.",
+                RestApiRuleHelp.CREATED_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return handlersMatching(
+                context,
+                handler -> "CREATED".equals(handler.responseStatusValue())
+                        && !handler.returnsResponseEntity()
+                        && !handler.hasResponseParam(),
+                "@ResponseStatus(CREATED) response cannot set a Location header");
+    }
+}
+
+final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestApiRule {
+    ResponseProducingEndpointsDeclareProducesRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-VER-005",
+                "Response-producing endpoints declare produces consistently",
+                RestApiCategory.VERSIONING,
+                "LOW",
+                "Within a controller that declares produces media types on some response handlers, other"
+                        + " body-returning handlers that omit produces create an inconsistent content contract.",
+                "Declare produces (e.g. application/json) consistently on the response-producing handlers of a"
+                        + " controller.",
+                RestApiRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        Set<String> controllersDeclaringProduces = new LinkedHashSet<>();
+        for (HandlerMethodModel handler : context.handlers()) {
+            if (serializesRepresentation(handler)
+                    && !handler.effectiveProduces().isEmpty()) {
+                controllersDeclaringProduces.add(handler.controllerClassName());
+            }
+        }
+        List<String> violations = new ArrayList<>();
+        for (HandlerMethodModel handler : context.handlers()) {
+            if (serializesRepresentation(handler)
+                    && handler.effectiveProduces().isEmpty()
+                    && controllersDeclaringProduces.contains(handler.controllerClassName())) {
+                violations.add(handler.describe() + " — serializes a body but declares no produces media type");
+            }
+        }
+        return RestApiRuleSupport.fromViolations(definition(), violations);
+    }
+
+    private static boolean serializesRepresentation(HandlerMethodModel handler) {
+        return handler.serializesBody() && !handler.returnsVoid();
     }
 }

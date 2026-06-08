@@ -64,12 +64,20 @@ class GraalVmReadinessScannerTests {
                         "GRAAL-RES-002",
                         "GRAAL-SERVICE-001",
                         "GRAAL-SER-001",
+                        "GRAAL-SER-002",
                         "GRAAL-INIT-001",
+                        "GRAAL-INIT-002",
+                        "GRAAL-CLASSGEN-001",
+                        "GRAAL-SCAN-001",
+                        "SPRING-AOT-001",
+                        "SPRING-AOT-002",
                         "GRAAL-NATIVE-001",
                         "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
                 .isSortedAccordingTo(Comparator.comparingInt(GraalVmReadinessScannerTests::severityRank));
-        assertThat(report.severityCounts()).extracting("severity").containsExactly("HIGH", "MEDIUM", "LOW", "INFO");
+        assertThat(report.severityCounts())
+                .extracting("severity")
+                .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
 
         assertThat(report.includeDependencies()).isTrue();
         assertThat(report.findingsFound()).isEqualTo(report.findings().size());
@@ -139,6 +147,32 @@ class GraalVmReadinessScannerTests {
     }
 
     @Test
+    void scanReportsDependencyTruncationWarning(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)
+            throws java.io.IOException {
+        java.nio.file.Path jar = dir.resolve("dep.jar");
+        try (java.util.jar.JarOutputStream out =
+                new java.util.jar.JarOutputStream(java.nio.file.Files.newOutputStream(jar))) {
+            out.putNextEntry(new java.util.jar.JarEntry("com/example/App.class"));
+            out.write("data".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.closeEntry();
+        }
+        int entries = GraalVmDependencyScanner.maxDependencies() + 3;
+        String classPath =
+                String.join(java.io.File.pathSeparator, java.util.Collections.nCopies(entries, jar.toString()));
+
+        GraalVmReadinessReport report = new GraalVmReadinessScanner(
+                        () -> List.of(),
+                        new ClassFileGraalVmImporter(),
+                        new GraalVmDependencyScanner(() -> classPath),
+                        CLOCK)
+                .scan(true)
+                .report();
+
+        assertThat(report.dependencies()).hasSize(GraalVmDependencyScanner.maxDependencies());
+        assertThat(report.warnings()).anySatisfy(warning -> assertThat(warning).contains("stopped after the first"));
+    }
+
+    @Test
     void checkEvaluationWrapsRuntimeExceptionAsErrorFinding() {
         GraalVmFindingDto finding = new ThrowingCheck().evaluate(null);
 
@@ -186,7 +220,8 @@ class GraalVmReadinessScannerTests {
                 GraalVmCategory.REFLECTION,
                 "INFO",
                 "Test-only check used to exercise the fail-closed base.",
-                "No action required.");
+                "No action required.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/");
     }
 
     private static final class ThrowingCheck extends AbstractArchUnitGraalVmCheck {
@@ -226,6 +261,6 @@ class GraalVmReadinessScannerTests {
     }
 
     private static int severityRank(String severity) {
-        return List.of("HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
+        return List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO").indexOf(severity);
     }
 }

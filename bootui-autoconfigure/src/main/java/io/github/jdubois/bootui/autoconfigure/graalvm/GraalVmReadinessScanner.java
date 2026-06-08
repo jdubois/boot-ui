@@ -30,7 +30,7 @@ final class GraalVmReadinessScanner {
                     + "dependencies ship reachability metadata. They complement, but do not replace, the GraalVM "
                     + "tracing agent and an actual native-image build.";
 
-    private static final List<String> SEVERITIES = List.of("HIGH", "MEDIUM", "LOW", "INFO");
+    private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
     private static final Comparator<GraalVmFindingDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (GraalVmFindingDto finding) -> severityRank(finding.severity()))
             .thenComparing(
@@ -159,7 +159,13 @@ final class GraalVmReadinessScanner {
             return new DependencyScan(List.of(), List.of());
         }
         try {
-            return new DependencyScan(dependencyScanner.scan(), List.of());
+            GraalVmDependencyScanner.DependencySurvey survey = dependencyScanner.scan();
+            List<String> warnings = survey.truncated()
+                    ? List.of("Dependency metadata survey stopped after the first "
+                            + GraalVmDependencyScanner.maxDependencies()
+                            + " classpath JARs; some dependencies were not inspected.")
+                    : List.of();
+            return new DependencyScan(survey.dependencies(), warnings);
         } catch (RuntimeException ex) {
             return new DependencyScan(
                     List.of(),

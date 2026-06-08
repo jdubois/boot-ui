@@ -15,4 +15,5 @@ public record ArchitectureReport(
         int violationsFound,
         List<ArchitectureSeverityCountDto> severityCounts,
         ArchitectureScanStatusDto scan,
-        List<ArchitectureRuleResultDto> results) {}
+        List<ArchitectureRuleResultDto> results,
+        List<ArchitectureRuleResultDto> analysisErrors) {}

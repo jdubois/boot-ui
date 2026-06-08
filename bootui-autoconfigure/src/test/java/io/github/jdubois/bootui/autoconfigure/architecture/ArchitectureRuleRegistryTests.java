@@ -20,7 +20,11 @@ class ArchitectureRuleRegistryTests {
             assertThat(definition.description()).isNotBlank();
             assertThat(definition.recommendation()).isNotBlank();
             assertThat(definition.category()).isNotNull();
-            assertThat(definition.severity()).isIn("HIGH", "MEDIUM", "LOW", "INFO");
+            assertThat(definition.severity()).isIn("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
+            assertThat(definition.learnMoreUrl())
+                    .as("learnMoreUrl for %s", definition.id())
+                    .isNotBlank()
+                    .startsWith("https://");
         });
     }
 
@@ -45,6 +49,11 @@ class ArchitectureRuleRegistryTests {
                         "ARCH-CODE-014",
                         "ARCH-CODE-015",
                         "ARCH-SPRING-015",
-                        "ARCH-SPRING-016");
+                        "ARCH-SPRING-016",
+                        "ARCH-SPRING-017",
+                        "ARCH-SPRING-018",
+                        "ARCH-SPRING-019",
+                        "ARCH-SPRING-021",
+                        "ARCH-MOD-001");
     }
 }

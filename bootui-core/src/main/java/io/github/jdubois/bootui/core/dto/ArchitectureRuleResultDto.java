@@ -15,6 +15,7 @@ public record ArchitectureRuleResultDto(
         int violationCount,
         List<String> sampleViolations,
         String recommendation,
+        String learnMoreUrl,
         boolean dismissed) {
 
     public ArchitectureRuleResultDto(
@@ -26,7 +27,8 @@ public record ArchitectureRuleResultDto(
             String status,
             int violationCount,
             List<String> sampleViolations,
-            String recommendation) {
+            String recommendation,
+            String learnMoreUrl) {
         this(
                 id,
                 name,
@@ -37,6 +39,7 @@ public record ArchitectureRuleResultDto(
                 violationCount,
                 sampleViolations,
                 recommendation,
+                learnMoreUrl,
                 false);
     }
 
@@ -51,6 +54,7 @@ public record ArchitectureRuleResultDto(
                 violationCount,
                 sampleViolations,
                 recommendation,
+                learnMoreUrl,
                 dismissed);
     }
 }

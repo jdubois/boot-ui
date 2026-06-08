@@ -121,7 +121,8 @@ final class RestApiModel {
             List<String> pathVariableNames,
             boolean requestBodyIsSimple,
             boolean hasTag,
-            boolean hidden) {
+            boolean hidden,
+            boolean hasResponseParam) {
 
         HandlerMethodModel {
             httpMethods = List.copyOf(httpMethods);

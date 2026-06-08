@@ -7,6 +7,7 @@ import {usePanelState} from './panelState.js'
 import {useDismissedRules} from './useDismissedRules.js'
 
 const DEFAULT_SEVERITY_CLASSES = {
+  CRITICAL: 'text-bg-danger',
   HIGH: 'text-bg-danger',
   MEDIUM: 'text-bg-warning',
   LOW: 'text-bg-info',
@@ -20,7 +21,7 @@ const DEFAULT_STATUS_CLASSES = {
   ERROR: 'text-bg-warning'
 }
 
-const DEFAULT_SEVERITY_ORDER = ['HIGH', 'MEDIUM', 'LOW', 'INFO']
+const DEFAULT_SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 
 /**
  * Shared logic for the rule-based advisor panels (Spring, REST API, Architecture,

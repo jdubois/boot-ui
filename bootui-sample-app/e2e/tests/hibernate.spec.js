@@ -25,7 +25,11 @@ test.describe('Hibernate Advisor view', () => {
     await expect(page.getByText('Enum attributes should declare an explicit storage strategy')).toBeVisible()
     await expect(page.getByText(/SampleOrder#status relies on JPA's default ORDINAL enum storage/)).toBeVisible()
     await expect(page.getByText('Collection fetch joins should not be paged directly')).toBeVisible()
-    await expect(page.getByText(/SampleOrderRepository#findPageWithTags pages a collection JOIN FETCH/)).toBeVisible()
+    // This finding is reported by both HIB-FETCH-003 and HIB-CONFIG-016 (which lists the same risky
+    // paginated collection-fetch queries as evidence), so the detail intentionally renders twice.
+    await expect(
+      page.getByText(/SampleOrderRepository#findPageWithTags pages a collection JOIN FETCH/).first()
+    ).toBeVisible()
     await expect(page.getByText('Generated identifiers should avoid GenerationType.TABLE')).toBeVisible()
     await expect(page.getByText(/SampleLegacyTicket#id uses GenerationType.TABLE/)).toBeVisible()
     await expect(page.getByText('@SequenceGenerator should use pooled allocation')).toBeVisible()

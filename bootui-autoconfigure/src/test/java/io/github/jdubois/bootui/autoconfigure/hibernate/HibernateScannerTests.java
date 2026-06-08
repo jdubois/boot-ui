@@ -57,7 +57,8 @@ import org.springframework.mock.env.MockEnvironment;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 63;
+    private static final int RULE_COUNT = 66;
+    private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
@@ -83,6 +84,10 @@ class HibernateScannerTests {
                         "HIB-MAP-003",
                         "HIB-FETCH-002",
                         "HIB-CONFIG-002");
+        // The severity histogram leads with CRITICAL so promoted rules sort and count correctly.
+        assertThat(report.severityCounts())
+                .extracting("severity")
+                .containsExactly("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
         assertThat(report.results())
                 .anySatisfy(result -> assertThat(result.sampleViolations())
                         .anySatisfy(sample -> assertThat(sample).contains("customer is mapped as FetchType.EAGER.")));
@@ -112,6 +117,7 @@ class HibernateScannerTests {
                 .withProperty("spring.jpa.properties.hibernate.cache.use_second_level_cache", "false")
                 .withProperty("spring.jpa.properties.hibernate.cache.region.factory_class", "jcache")
                 .withProperty("spring.jpa.properties.hibernate.connection.pool_size", "5")
+                .withProperty("spring.datasource.hikari.auto-commit", "false")
                 .withProperty("spring.jpa.defer-datasource-initialization", "true")
                 .withProperty("spring.jpa.hibernate.ddl-auto", "validate")
                 .withProperty("spring.jpa.show-sql", "true");
@@ -241,6 +247,7 @@ class HibernateScannerTests {
                         "HIB-ID-003",
                         "HIB-ID-004",
                         "HIB-ID-005",
+                        "HIB-ID-006",
                         "HIB-MAP-004",
                         "HIB-MAP-005",
                         "HIB-MAP-006",
@@ -268,8 +275,8 @@ class HibernateScannerTests {
     }
 
     @Test
-    void paginationOverCollectionFetchRulesStillApplyThroughHibernate74() {
-        HibernateContext context = collectionFetchPaginationContext("7.4.9.Final");
+    void paginationOverCollectionFetchRulesStillApplyBelowHibernate74() {
+        HibernateContext context = collectionFetchPaginationContext("7.3.9.Final");
 
         HibernateRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
         HibernateRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
@@ -278,21 +285,25 @@ class HibernateScannerTests {
         assertThat(queryResult.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("findPageWithTags", "o.tags"));
         assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        // A risky paginated collection fetch exists, so the missing safety net is escalated to HIGH.
+        assertThat(configResult.severity()).isEqualTo(HibernateRuleSupport.HIGH);
     }
 
     @Test
-    void paginationOverCollectionFetchRulesSkipAfterHibernate74() {
-        HibernateContext context = collectionFetchPaginationContext("7.5.0.Final");
+    void paginationOverCollectionFetchRulesSkipAtAndAfterHibernate74() {
+        for (String version : List.of("7.4.0.Final", "7.5.0.Final")) {
+            HibernateContext context = collectionFetchPaginationContext(version);
 
-        HibernateRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
-        HibernateRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
+            HibernateRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
+            HibernateRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
 
-        assertThat(queryResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-        assertThat(queryResult.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("Hibernate 7.5.0.Final"));
-        assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-        assertThat(configResult.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("Hibernate 7.5.0.Final"));
+            assertThat(queryResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+            assertThat(queryResult.sampleViolations())
+                    .anySatisfy(sample -> assertThat(sample).contains("Hibernate " + version));
+            assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+            assertThat(configResult.sampleViolations())
+                    .anySatisfy(sample -> assertThat(sample).contains("Hibernate " + version));
+        }
     }
 
     @Test
@@ -304,6 +315,14 @@ class HibernateScannerTests {
         assertThat(HibernateRuntimeVersion.parse("8.0.0.Final").isAfterMajorMinor(7, 4))
                 .isTrue();
         assertThat(HibernateRuntimeVersion.parse("unknown").isAfterMajorMinor(7, 4))
+                .isFalse();
+        assertThat(HibernateRuntimeVersion.parse("7.3.9.Final").isAtLeastMajorMinor(7, 4))
+                .isFalse();
+        assertThat(HibernateRuntimeVersion.parse("7.4.0.Final").isAtLeastMajorMinor(7, 4))
+                .isTrue();
+        assertThat(HibernateRuntimeVersion.parse("8.0.0.Final").isAtLeastMajorMinor(7, 4))
+                .isTrue();
+        assertThat(HibernateRuntimeVersion.parse("unknown").isAtLeastMajorMinor(7, 4))
                 .isFalse();
     }
 
@@ -620,7 +639,7 @@ class HibernateScannerTests {
                 repositories,
                 environment,
                 CLOCK,
-                "7.4.9.Final");
+                AFFECTED_HIBERNATE_VERSION);
     }
 
     private HibernateContext collectionFetchPaginationContext(String hibernateVersion) {
@@ -900,8 +919,7 @@ class HibernateScannerTests {
         @OneToMany(mappedBy = "order")
         List<LineItem> lineItems;
 
-        @OneToMany
-        @JoinColumn(name = "order_id")
+        @OneToMany(mappedBy = "order")
         @OrderColumn(name = "line_item_order")
         List<LineItem> ownedLineItems;
 

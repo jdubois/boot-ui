@@ -40,6 +40,12 @@ final class MemoryScanner {
     private final Supplier<MemoryContext> contextSupplier;
     private final Clock clock;
 
+    /**
+     * Post-histogram GC counters from the previous scan, used as the lower bound of the recent-GC
+     * window. Guarded by the {@code synchronized} {@link #scan()} monitor.
+     */
+    private MemoryContext.GcSample previousGcSample;
+
     MemoryScanner(MemoryCollector collector, Clock clock) {
         this(collector::collect, clock);
     }
@@ -59,7 +65,7 @@ final class MemoryScanner {
                 List.of());
     }
 
-    MemoryReport scan() {
+    synchronized MemoryReport scan() {
         MemoryContext context;
         try {
             context = contextSupplier.get();
@@ -73,8 +79,15 @@ final class MemoryScanner {
                     List.of());
         }
 
+        MemoryContext.GcSample currentSample = MemoryContext.GcSample.from(context.runtime());
+        MemoryContext.GcTrend trend = previousGcSample == null
+                ? MemoryContext.GcTrend.unavailable()
+                : MemoryContext.GcTrend.between(previousGcSample, context.preHistogramGc());
+        previousGcSample = currentSample;
+        MemoryContext evaluated = context.withGcTrend(trend);
+
         List<MemoryRuleResultDto> results = MemoryRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
+                .map(rule -> rule.evaluate(evaluated))
                 .toList();
         boolean hadErrors = results.stream().anyMatch(result -> MemoryRuleSupport.ERROR.equals(result.status()));
         String status = hadErrors ? "PARTIAL" : "SCANNED";
@@ -82,7 +95,7 @@ final class MemoryScanner {
         if (hadErrors) {
             message += " Some rules could not be evaluated.";
         }
-        return report(status, message, clock.millis(), summary(context), results.size(), results);
+        return report(status, message, clock.millis(), summary(evaluated), results.size(), results);
     }
 
     private MemoryReport report(
@@ -107,7 +120,8 @@ final class MemoryScanner {
                 summary,
                 severityCounts(violations),
                 scan,
-                violations);
+                violations,
+                analysisErrors(results));
     }
 
     MemoryReport applyDismissals(MemoryReport report, Set<String> dismissedIds) {
@@ -136,7 +150,15 @@ final class MemoryScanner {
                 report.summary(),
                 severityCounts(active),
                 updatedScan,
-                marked);
+                marked,
+                report.analysisErrors());
+    }
+
+    static List<MemoryRuleResultDto> analysisErrors(List<MemoryRuleResultDto> results) {
+        return results.stream()
+                .filter(result -> MemoryRuleSupport.ERROR.equals(result.status()))
+                .sorted(Comparator.comparing(MemoryRuleResultDto::id))
+                .toList();
     }
 
     private MemorySummaryDto summary(MemoryContext context) {

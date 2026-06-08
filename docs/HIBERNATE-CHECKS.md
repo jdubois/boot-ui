@@ -17,6 +17,8 @@ through `@EntityScan` or custom persistence-unit configuration without scanning 
 
 ## Severity scale
 
+- **CRITICAL** - a configuration choice that can immediately damage production data. Currently emitted by
+  HIB-CONFIG-002 for `ddl-auto=create` or `create-drop` under a production-like profile.
 - **HIGH** - a mapping choice that commonly causes large performance surprises.
 - **MEDIUM** - a mapping or configuration issue that usually warrants review before production use.
 - **LOW** - reserved for lower-impact hygiene findings.
@@ -41,26 +43,13 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: prefer `LAZY` mappings and fetch required data explicitly with joins, entity graphs, DTO
   projections, or targeted collection-value queries.
 
-### HIB-FETCH-002 - Batch fetching should cover lazy secondary-select associations
-
-- **Severity**: INFO
-- **Inspects**: lazy to-one and collection mappings, `hibernate.default_batch_fetch_size` / Spring's
-  `spring.jpa.properties.hibernate.default_batch_fetch_size`, association-level `@org.hibernate.annotations.BatchSize`,
-  and target-entity `@BatchSize` for lazy to-one associations.
-- **Fires when**: a lazy association can initialize through secondary selects and no global or applicable local batch
-  fetch size is detected.
-- **Why it matters**: lazy associations without batch fetching can produce N+1 select patterns when the same association
-  is traversed across multiple owner rows.
-- **Recommendation**: set a bounded global batch-fetch size or targeted `@BatchSize` for associations traversed across
-  multiple owners; use explicit fetch plans or paged/filtered queries for a single oversized collection.
-
 ### HIB-FETCH-003 - Collection fetch joins should not be paged directly
 
 - **Severity**: HIGH
 - **Inspects**: Spring Data JPA `@Query` methods with a `Pageable` parameter and resolvable JPQL `JOIN FETCH` paths.
-- **Fires when**: Hibernate is 7.4 or earlier (or the runtime version cannot be detected) and a paged repository query
-  fetch-joins a mapped collection on the repository domain entity. The check is skipped for Hibernate versions newer than
-  7.4, where this pagination behavior is fixed.
+- **Fires when**: Hibernate is older than 7.4 (or the runtime version cannot be detected), Spring Data repository
+  metadata is available, and a paged repository query fetch-joins a mapped collection on the repository domain entity.
+  The check is skipped for Hibernate 7.4 or newer.
 - **Why it matters**: collection fetch joins duplicate root rows, so pagination may be applied in memory or require a
   more explicit two-step query plan.
 - **Recommendation**: page root identifiers first, then fetch the required collection graph in a second query inside the
@@ -75,6 +64,19 @@ includes up to a handful of sample mapped members plus a remediation link.
   `MultipleBagFetchException`.
 - **Recommendation**: fetch at most one bag collection per query, persist list order with `@OrderColumn`, or split loading
   into targeted queries.
+
+### HIB-FETCH-002 - Batch fetching should cover lazy secondary-select associations
+
+- **Severity**: INFO
+- **Inspects**: lazy to-one and collection mappings, `hibernate.default_batch_fetch_size` / Spring's
+  `spring.jpa.properties.hibernate.default_batch_fetch_size`, association-level `@org.hibernate.annotations.BatchSize`,
+  and target-entity `@BatchSize` for lazy to-one associations.
+- **Fires when**: a lazy association can initialize through secondary selects and no global or applicable local batch
+  fetch size is detected.
+- **Why it matters**: lazy associations without batch fetching can produce N+1 select patterns when the same association
+  is traversed across multiple owner rows.
+- **Recommendation**: set a bounded global batch-fetch size or targeted `@BatchSize` for associations traversed across
+  multiple owners; use explicit fetch plans or paged/filtered queries for a single oversized collection.
 
 ### HIB-FETCH-005 - @Lob attributes should be loaded lazily
 
@@ -145,6 +147,17 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: annotate UUID identifiers with `@UuidGenerator` and pick the style that matches the target
   database.
 
+### HIB-ID-006 - GenerationType.IDENTITY disables JDBC batch inserts
+
+- **Severity**: HIGH
+- **Inspects**: `spring.jpa.properties.hibernate.jdbc.batch_size`, `hibernate.jdbc.batch_size`, and identifier attributes
+  annotated with `@GeneratedValue`.
+- **Fires when**: a positive JDBC batch size is configured and an identifier uses `GenerationType.IDENTITY`.
+- **Why it matters**: Hibernate must execute each identity insert immediately so it can read back the generated key,
+  preventing JDBC insert batching for those entities despite the configured batch size.
+- **Recommendation**: switch IDENTITY identifiers to `SEQUENCE` with a pooled `allocationSize` so Hibernate can batch
+  inserts, or drop the JDBC batch-size expectation for these entities.
+
 ## Mapping
 
 ### HIB-MAP-001 - One-to-many associations should be bidirectional or join-column based
@@ -154,8 +167,9 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Fires when**: a one-to-many association has neither `mappedBy` nor `@JoinColumn` / `@JoinColumns`.
 - **Why it matters**: Hibernate models that shape through a join table by default, which often produces extra DML and a
   less obvious schema.
-- **Recommendation**: use `mappedBy` for bidirectional ownership, or add `@JoinColumn` when a unidirectional one-to-many
-  is intentional.
+- **Recommendation**: prefer a bidirectional association with `@ManyToOne` on the child and `@OneToMany(mappedBy=...)`
+  on the parent so the child's foreign key owns the relationship. If a unidirectional mapping is intentional, add
+  `@JoinColumn` to drop the join table and review the extra update statements flagged by HIB-MAP-020.
 
 ### HIB-MAP-002 - Many-to-many associations should use Set semantics
 
@@ -196,9 +210,11 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 ### HIB-MAP-006 - One-to-one associations should prefer shared primary keys
 
-- **Severity**: MEDIUM
+- **Severity**: MEDIUM (LOW when no lifecycle-dependency signal is detected)
 - **Inspects**: owning-side `@OneToOne` mappings.
-- **Fires when**: the association has no `mappedBy`, no `@MapsId`, and the association itself is not the identifier.
+- **Fires when**: the association has no `mappedBy`, no `@MapsId`, and the association itself is not the identifier. The
+  finding is MEDIUM when the mapping looks lifecycle-dependent (`optional=false` or cascade `REMOVE` / `ALL`) and LOW
+  otherwise.
 - **Why it matters**: dependent one-to-one rows often share the parent lifecycle and can avoid an extra foreign-key/index
   pair by sharing the primary key.
 - **Recommendation**: use `@MapsId` when the child row is lifecycle-dependent on the parent; keep a separate foreign key
@@ -305,6 +321,126 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: enable `hibernate.bytecode.enhancer.enableLazyInitialization` (and configure the enhancement
   plugin), or switch to `@MapsId` so the existing foreign key drives loading.
 
+### HIB-MAP-018 - Non-owning @OneToOne triggers N+1 queries
+
+- **Severity**: HIGH
+- **Inspects**: non-owning (`mappedBy`) `@OneToOne` associations and whether Hibernate bytecode enhancement is enabled.
+- **Fires when**: bytecode enhancement is disabled and an entity declares a non-owning `@OneToOne` association.
+- **Why it matters**: without bytecode enhancement Hibernate cannot create a lazy proxy for a non-owning `@OneToOne`, so
+  it loads the association eagerly with an extra query per parent row — the classic N+1 pattern.
+- **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key
+  (`@MapsId`) and a unidirectional mapping.
+
+### HIB-MAP-019 - Missing foreign key indexes
+
+- **Severity**: INFO
+- **Inspects**: `@ManyToOne` and owning `@OneToOne` join columns against the leading columns of `@Index` declarations in
+  the entity's `@Table` mapping.
+- **Fires when**: a foreign-key association's join column is not the leading column of any JPA-declared `@Index`.
+- **Why it matters**: databases do not always index foreign keys automatically. An unindexed foreign key forces full table
+  scans when joining the association or when deleting parent rows for constraint and cascade checks, which can lead to
+  lock contention and deadlocks.
+- **Recommendation**: declare an `@Index` in `@Table` with the foreign-key column as the leading column. If you manage the
+  schema with Flyway/Liquibase, ensure the index exists in your migrations.
+
+### HIB-MAP-020 - Unidirectional @OneToMany with @JoinColumn issues extra UPDATE statements
+
+- **Severity**: MEDIUM
+- **Inspects**: unidirectional `@OneToMany` associations and their join-column annotations.
+- **Fires when**: a `@OneToMany` has no `mappedBy`, declares a join column, and that join column is not read-only
+  (`insertable=false, updatable=false`).
+- **Why it matters**: Hibernate inserts the child rows first and then issues separate `UPDATE` statements to set the
+  foreign key.
+- **Recommendation**: make the association bidirectional with `@ManyToOne` on the child and `@OneToMany(mappedBy=...)` on
+  the parent so the child's foreign key is written in the `INSERT`. A read-only `@JoinColumn(insertable=false,
+  updatable=false)` is exempt.
+
+## Entity design
+
+### HIB-ENTITY-001 - Entities should override equals and hashCode consistently
+
+- **Severity**: INFO
+- **Inspects**: entity classes for detectable `equals(Object)` and `hashCode()` overrides.
+- **Fires when**: an entity overrides one method but not the other.
+- **Why it matters**: inconsistent equality contracts break sets, maps, and Hibernate collection semantics.
+- **Recommendation**: implement `equals` and `hashCode` as a pair, and review generated identifier semantics before using
+  entities in hash-based collections.
+
+### HIB-ENTITY-002 - Versionless optimistic locking should use dynamic updates
+
+- **Severity**: MEDIUM
+- **Inspects**: Hibernate `@OptimisticLocking`.
+- **Fires when**: `type=DIRTY` or `type=ALL` is used without `@DynamicUpdate`.
+- **Why it matters**: versionless optimistic locking relies on update predicates that match the chosen locking strategy.
+- **Recommendation**: add `@DynamicUpdate` when using versionless optimistic locking, or use a regular `@Version` column
+  for simpler optimistic locking.
+
+### HIB-ENTITY-003 - equals/hashCode should not include lazy associations
+
+- **Severity**: INFO
+- **Inspects**: entities that override both `equals` and `hashCode` and declare JPA associations.
+- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@EqualsAndHashCode` without
+  exclusions, IDE templates) typically include those associations.
+- **Why it matters**: comparing entities that participate in collections then triggers lazy loading or proxy/initialized
+  mismatches.
+- **Recommendation**: base `equals` and `hashCode` on a stable business key or natural id only; exclude lazy associations
+  explicitly when generated tooling is used.
+
+### HIB-ENTITY-004 - toString should not include lazy associations
+
+- **Severity**: INFO
+- **Inspects**: entities that override `toString` and declare JPA associations.
+- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@ToString` without
+  exclusions, IDE templates) typically traverse associations.
+- **Why it matters**: logging or debugging the entity then pulls the object graph, triggering N+1 lazy loads or
+  `LazyInitializationException` outside an open session.
+- **Recommendation**: base `toString` on the identifier and a few stable scalar fields; exclude associations explicitly
+  (for example with `@ToString(exclude = ...)`).
+
+### HIB-ENTITY-005 - Persistent fields should not be public
+
+- **Severity**: LOW
+- **Inspects**: entity attributes reachable as public fields.
+- **Fires when**: a persistent field is `public`.
+- **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
+- **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
+  preserves proxy substitution and bytecode-enhancer guarantees.
+
+### HIB-ENTITY-006 - Avoid primitive @Id or @Version types
+
+- **Severity**: HIGH
+- **Inspects**: the Java type of attributes annotated with `@Id`, `@EmbeddedId`, or `@Version`.
+- **Fires when**: an identifier or version attribute uses a primitive type.
+- **Why it matters**: primitives have default values (for example `0` for `long`). Spring Data's default `isNew()` strategy
+  checks whether the ID or version is `null`, so a default value of `0` can make a new entity look existing and trigger an
+  unnecessary `SELECT` before every `INSERT`.
+- **Recommendation**: use wrapper classes (`Long`, `Integer`) so the default value is `null`, enabling Spring Data to
+  cleanly detect new entities and skip the pre-insert `SELECT`.
+
+### HIB-ENTITY-007 - Assigned IDs should implement Persistable
+
+- **Severity**: MEDIUM
+- **Inspects**: entities with assigned identifiers (lacking `@GeneratedValue`) and no `@Version` attribute.
+- **Fires when**: the entity does not implement `org.springframework.data.domain.Persistable`.
+- **Why it matters**: when using assigned identifiers such as a natural key or application-created UUID, Spring Data cannot
+  determine whether the entity is new or detached because the ID is already populated. It assumes the entity might exist
+  and issues a `SELECT` before `INSERT`.
+- **Recommendation**: implement `Persistable<ID>` and manage the `isNew()` flag manually, for example via a `@Transient`
+  flag set after loading or defaulting to true, so Spring Data avoids the unnecessary `SELECT` before every insert.
+
+### HIB-ENTITY-008 - Mutable entities should declare @Version for optimistic locking
+
+- **Severity**: INFO
+- **Inspects**: mapped entities that carry non-identifier persistent state (at least one attribute that is not an `@Id`,
+  `@EmbeddedId`, `@Version`, association, or `@Transient`).
+- **Fires when**: the entity declares no `@Version` attribute and has not opted into versionless optimistic locking
+  (`@OptimisticLocking(DIRTY|ALL)`) or `@org.hibernate.annotations.Immutable`.
+- **Why it matters**: without a version column, two concurrent transactions that read and then update the same row will
+  silently overwrite each other's changes (a lost update) because nothing detects the stale snapshot.
+- **Recommendation**: add a `@Version` attribute (for example a `Long` or `Instant`) so concurrent updates fail fast with
+  an optimistic-lock exception; skip this only for append-only, read-only, or reference data where lost updates cannot
+  occur.
+
 ## Query
 
 ### HIB-QUERY-001 - @Modifying queries should clear or flush the persistence context
@@ -372,6 +508,19 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Recommendation**: return a DTO/interface projection so Hibernate selects only the columns the caller needs; reserve
   whole-entity reads for cases that mutate the loaded entities.
 
+### HIB-QUERY-007 - Queries should not JOIN FETCH more than one collection
+
+- **Severity**: HIGH (MEDIUM for multi-collection fetches without multiple bags)
+- **Inspects**: Spring Data repository `@Query` methods, resolvable JPQL `JOIN FETCH` paths, and collection/bag metadata
+  on the repository domain entity.
+- **Fires when**: a non-native JPQL query `JOIN FETCH`es two or more collection associations from the same root entity.
+  Two or more bag collections are reported as HIGH; other multi-collection fetch joins are reported as MEDIUM.
+- **Why it matters**: fetching multiple bags throws `MultipleBagFetchException`, and fetching multiple collections
+  multiplies the result set into a cartesian product.
+- **Recommendation**: fetch at most one collection per query. Initialize the remaining collections with separate queries,
+  `@EntityGraph` attribute nodes, or `@BatchSize` / `default_batch_fetch_size`, and use `Set` collections to avoid
+  `MultipleBagFetchException`.
+
 ## Configuration
 
 ### HIB-CONFIG-001 - Open Session in View should be disabled
@@ -382,17 +531,6 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: lazy loading after the service transaction has completed can hide missing fetch plans and move data
   access into the web layer.
 - **Recommendation**: set `spring.jpa.open-in-view=false` and fetch data inside transactional service boundaries.
-
-### HIB-CONFIG-002 - Schema generation should not mutate non-test databases
-
-- **Severity**: INFO
-- **Inspects**: `spring.jpa.hibernate.ddl-auto`, `spring.jpa.properties.hibernate.hbm2ddl.auto`, and
-  `hibernate.hbm2ddl.auto`.
-- **Fires when**: the configured value is `update`, `create`, or `create-drop` and no active profile is named `test`,
-  starts with `test-`, or ends with `-test`.
-- **Why it matters**: automatic schema mutation is convenient locally but risky against shared or persistent databases.
-- **Recommendation**: use versioned migrations for shared databases and reserve mutating `ddl-auto` values for disposable
-  test environments.
 
 ### HIB-CONFIG-003 - Lazy loading outside transactions should stay disabled
 
@@ -439,8 +577,11 @@ includes up to a handful of sample mapped members plus a remediation link.
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly
 
 - **Severity**: INFO
-- **Inspects**: `hibernate.connection.provider_disables_autocommit`, excluding JTA configurations.
-- **Fires when**: the property is not `true`.
+- **Inspects**: `hibernate.connection.provider_disables_autocommit`, JTA transaction settings, and
+  `spring.datasource.hikari.auto-commit`.
+- **Fires when**: JTA is not detected, `hibernate.connection.provider_disables_autocommit` is not enabled, and Hikari is
+  explicitly configured with `spring.datasource.hikari.auto-commit=false`. If the pool's auto-commit behavior cannot be
+  confirmed, the check is skipped with guidance.
 - **Why it matters**: when the pool already disables auto-commit, this setting lets Hibernate delay connection acquisition.
 - **Recommendation**: configure the pool with auto-commit disabled and set
   `hibernate.connection.provider_disables_autocommit=true`.
@@ -471,6 +612,19 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: cache concurrency behavior should be explicit for cached entities.
 - **Recommendation**: add a Hibernate cache concurrency strategy, or remove `@Cacheable` when the entity should not use the
   second-level cache.
+
+### HIB-CONFIG-002 - Schema generation should not mutate non-test databases
+
+- **Severity**: INFO (can emit MEDIUM, HIGH, or CRITICAL based on profile and value)
+- **Inspects**: `spring.jpa.hibernate.ddl-auto`, `spring.jpa.properties.hibernate.hbm2ddl.auto`,
+  `hibernate.hbm2ddl.auto`, and active Spring profiles.
+- **Fires when**: the configured value is `update`, `create`, or `create-drop` outside a test profile. A production-like
+  profile wins over any other active profile: `create` / `create-drop` emits CRITICAL, and `update` emits HIGH. Dev/local
+  disposable profiles emit INFO; unpinned non-test profiles emit MEDIUM.
+- **Why it matters**: automatic schema mutation is convenient locally but risky against shared or persistent databases,
+  and `create` / `create-drop` can drop and recreate live schemas at application startup.
+- **Recommendation**: use versioned migrations for shared databases and reserve mutating `ddl-auto` values for disposable
+  test environments.
 
 ### HIB-CONFIG-012 - SQL logging should be off when a production profile is active
 
@@ -505,11 +659,36 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 - **Severity**: MEDIUM
 - **Inspects**: `spring.jpa.defer-datasource-initialization` and `spring.jpa.hibernate.ddl-auto`.
-- **Fires when**: deferred initialization is enabled while `ddl-auto` is `none`, `validate`, or unset.
-- **Why it matters**: the property is meaningful only when Hibernate creates the schema (`create`, `create-drop`,
-  `update`); otherwise `data.sql` is never executed and the configuration is misleading.
+- **Fires when**: deferred initialization is enabled while `ddl-auto` is explicitly set to a value other than `create`,
+  `create-drop`, or `update`. If `ddl-auto` is unset, the check is skipped because embedded-database defaults can still
+  make deferred initialization meaningful.
+- **Why it matters**: the property is meaningful only when Hibernate creates or updates the schema; otherwise `data.sql`
+  is never executed by that flow and the configuration is misleading.
 - **Recommendation**: combine deferred initialization with `ddl-auto=create`/`create-drop`, or remove it and load seed
   data through your migration tool (Flyway, Liquibase).
+
+### HIB-CONFIG-016 - Fail on pagination over collection fetch
+
+- **Severity**: HIGH (INFO when only the safety-net setting is missing)
+- **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property and paginated collection
+  `JOIN FETCH` repository queries.
+- **Fires when**: Hibernate is older than 7.4 (or the runtime version cannot be detected) and the property is absent,
+  false, or unparseable. The check is skipped for Hibernate 7.4 or newer. If matching paginated collection fetch queries
+  exist, the finding is HIGH; otherwise it is INFO hardening guidance for future queries.
+- **Why it matters**: without this guard, affected runtimes can allow a paginated collection fetch join to fetch the whole
+  result set into memory instead of failing fast.
+- **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to throw
+  an exception instead of risking a full-table fetch and memory exhaustion.
+
+### HIB-CONFIG-017 - Disable SQL formatting in production
+
+- **Severity**: LOW
+- **Inspects**: the `hibernate.format_sql` property and the active Spring profiles.
+- **Fires when**: a production profile is active and `hibernate.format_sql` is `true`.
+- **Why it matters**: pretty-printing SQL adds CPU and memory overhead, and Hibernate formats the statements even when SQL
+  logging is disabled, so it is wasted work in production.
+- **Recommendation**: disable `hibernate.format_sql` in production profiles and keep it enabled only for local development
+  where readable SQL helps.
 
 ## Caching
 
@@ -531,117 +710,3 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Why it matters**: `READ_ONLY` throws when Hibernate detects state changes and silently misses updates from other
   transactions on the same entity.
 - **Recommendation**: switch to `READ_WRITE` or `NONSTRICT_READ_WRITE` for mutable entities.
-
-## Entity design
-
-### HIB-ENTITY-001 - Entities should override equals and hashCode consistently
-
-- **Severity**: INFO
-- **Inspects**: entity classes for detectable `equals(Object)` and `hashCode()` overrides.
-- **Fires when**: an entity overrides one method but not the other.
-- **Why it matters**: inconsistent equality contracts break sets, maps, and Hibernate collection semantics.
-- **Recommendation**: implement `equals` and `hashCode` as a pair, and review generated identifier semantics before using
-  entities in hash-based collections.
-
-### HIB-ENTITY-002 - Versionless optimistic locking should use dynamic updates
-
-- **Severity**: MEDIUM
-- **Inspects**: Hibernate `@OptimisticLocking`.
-- **Fires when**: `type=DIRTY` or `type=ALL` is used without `@DynamicUpdate`.
-- **Why it matters**: versionless optimistic locking relies on update predicates that match the chosen locking strategy.
-- **Recommendation**: add `@DynamicUpdate` when using versionless optimistic locking, or use a regular `@Version` column
-  for simpler optimistic locking.
-
-### HIB-ENTITY-003 - equals/hashCode should not include lazy associations
-
-- **Severity**: INFO
-- **Inspects**: entities that override both `equals` and `hashCode` and declare JPA associations.
-- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@EqualsAndHashCode` without
-  exclusions, IDE templates) typically include those associations.
-- **Why it matters**: comparing entities that participate in collections then triggers lazy loading or proxy/initialized
-  mismatches.
-- **Recommendation**: base `equals` and `hashCode` on a stable business key or natural id only; exclude lazy associations
-  explicitly when generated tooling is used.
-
-### HIB-ENTITY-004 - toString should not include lazy associations
-
-- **Severity**: INFO
-- **Inspects**: entities that override `toString` and declare JPA associations.
-- **Fires when**: such an entity is detected. Generated implementations (Lombok `@Data` / `@ToString` without
-  exclusions, IDE templates) typically traverse associations.
-- **Why it matters**: logging or debugging the entity then pulls the object graph, triggering N+1 lazy loads or
-  `LazyInitializationException` outside an open session.
-- **Recommendation**: base `toString` on the identifier and a few stable scalar fields; exclude associations explicitly
-  (for example with `@ToString(exclude = ...)`).
-
-### HIB-ENTITY-005 - Persistent fields should not be public
-
-- **Severity**: LOW
-- **Inspects**: entity attributes reachable as public fields.
-- **Fires when**: a persistent field is `public`.
-- **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
-- **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
-  preserves proxy substitution and bytecode-enhancer guarantees.
-
-### HIB-CONFIG-016 - Fail on pagination over collection fetch
-
-- **Severity**: HIGH
-- **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property.
-- **Fires when**: Hibernate is 7.4 or earlier (or the runtime version cannot be detected) and the property is absent,
-  false, or unparseable. The check is skipped for Hibernate versions newer than 7.4, where pagination over collection
-  fetch joins no longer needs this fail-fast guard.
-- **Why it matters**: by default, if a query uses pagination (`setMaxResults()`) and fetches a collection, Hibernate performs the pagination in memory instead of the database. This silently retrieves the entire result set, causing severe memory and performance issues in production.
-- **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to fail fast during development rather than silently suffering memory exhaustion in production.
-
-### HIB-CONFIG-017 - Disable SQL formatting in production
-
-- **Severity**: LOW
-- **Inspects**: the `hibernate.format_sql` property and the active Spring profiles.
-- **Fires when**: a production profile is active and `hibernate.format_sql` is `true`.
-- **Why it matters**: pretty-printing SQL adds CPU and memory overhead, and Hibernate formats the statements even when SQL logging is disabled, so it is wasted work in production.
-- **Recommendation**: disable `hibernate.format_sql` in production profiles and keep it enabled only for local development where readable SQL helps.
-
-### HIB-MAP-018 - Non-owning @OneToOne triggers N+1 queries
-
-- **Severity**: HIGH
-- **Inspects**: non-owning (`mappedBy`) `@OneToOne` associations and whether Hibernate bytecode enhancement is enabled.
-- **Fires when**: bytecode enhancement is disabled and an entity declares a non-owning `@OneToOne` association.
-- **Why it matters**: without bytecode enhancement Hibernate cannot create a lazy proxy for a non-owning `@OneToOne`, so it loads the association eagerly with an extra query per parent row — the classic N+1 pattern.
-- **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key (`@MapsId`) and a unidirectional mapping.
-
-### HIB-MAP-019 - Missing foreign key indexes
-
-- **Severity**: INFO
-- **Inspects**: `@ManyToOne` and owning `@OneToOne` join columns against the `@Index` declarations in the entity's `@Table` mapping.
-- **Fires when**: a foreign-key association's join column has no matching `@Index` in the entity's `@Table(indexes = ...)`.
-- **Why it matters**: databases do not always index foreign keys automatically. An unindexed foreign key forces full table scans when joining the association or when deleting parent rows (constraint and cascade checks), which can lead to lock contention and deadlocks.
-- **Recommendation**: declare an `@Index` in `@Table` for each foreign-key column; if you manage the schema with Flyway/Liquibase, ensure the index exists in your migrations.
-
-### HIB-ENTITY-006 - Avoid primitive @Id or @Version types
-
-- **Severity**: HIGH
-- **Inspects**: the Java type of attributes annotated with `@Id` or `@Version`.
-- **Fires when**: an `@Id` or `@Version` attribute uses a primitive type (`int`, `long`, `short`).
-- **Why it matters**: primitives have default values (e.g., `0` for `long`). Spring Data's default `isNew()` strategy checks if the ID or version is `null`. A default value of `0` signals to Spring Data that the entity already exists, triggering an unnecessary `SELECT` before every `INSERT`.
-- **Recommendation**: use wrapper classes (`Long`, `Integer`) so the default value is `null`, enabling Spring Data to cleanly detect new entities and skip the pre-insert `SELECT`.
-
-### HIB-ENTITY-007 - Assigned IDs should implement Persistable
-
-- **Severity**: MEDIUM
-- **Inspects**: entities with assigned identifiers (lacking `@GeneratedValue`) and no `@Version` attribute.
-- **Fires when**: the entity does not implement `org.springframework.data.domain.Persistable`.
-- **Why it matters**: when using assigned identifiers (such as a natural key or UUID created by the application), Spring Data cannot determine if the entity is new or detached because the ID is already populated. It assumes the entity might exist and issues a `SELECT` statement before `INSERT`.
-- **Recommendation**: implement `Persistable<ID>` and manage the `isNew()` flag manually (e.g., via a `@Transient` flag set after loading or defaulting to true) so Spring Data avoids the unnecessary `SELECT` before every `insert`.
-
-### HIB-ENTITY-008 - Mutable entities should declare @Version for optimistic locking
-
-- **Severity**: INFO
-- **Inspects**: mapped entities that carry non-identifier persistent state (at least one attribute that is not an `@Id`,
-  `@EmbeddedId`, `@Version`, association, or `@Transient`).
-- **Fires when**: the entity declares no `@Version` attribute and has not opted into versionless optimistic locking
-  (`@OptimisticLocking(DIRTY|ALL)`) or `@org.hibernate.annotations.Immutable`.
-- **Why it matters**: without a version column, two concurrent transactions that read and then update the same row will
-  silently overwrite each other's changes (a lost update) because nothing detects the stale snapshot.
-- **Recommendation**: add a `@Version` attribute (for example a `Long` or `Instant`) so concurrent updates fail fast with
-  an optimistic-lock exception; skip this only for append-only, read-only, or reference data where lost updates cannot
-  occur.
