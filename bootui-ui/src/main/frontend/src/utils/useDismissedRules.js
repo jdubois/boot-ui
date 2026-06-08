@@ -2,60 +2,34 @@ import {apiFetch} from '../api.js'
 import {ref} from 'vue'
 
 /**
- * Composable for managing dismissed advisor rule IDs.
+ * Composable for dismissing/restoring advisor rules.
  *
- * Dismissed rules are persisted on the server in `.bootui/dismissed-rules.yaml`
- * and are loaded once per panel mount. Dismissing or restoring a rule makes an
- * API call and updates the local reactive set immediately.
+ * Dismissed rule IDs are persisted on the server in `.bootui/dismissed-rules.yaml`.
+ * The server applies them when building each advisor report, so dismissing or
+ * restoring a rule simply POSTs/DELETEs and then reloads the panel report (passed
+ * in as `reload`) to pick up the server-applied `dismissed` flags and recomputed
+ * severity counts.
  */
-export function useDismissedRules() {
-  const dismissedIds = ref(new Set())
+export function useDismissedRules(reload) {
   const dismissLoading = ref(false)
 
-  async function loadDismissed() {
-    try {
-      const res = await apiFetch('api/dismissed-rules')
-      if (!res.ok) return
-      const data = await res.json()
-      dismissedIds.value = new Set(data.dismissed ?? [])
-    } catch {
-      // Non-fatal: dismissed rules are a UI convenience; ignore load errors
-    }
-  }
-
-  function isDismissed(ruleId) {
-    return dismissedIds.value.has(ruleId)
-  }
-
-  async function dismiss(ruleId) {
+  async function mutate(ruleId, method) {
     dismissLoading.value = true
     try {
-      const res = await apiFetch(`api/dismissed-rules/${encodeURIComponent(ruleId)}`, {method: 'POST'})
-      if (res.ok) {
-        const data = await res.json()
-        dismissedIds.value = new Set(data.dismissed ?? [])
+      const res = await apiFetch(`api/dismissed-rules/${encodeURIComponent(ruleId)}`, {method})
+      if (res.ok && typeof reload === 'function') {
+        await reload()
       }
     } catch {
-      // Non-fatal
+      // Non-fatal: dismissed rules are a UI convenience; ignore errors
     } finally {
       dismissLoading.value = false
     }
   }
 
-  async function restore(ruleId) {
-    dismissLoading.value = true
-    try {
-      const res = await apiFetch(`api/dismissed-rules/${encodeURIComponent(ruleId)}`, {method: 'DELETE'})
-      if (res.ok) {
-        const data = await res.json()
-        dismissedIds.value = new Set(data.dismissed ?? [])
-      }
-    } catch {
-      // Non-fatal
-    } finally {
-      dismissLoading.value = false
-    }
+  return {
+    dismissLoading,
+    dismiss: (ruleId) => mutate(ruleId, 'POST'),
+    restore: (ruleId) => mutate(ruleId, 'DELETE')
   }
-
-  return {dismissedIds, dismissLoading, loadDismissed, isDismissed, dismiss, restore}
 }

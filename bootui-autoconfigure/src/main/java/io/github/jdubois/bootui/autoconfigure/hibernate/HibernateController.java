@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.hibernate;
 
+import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
@@ -27,30 +28,36 @@ public class HibernateController {
 
     private final HibernateScanner scanner;
 
+    private final DismissedRulesStore dismissedRules;
+
     private volatile HibernateReport lastReport;
 
     @Autowired
     public HibernateController(
             ObjectProvider<EntityManagerFactory> entityManagerFactories,
             ObjectProvider<ListableBeanFactory> beanFactories,
-            Environment environment) {
-        this(new HibernateScanner(entityManagerFactories, beanFactories, environment, Clock.systemUTC()));
+            Environment environment,
+            DismissedRulesStore dismissedRules) {
+        this(
+                new HibernateScanner(entityManagerFactories, beanFactories, environment, Clock.systemUTC()),
+                dismissedRules);
     }
 
-    HibernateController(HibernateScanner scanner) {
+    HibernateController(HibernateScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
+        this.dismissedRules = dismissedRules;
         this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public HibernateReport hibernate() {
-        return lastReport;
+        return scanner.applyDismissals(lastReport, dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public HibernateReport scan() {
         HibernateReport report = scanner.scan();
         lastReport = report;
-        return report;
+        return scanner.applyDismissals(report, dismissedRules.load());
     }
 }

@@ -12,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -147,6 +148,37 @@ final class SpringScanner {
                 severityCounts(violations),
                 scan,
                 violations);
+    }
+
+    SpringReport applyDismissals(SpringReport report, Set<String> dismissedIds) {
+        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+            return report;
+        }
+        List<SpringRuleResultDto> marked = report.results().stream()
+                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+                .toList();
+        List<SpringRuleResultDto> active =
+                marked.stream().filter(result -> !result.dismissed()).toList();
+        int violationsFound = active.size();
+        SpringScanStatusDto scan = report.scan();
+        SpringScanStatusDto updatedScan = new SpringScanStatusDto(
+                scan.analyzer(),
+                scan.status(),
+                scan.message(),
+                scan.scannedAt(),
+                scan.rulesEvaluated(),
+                scan.componentsAnalyzed(),
+                violationsFound);
+        return new SpringReport(
+                report.localOnly(),
+                report.disclaimer(),
+                report.inspected(),
+                report.componentsAnalyzed(),
+                report.rulesEvaluated(),
+                violationsFound,
+                severityCounts(active),
+                updatedScan,
+                marked);
     }
 
     private static List<String> describe(SpringContext context) {

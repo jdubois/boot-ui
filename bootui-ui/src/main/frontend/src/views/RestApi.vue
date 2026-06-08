@@ -14,7 +14,7 @@ const error = ref(null)
 const actionMessage = ref(null)
 const loading = ref(false)
 
-const {dismissLoading, loadDismissed, isDismissed, dismiss, restore} = useDismissedRules()
+const {dismissLoading, dismiss, restore} = useDismissedRules(loadReport)
 
 const severityClasses = {
   HIGH: 'text-bg-danger',
@@ -34,26 +34,17 @@ const severityOrder = ['HIGH', 'MEDIUM', 'LOW', 'INFO']
 
 const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
 
-const allViolations = computed(() =>
+const violations = computed(() =>
   [...(report.value?.results || [])].filter((result) => result.status === 'VIOLATION').sort(compareImportance)
 )
 
-const visibleResults = computed(() => allViolations.value.filter((result) => !isDismissed(result.id)))
+const visibleResults = computed(() => violations.value.filter((result) => !result.dismissed))
 
-const dismissedResults = computed(() => allViolations.value.filter((result) => isDismissed(result.id)))
-
-const activeSeverityCounts = computed(() => {
-  const counts = {}
-  for (const sev of severityOrder) counts[sev] = 0
-  for (const result of visibleResults.value) {
-    if (counts[result.severity] !== undefined) counts[result.severity]++
-  }
-  return severityOrder.map((sev) => ({severity: sev, count: counts[sev]}))
-})
+const dismissedResults = computed(() => violations.value.filter((result) => result.dismissed))
 
 const maxSeverityCount = computed(() => {
-  if (!activeSeverityCounts.value.length) return 1
-  return Math.max(1, ...activeSeverityCounts.value.map((item) => item.count))
+  if (!report.value?.severityCounts?.length) return 1
+  return Math.max(1, ...report.value.severityCounts.map((count) => count.count))
 })
 
 const emptyRuleResultsTitle = computed(() => {
@@ -142,9 +133,7 @@ function showReadOnlyMessage() {
   }, 6000)
 }
 
-onMounted(async () => {
-  await Promise.all([loadReport(), loadDismissed()])
-})
+onMounted(loadReport)
 </script>
 
 <template>
@@ -198,7 +187,7 @@ onMounted(async () => {
           <div class="card h-100">
             <div class="card-body">
               <div class="text-muted small">Findings</div>
-              <div class="display-6">{{ visibleResults.length }}</div>
+              <div class="display-6">{{ report.violationsFound }}</div>
               <div v-if="dismissedResults.length > 0" class="small text-muted">
                 {{ dismissedResults.length }} dismissed
               </div>
@@ -227,7 +216,7 @@ onMounted(async () => {
                 <div>Run REST API checks to populate rule findings.</div>
               </div>
               <div
-                v-for="item in activeSeverityCounts"
+                v-for="item in report.severityCounts"
                 v-else
                 :key="item.severity"
                 class="row align-items-center g-2 mb-2"

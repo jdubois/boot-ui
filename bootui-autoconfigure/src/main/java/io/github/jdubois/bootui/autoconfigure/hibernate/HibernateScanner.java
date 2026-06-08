@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -158,6 +159,37 @@ final class HibernateScanner {
                 severityCounts(violations),
                 scan,
                 violations);
+    }
+
+    HibernateReport applyDismissals(HibernateReport report, Set<String> dismissedIds) {
+        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+            return report;
+        }
+        List<HibernateRuleResultDto> marked = report.results().stream()
+                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+                .toList();
+        List<HibernateRuleResultDto> active =
+                marked.stream().filter(result -> !result.dismissed()).toList();
+        int violationsFound = active.size();
+        HibernateScanStatusDto scan = report.scan();
+        HibernateScanStatusDto updatedScan = new HibernateScanStatusDto(
+                scan.analyzer(),
+                scan.status(),
+                scan.message(),
+                scan.scannedAt(),
+                scan.rulesEvaluated(),
+                scan.entitiesAnalyzed(),
+                violationsFound);
+        return new HibernateReport(
+                report.localOnly(),
+                report.disclaimer(),
+                report.entityPackages(),
+                report.entitiesAnalyzed(),
+                report.rulesEvaluated(),
+                violationsFound,
+                severityCounts(active),
+                updatedScan,
+                marked);
     }
 
     private EntityDiscovery safeEntityDiscovery() {

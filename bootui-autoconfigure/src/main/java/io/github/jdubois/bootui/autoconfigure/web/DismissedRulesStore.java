@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -36,7 +37,7 @@ public class DismissedRulesStore {
      * Loads the current set of dismissed rule IDs from disk. Returns an empty set
      * if the file does not yet exist.
      */
-    public Set<String> load() {
+    public synchronized Set<String> load() {
         if (!Files.exists(file)) {
             return new LinkedHashSet<>();
         }
@@ -90,7 +91,15 @@ public class DismissedRulesStore {
             for (String id : ids) {
                 sb.append("  - ").append(id).append('\n');
             }
-            Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
+            Path tmp = (file.getParent() != null)
+                    ? Files.createTempFile(file.getParent(), "dismissed-rules", ".tmp")
+                    : Files.createTempFile("dismissed-rules", ".tmp");
+            Files.writeString(tmp, sb.toString(), StandardCharsets.UTF_8);
+            try {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicFailure) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             throw new IllegalStateException("Unable to write BootUI dismissed rules file: " + file, e);
         }

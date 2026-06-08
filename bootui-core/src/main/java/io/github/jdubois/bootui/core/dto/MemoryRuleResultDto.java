@@ -16,4 +16,46 @@ public record MemoryRuleResultDto(
         int violationCount,
         List<String> sampleViolations,
         String recommendation,
-        String learnMoreUrl) {}
+        String learnMoreUrl,
+        boolean dismissed) {
+
+    public MemoryRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation,
+            String learnMoreUrl) {
+        this(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                false);
+    }
+
+    public MemoryRuleResultDto withDismissed(boolean dismissed) {
+        return new MemoryRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed);
+    }
+}

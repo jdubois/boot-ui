@@ -16,4 +16,46 @@ public record SecurityRuleResultDto(
         int violationCount,
         List<String> sampleViolations,
         String recommendation,
-        String learnMoreUrl) {}
+        String learnMoreUrl,
+        boolean dismissed) {
+
+    public SecurityRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation,
+            String learnMoreUrl) {
+        this(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                false);
+    }
+
+    public SecurityRuleResultDto withDismissed(boolean dismissed) {
+        return new SecurityRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed);
+    }
+}
