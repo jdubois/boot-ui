@@ -36,13 +36,11 @@ public class DismissedRulesController {
 
     @PostMapping("/{ruleId}")
     public ResponseEntity<DismissedRulesDto> dismiss(@PathVariable String ruleId) {
-        store.dismiss(ruleId);
-        return ResponseEntity.ok(new DismissedRulesDto(List.copyOf(store.load())));
+        return ResponseEntity.ok(new DismissedRulesDto(List.copyOf(store.dismiss(ruleId))));
     }
 
     @DeleteMapping("/{ruleId}")
     public ResponseEntity<DismissedRulesDto> restore(@PathVariable String ruleId) {
-        store.restore(ruleId);
-        return ResponseEntity.ok(new DismissedRulesDto(List.copyOf(store.load())));
+        return ResponseEntity.ok(new DismissedRulesDto(List.copyOf(store.restore(ruleId))));
     }
 }

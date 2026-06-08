@@ -252,9 +252,10 @@ public class BootUiAutoConfiguration {
     @Bean
     public DismissedRulesStore bootUiDismissedRulesStore(BootUiProperties properties) {
         String overridesFile = properties.getOverridesFile();
-        String dir = (overridesFile != null && !overridesFile.isBlank())
-                ? Paths.get(overridesFile).getParent().toString()
-                : ".bootui";
+        java.nio.file.Path parent = (overridesFile != null && !overridesFile.isBlank())
+                ? Paths.get(overridesFile).getParent()
+                : null;
+        String dir = (parent != null) ? parent.toString() : ".bootui";
         return new DismissedRulesStore(Paths.get(dir, "dismissed-rules.yaml"));
     }
 

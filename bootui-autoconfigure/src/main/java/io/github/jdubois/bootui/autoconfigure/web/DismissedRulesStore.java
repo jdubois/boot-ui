@@ -59,20 +59,26 @@ public class DismissedRulesStore {
 
     /**
      * Adds a rule ID to the dismissed set and persists the updated set to disk.
+     * Returns the updated set. Does nothing if the rule is already dismissed.
      */
-    public synchronized void dismiss(String ruleId) {
+    public synchronized Set<String> dismiss(String ruleId) {
         Set<String> ids = load();
-        ids.add(ruleId);
-        save(ids);
+        if (ids.add(ruleId)) {
+            save(ids);
+        }
+        return ids;
     }
 
     /**
      * Removes a rule ID from the dismissed set and persists the updated set to disk.
+     * Returns the updated set. Does nothing if the rule was not dismissed.
      */
-    public synchronized void restore(String ruleId) {
+    public synchronized Set<String> restore(String ruleId) {
         Set<String> ids = load();
-        ids.remove(ruleId);
-        save(ids);
+        if (ids.remove(ruleId)) {
+            save(ids);
+        }
+        return ids;
     }
 
     private void save(Set<String> ids) {
