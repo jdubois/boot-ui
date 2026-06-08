@@ -19,6 +19,10 @@ jobs:
   build:
     name: Build (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
+    # SONAR_TOKEN is stored as a secret on the "sonar" GitHub Actions environment.
+    environment: sonar
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +30,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # Full history lets SonarCloud assign new-code/issues to the right commits.
+          fetch-depth: 0
 
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v5
@@ -42,6 +49,13 @@ jobs:
           cache-dependency-path: |
             bootui-ui/src/main/frontend/package-lock.json
             bootui-sample-app/e2e/package-lock.json
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
 
       - name: Check Maven formatting
         run: ./mvnw -B -ntp spotless:check
@@ -130,3 +144,10 @@ jobs:
           path: bootui-sample-app/target/*.jar
           if-no-files-found: warn
           retention-days: 7
+
+      # Runs after the build/tests so JaCoCo XML and the Vitest LCOV report already
+      # exist on disk. No-op until the SONAR_TOKEN secret is configured (which also
+      # makes it skip forked-PR builds that have no access to the secret).
+      - name: SonarCloud analysis
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: ./mvnw -B -ntp org.sonarsource.scanner.maven:sonar-maven-plugin:sonar

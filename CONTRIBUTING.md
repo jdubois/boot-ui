@@ -73,6 +73,27 @@ npm test
 Playwright can start the sample app automatically. If you already have the sample app running on port 8080, it will
 reuse that server.
 
+## Code quality and coverage
+
+[SonarCloud](https://sonarcloud.io/project/overview?id=jdubois_boot-ui) analysis runs in the `Build` workflow on pushes
+and pull requests targeting `main`. The build generates the coverage reports Sonar consumes:
+
+- **Java** — JaCoCo instruments the Surefire tests and writes `target/site/jacoco/jacoco.xml` in each module during the
+  `verify` phase of `./mvnw clean install`.
+- **Frontend** — Vitest emits `bootui-ui/src/main/frontend/coverage/lcov.info` (a `posttest` hook rewrites the report
+  paths so they resolve against the `bootui-ui` Maven module).
+
+End-to-end (Playwright) tests still run in CI but do not contribute coverage.
+
+The analysis step is a no-op until two one-time setup steps are done:
+
+1. Add a `SONAR_TOKEN` repository secret (generated from your SonarCloud account) in GitHub.
+2. In SonarCloud, disable **Automatic Analysis** (Administration → Analysis Method) — it is mutually exclusive with the
+   CI-based analysis and must be off for coverage to be imported.
+
+To reproduce the coverage reports locally, run `./mvnw clean install` (Java) and `npm test` in
+`bootui-ui/src/main/frontend` (frontend).
+
 ## Formatting
 
 Use Spotless for Java and repository whitespace checks:
