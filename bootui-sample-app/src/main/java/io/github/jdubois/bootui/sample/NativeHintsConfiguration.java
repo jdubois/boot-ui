@@ -16,8 +16,7 @@ import org.springframework.context.annotation.ImportRuntimeHints;
  * Registers the GraalVM reachability metadata that the sample app needs but that Spring Boot's AOT
  * processing cannot infer automatically.
  *
- * <p>Two things are registered for the {@code @Cacheable} methods on {@link
- * BootUiSampleApplication.SampleCatalog}:
+ * <p>The following reachability metadata is registered:
  *
  * <ul>
  *   <li><b>SpEL reflection</b> — {@code unless = "#result.isEmpty()"} on {@link
@@ -28,6 +27,11 @@ import org.springframework.context.annotation.ImportRuntimeHints;
  *   <li><b>JDK serialization</b> — the default Redis cache serializer serializes cached values with
  *       {@link java.io.ObjectOutputStream}. The cached {@code List<ProductSummary>} graph (the
  *       record, its element wrappers and the immutable list type) is registered for serialization.
+ *   <li><b>Hibernate persister reflection</b> — the {@code SampleBillingDocument}/{@code
+ *       SampleReceipt} {@code @Inheritance(TABLE_PER_CLASS)} hierarchy is loaded through Hibernate's
+ *       {@code UnionSubclassEntityPersister}, which Hibernate instantiates reflectively via its
+ *       public 4-arg constructor. Neither Hibernate 7.2 nor Spring Boot's AOT hints register that
+ *       constructor, so its public constructors are registered here.
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
@@ -70,6 +74,18 @@ class NativeHintsConfiguration {
             for (Class<?> type : serializable) {
                 hints.reflection().registerJavaSerialization(type);
             }
+
+            // Hibernate resolves the entity persister for the TABLE_PER_CLASS demo hierarchy
+            // (SampleBillingDocument / SampleReceipt) reflectively through the public
+            // UnionSubclassEntityPersister(PersistentClass, EntityDataAccess, NaturalIdDataAccess,
+            // RuntimeModelCreationContext) constructor. Spring Boot's AOT processing does not infer
+            // this, so without the hint the native image fails to build the SessionFactory with a
+            // NoSuchMethodException.
+            hints.reflection()
+                    .registerTypeIfPresent(
+                            classLoader,
+                            "org.hibernate.persister.entity.UnionSubclassEntityPersister",
+                            MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
         }
 
         private static Class<?> serializationProxyClass() {
