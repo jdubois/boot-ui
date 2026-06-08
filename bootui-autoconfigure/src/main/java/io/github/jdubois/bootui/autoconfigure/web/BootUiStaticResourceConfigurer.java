@@ -42,7 +42,7 @@ public class BootUiStaticResourceConfigurer implements WebMvcConfigurer {
         registry.addResourceHandler(ASSET_PATH_PATTERN).addResourceLocations(ASSET_LOCATION);
 
         if (!environment.getProperty("spring.web.resources.add-mappings", Boolean.class, true)) {
-            log.info(
+            log.warn(
                     "spring.web.resources.add-mappings is false, which disables Spring Boot's default static "
                             + "resource handling. BootUI registered its own handler for '{}' (serving {}) so the "
                             + "dashboard UI still loads.",

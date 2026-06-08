@@ -86,4 +86,4 @@ app restarts; BootUI returns that warning with every override mutation.
 | A panel is empty             | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable.         |
 | Startup Timeline is empty    | Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero, or provide your own `BufferingApplicationStartup`. |
 | Secrets are hidden           | Default exposure is `MASKED`; use `METADATA_ONLY` to hide all values or `FULL` only in trusted local sessions.                          |
-| Static resources disabled    | `spring.web.resources.add-mappings=false` no longer breaks BootUI: it registers its own `/bootui/**` handler for the dashboard assets and logs an INFO line; the host's other static resources stay disabled. |
+| Static resources disabled    | `spring.web.resources.add-mappings=false` no longer breaks BootUI: it registers its own `/bootui/**` handler for the dashboard assets and logs a WARN line; the host's other static resources stay disabled. |
