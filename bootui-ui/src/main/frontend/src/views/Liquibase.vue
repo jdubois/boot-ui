@@ -3,7 +3,11 @@ import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
+import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
@@ -12,7 +16,7 @@ const report = ref(null)
 const error = ref(null)
 const liquibasePresent = ref(true)
 const filter = ref('')
-const banner = ref(null)
+const {message: banner, flash, clear} = useFlashMessage()
 const busy = ref(null)
 
 async function load() {
@@ -29,13 +33,6 @@ async function load() {
   }
 }
 
-function flash(text, type = 'info') {
-  banner.value = {text, type}
-  setTimeout(() => {
-    banner.value = null
-  }, 6000)
-}
-
 function actionKey(db, action) {
   return `${db.name}:${action}`
 }
@@ -49,7 +46,7 @@ async function runUpdate(db) {
 
   const key = actionKey(db, 'update')
   busy.value = key
-  banner.value = null
+  clear()
   try {
     const res = await apiFetch('api/liquibase/update', {
       method: 'POST',
@@ -105,10 +102,7 @@ onMounted(load)
   <div>
     <PanelHeader icon="bi-droplet" title="Liquibase change sets" :error="error" />
 
-    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
-      <div>{{ banner.text }}</div>
-      <button class="btn-close" @click="banner = null"></button>
-    </div>
+    <FlashBanner :message="banner" @dismiss="clear" />
 
     <UnavailableState v-if="!liquibasePresent" variant="info">
       Liquibase is not on the classpath of this application. Add the <code>liquibase-core</code> dependency to see
@@ -120,10 +114,7 @@ onMounted(load)
     </UnavailableState>
 
     <template v-else-if="report">
-      <div v-if="readOnly" class="alert alert-warning small">
-        <i class="bi bi-lock me-1"></i>
-        Liquibase actions are read-only. {{ readOnlyReason }}
-      </div>
+      <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Liquibase actions are read-only.</ReadOnlyNotice>
 
       <div class="row g-2 mb-3">
         <div class="col-md-6">
@@ -150,16 +141,15 @@ onMounted(load)
         </div>
         <div class="card-body border-bottom">
           <div class="d-flex flex-wrap gap-2">
-            <button
+            <SpinnerButton
+              :loading="busy === actionKey(db, 'update')"
               :disabled="readOnly || busy || !db.updateEnabled"
               :title="db.updateDisabledReason || 'Apply pending Liquibase change sets'"
               class="btn btn-sm btn-outline-primary"
+              icon="bi-play-circle"
+              label="Update"
               @click="runUpdate(db)"
-            >
-              <span v-if="busy === actionKey(db, 'update')" class="spinner-border spinner-border-sm me-1"></span>
-              <i v-else class="bi bi-play-circle me-1"></i>
-              Update
-            </button>
+            />
           </div>
           <div class="small text-muted mt-2">
             <div v-if="db.updateDisabledReason"><strong>Update:</strong> {{ db.updateDisabledReason }}</div>

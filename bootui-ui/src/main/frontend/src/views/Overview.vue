@@ -7,6 +7,7 @@ import {overallScore, scoreBandLabel, scoreBandTone, scoreFromSeverityCounts} fr
 import ScannerScoreCard from './components/ScannerScoreCard.vue'
 import OverviewHealthCard from './components/OverviewHealthCard.vue'
 import OverviewMemoryCard from './components/OverviewMemoryCard.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const injectedPanels = inject('panels', null)
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
@@ -317,10 +318,15 @@ onMounted(ensurePanels)
             </div>
 
             <div class="flex-shrink-0 mt-3 mt-lg-0 min-w-0">
-              <button class="btn btn-primary" type="button" :disabled="anyRunning || totalCount === 0" @click="runAll">
-                <span v-if="anyRunning" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
-                {{ anyRunning ? 'Running scanners…' : 'Run all scanners' }}
-              </button>
+              <SpinnerButton
+                :loading="anyRunning"
+                :disabled="anyRunning || totalCount === 0"
+                class="btn btn-primary"
+                type="button"
+                label="Run all scanners"
+                loading-label="Running scanners…"
+                @click="runAll"
+              />
             </div>
           </div>
         </div>
@@ -385,20 +391,16 @@ onMounted(ensurePanels)
           </template>
 
           <template #actions>
-            <button
+            <SpinnerButton
+              :loading="github.state === 'running'"
               class="btn btn-sm btn-primary"
               type="button"
+              icon="bi-github"
               :disabled="github.state === 'running'"
               @click="connectGithub"
             >
-              <span
-                v-if="github.state === 'running'"
-                class="spinner-border spinner-border-sm me-1"
-                aria-hidden="true"
-              ></span>
-              <i v-else class="bi bi-github me-1"></i>
               {{ githubScored ? 'Refresh' : 'Connect to GitHub' }}
-            </button>
+            </SpinnerButton>
             <router-link to="/github" class="btn btn-sm btn-outline-secondary ms-auto">
               Open GitHub<i class="bi bi-arrow-right-short"></i>
             </router-link>

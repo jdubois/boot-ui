@@ -6,6 +6,7 @@ import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import PanelHeader from './components/PanelHeader.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -154,15 +155,14 @@ onMounted(loadDependencies)
       :error="error"
     >
       <template #actions>
-        <button
+        <SpinnerButton
+          :loading="loading"
           :disabled="loading || readOnly || data?.scanningEnabled === false"
           class="btn btn-primary"
           type="button"
+          label="Scan with OSV.dev"
           @click="scanDependencies"
-        >
-          <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
-          Scan with OSV.dev
-        </button>
+        />
       </template>
     </PanelHeader>
     <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>

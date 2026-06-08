@@ -5,14 +5,18 @@ import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
+import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const report = ref(null)
 const error = ref(null)
-const banner = ref(null)
+const {message: banner, flash, clear} = useFlashMessage()
 const cacheFilter = ref('')
 const operationFilter = ref('')
 const busy = ref(null)
@@ -127,7 +131,7 @@ async function clearCaches(payload, busyKey) {
     return
   }
   busy.value = busyKey
-  banner.value = null
+  clear()
   try {
     const res = await apiFetch('api/spring-cache/clear', {
       method: 'POST',
@@ -146,13 +150,6 @@ async function clearCaches(payload, busyKey) {
   } finally {
     busy.value = null
   }
-}
-
-function flash(text, type) {
-  banner.value = {text, type}
-  setTimeout(() => {
-    banner.value = null
-  }, 6000)
 }
 
 function showReadOnlyMessage() {
@@ -179,22 +176,18 @@ function showReadOnlyMessage() {
       @refresh="load"
     >
       <template #actions>
-        <button
+        <SpinnerButton
+          :loading="busy === '__all__'"
           :disabled="!report || readOnly || !report.clearEnabled || report.cacheCount === 0 || busy"
           class="btn btn-sm btn-outline-danger ms-2"
+          icon="bi-trash"
+          label="Clear all"
           @click="clearAll"
-        >
-          <span v-if="busy === '__all__'" class="spinner-border spinner-border-sm me-1"></span>
-          <i v-else class="bi bi-trash me-1"></i>
-          Clear all
-        </button>
+        />
       </template>
     </PanelHeader>
 
-    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
-      <div>{{ banner.text }}</div>
-      <button class="btn-close" @click="banner = null"></button>
-    </div>
+    <FlashBanner :message="banner" @dismiss="clear" />
 
     <PanelSkeleton v-if="initialLoading && !report" />
 
@@ -203,10 +196,7 @@ function showReadOnlyMessage() {
         {{ warning }}
       </div>
 
-      <div v-if="readOnly" class="alert alert-warning small">
-        <i class="bi bi-lock me-1"></i>
-        Cache clearing is read-only. {{ readOnlyReason }}
-      </div>
+      <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Cache clearing is read-only.</ReadOnlyNotice>
 
       <div v-if="!report.clearEnabled" class="alert alert-info small">
         Cache clearing has been disabled by configuration. Set <code>bootui.cache.clear-enabled=true</code>
@@ -270,14 +260,13 @@ function showReadOnlyMessage() {
                   <span v-else class="text-muted small">No cache metrics registered</span>
                 </td>
                 <td class="text-end">
-                  <button
+                  <SpinnerButton
+                    :loading="busy === cacheKey(cache)"
                     :disabled="readOnly || !report.clearEnabled || busy"
                     class="btn btn-sm btn-outline-danger"
+                    label="Clear"
                     @click="clearOne(cache)"
-                  >
-                    <span v-if="busy === cacheKey(cache)" class="spinner-border spinner-border-sm me-1"></span>
-                    Clear
-                  </button>
+                  />
                 </td>
               </tr>
             </tbody>

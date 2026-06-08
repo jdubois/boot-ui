@@ -5,15 +5,19 @@ import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
+import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 
 const report = ref(null)
 const error = ref(null)
-const banner = ref(null)
+const {message: banner, flash, clear} = useFlashMessage()
 const busy = ref(null)
 const expanded = ref(new Set())
 const lastFetched = ref(null)
@@ -113,7 +117,7 @@ async function destroySession(session) {
 
 async function mutateSession(session, action, label) {
   busy.value = `${session.sessionKey}:${action}`
-  banner.value = null
+  clear()
   try {
     const res = await apiFetch(`api/http-sessions/${encodeURIComponent(session.sessionKey)}/${action}`, {
       method: 'POST',
@@ -141,13 +145,6 @@ function actionBusy(session, action) {
 function showReadOnlyMessage() {
   flash(readOnly.value ? readOnlyReason.value : 'HTTP session actions are disabled.', 'warning')
 }
-
-function flash(text, type) {
-  banner.value = {text, type}
-  setTimeout(() => {
-    banner.value = null
-  }, 6000)
-}
 </script>
 
 <template>
@@ -163,10 +160,7 @@ function flash(text, type) {
       @refresh="load"
     />
 
-    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
-      <div>{{ banner.text }}</div>
-      <button class="btn-close" @click="banner = null"></button>
-    </div>
+    <FlashBanner :message="banner" @dismiss="clear" />
 
     <PanelSkeleton v-if="initialLoading" />
 
@@ -176,10 +170,7 @@ function flash(text, type) {
       </div>
 
       <template v-else>
-        <div v-if="readOnly" class="alert alert-warning small">
-          <i class="bi bi-lock me-1"></i>
-          HTTP session actions are read-only. {{ readOnlyReason }}
-        </div>
+        <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">HTTP session actions are read-only.</ReadOnlyNotice>
 
         <div v-if="report.limited" class="alert alert-info small">
           Showing the first {{ formatNumber(report.limit) }} active sessions. Increase
@@ -242,27 +233,20 @@ function flash(text, type) {
                         ></i>
                         {{ isExpanded(session.sessionKey) ? 'Hide' : 'Details' }}
                       </button>
-                      <button
+                      <SpinnerButton
+                        :loading="actionBusy(session, 'clear')"
                         :disabled="actionsDisabled"
                         class="btn btn-outline-warning"
-                        type="button"
+                        label="Clear"
                         @click="clearSession(session)"
-                      >
-                        <span v-if="actionBusy(session, 'clear')" class="spinner-border spinner-border-sm me-1"></span>
-                        Clear
-                      </button>
-                      <button
+                      />
+                      <SpinnerButton
+                        :loading="actionBusy(session, 'invalidate')"
                         :disabled="actionsDisabled"
                         class="btn btn-outline-danger"
-                        type="button"
+                        label="Destroy"
                         @click="destroySession(session)"
-                      >
-                        <span
-                          v-if="actionBusy(session, 'invalidate')"
-                          class="spinner-border spinner-border-sm me-1"
-                        ></span>
-                        Destroy
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>

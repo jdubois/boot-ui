@@ -4,6 +4,8 @@ import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
+import FlashBanner from './components/FlashBanner.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 import PanelHeader from './components/PanelHeader.vue'
 
@@ -24,7 +26,7 @@ const newRowValue = ref('')
 const newRowError = ref(null)
 const newNameInput = ref(null)
 const editInput = ref(null)
-const banner = ref(null)
+const {message: banner, flash, clear} = useFlashMessage(8000)
 
 const {
   data,
@@ -249,13 +251,6 @@ async function removeOverride(name) {
   }
 }
 
-function flash(text, type) {
-  banner.value = {text, type}
-  setTimeout(() => {
-    banner.value = null
-  }, 8000)
-}
-
 function showReadOnlyMessage() {
   flash(readOnlyReason.value, 'warning')
 }
@@ -302,13 +297,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
       </div>
     </div>
 
-    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
-      <div>
-        <i :class="banner.type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill'" class="bi"></i>
-        <span class="ms-2">{{ banner.text }}</span>
-      </div>
-      <button class="btn-close" @click="banner = null"></button>
-    </div>
+    <FlashBanner :message="banner" with-icon @dismiss="clear" />
 
     <div class="row g-2 mb-3">
       <div class="col-md-6">

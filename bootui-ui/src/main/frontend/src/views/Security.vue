@@ -6,6 +6,7 @@ import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -135,10 +136,15 @@ onMounted(loadReport)
       :error="error"
     >
       <template #actions>
-        <button :disabled="loading || readOnly" class="btn btn-primary" type="button" @click="runScan">
-          <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
-          {{ loading ? 'Running...' : 'Run security checks' }}
-        </button>
+        <SpinnerButton
+          :loading="loading"
+          :disabled="loading || readOnly"
+          class="btn btn-primary"
+          type="button"
+          label="Run security checks"
+          loading-label="Running..."
+          @click="runScan"
+        />
       </template>
     </PanelHeader>
     <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>

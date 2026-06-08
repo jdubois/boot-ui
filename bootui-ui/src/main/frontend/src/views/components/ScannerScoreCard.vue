@@ -1,6 +1,7 @@
 <script setup>
 import {computed} from 'vue'
 import {scoreBandLabel, scoreBandTone} from '../../utils/scannerScore.js'
+import SpinnerButton from './SpinnerButton.vue'
 
 const props = defineProps({
   title: {type: String, required: true},
@@ -100,15 +101,15 @@ function onRun() {
 
       <div class="d-flex gap-2 mt-3">
         <slot name="actions">
-          <button
+          <SpinnerButton
+            :loading="state === 'running'"
             class="btn btn-sm btn-primary"
             type="button"
             :disabled="runDisabled || state === 'running'"
             @click="onRun"
           >
-            <span v-if="state === 'running'" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
             {{ state === 'idle' ? runLabel : rerunLabel }}
-          </button>
+          </SpinnerButton>
           <router-link v-if="to" :to="to" class="btn btn-sm btn-outline-secondary ms-auto">
             {{ openLabel }}<i class="bi bi-arrow-right-short"></i>
           </router-link>

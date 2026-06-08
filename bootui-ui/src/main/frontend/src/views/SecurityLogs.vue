@@ -4,6 +4,7 @@ import {computed, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const report = ref(null)
@@ -151,10 +152,13 @@ function typeBadgeClass(typeName) {
           </select>
         </div>
         <div class="col-md-auto">
-          <button :disabled="loading" class="btn btn-sm btn-primary" @click="load(true)">
-            <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-            Apply
-          </button>
+          <SpinnerButton
+            :loading="loading"
+            :disabled="loading"
+            class="btn btn-sm btn-primary"
+            label="Apply"
+            @click="load(true)"
+          />
         </div>
       </div>
 
