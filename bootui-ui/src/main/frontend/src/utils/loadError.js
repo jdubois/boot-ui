@@ -21,10 +21,12 @@ export function toErrorMessage(error, fallback = 'Request failed') {
 }
 
 export function isServerUnreachableError(error) {
-  const message = toErrorMessage(error, '')
-    .trim()
-    .toLowerCase()
-    .replace(/[.!]+$/, '')
+  const normalized = toErrorMessage(error, '').trim().toLowerCase()
+  let end = normalized.length
+  while (end > 0 && (normalized[end - 1] === '.' || normalized[end - 1] === '!')) {
+    end--
+  }
+  const message = normalized.slice(0, end)
   if (!message) return false
   if (message.startsWith(`${SERVER_UNREACHABLE_TITLE.toLowerCase()}:`)) return true
 

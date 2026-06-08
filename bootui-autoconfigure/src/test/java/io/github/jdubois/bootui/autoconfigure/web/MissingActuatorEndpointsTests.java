@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
@@ -16,7 +17,6 @@ import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.mock.env.MockEnvironment;
-import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.FilterChainProxy;
@@ -145,8 +145,7 @@ class MissingActuatorEndpointsTests {
 
     @Test
     void scheduledControllerReturnsAbsentSchedulingReportWhenHolderMissing() throws Exception {
-        ObjectProvider<ScheduledTaskHolder> provider = emptyProvider();
-        MockMvc mvc = standaloneSetup(new ScheduledController(provider)).build();
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of())).build();
 
         mvc.perform(get("/bootui/api/scheduled"))
                 .andExpect(status().isOk())

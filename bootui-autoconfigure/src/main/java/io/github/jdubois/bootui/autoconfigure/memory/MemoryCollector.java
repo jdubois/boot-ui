@@ -39,7 +39,8 @@ import javax.management.ObjectName;
 final class MemoryCollector {
 
     /** Matches a histogram data row: {@code   1:   12345   9876544   classname [(module)]}. */
-    private static final Pattern HISTOGRAM_ROW = Pattern.compile("^\\s*\\d+:\\s+(\\d+)\\s+(\\d+)\\s+(\\S+).*$");
+    private static final Pattern HISTOGRAM_ROW =
+            Pattern.compile("^\\s*+\\d++:\\s++(\\d++)\\s++(\\d++)\\s++(\\S++).*+$");
 
     private static final int MAX_HISTOGRAM_CLASSES = 200;
 

@@ -1,12 +1,13 @@
 {
   "name": "bootui-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
+    "posttest": "node scripts/normalize-coverage-paths.mjs",
     "test:watch": "vitest",
     "preview": "vite preview",
     "format": "prettier --config ../../../../prettier.config.cjs --ignore-path ../../../../.prettierignore --write .",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.7",
+    "@vitest/coverage-v8": "4.1.8",
     "@vue/server-renderer": "3.5.35",
     "@vue/test-utils": "2.4.10",
     "jsdom": "29.1.1",

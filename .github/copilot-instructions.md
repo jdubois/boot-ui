@@ -120,8 +120,10 @@ the release profile:
   without dropping the failed deployment from the Sonatype Central Portal first. The default path is to run the `Release`
   workflow with a new version so it bumps the codebase, commits, tags, and publishes in one run.
 - **Use the `Release` workflow (`.github/workflows/release.yml`) to bump versions** rather than running `versions:set` by
-  hand. It runs `versions:set` *and* updates the README install snippet, then verify-builds, commits, tags, and publishes.
-  Manual `versions:set` skips the README rewrite, leaving the install snippet pointing at a stale (and possibly
+  hand. It runs `versions:set`, updates the README install snippet, *and* bumps every npm `package.json` /
+  `package-lock.json` (root docs site, `bootui-ui` frontend, and the `bootui-sample-app/e2e` suite) via
+  `npm version --no-git-tag-version`, then verify-builds, commits, tags, and publishes. Manual `versions:set` skips the
+  README rewrite and the npm bumps, leaving the install snippet and npm package versions pointing at a stale (and possibly
   never-published) version.
 - **The sample app is excluded from release deploys** via `<maven.deploy.skip>true</maven.deploy.skip>` in
   `bootui-sample-app/pom.xml`; keep it that way — it must still be built so the central-publishing plugin sees the full

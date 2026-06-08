@@ -34,10 +34,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/bootui/api/panels")
 public class PanelsController {
 
-    // Matches both plain application-<profile>.{properties,yml,yaml} names and
-    // Spring Boot's "Config resource 'file ... application-<profile>.yml'" source names.
-    private static final Pattern PROFILE_SOURCE_PATTERN = Pattern.compile(
-            "(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
+    // Matches the application-<profile>.{properties,yml,yaml} token in both plain source names and
+    // Spring Boot's "Config resource 'file ... application-<profile>.yml'" source names (via find()).
+    private static final Pattern PROFILE_SOURCE_PATTERN =
+            Pattern.compile("application-([\\w-]++)(?:\\.properties|\\.ya?ml)");
 
     private final ApplicationContext applicationContext;
     private final Environment environment;
@@ -69,6 +69,15 @@ public class PanelsController {
     }
 
     private Availability availability(String id) {
+        // Split across grouped helpers so no single switch exceeds Sonar's case/complexity thresholds.
+        // Each helper covers a disjoint set of panel ids; coreAvailability() returns null for ids it does
+        // not own so the dispatcher can fall through to scannerAvailability(), which owns the default case.
+        Availability availability = coreAvailability(id);
+        return availability != null ? availability : scannerAvailability(id);
+    }
+
+    // Always-available panels plus those gated purely on an actuator endpoint, bean, or classpath marker.
+    private Availability coreAvailability(String id) {
         return switch (id) {
             case BootUiPanels.OVERVIEW,
                     BootUiPanels.LIVE_MEMORY,
@@ -79,16 +88,6 @@ public class PanelsController {
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,
                     BootUiPanels.VULNERABILITIES -> available();
-            case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
-            case BootUiPanels.HEAP_DUMP ->
-                availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
-            case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
-            case BootUiPanels.REST_API -> availability(restApiAvailable(), restApiUnavailableReason());
-            case BootUiPanels.GRAALVM -> availability(graalvmAvailable(), graalvmUnavailableReason());
-            case BootUiPanels.THREADS ->
-                availability(
-                        java.lang.management.ManagementFactory.getThreadMXBean() != null,
-                        "ThreadMXBean is not available on this JVM");
             case BootUiPanels.HEALTH ->
                 availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");
             case BootUiPanels.HTTP_SESSIONS -> availability(httpSessionsAvailable(), httpSessionsUnavailableReason());
@@ -114,32 +113,49 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
-            case BootUiPanels.HIBERNATE -> availability(hibernateAvailable(), hibernateUnavailableReason());
-            case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
-            case BootUiPanels.FLYWAY -> availability(flywayAvailable(), flywayUnavailableReason());
-            case BootUiPanels.LIQUIBASE -> availability(liquibaseAvailable(), liquibaseUnavailableReason());
             case BootUiPanels.SPRING_CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
             case BootUiPanels.SPRING_SECURITY ->
                 availability(
                         classPresent("org.springframework.security.web.SecurityFilterChain"),
                         "Spring Security not on the classpath");
-            case BootUiPanels.SECURITY -> availability(securityAvailable(), securityUnavailableReason());
             case BootUiPanels.SECURITY_LOGS ->
                 availability(beanPresent(AuditEventRepository.class), "No AuditEventRepository bean is available");
-            case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
-            case BootUiPanels.TRACES ->
-                availability(properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled");
-            case BootUiPanels.LOG_TAIL ->
-                availability(classPresent("ch.qos.logback.classic.Logger"), "Logback not on the classpath");
             case BootUiPanels.HTTP_EXCHANGES ->
                 availability(
                         classPresent("org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository")
                                 && beanPresent(HttpExchangeRepository.class),
                         "HTTP exchange repository not available");
+            case BootUiPanels.TRACES ->
+                availability(properties.getTelemetry().isEnabled(), "Telemetry receiver is disabled");
+            case BootUiPanels.LOG_TAIL ->
+                availability(classPresent("ch.qos.logback.classic.Logger"), "Logback not on the classpath");
             case BootUiPanels.DEVTOOLS -> availability(devToolsPresent(), "Spring Boot DevTools not on the classpath");
             case BootUiPanels.DEV_SERVICES ->
                 availability(devServicesPresent(), "Docker Compose or Testcontainers not on the classpath");
+            default -> null;
+        };
+    }
+
+    // Panels backed by a dedicated scanner/service availability check, plus the unknown-panel fallback.
+    private Availability scannerAvailability(String id) {
+        return switch (id) {
+            case BootUiPanels.GITHUB -> availability(githubAvailable(), githubUnavailableReason());
+            case BootUiPanels.HEAP_DUMP ->
+                availability(HeapDumpService.hotspotAvailable(), "Heap dumps are not supported on this JVM");
+            case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
+            case BootUiPanels.REST_API -> availability(restApiAvailable(), restApiUnavailableReason());
+            case BootUiPanels.GRAALVM -> availability(graalvmAvailable(), graalvmUnavailableReason());
+            case BootUiPanels.THREADS ->
+                availability(
+                        java.lang.management.ManagementFactory.getThreadMXBean() != null,
+                        "ThreadMXBean is not available on this JVM");
+            case BootUiPanels.HIBERNATE -> availability(hibernateAvailable(), hibernateUnavailableReason());
+            case BootUiPanels.DATABASE_CONNECTION_POOLS -> availability(hikariAvailable(), hikariUnavailableReason());
+            case BootUiPanels.FLYWAY -> availability(flywayAvailable(), flywayUnavailableReason());
+            case BootUiPanels.LIQUIBASE -> availability(liquibaseAvailable(), liquibaseUnavailableReason());
+            case BootUiPanels.SECURITY -> availability(securityAvailable(), securityUnavailableReason());
+            case BootUiPanels.AI -> availability(aiAvailable(), aiUnavailableReason());
             case BootUiPanels.COPILOT ->
                 availability(
                         cliSessionPanelAvailable(properties.getCopilot()),

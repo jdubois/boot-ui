@@ -922,6 +922,12 @@ const detectedFrameworkLabel = computed(() => {
                             <details v-for="[ns, attrs] in groupedAttributes" :key="ns" class="mb-1">
                               <summary class="text-muted small">{{ ns }} ({{ attrs.length }})</summary>
                               <table class="table table-sm mt-1">
+                                <thead class="visually-hidden">
+                                  <tr>
+                                    <th scope="col">Attribute</th>
+                                    <th scope="col">Value</th>
+                                  </tr>
+                                </thead>
                                 <tbody>
                                   <tr v-for="a in attrs" :key="a.key">
                                     <td>

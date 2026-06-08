@@ -272,7 +272,10 @@ function formatTokenCount(value) {
   const unit = absolute >= 1_000_000 ? 'm' : 'k'
   const divisor = unit === 'm' ? 1_000_000 : 1000
   const truncated = Math.trunc((absolute / divisor) * 100) / 100
-  const compact = truncated.toFixed(2).replace('.', ',').replace(/,?0+$/, '')
+  const compact = truncated
+    .toFixed(2)
+    .replace('.', ',')
+    .replace(/,?0{1,2}$/, '')
   return `${numeric < 0 ? '-' : ''}${compact}${unit}`
 }
 

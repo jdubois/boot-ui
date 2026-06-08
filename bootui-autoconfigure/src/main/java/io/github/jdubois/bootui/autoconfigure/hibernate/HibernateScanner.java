@@ -319,6 +319,9 @@ final class HibernateScanner {
         return methods;
     }
 
+    // Optional Spring Data type: compare by class name instead of hard-referencing a class that may be absent at
+    // runtime.
+    @SuppressWarnings("java:S1872")
     private static QueryAnnotation readQueryAnnotation(Method method) {
         for (Annotation annotation : method.getAnnotations()) {
             if (!"org.springframework.data.jpa.repository.Query"
@@ -334,6 +337,9 @@ final class HibernateScanner {
         return null;
     }
 
+    // Optional Spring Data type: compare by class name instead of hard-referencing a class that may be absent at
+    // runtime.
+    @SuppressWarnings("java:S1872")
     private static ModifyingAnnotation readModifyingAnnotation(Method method) {
         for (Annotation annotation : method.getAnnotations()) {
             if (!"org.springframework.data.jpa.repository.Modifying"
@@ -356,6 +362,9 @@ final class HibernateScanner {
         }
     }
 
+    // Optional Spring Data type: compare by class name instead of hard-referencing a class that may be absent at
+    // runtime.
+    @SuppressWarnings("java:S1872")
     private static boolean hasPageableParameter(Method method) {
         for (Class<?> parameterType : method.getParameterTypes()) {
             if ("org.springframework.data.domain.Pageable".equals(parameterType.getName())) {

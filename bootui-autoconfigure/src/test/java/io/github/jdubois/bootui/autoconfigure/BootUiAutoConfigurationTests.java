@@ -1,6 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
@@ -38,6 +42,10 @@ import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webmvc.autoconfigure.DispatcherServletAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 class BootUiAutoConfigurationTests {
@@ -264,6 +272,50 @@ class BootUiAutoConfigurationTests {
                                     assertThat(mappingInfo.getPatternValues()).contains("/bootui/api/overview"));
                     assertThat(beanFactory.containsSingleton(overviewBeanName)).isFalse();
                 });
+    }
+
+    @Test
+    void registersBootUiResourceHandlerByDefault() {
+        webMvcRunner().withPropertyValues("bootui.enabled=ON").run(context -> {
+            assertThat(context).hasSingleBean(BootUiStaticResourceConfigurer.class);
+            assertThat(bootUiResourcePatterns(context)).contains("/bootui/**");
+        });
+    }
+
+    @Test
+    void servesBootUiAssetsEvenWhenDefaultResourceMappingsDisabled() {
+        webMvcRunner()
+                .withPropertyValues("bootui.enabled=ON", "spring.web.resources.add-mappings=false")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(BootUiStaticResourceConfigurer.class);
+                    // Spring Boot drops its default "/**" handler, but BootUI still registers its own,
+                    // so the SPA shell is actually served from the classpath rather than returning 404.
+                    MockMvc mvc = MockMvcBuilders.webAppContextSetup(
+                                    (WebApplicationContext) context.getSourceApplicationContext())
+                            .build();
+                    mvc.perform(get("/bootui/index.html"))
+                            .andExpect(status().isOk())
+                            .andExpect(content().string(containsString("bootui-test-index")));
+                });
+    }
+
+    @Test
+    void doesNotRegisterStaticResourceConfigurerWhenInactive() {
+        runner.run(context -> assertThat(context).doesNotHaveBean(BootUiStaticResourceConfigurer.class));
+    }
+
+    private static WebApplicationContextRunner webMvcRunner() {
+        return new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        DispatcherServletAutoConfiguration.class,
+                        WebMvcAutoConfiguration.class,
+                        BootUiAutoConfiguration.class));
+    }
+
+    private static java.util.Set<String> bootUiResourcePatterns(
+            org.springframework.context.ApplicationContext context) {
+        SimpleUrlHandlerMapping mapping = (SimpleUrlHandlerMapping) context.getBean("resourceHandlerMapping");
+        return mapping.getUrlMap().keySet();
     }
 
     @Test

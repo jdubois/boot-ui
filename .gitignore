@@ -31,6 +31,7 @@ hs_err_pid*
 node/
 node_modules/
 dist/
+coverage/
 .npm/
 .eslintcache
 **/.vuepress/.cache/
