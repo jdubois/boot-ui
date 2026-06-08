@@ -3,6 +3,7 @@ import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const report = ref(null)
 const error = ref(null)
@@ -254,10 +255,13 @@ onMounted(() => {
       <h5 class="mt-4 mb-2">
         Endpoints
         <span v-if="endpoints" class="badge bg-secondary">{{ endpoints.total }}</span>
-        <button :disabled="endpointsLoading" class="btn btn-sm btn-outline-secondary ms-2" @click="loadEndpoints">
-          <span v-if="endpointsLoading" class="spinner-border spinner-border-sm me-1"></span>
-          Reload
-        </button>
+        <SpinnerButton
+          :loading="endpointsLoading"
+          :disabled="endpointsLoading"
+          class="btn btn-sm btn-outline-secondary ms-2"
+          label="Reload"
+          @click="loadEndpoints"
+        />
       </h5>
       <p class="text-muted small">
         Per-endpoint authorization rule resolved by matching each Spring MVC mapping against the configured filter
@@ -345,10 +349,13 @@ onMounted(() => {
           />
         </div>
         <div class="col-auto">
-          <button :disabled="explainLoading" class="btn btn-sm btn-primary" @click="explain">
-            <span v-if="explainLoading" class="spinner-border spinner-border-sm me-1"></span>
-            Explain
-          </button>
+          <SpinnerButton
+            :loading="explainLoading"
+            :disabled="explainLoading"
+            class="btn btn-sm btn-primary"
+            label="Explain"
+            @click="explain"
+          />
         </div>
       </div>
 

@@ -4,14 +4,18 @@ import {computed, onUnmounted, ref} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
+import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const status = ref(null)
 const actionLoading = ref(null)
-const banner = ref(null)
+const {message: banner, flash, clear} = useFlashMessage(8000)
 const restarting = ref(false)
 const lastFetched = ref(null)
 let reconnectTimer = null
@@ -111,13 +115,6 @@ function clearReconnectTimer() {
   }
 }
 
-function flash(text, type) {
-  banner.value = {text, type}
-  setTimeout(() => {
-    banner.value = null
-  }, 8000)
-}
-
 function showReadOnlyMessage() {
   flash(readOnlyReason.value, 'warning')
 }
@@ -139,18 +136,9 @@ onUnmounted(clearReconnectTimer)
       @refresh="load"
     />
 
-    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
-      <div>
-        <i :class="banner.type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-info-circle-fill'" class="bi"></i>
-        <span class="ms-2">{{ banner.text }}</span>
-      </div>
-      <button class="btn-close" @click="banner = null"></button>
-    </div>
+    <FlashBanner :message="banner" with-icon @dismiss="clear" />
 
-    <div v-if="readOnly" class="alert alert-warning small">
-      <i class="bi bi-lock me-1"></i>
-      DevTools actions are read-only. {{ readOnlyReason }}
-    </div>
+    <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">DevTools actions are read-only.</ReadOnlyNotice>
 
     <div v-if="restarting" class="alert alert-primary d-flex align-items-start gap-3">
       <div class="spinner-border spinner-border-sm mt-1" role="status"></div>
@@ -190,15 +178,15 @@ onUnmounted(clearReconnectTimer)
               <span v-else>{{ status.liveReloadUnavailableReason || 'No LiveReload port reported.' }}</span>
             </div>
 
-            <button
+            <SpinnerButton
+              :loading="actionLoading === 'livereload'"
               :disabled="readOnly || !liveReloadReady || actionLoading"
               class="btn btn-primary"
+              icon="bi-broadcast"
+              label="Trigger LiveReload"
+              spinner-class="me-2"
               @click="triggerLiveReload"
-            >
-              <span v-if="actionLoading === 'livereload'" class="spinner-border spinner-border-sm me-2"></span>
-              <i v-else class="bi bi-broadcast me-1"></i>
-              Trigger LiveReload
-            </button>
+            />
           </div>
         </div>
       </div>
@@ -223,15 +211,15 @@ onUnmounted(clearReconnectTimer)
               {{ status.restartUnavailableReason || 'Spring Boot DevTools restart is initialized.' }}
             </div>
 
-            <button
+            <SpinnerButton
+              :loading="actionLoading === 'restart'"
               :disabled="readOnly || !restartReady || actionLoading || restarting"
               class="btn btn-warning"
+              icon="bi-arrow-clockwise"
+              label="Restart app"
+              spinner-class="me-2"
               @click="restart"
-            >
-              <span v-if="actionLoading === 'restart'" class="spinner-border spinner-border-sm me-2"></span>
-              <i v-else class="bi bi-arrow-clockwise me-1"></i>
-              Restart app
-            </button>
+            />
           </div>
         </div>
       </div>

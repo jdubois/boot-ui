@@ -5,15 +5,19 @@ import {formatDuration, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useFlashMessage} from '../utils/useFlashMessage.js'
+import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const report = ref(null)
 const detail = ref(null)
 const error = ref(null)
-const banner = ref(null)
+const {message: banner, flash, show, clear} = useFlashMessage(4000)
 const filter = ref('')
 const selectedTraceId = ref(null)
 const detailLoading = ref(false)
@@ -41,7 +45,7 @@ async function openTrace(traceId) {
     if (!res.ok) throw new Error('HTTP ' + res.status)
     detail.value = await res.json()
   } catch (e) {
-    banner.value = {type: 'danger', text: formatLoadError(e, 'Could not load trace')}
+    show(formatLoadError(e, 'Could not load trace'), 'danger')
   } finally {
     detailLoading.value = false
   }
@@ -72,22 +76,16 @@ async function clearAll() {
     if (!res.ok && res.status !== 204) throw new Error('HTTP ' + res.status)
     closeDrawer()
     await load()
-    banner.value = {type: 'success', text: 'Cleared retained traces.'}
-    setTimeout(() => {
-      banner.value = null
-    }, 4000)
+    flash('Cleared retained traces.', 'success')
   } catch (e) {
-    banner.value = {type: 'danger', text: formatLoadError(e, 'Could not clear traces')}
+    show(formatLoadError(e, 'Could not clear traces'), 'danger')
   } finally {
     busy.value = false
   }
 }
 
 function showReadOnlyMessage() {
-  banner.value = {type: 'warning', text: readOnlyReason.value}
-  setTimeout(() => {
-    banner.value = null
-  }, 4000)
+  flash(readOnlyReason.value, 'warning')
 }
 
 const filteredTraces = computed(() => {
@@ -149,21 +147,18 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
       @refresh="load"
     >
       <template #actions>
-        <button
+        <SpinnerButton
+          :loading="busy"
           :disabled="!report || readOnly || report.retained === 0 || busy"
           class="btn btn-sm btn-outline-danger"
+          icon="bi-trash"
+          label="Clear"
           @click="clearAll"
-        >
-          <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
-          <i v-else class="bi bi-trash me-1"></i>Clear
-        </button>
+        />
       </template>
     </PanelHeader>
 
-    <div v-if="banner" :class="'alert-' + banner.type" class="alert d-flex justify-content-between align-items-center">
-      <div>{{ banner.text }}</div>
-      <button class="btn-close" @click="banner = null"></button>
-    </div>
+    <FlashBanner :message="banner" @dismiss="clear" />
 
     <PanelSkeleton v-if="loading && !report" />
 
@@ -174,10 +169,7 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
         <span v-if="report.retained > 0">Showing spans retained before telemetry was disabled.</span>
       </div>
 
-      <div v-if="readOnly" class="alert alert-warning small">
-        <i class="bi bi-lock me-1"></i>
-        Trace clearing is read-only. {{ readOnlyReason }}
-      </div>
+      <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Trace clearing is read-only.</ReadOnlyNotice>
 
       <div v-if="report.enabled && report.retained === 0" class="alert alert-secondary">
         No traces received yet. With the BootUI starter on the classpath, local application spans are captured

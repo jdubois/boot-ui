@@ -5,6 +5,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import ServerListFooter from './components/ServerListFooter.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -79,10 +80,7 @@ watch(filter, scheduleReload)
 <template>
   <div>
     <PanelHeader icon="bi-journal-text" title="Loggers" :error="error" />
-    <div v-if="readOnly" class="alert alert-warning small">
-      <i class="bi bi-lock me-1"></i>
-      Logger levels are read-only. {{ readOnlyReason }}
-    </div>
+    <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Logger levels are read-only.</ReadOnlyNotice>
     <div v-if="message" :class="'alert-' + messageType" class="alert">{{ message }}</div>
     <input v-model="filter" class="form-control mb-3" placeholder="Filter loggers by name…" />
     <p v-if="data" class="small text-muted">{{ matchedCount }} of {{ totalCount }} loggers matched</p>

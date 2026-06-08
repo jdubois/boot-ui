@@ -4,6 +4,8 @@ import {computed, ref} from 'vue'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
+import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -109,18 +111,20 @@ function clearForm() {
         <button :disabled="loading" class="btn btn-outline-secondary" @click="clearForm">
           <i class="bi bi-x-circle me-1"></i>Clear
         </button>
-        <button :disabled="loading || readOnly" class="btn btn-primary" @click="sendProbe">
-          <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-2"></span>
-          <i v-else class="bi bi-send me-1"></i>
-          {{ loading ? 'Sending…' : 'Send' }}
-        </button>
+        <SpinnerButton
+          :loading="loading"
+          :disabled="loading || readOnly"
+          class="btn btn-primary"
+          icon="bi-send"
+          label="Send"
+          loading-label="Sending…"
+          spinner-class="me-2"
+          @click="sendProbe"
+        />
       </template>
     </PanelHeader>
 
-    <div v-if="readOnly" class="alert alert-warning small">
-      <i class="bi bi-lock me-1"></i>
-      HTTP probes are read-only. {{ readOnlyReason }}
-    </div>
+    <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">HTTP probes are read-only.</ReadOnlyNotice>
 
     <div class="card mb-4">
       <div class="card-body">

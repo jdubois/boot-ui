@@ -5,6 +5,7 @@ import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
+import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -182,19 +183,23 @@ onBeforeUnmount(() => {
       :error="error"
     >
       <template #actions>
-        <button :disabled="loading || readOnly" class="btn btn-outline-primary" type="button" @click="analyzeHeap">
-          <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
-          Analyze live heap
-        </button>
-        <button
+        <SpinnerButton
+          :loading="loading"
+          :disabled="loading || readOnly"
+          class="btn btn-outline-primary"
+          type="button"
+          label="Analyze live heap"
+          @click="analyzeHeap"
+        />
+        <SpinnerButton
+          :loading="loading"
           :disabled="loading || readOnly || report?.captureEnabled === false || report?.hotspotAvailable === false"
           class="btn btn-primary"
           type="button"
+          label="Capture heap dump"
+          loading-label="Working..."
           @click="captureDump"
-        >
-          <span v-if="loading" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
-          {{ loading ? 'Working...' : 'Capture heap dump' }}
-        </button>
+        />
       </template>
     </PanelHeader>
     <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>
