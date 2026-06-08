@@ -104,8 +104,13 @@ jobs:
             -DprocessAllModules=true \
             -DgenerateBackupPoms=false
 
-          export CURRENT_VERSION VERSION
-          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)\Q$ENV{CURRENT_VERSION}\E(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
+          export VERSION
+          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
+
+          if ! grep -q "<version>$VERSION</version>" docs/SETUP.md; then
+            echo "::error::Failed to update the bootui-spring-boot-starter version in docs/SETUP.md to $VERSION"
+            exit 1
+          fi
 
           if [[ "$SKIP_BUILD" != "true" ]]; then
             ./mvnw -B -ntp -Prelease clean verify -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
