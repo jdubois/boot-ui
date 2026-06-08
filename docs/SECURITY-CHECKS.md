@@ -23,6 +23,7 @@ rather than failing the panel.
 
 ## Severity scale
 
+- **CRITICAL** - a configuration that directly exposes credentials, secrets, or critical security controls and needs immediate attention.
 - **HIGH** - a configuration that commonly leaves the application exposed and usually needs attention before production.
 - **MEDIUM** - a hardening gap that warrants review.
 - **LOW** - lower-impact hygiene findings.
@@ -37,7 +38,7 @@ includes up to a handful of sample details plus a remediation link.
 
 ### SEC-AUTH-001 - Password encoder must not store credentials in plain text
 
-- **Severity**: HIGH
+- **Severity**: CRITICAL
 - **Detects**: Detects a NoOpPasswordEncoder bean, which keeps passwords in clear text.
 - **Recommendation**: Use a delegating encoder (PasswordEncoderFactories.createDelegatingPasswordEncoder()) backed by bcrypt, Argon2, or PBKDF2.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
@@ -56,6 +57,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Declare a PasswordEncoder bean (a delegating encoder) so stored credentials are hashed and verified consistently.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/index.html>
 
+### SEC-AUTH-006 - BCrypt password encoder should use an adequate work factor
+
+- **Severity**: LOW
+- **Detects**: Detects a BCryptPasswordEncoder bean configured with a strength below the recommended minimum of 10 (the framework default).
+- **Recommendation**: Use a BCrypt strength of at least 10 (the default) so password hashing stays computationally expensive; raise it as hardware improves, or migrate to Argon2/PBKDF2.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
+
 ### SEC-AUTH-004 - Do not rely on the generated spring.security.user account
 
 - **Severity**: MEDIUM
@@ -69,13 +77,6 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects the framework's DefaultLoginPageGeneratingFilter while a production profile is active.
 - **Recommendation**: Provide a custom login page via formLogin().loginPage(...) for production so the unstyled default page (which advertises the Spring Security stack) is not served.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/form.html>
-
-### SEC-AUTH-006 - BCrypt password encoder should use an adequate work factor
-
-- **Severity**: LOW
-- **Detects**: Detects a BCryptPasswordEncoder bean configured with a strength below the recommended minimum of 10 (the framework default).
-- **Recommendation**: Use a BCrypt strength of at least 10 (the default) so password hashing stays computationally expensive; raise it as hardware improves, or migrate to Argon2/PBKDF2.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html>
 
 ## Authorization
 
@@ -218,6 +219,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Add a PermissionsPolicyHeaderWriter via headers().permissionsPolicyHeader(...) to restrict powerful browser features the application does not use.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-permissions-policy>
 
+### SEC-HEAD-007 - Security response headers should not be globally disabled
+
+- **Severity**: HIGH
+- **Detects**: Detects a browser-facing (authenticated or session) chain that installs no HeaderWriterFilter, which means headers().disable() removed every security header (HSTS, X-Frame-Options, X-Content-Type-Options, ...).
+- **Recommendation**: Remove headers().disable(); keep the default HeaderWriterFilter so security headers are emitted, and only tune individual writers you do not need.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html>
+
 ## CORS
 
 ### SEC-CORS-001 - CORS should not allow all origins
@@ -247,6 +255,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects a CorsConfiguration that allows the * wildcard for methods or headers together with allowCredentials=true.
 - **Recommendation**: Enumerate the exact methods and headers the API needs instead of "*" when credentials are allowed, so cross-site callers cannot send arbitrary authenticated requests.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
+
+### SEC-CORS-006 - CORS should not allow broad origin patterns
+
+- **Severity**: MEDIUM (HIGH when any broad pattern has allowCredentials=true)
+- **Detects**: Detects allowedOriginPatterns that match a dangerously broad set of origins (wildcard scheme or host, e.g. https://*, *://*, *.com) beyond the exact "*" already covered by SEC-CORS-001/002.
+- **Recommendation**: Replace broad patterns with the exact origins (or tightly-scoped subdomain wildcards such as https://*.example.com) the application trusts; broad patterns combined with credentials let untrusted sites make authenticated cross-site calls.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html>
 
 ## Method security
 
@@ -308,6 +323,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Set management.server.port to a separate, network-restricted port so actuator endpoints are not reachable on the public application port.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/monitoring.html#actuator.monitoring.customizing-management-server-port>
 
+### SEC-ACT-007 - Actuator env/configprops values must stay sanitized
+
+- **Severity**: HIGH
+- **Detects**: Detects management.endpoint.env.show-values=always or management.endpoint.configprops.show-values=always, which reveals unsanitized property values (including secrets) to callers of /env and /configprops.
+- **Recommendation**: Leave show-values at 'never' or 'when-authorized' (the defaults) so the actuator sanitizer masks sensitive values; only relax it behind strict authorization.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization>
+
 ## OAuth2 / JWT resource server
 
 ### SEC-OAUTH-001 - JWT resource server must validate tokens via issuer or JWK set
@@ -319,8 +341,8 @@ includes up to a handful of sample details plus a remediation link.
 
 ### SEC-OAUTH-002 - Validate the JWT audience claim
 
-- **Severity**: MEDIUM
-- **Detects**: Notes that issuer-based resource servers do not validate the aud claim unless a custom validator is added.
+- **Severity**: MEDIUM (INFO when a custom JwtDecoder is present)
+- **Detects**: Notes that issuer/JWK-based resource servers do not validate the aud claim unless a custom validator is added; a custom JwtDecoder is reported as an INFO advisory because it may already validate the claim.
 - **Recommendation**: Add an audience OAuth2TokenValidator to the JwtDecoder so tokens minted for other resource servers are rejected.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html#oauth2resourceserver-jwt-validation>
 
@@ -352,14 +374,7 @@ includes up to a handful of sample details plus a remediation link.
 - **Severity**: LOW
 - **Detects**: Detects a WebSecurityConfigurerAdapter bean; the class was removed in Spring Security 6.
 - **Recommendation**: Expose SecurityFilterChain and WebSecurityCustomizer beans instead of extending WebSecurityConfigurerAdapter.
-- **Learn more**: <https://spring.io/blog/2022/02/21/spring-security-without-the-websecurityconfigureradapter>
-
-### SEC-CONFIG-004 - Avoid bypassing the filter chain with web.ignoring()
-
-- **Severity**: MEDIUM
-- **Detects**: Notes that web.ignoring() paths skip Spring Security entirely (including header writers) and cannot be introspected from registered chains.
-- **Recommendation**: Prefer permitAll() inside authorizeHttpRequests for non-static paths so security headers and context still apply; reserve web.ignoring() for truly static resources.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#jc-httpsecurity>
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/configuration/java.html>
 
 ### SEC-CONFIG-005 - Error responses should not leak stack traces or internal messages
 
