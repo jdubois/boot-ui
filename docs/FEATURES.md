@@ -73,6 +73,14 @@ BootUI's advisors run explicit, on-demand rule-based scans and surface severity-
 score on the Overview dashboard. Each advisor inspects a different facet of the application — compiled architecture, the
 REST layer, the live Spring context, persistence, JVM memory, and security posture — and is read-only.
 
+Every advisor finding can be **dismissed** when it does not apply to your project. Each rule result carries a _Dismiss_
+button; dismissing a rule moves it into a collapsed "Dismissed rules" list at the bottom of the panel and excludes it
+from the panel's finding count, severity bars, and the weighted Overview score. Dismissed rules can be restored at any
+time from that list. Dismissals are applied server-side and persisted to a local `.bootui/dismissed-rules.yaml` file
+(next to the runtime overrides file), so they survive restarts and stay consistent between each panel and the Overview
+dashboard. The file is developer-local and intended to be git-ignored; rule identifiers are globally unique across
+advisors, so a dismissal always targets exactly one rule.
+
 ### Architecture
 
 The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
