@@ -53,10 +53,10 @@ final class HibernateRuleModelSupport {
 
     private static final Pattern FROM_ALIAS =
             Pattern.compile("\\bfrom\\s+[\\w.$]+\\s+(?:as\\s+)?([A-Za-z_]\\w*)\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern JOIN_FETCH =
-            Pattern.compile("\\bjoin\\s+fetch\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)+)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JOIN_FETCH = Pattern.compile(
+            "\\bjoin\\s++fetch\\s++([A-Za-z_]\\w*+(?:\\.[A-Za-z_]\\w*+)++)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern SELECT_CLAUSE =
-            Pattern.compile("^\\s*select\\s+(.*?)\\s+from\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+            Pattern.compile("^\\s*select\\b(.*?)\\bfrom\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern DISTINCT_PREFIX = Pattern.compile("(?i)^distinct\\s+");
     private static final Pattern OBJECT_WRAPPER = Pattern.compile("(?i)^object\\(\\s*([A-Za-z_]\\w*)\\s*\\)$");
 
@@ -2053,6 +2053,8 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
                 "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a11145"));
     }
 
+    // Optional JPA type: compare by class name instead of hard-referencing a class that may be absent at runtime.
+    @SuppressWarnings("java:S1872")
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         List<String> details = new ArrayList<>();
@@ -2115,6 +2117,9 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
                 "https://docs.spring.io/spring-data/jpa/reference/repositories/entity-state-detection.html"));
     }
 
+    // Optional JPA/Spring Data types: compare by class name instead of hard-referencing classes that may be absent at
+    // runtime.
+    @SuppressWarnings("java:S1872")
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         List<String> details = new ArrayList<>();

@@ -34,10 +34,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/bootui/api/panels")
 public class PanelsController {
 
-    // Matches both plain application-<profile>.{properties,yml,yaml} names and
-    // Spring Boot's "Config resource 'file ... application-<profile>.yml'" source names.
-    private static final Pattern PROFILE_SOURCE_PATTERN = Pattern.compile(
-            "(?:application-|Config resource 'file [^']*application-)([\\w-]+)(?:\\.properties|\\.ya?ml)");
+    // Matches the application-<profile>.{properties,yml,yaml} token in both plain source names and
+    // Spring Boot's "Config resource 'file ... application-<profile>.yml'" source names (via find()).
+    private static final Pattern PROFILE_SOURCE_PATTERN =
+            Pattern.compile("application-([\\w-]++)(?:\\.properties|\\.ya?ml)");
 
     private final ApplicationContext applicationContext;
     private final Environment environment;

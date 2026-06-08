@@ -37,7 +37,8 @@ public class HeapDumpService {
     private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9._-]+\\.hprof");
 
     /** Matches a histogram data row: {@code   1:   12345   9876544   classname [(module)]}. */
-    private static final Pattern HISTOGRAM_ROW = Pattern.compile("^\\s*\\d+:\\s+(\\d+)\\s+(\\d+)\\s+(\\S+).*$");
+    private static final Pattern HISTOGRAM_ROW =
+            Pattern.compile("^\\s*+\\d++:\\s++(\\d++)\\s++(\\d++)\\s++(\\S++).*+$");
 
     private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 

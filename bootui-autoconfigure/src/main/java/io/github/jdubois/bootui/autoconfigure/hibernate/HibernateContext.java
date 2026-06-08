@@ -152,7 +152,7 @@ record HibernateContext(
 
 record HibernateRuntimeVersion(String display, Integer major, Integer minor) {
 
-    private static final Pattern VERSION_PREFIX = Pattern.compile("^(\\d+)(?:\\.(\\d+))?.*");
+    private static final Pattern VERSION_PREFIX = Pattern.compile("^(\\d++)(?:\\.(\\d++))?.*");
 
     static HibernateRuntimeVersion detect() {
         return parse(detectedVersionString());
