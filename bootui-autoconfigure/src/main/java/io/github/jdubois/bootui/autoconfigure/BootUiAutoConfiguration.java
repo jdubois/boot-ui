@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
+import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -116,6 +117,7 @@ import org.springframework.core.env.Environment;
     GraalVmController.class,
     ThreadDumpController.class,
     MemoryController.class,
+    DismissedRulesController.class,
     BootUiIndexController.class,
     BootUiOpenTelemetryConfiguration.class
 })
@@ -166,7 +168,8 @@ public class BootUiAutoConfiguration {
             StartupController.class.getName(),
             TracesController.class.getName(),
             ThreadDumpController.class.getName(),
-            MemoryController.class.getName());
+            MemoryController.class.getName(),
+            DismissedRulesController.class.getName());
 
     private static final Set<String> LAZY_BEAN_NAMES =
             Set.of("bootUiConfigOverrideService", "bootUiDevToolsBridge", "bootUiOtlpSpanDecoder");
@@ -244,6 +247,15 @@ public class BootUiAutoConfiguration {
             log.warn("BootUI activation warning: {}", warning);
         }
         return activation;
+    }
+
+    @Bean
+    public DismissedRulesStore bootUiDismissedRulesStore(BootUiProperties properties) {
+        String overridesFile = properties.getOverridesFile();
+        String dir = (overridesFile != null && !overridesFile.isBlank())
+                ? Paths.get(overridesFile).getParent().toString()
+                : ".bootui";
+        return new DismissedRulesStore(Paths.get(dir, "dismissed-rules.yaml"));
     }
 
     @Bean
