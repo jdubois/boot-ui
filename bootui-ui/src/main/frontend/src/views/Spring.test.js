@@ -97,4 +97,61 @@ describe('Spring', () => {
     expect(wrapper.text()).toContain('No Spring Advisor findings')
     expect(wrapper.text()).not.toContain('Passing config rule')
   })
+
+  it('shows the advisor score and raises it when a finding is dismissed', async () => {
+    const dismissed = new Set()
+    const baseResults = [
+      ruleResult('SPRING-WIRING-001', 'High severity finding', 'HIGH', 'VIOLATION', 1),
+      ruleResult('SPRING-WEB-002', 'Medium severity finding', 'MEDIUM', 'VIOLATION', 1)
+    ]
+
+    function currentReport() {
+      const results = baseResults.map((result) => ({...result, dismissed: dismissed.has(result.id)}))
+      const active = results.filter((result) => result.status === 'VIOLATION' && !result.dismissed)
+      const count = (severity) => active.filter((result) => result.severity === severity).length
+      return {
+        ...advisorReport(results, active.length),
+        severityCounts: [
+          {severity: 'HIGH', count: count('HIGH')},
+          {severity: 'MEDIUM', count: count('MEDIUM')},
+          {severity: 'LOW', count: 0},
+          {severity: 'INFO', count: 0}
+        ],
+        results
+      }
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input, init) => {
+        const url = typeof input === 'string' ? input : input.url
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('api/dismissed-rules/')) {
+          const id = decodeURIComponent(url.split('api/dismissed-rules/')[1])
+          if (method === 'POST') dismissed.add(id)
+          if (method === 'DELETE') dismissed.delete(id)
+          return Promise.resolve(new Response('{}', {status: 200}))
+        }
+        return Promise.resolve(new Response(JSON.stringify(currentReport()), {status: 200}))
+      })
+    )
+
+    const wrapper = mount(Spring)
+    await flushPromises()
+
+    // HIGH (10) + MEDIUM (3) penalty => 100 - 13 = 87.
+    const scoreCard = wrapper.find('.advisor-score-card')
+    expect(scoreCard.exists()).toBe(true)
+    expect(scoreCard.text()).toContain('Advisor score')
+    expect(scoreCard.text()).toContain('87')
+
+    // The first dismiss button targets the highest-importance finding (HIGH).
+    const dismissButton = wrapper.findAll('button').find((button) => button.text().includes('Dismiss'))
+    await dismissButton.trigger('click')
+    await flushPromises()
+
+    // Removing the HIGH finding drops the penalty to 3 => 97, and the exclusion is noted.
+    expect(wrapper.find('.advisor-score-card').text()).toContain('97')
+    expect(wrapper.text()).toContain('1 dismissed rule(s) excluded from this score')
+  })
 })

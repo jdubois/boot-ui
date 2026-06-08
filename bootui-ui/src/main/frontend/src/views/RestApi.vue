@@ -1,6 +1,7 @@
 <script setup>
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
+import AdvisorScoreCard from './components/AdvisorScoreCard.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
@@ -39,6 +40,7 @@ const panel = useAdvisorPanel(props, {
     <div v-if="panel.actionMessage" class="alert alert-warning">{{ panel.actionMessage }}</div>
 
     <template v-if="panel.report">
+      <AdvisorScoreCard :score="panel.score" :dismissed-count="panel.dismissedResults.length" />
       <div class="alert alert-info">
         <strong>Heuristic REST API design rules.</strong>
         {{ panel.report.disclaimer }}

@@ -1,8 +1,8 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, inject, onMounted, reactive, ref} from 'vue'
+import {computed, inject, onActivated, onMounted, reactive, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
-import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
+import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {overallScore, scoreBandLabel, scoreBandTone, scoreFromSeverityCounts} from '../utils/scannerScore.js'
 import ScannerScoreCard from './components/ScannerScoreCard.vue'
 import OverviewHealthCard from './components/OverviewHealthCard.vue'
@@ -36,7 +36,8 @@ const scannerDefs = [
     icon: 'bi-diagram-2',
     tone: 'primary',
     to: '/architecture',
-    endpoint: 'api/architecture/scan'
+    endpoint: 'api/architecture/scan',
+    reportEndpoint: 'api/architecture'
   },
   {
     id: 'memory',
@@ -44,7 +45,8 @@ const scannerDefs = [
     icon: 'bi-clipboard2-pulse',
     tone: 'warning',
     to: '/memory',
-    endpoint: 'api/memory/scan'
+    endpoint: 'api/memory/scan',
+    reportEndpoint: 'api/memory'
   },
   {
     id: 'rest-api',
@@ -52,7 +54,8 @@ const scannerDefs = [
     icon: 'bi-signpost-split',
     tone: 'primary',
     to: '/rest-api',
-    endpoint: 'api/rest-api/scan'
+    endpoint: 'api/rest-api/scan',
+    reportEndpoint: 'api/rest-api'
   },
   {
     id: 'spring',
@@ -60,7 +63,8 @@ const scannerDefs = [
     icon: 'bi-lightbulb',
     tone: 'info',
     to: '/spring',
-    endpoint: 'api/spring/scan'
+    endpoint: 'api/spring/scan',
+    reportEndpoint: 'api/spring'
   },
   {
     id: 'hibernate',
@@ -68,7 +72,8 @@ const scannerDefs = [
     icon: 'bi-database-gear',
     tone: 'info',
     to: '/hibernate',
-    endpoint: 'api/hibernate/scan'
+    endpoint: 'api/hibernate/scan',
+    reportEndpoint: 'api/hibernate'
   },
   {
     id: 'security',
@@ -76,7 +81,8 @@ const scannerDefs = [
     icon: 'bi-shield-check',
     tone: 'success',
     to: '/security',
-    endpoint: 'api/security/scan'
+    endpoint: 'api/security/scan',
+    reportEndpoint: 'api/security'
   },
   {
     id: 'pentesting',
@@ -84,7 +90,8 @@ const scannerDefs = [
     icon: 'bi-shield-exclamation',
     tone: 'warning',
     to: '/pentesting',
-    endpoint: 'api/pentesting/scan'
+    endpoint: 'api/pentesting/scan',
+    reportEndpoint: 'api/pentesting'
   },
   {
     id: 'vulnerabilities',
@@ -102,25 +109,71 @@ function newScannerState() {
 
 const scanners = reactive(Object.fromEntries(scannerDefs.map((def) => [def.id, newScannerState()])))
 
+// Monotonic request token per scanner so a slower in-flight request (e.g. a POST scan
+// started before navigating away) can never overwrite a newer response (e.g. the GET
+// refresh that runs when the kept-alive dashboard is re-activated). Plain object, not
+// reactive: it is bookkeeping, not rendered state.
+const requestTokens = {}
+
+function nextToken(id) {
+  requestTokens[id] = (requestTokens[id] || 0) + 1
+  return requestTokens[id]
+}
+
+function applyReport(state, report) {
+  state.severityCounts = report.severityCounts ?? []
+  state.score = scoreFromSeverityCounts(state.severityCounts)
+  const status = report.scan?.status
+  state.statusLabel = scanStatusLabel(status)
+  state.statusTone = scanStatusBadgeClass(status)
+  state.state = 'done'
+  state.error = null
+}
+
 const visibleScanners = computed(() => scannerDefs.filter((def) => panelAvailable(def.id)))
 
 async function runScanner(def) {
   const state = scanners[def.id]
+  const token = nextToken(def.id)
   state.state = 'running'
   state.error = null
   try {
     const res = await apiFetch(def.endpoint, {method: 'POST'})
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const report = await res.json()
-    state.severityCounts = report.severityCounts ?? []
-    state.score = scoreFromSeverityCounts(state.severityCounts)
-    const status = report.scan?.status
-    state.statusLabel = scanStatusLabel(status)
-    state.statusTone = scanStatusBadgeClass(status)
-    state.state = 'done'
+    if (token !== requestTokens[def.id]) return
+    applyReport(state, report)
   } catch (e) {
+    if (token !== requestTokens[def.id]) return
     state.state = 'error'
     state.error = describeLoadError(e, `Unable to run ${def.title}`).message
+  }
+}
+
+// The dashboard is kept alive (App.vue wraps it in <keep-alive include="Overview">), so its
+// scores survive navigation. Dismissing/restoring an advisor rule in a panel changes that
+// advisor's server-side score, which would otherwise leave the dashboard showing a stale value.
+// On re-activation we re-fetch the report (GET, never a re-scan) for advisors that have already
+// been scored here, so the score and severity counts reflect the current dismissals.
+async function refreshScanner(def) {
+  const state = scanners[def.id]
+  if (!def.reportEndpoint || state.state !== 'done') return
+  const token = nextToken(def.id)
+  try {
+    const res = await apiFetch(def.reportEndpoint)
+    if (!res.ok) return
+    const report = await res.json()
+    if (token !== requestTokens[def.id]) return
+    if (!hasScanResult(report.scan?.status)) return
+    applyReport(state, report)
+  } catch {
+    // Best-effort refresh: keep the previously computed score if the report cannot be reloaded.
+  }
+}
+
+function refreshScores() {
+  for (const def of visibleScanners.value) {
+    refreshScanner(def)
   }
 }
 
@@ -230,6 +283,7 @@ async function ensurePanels() {
 }
 
 onMounted(ensurePanels)
+onActivated(refreshScores)
 </script>
 
 <template>
