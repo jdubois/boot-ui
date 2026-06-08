@@ -2,8 +2,6 @@
 
 [![Build](https://github.com/jdubois/boot-ui/actions/workflows/build.yml/badge.svg)](https://github.com/jdubois/boot-ui/actions/workflows/build.yml)
 [![CodeQL](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml/badge.svg)](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=jdubois_boot-ui&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=jdubois_boot-ui)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=jdubois_boot-ui&metric=coverage)](https://sonarcloud.io/summary/new_code?id=jdubois_boot-ui)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0.x-6db33f?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Java](https://img.shields.io/badge/Java-17-orange?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
