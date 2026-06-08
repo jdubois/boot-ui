@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Stream;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
@@ -32,6 +33,10 @@ import org.springframework.context.annotation.ImportRuntimeHints;
  *       {@code UnionSubclassEntityPersister}, which Hibernate instantiates reflectively via its
  *       public 4-arg constructor. Neither Hibernate 7.2 nor Spring Boot's AOT hints register that
  *       constructor, so its public constructors are registered here.
+ *   <li><b>Hibernate identifier-array reflection</b> — Hibernate's multi-id entity loader
+ *       reflectively instantiates a {@code UUID[]} array for the {@code SampleAuditEntry} {@code
+ *       UUID} identifier. GraalVM requires the array type to be registered for reflective
+ *       instantiation, so {@code UUID[]} is registered here.
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
@@ -86,6 +91,14 @@ class NativeHintsConfiguration {
                             classLoader,
                             "org.hibernate.persister.entity.UnionSubclassEntityPersister",
                             MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
+
+            // Hibernate builds a multi-id entity loader for every entity and, for the
+            // SampleAuditEntry UUID identifier, reflectively instantiates a UUID[] array through
+            // AbstractEntityPersister#buildMultiIdLoader. GraalVM requires the array type itself to
+            // be registered for reflective instantiation; Spring Boot's AOT processing registers the
+            // entity but not its identifier array type, so without this hint the native image fails
+            // to build the SessionFactory with a MissingReflectionRegistrationError.
+            hints.reflection().registerType(UUID[].class);
         }
 
         private static Class<?> serializationProxyClass() {
