@@ -114,7 +114,7 @@ record HibernateContext(
     }
 
     boolean hasHibernateCollectionFetchPaginationFix() {
-        return hibernateVersion.isAfterMajorMinor(7, 4);
+        return hibernateVersion.isAtLeastMajorMinor(7, 4);
     }
 
     String hibernateVersionDisplay() {
@@ -182,6 +182,16 @@ record HibernateRuntimeVersion(String display, Integer major, Integer minor) {
             return true;
         }
         return major == targetMajor && minor != null && minor > targetMinor;
+    }
+
+    boolean isAtLeastMajorMinor(int targetMajor, int targetMinor) {
+        if (major == null) {
+            return false;
+        }
+        if (major > targetMajor) {
+            return true;
+        }
+        return major == targetMajor && minor != null && minor >= targetMinor;
     }
 
     private static String detectedVersionString() {

@@ -18,6 +18,7 @@ final class HibernateRuleRegistry {
             new SequenceAllocationSizeRule(),
             new GeneratedValueWithoutStrategyRule(),
             new UuidIdentifierGeneratorRule(),
+            new IdentityDisablesBatchingRule(),
             // Mapping
             new UnidirectionalOneToManyRule(),
             new ManyToManyListRule(),
@@ -38,6 +39,7 @@ final class HibernateRuleRegistry {
             new LazyOneToOneEnhancementRule(),
             new NonOwningOneToOneEnhancementRule(),
             new MissingForeignKeyIndexRule(),
+            new UnidirectionalOneToManyJoinColumnRule(),
 
             // Entity design
             new EqualsHashCodePairRule(),
@@ -56,6 +58,7 @@ final class HibernateRuleRegistry {
             new DerivedDeleteByQueryRule(),
             new EagerToOneFetchJoinRule(),
             new EntityProjectionQueryRule(),
+            new MultipleCollectionJoinFetchRule(),
             // Configuration
             new OpenInViewRule(),
             new LazyLoadNoTransRule(),
