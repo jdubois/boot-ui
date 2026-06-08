@@ -37,6 +37,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Sync starter version in setup docs
+        run: |
+          set -euo pipefail
+          VERSION="$(perl -0ne 'print $1 and exit if m{<artifactId>bootui-parent</artifactId>\s*<version>([^<]+)</version>}' pom.xml)"
+          if [[ -z "${VERSION:-}" ]]; then
+            echo "::error::Could not determine the project version from pom.xml"
+            exit 1
+          fi
+          echo "Syncing bootui-spring-boot-starter version to $VERSION"
+          export VERSION
+          perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
+          if ! grep -q "<version>$VERSION</version>" docs/SETUP.md; then
+            echo "::error::Failed to update the bootui-spring-boot-starter version in docs/SETUP.md to $VERSION"
+            exit 1
+          fi
+
       - name: Build VuePress site
         run: npm run docs:build
         env:
