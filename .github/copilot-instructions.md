@@ -18,8 +18,10 @@ read those before changing public behavior or visible panel behavior.
 # CI-equivalent multi-module build (downloads Node, tests/builds Vue UI, packages all JARs).
 ./mvnw -B -ntp clean install
 
-# Backend-only iteration loop (skips the Vue build).
+# Backend + UI iteration loop. NOTE: -am pulls in bootui-ui (the starter depends on it), so the Vue app IS rebuilt.
 ./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
+# To genuinely skip the Vue rebuild, drop -am (works once bootui-ui has been installed at least once).
+./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app install
 
 # Fastest sample app launch (smoke-test path: http://localhost:8080/bootui).
 ./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
@@ -46,13 +48,8 @@ read those before changing public behavior or visible panel behavior.
 
 ### Inner loop: launch the sample app fast, and isolate worktrees
 
-For the fastest sample-app launch, run only the sample module and skip test resources/compilation:
-
-```bash
-./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
-# If offline mode misses a dependency, drop -o once.
-./mvnw -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
-```
+Use the fast sample-app launch command from the Build/run/test block above (only the sample module,
+`-Dmaven.test.skip=true`, `dev` profile).
 
 Do **not** add `-am` to `spring-boot:run`: Maven applies the goal to every selected reactor project, including the
 parent/core/UI modules, and those modules have no main class. Use `-am` for build/test reactor work instead:
@@ -120,36 +117,38 @@ the release profile:
   without dropping the failed deployment from the Sonatype Central Portal first. The default path is to run the `Release`
   workflow with a new version so it bumps the codebase, commits, tags, and publishes in one run.
 - **Use the `Release` workflow (`.github/workflows/release.yml`) to bump versions** rather than running `versions:set` by
-  hand. It runs `versions:set`, updates the README install snippet, *and* bumps every npm `package.json` /
-  `package-lock.json` (root docs site, `bootui-ui` frontend, and the `bootui-sample-app/e2e` suite) via
-  `npm version --no-git-tag-version`, then verify-builds, commits, tags, and publishes. Manual `versions:set` skips the
-  README rewrite and the npm bumps, leaving the install snippet and npm package versions pointing at a stale (and possibly
-  never-published) version.
+  hand. It runs `versions:set`, updates the `docs/SETUP.md` install snippet (the public `README.md` only links to the
+  docs site), *and* bumps every npm `package.json` / `package-lock.json` (root docs site, `bootui-ui` frontend, and the
+  `bootui-sample-app/e2e` suite) via `npm version --no-git-tag-version`, then verify-builds, commits, tags, and
+  publishes. Manual `versions:set` skips the install-snippet rewrite and the npm bumps, leaving them pointing at a stale
+  (and possibly never-published) version.
 - **The sample app is excluded from release deploys** via `<maven.deploy.skip>true</maven.deploy.skip>` in
   `bootui-sample-app/pom.xml`; keep it that way — it must still be built so the central-publishing plugin sees the full
   reactor, but it must not be published.
 
 ## Module topology
 
-```
+```text
 bootui-core                  DTO records (core/dto/*), SecretMasker, BootUiInfo — no Spring dependency
-bootui-autoconfigure         BootUiAutoConfiguration, @RestController endpoints, safety filter, config overrides, OSV scanning
+bootui-autoconfigure         BootUiAutoConfiguration, @RestController endpoints, safety filters, config overrides, OSV scanning
 bootui-spring-boot-starter   Drop-in dependency: pulls autoconfigure + ui + spring-boot-starter-web + actuator
 bootui-ui                    Vue 3 + Vite SPA; built into META-INF/resources/bootui/ via frontend-maven-plugin
 bootui-sample-app            Reference Spring Boot 4 app used for demos and integration testing
 ```
 
-`bootui-ui` has **no Java sources**. Its Maven build runs `npm install`, `npm run test` during the Maven `test` phase
-(skipped by `-DskipTests`), and `npm run build`, then `maven-resources-plugin` copies `src/main/frontend/dist/` into
-`target/classes/META-INF/resources/bootui/`. Spring Boot then serves that classpath path automatically — consumers must
-never need npm.
+`bootui-ui` has **no Java sources**. Its Maven build runs `npm ci` and `npm run build` at `generate-resources`, runs
+`npm run test` during the Maven `test` phase (skipped by `-DskipTests`), then `maven-resources-plugin` copies
+`src/main/frontend/dist/` into `target/classes/META-INF/resources/bootui/`. Spring Boot then serves that classpath path
+automatically — consumers must never need npm.
 
 ## Activation & safety model (critical)
 
-- `BootUiAutoConfiguration` is gated by `BootUiActivationCondition`, `@ConditionalOnWebApplication(SERVLET)`, and
-  `@ConditionalOnClass(DispatcherServlet)`. It is registered via
-  `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`, **not** component-scanned. New
-  controllers must be added to `@Import(...)` on `BootUiAutoConfiguration`.
+- Two autoconfigurations are registered (not component-scanned) in
+  `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`: `BootUiAutoConfiguration` and
+  `BootUiSpringSecurityAutoConfiguration` (the latter permits BootUI routes and wires SPA-friendly CSRF when Spring
+  Security is on the classpath). `BootUiAutoConfiguration` is gated by `BootUiActivationCondition`,
+  `@ConditionalOnWebApplication(SERVLET)`, and `@ConditionalOnClass(DispatcherServlet)`. New controllers must be added
+  to `@Import(...)` on `BootUiAutoConfiguration`.
 - Activation rules (see `BootUiActivationCondition.resolve`): `bootui.enabled=ON|OFF` wins, otherwise an active profile
   in `bootui.enabled-profiles` (`dev`, `local` by default) or `spring-boot-devtools` on the classpath turns BootUI on.
   `bootui.disabled-profiles` (`prod`, `production`) force-off unless `bootui.enabled=ON`.
@@ -158,6 +157,14 @@ never need npm.
   built-in loopback names plus `bootui.allowed-hosts` (DNS-rebinding defense) and rejects cross-site state-changing
   requests via `Origin`/`Sec-Fetch-Site` (CSRF defense that works without Spring Security). Opt-out of all of this is
   `bootui.allow-non-localhost=true` only.
+- `PanelAccessFilter` runs after `LocalhostOnlyFilter` and enforces per-panel `bootui.panels.*` settings via the
+  `BootUiPanels` registry: it blocks requests to disabled panels and rejects state-changing methods on action-capable
+  panels marked read-only. Register new action endpoints in `BootUiPanels` so these toggles apply.
+- Four `EnvironmentPostProcessor`s are registered in `META-INF/spring.factories` and run while BootUI is active:
+  `BootUiOverridesEnvironmentPostProcessor` (runtime config overrides), `BootUiActuatorDefaultsEnvironmentPostProcessor`
+  (local Actuator/tracing defaults), `BootUiStartupEnvironmentPostProcessor` (startup-timeline buffer), and
+  `BootUiWebApplicationTypeEnvironmentPostProcessor` (forces servlet web type when active and otherwise non-web). Add new
+  post-processors to that same file.
 - BootUI contributes local Actuator defaults via `BootUiActuatorDefaultsEnvironmentPostProcessor` while active. Host
   `management.*` settings must still win over BootUI defaults.
 - Fail-closed mindset: when ambiguous, BootUI should be **disabled and silent**, not exposed.
@@ -196,19 +203,30 @@ paths.
 
 ## Current panel surface
 
-The `0.1.0` stance is to harden **all visible panels**, not hide newer ones. Keep API, UI, docs, and
-Playwright coverage aligned for:
+`bootui-ui/src/main/frontend/src/routes.js` is the source of truth for routes and sidebar grouping; `docs/FEATURES.md`
+mirrors it. The stance is to harden **all visible panels**, not hide newer ones. Keep API, UI, `docs/FEATURES.md`, and
+Playwright coverage aligned across these nine groups (current order):
 
-- **Overview**: Overview
-- **Runtime**: Health, Metrics, Memory, Heap Dump, Startup Timeline
+- **Overview**: Overview, GitHub
+- **Advisors**: Architecture, REST API, Spring, Hibernate, Memory, Security, Pentesting, Vulnerabilities
+- **Runtime**: Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump, Threads, Startup Timeline, GraalVM
 - **Configuration**: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings
-- **Services**: Scheduled Tasks, Database Connection Pools, Data, Cache, Security, AI Usage
-- **Diagnostics**: Traces, Log Tail, HTTP Probe, Architecture, Pentesting, Vulnerabilities
+- **Database**: Database Connection Pools, Spring Data, Flyway, Liquibase
+- **Security**: Spring Security, Security Logs
+- **Services**: Scheduled Tasks, Spring Cache, AI Usage
+- **Diagnostics**: Traces, Log Tail, HTTP Exchanges, HTTP Probe
 - **Developer Tools**: DevTools, Dev Services, Copilot, Claude Code
-- The router order in `bootui-ui/src/main/frontend/src/main.js`, `docs/FEATURES.md`, README feature table, and
-  sample-app Playwright navigation tests should stay consistent when panels are added, renamed, hidden, or reordered.
+- **Advisors** panels read their backing analysis rules from the `docs/*-CHECKS.md` files (e.g. `ARCHITECTURE-CHECKS.md`,
+  `SPRING-CHECKS.md`, `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`,
+  `REST-API-CHECKS.md`, `GRAALVM-READINESS-CHECKS.md`); update the matching doc when changing advisor logic.
+- The Claude Code panel reuses `views/Copilot.vue` (`component: Copilot`); there is no separate `ClaudeCode.vue`.
+- The route order and `meta.group` keys in `routes.js` (each `group` must exist in its `groups` map), `docs/FEATURES.md`,
+  and the sample-app navigation test (`bootui-sample-app/e2e/tests/app-shell.spec.js`) must stay consistent when panels
+  are added, renamed, hidden, or reordered. When renaming a route path, add a redirect from the old path (see the
+  redirect block at the end of `routes.js`).
 - New browser-facing behavior usually needs a stable DTO, controller tests where practical, Vue route/view updates,
-  `docs/FEATURES.md` / README updates, and an e2e spec when the UI or sample app behavior changes.
+  `docs/FEATURES.md` updates, and an e2e spec in `bootui-sample-app/e2e/tests/` when the UI or sample app behavior
+  changes.
 - Feature screenshots in `docs/images/bootui-*.png` should stay at the current 1600x900 px size so the feature page
   remains visually consistent. When adding or refreshing screenshots, seed the sample app or local state with realistic
   non-sensitive sample data that demonstrates how the panel works instead of capturing empty/default states.
@@ -233,7 +251,7 @@ Playwright coverage aligned for:
 
 ## Frontend conventions
 
-- Vue 3 **Composition API with `<script setup>`**, Vue Router 4 with `createWebHashHistory()`, Bootstrap 5.3 +
+- Vue 3 **Composition API with `<script setup>`**, Vue Router 5 with `createWebHashHistory()`, Bootstrap 5.3 +
   bootstrap-icons. The codebase is plain JavaScript (`.js` / `.vue`); there is no TypeScript.
 - API calls use **relative** paths (`fetch('api/overview')`) so they resolve against the `/bootui/` SPA base — do not
   hardcode `/bootui/api/...`.
@@ -253,4 +271,4 @@ Playwright coverage aligned for:
   flows, browser-facing API response shapes, visible routes, or sample-app behavior.
 - The sample app is for demos/integration tests and has `<maven.deploy.skip>true</maven.deploy.skip>`; do not publish it
   as part of Maven Central releases.
-- Spring Boot 3.x compatibility is **out of scope** for v0.1 — don't add compatibility shims.
+- Spring Boot 3.x compatibility is **out of scope** — don't add compatibility shims.
