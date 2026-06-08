@@ -281,6 +281,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public BootUiStaticResourceConfigurer bootUiStaticResourceConfigurer(Environment environment) {
+        return new BootUiStaticResourceConfigurer(environment);
+    }
+
+    @Bean
     public PanelAccessFilter bootUiPanelAccessFilter(BootUiProperties properties) {
         return new PanelAccessFilter(properties);
     }
