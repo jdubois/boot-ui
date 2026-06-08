@@ -7,10 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.config.*;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,12 +18,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * Controller-level tests for {@link ScheduledController}.
  *
- * <p>Covers three infrastructure states: absent holder (scheduling not
- * present), present holder with no tasks, and present holder with tasks
- * of various trigger types. {@link ScheduledTask} is {@code final} with a
- * package-private constructor and is mocked via {@link MockMakers#INLINE}.
- * {@link ScheduledTaskHolder} is an interface and uses the default mock
- * maker.</p>
+ * <p>Covers infrastructure states: no holder beans (scheduling not present),
+ * a present holder with no tasks, a present holder with tasks of various
+ * trigger types, and multiple holder beans whose tasks are aggregated.
+ * {@link ScheduledTask} is {@code final} with a package-private constructor
+ * and is mocked via {@link MockMakers#INLINE}. {@link ScheduledTaskHolder}
+ * is an interface and uses the default mock maker.</p>
  */
 class ScheduledControllerTests {
 
@@ -31,23 +31,15 @@ class ScheduledControllerTests {
         return mock(cls, withSettings().mockMaker(MockMakers.INLINE));
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<ScheduledTaskHolder> providerOf(ScheduledTaskHolder holder) {
-        ObjectProvider<ScheduledTaskHolder> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(holder);
-        return provider;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<ScheduledTaskHolder> emptyProvider() {
-        ObjectProvider<ScheduledTaskHolder> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
+    private static ScheduledTaskHolder holderOf(Set<ScheduledTask> tasks) {
+        ScheduledTaskHolder holder = mock(ScheduledTaskHolder.class);
+        when(holder.getScheduledTasks()).thenReturn(tasks);
+        return holder;
     }
 
     @Test
-    void scheduledReturnsAbsentWhenHolderUnavailable() throws Exception {
-        MockMvc mvc = standaloneSetup(new ScheduledController(emptyProvider())).build();
+    void scheduledReturnsAbsentWhenNoHolderBeans() throws Exception {
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of())).build();
 
         mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -59,11 +51,9 @@ class ScheduledControllerTests {
 
     @Test
     void scheduledReturnsEmptyListWhenNoTasksRegistered() throws Exception {
-        ScheduledTaskHolder holder = mock(ScheduledTaskHolder.class);
-        when(holder.getScheduledTasks()).thenReturn(Set.of());
+        ScheduledTaskHolder holder = holderOf(Set.of());
 
-        MockMvc mvc =
-                standaloneSetup(new ScheduledController(providerOf(holder))).build();
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of(holder))).build();
 
         mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -80,11 +70,9 @@ class ScheduledControllerTests {
         ScheduledTask scheduledTask = inlineMock(ScheduledTask.class);
         when(scheduledTask.getTask()).thenReturn(cronTask);
 
-        ScheduledTaskHolder holder = mock(ScheduledTaskHolder.class);
-        when(holder.getScheduledTasks()).thenReturn(Set.of(scheduledTask));
+        ScheduledTaskHolder holder = holderOf(Set.of(scheduledTask));
 
-        MockMvc mvc =
-                standaloneSetup(new ScheduledController(providerOf(holder))).build();
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of(holder))).build();
 
         mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -96,16 +84,33 @@ class ScheduledControllerTests {
     }
 
     @Test
+    void scheduledAggregatesTasksFromMultipleHolders() throws Exception {
+        ScheduledTask annotationTask = scheduledCronTask(new NamedRunnable("com.example.AnnotatedJob#run"));
+        ScheduledTask programmaticTask = scheduledCronTask(new NamedRunnable("com.example.ProgrammaticTimer"));
+
+        ScheduledTaskHolder annotationHolder = holderOf(Set.of(annotationTask));
+        ScheduledTaskHolder programmaticHolder = holderOf(Set.of(programmaticTask));
+
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of(annotationHolder, programmaticHolder)))
+                .build();
+
+        mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schedulingPresent").value(true))
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.tasks[0].runnable").value("com.example.AnnotatedJob#run"))
+                .andExpect(jsonPath("$.tasks[1].runnable").value("com.example.ProgrammaticTimer"));
+    }
+
+    @Test
     void scheduledFiltersBootUiTasksByDefault() throws Exception {
         ScheduledTask bootUiTask = scheduledCronTask(
                 new NamedRunnable("io.github.jdubois.bootui.autoconfigure.web.BootUiMaintenanceTask"));
         ScheduledTask applicationTask = scheduledCronTask(new NamedRunnable("com.example.MyJob#executeJob"));
 
-        ScheduledTaskHolder holder = mock(ScheduledTaskHolder.class);
-        when(holder.getScheduledTasks()).thenReturn(Set.of(bootUiTask, applicationTask));
+        ScheduledTaskHolder holder = holderOf(Set.of(bootUiTask, applicationTask));
 
-        MockMvc mvc =
-                standaloneSetup(new ScheduledController(providerOf(holder))).build();
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of(holder))).build();
 
         mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -121,11 +126,9 @@ class ScheduledControllerTests {
         ScheduledTask scheduledTask = inlineMock(ScheduledTask.class);
         when(scheduledTask.getTask()).thenReturn(fixedRateTask);
 
-        ScheduledTaskHolder holder = mock(ScheduledTaskHolder.class);
-        when(holder.getScheduledTasks()).thenReturn(Set.of(scheduledTask));
+        ScheduledTaskHolder holder = holderOf(Set.of(scheduledTask));
 
-        MockMvc mvc =
-                standaloneSetup(new ScheduledController(providerOf(holder))).build();
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of(holder))).build();
 
         mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -143,11 +146,9 @@ class ScheduledControllerTests {
         ScheduledTask scheduledTask = inlineMock(ScheduledTask.class);
         when(scheduledTask.getTask()).thenReturn(fixedDelayTask);
 
-        ScheduledTaskHolder holder = mock(ScheduledTaskHolder.class);
-        when(holder.getScheduledTasks()).thenReturn(Set.of(scheduledTask));
+        ScheduledTaskHolder holder = holderOf(Set.of(scheduledTask));
 
-        MockMvc mvc =
-                standaloneSetup(new ScheduledController(providerOf(holder))).build();
+        MockMvc mvc = standaloneSetup(new ScheduledController(List.of(holder))).build();
 
         mvc.perform(get("/bootui/api/scheduled").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())

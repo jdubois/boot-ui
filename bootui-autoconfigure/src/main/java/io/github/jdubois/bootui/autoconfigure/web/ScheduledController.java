@@ -4,10 +4,10 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.ScheduledReport;
 import io.github.jdubois.bootui.core.dto.ScheduledTaskDto;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
-import org.springframework.beans.factory.ObjectProvider;
+import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.scheduling.config.*;
@@ -20,36 +20,33 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/bootui/api/scheduled")
 public class ScheduledController {
 
-    private final ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider;
+    private final List<ScheduledTaskHolder> scheduledTaskHolders;
 
     private final BootUiSelfDataFilter selfDataFilter;
 
-    public ScheduledController(ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider) {
-        this(scheduledTaskHolderProvider, BootUiSelfDataFilter.defaults());
+    public ScheduledController(List<ScheduledTaskHolder> scheduledTaskHolders) {
+        this(scheduledTaskHolders, BootUiSelfDataFilter.defaults());
     }
 
     @Autowired
-    public ScheduledController(
-            ObjectProvider<ScheduledTaskHolder> scheduledTaskHolderProvider, BootUiSelfDataFilter selfDataFilter) {
-        this.scheduledTaskHolderProvider = scheduledTaskHolderProvider;
+    public ScheduledController(List<ScheduledTaskHolder> scheduledTaskHolders, BootUiSelfDataFilter selfDataFilter) {
+        this.scheduledTaskHolders = scheduledTaskHolders;
         this.selfDataFilter = selfDataFilter;
     }
 
     @GetMapping
     public ScheduledReport scheduled() {
-        ScheduledTaskHolder holder = scheduledTaskHolderProvider.getIfAvailable();
-        if (holder == null) {
+        if (scheduledTaskHolders.isEmpty()) {
             return new ScheduledReport(false, 0, List.of());
         }
-        Set<ScheduledTask> scheduledTasks = holder.getScheduledTasks();
-        List<ScheduledTaskDto> tasks = scheduledTasks == null
-                ? List.of()
-                : scheduledTasks.stream()
-                        .map(this::toDto)
-                        .filter(task -> selfDataFilter.shouldIncludeScheduledTask(task.runnable()))
-                        .sorted(Comparator.comparing(
-                                ScheduledTaskDto::runnable, Comparator.nullsLast(String::compareTo)))
-                        .toList();
+        List<ScheduledTaskDto> tasks = scheduledTaskHolders.stream()
+                .map(ScheduledTaskHolder::getScheduledTasks)
+                .filter(Objects::nonNull)
+                .flatMap(Collection::stream)
+                .map(this::toDto)
+                .filter(task -> selfDataFilter.shouldIncludeScheduledTask(task.runnable()))
+                .sorted(Comparator.comparing(ScheduledTaskDto::runnable, Comparator.nullsLast(String::compareTo)))
+                .toList();
         return new ScheduledReport(true, tasks.size(), tasks);
     }
 
