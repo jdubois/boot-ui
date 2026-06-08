@@ -69,7 +69,7 @@ jobs:
 
       - name: Install Playwright dependencies
         working-directory: bootui-sample-app/e2e
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Check Playwright formatting
         working-directory: bootui-sample-app/e2e
