@@ -19,6 +19,8 @@ jobs:
   build:
     name: Build (Java ${{ matrix.java }})
     runs-on: ubuntu-latest
+    # SONAR_TOKEN is stored as a secret on the "sonar" GitHub Actions environment.
+    environment: sonar
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     strategy:
