@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 
 class MemoryScannerTests {
 
-    private static final int RULE_COUNT = 22;
+    private static final int RULE_COUNT = 25;
     private static final long MB = 1024L * 1024;
     private static final long GB = 1024L * 1024 * 1024;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC);

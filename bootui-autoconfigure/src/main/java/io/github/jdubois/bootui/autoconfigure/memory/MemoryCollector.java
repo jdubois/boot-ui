@@ -1,9 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.memory;
 
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ClassLoadingData;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.GcSample;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.GcTrend;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.HeapContentData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryPoolSnapshot;
+import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.PostGcHeapData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.RuntimeData;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ThreadData;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
@@ -63,8 +66,62 @@ final class MemoryCollector {
     }
 
     MemoryContext collect() {
+        MemoryData memory = collectMemory();
+        ThreadData threads = collectThreads();
+        // Sample GC counters BEFORE the histogram so this scan's own forced full GC is excluded
+        // from the recent-overhead window; the post-histogram runtime reading becomes the baseline
+        // for the next scan.
+        GcSample preHistogramGc = currentGcSample();
+        HeapContentData heapContent = collectHeapContent();
+        PostGcHeapData postGcHeap = collectPostGcHeap(heapContent.available());
+        ClassLoadingData classLoading = collectClassLoading();
+        RuntimeData runtime = collectRuntime();
         return new MemoryContext(
-                collectMemory(), collectThreads(), collectHeapContent(), collectClassLoading(), collectRuntime());
+                memory, threads, heapContent, postGcHeap, classLoading, runtime, preHistogramGc, GcTrend.unavailable());
+    }
+
+    /**
+     * Re-reads heap and old-generation occupancy after the histogram's forced full GC so the
+     * heap-pressure rules can tell sustained retained pressure from transient garbage. Returns
+     * {@link PostGcHeapData#unavailable()} when no histogram (and therefore no full GC) ran.
+     */
+    private PostGcHeapData collectPostGcHeap(boolean histogramRan) {
+        if (!histogramRan) {
+            return PostGcHeapData.unavailable();
+        }
+        long heapUsed = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+        boolean oldGenAvailable = false;
+        long oldGenUsed = -1;
+        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+            if (MemoryData.isOldGenerationPoolName(pool.getName())) {
+                MemoryUsage usage = pool.getUsage();
+                if (usage != null) {
+                    oldGenUsed = usage.getUsed();
+                    oldGenAvailable = true;
+                    break;
+                }
+            }
+        }
+        return new PostGcHeapData(true, heapUsed, oldGenAvailable, oldGenUsed);
+    }
+
+    private GcSample currentGcSample() {
+        long uptimeMillis = ManagementFactory.getRuntimeMXBean().getUptime();
+        long gcTimeMillis = 0;
+        long gcCount = 0;
+        boolean gcTimeKnown = false;
+        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
+            long time = gc.getCollectionTime();
+            if (time >= 0) {
+                gcTimeMillis += time;
+                gcTimeKnown = true;
+            }
+            long count = gc.getCollectionCount();
+            if (count > 0) {
+                gcCount += count;
+            }
+        }
+        return new GcSample(uptimeMillis, gcTimeKnown ? gcTimeMillis : -1, gcCount);
     }
 
     private MemoryData collectMemory() {
@@ -171,30 +228,13 @@ final class MemoryCollector {
     }
 
     private RuntimeData collectRuntime() {
-        long uptimeMillis = ManagementFactory.getRuntimeMXBean().getUptime();
-
-        long gcTimeMillis = 0;
-        long gcCount = 0;
-        boolean gcTimeKnown = false;
-        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
-            long time = gc.getCollectionTime();
-            if (time >= 0) {
-                gcTimeMillis += time;
-                gcTimeKnown = true;
-            }
-            long count = gc.getCollectionCount();
-            if (count > 0) {
-                gcCount += count;
-            }
-        }
-
+        GcSample gc = currentGcSample();
         int pendingFinalization = ManagementFactory.getMemoryMXBean().getObjectPendingFinalizationCount();
-
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
         return new RuntimeData(
-                uptimeMillis,
-                gcTimeKnown ? gcTimeMillis : -1,
-                gcCount,
+                gc.uptimeMillis(),
+                gc.gcTimeMillis(),
+                gc.gcCount(),
                 pendingFinalization,
                 parseInitialHeap(inputArgs),
                 parseThreadStackBytes(inputArgs));

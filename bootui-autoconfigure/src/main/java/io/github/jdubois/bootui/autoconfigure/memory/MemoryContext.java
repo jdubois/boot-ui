@@ -16,15 +16,41 @@ record MemoryContext(
         MemoryData memory,
         ThreadData threads,
         HeapContentData heapContent,
+        PostGcHeapData postGcHeap,
         ClassLoadingData classLoading,
-        RuntimeData runtime) {
+        RuntimeData runtime,
+        GcSample preHistogramGc,
+        GcTrend gcTrend) {
 
     MemoryContext {
         memory = memory == null ? MemoryData.empty() : memory;
         threads = threads == null ? ThreadData.empty() : threads;
         heapContent = heapContent == null ? HeapContentData.unavailable() : heapContent;
+        postGcHeap = postGcHeap == null ? PostGcHeapData.unavailable() : postGcHeap;
         classLoading = classLoading == null ? ClassLoadingData.empty() : classLoading;
         runtime = runtime == null ? RuntimeData.empty() : runtime;
+        preHistogramGc = preHistogramGc == null ? GcSample.from(runtime) : preHistogramGc;
+        gcTrend = gcTrend == null ? GcTrend.unavailable() : gcTrend;
+    }
+
+    /**
+     * Convenience constructor used by tests and any caller that does not provide post-GC or
+     * cross-scan data. The post-GC heap reading defaults to unavailable, the pre-histogram GC
+     * sample mirrors the (single) runtime reading, and the GC trend is unavailable.
+     */
+    MemoryContext(
+            MemoryData memory,
+            ThreadData threads,
+            HeapContentData heapContent,
+            ClassLoadingData classLoading,
+            RuntimeData runtime) {
+        this(memory, threads, heapContent, PostGcHeapData.unavailable(), classLoading, runtime, null, null);
+    }
+
+    /** Returns a copy of this context with the scanner-computed GC trend attached. */
+    MemoryContext withGcTrend(GcTrend trend) {
+        return new MemoryContext(
+                memory, threads, heapContent, postGcHeap, classLoading, runtime, preHistogramGc, trend);
     }
 
     int heapUsedPercent() {
@@ -83,7 +109,15 @@ record MemoryContext(
         }
 
         Optional<MemoryPoolSnapshot> oldGenerationPool() {
-            return findPool(name -> name.contains("old gen") || name.contains("tenured"));
+            return pools.stream()
+                    .filter(pool -> isOldGenerationPoolName(pool.name()))
+                    .findFirst();
+        }
+
+        /** Matches the tenured/old-generation pool name across the HotSpot collectors. */
+        static boolean isOldGenerationPoolName(String name) {
+            String lower = lower(name);
+            return lower.contains("old gen") || lower.contains("tenured");
         }
 
         Optional<MemoryPoolSnapshot> metaspacePool() {
@@ -119,6 +153,15 @@ record MemoryContext(
             String needle = prefix.toLowerCase(Locale.ROOT);
             for (String arg : inputArguments) {
                 if (arg != null && lower(arg).startsWith(needle)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        boolean hasJvmArgument(String flag) {
+            for (String arg : inputArguments) {
+                if (flag.equalsIgnoreCase(arg)) {
                     return true;
                 }
             }
@@ -188,6 +231,50 @@ record MemoryContext(
 
         static RuntimeData empty() {
             return new RuntimeData(0, -1, 0, 0, -1, DEFAULT_THREAD_STACK_BYTES);
+        }
+    }
+
+    /**
+     * Heap occupancy re-read immediately after the {@code GC.class_histogram} diagnostic command,
+     * which forces a full GC. Comparing this post-GC reading with the pre-GC {@link MemoryData}
+     * lets the heap-pressure rules distinguish sustained retained pressure (still high after a GC)
+     * from transient garbage that the collection reclaims. Heap and old-generation availability are
+     * tracked separately because a collector may expose live heap usage without an old-gen pool.
+     */
+    record PostGcHeapData(boolean heapAvailable, long heapUsed, boolean oldGenAvailable, long oldGenUsed) {
+
+        static PostGcHeapData unavailable() {
+            return new PostGcHeapData(false, -1, false, -1);
+        }
+    }
+
+    /** A point-in-time GC counter reading used to derive scan-to-scan {@link GcTrend} deltas. */
+    record GcSample(long uptimeMillis, long gcTimeMillis, long gcCount) {
+
+        static GcSample from(RuntimeData runtime) {
+            return new GcSample(runtime.uptimeMillis(), runtime.gcCollectionTimeMillis(), runtime.gcCollectionCount());
+        }
+    }
+
+    /**
+     * GC activity between the previous scan and this one. The window deliberately spans the previous
+     * scan's post-histogram sample to this scan's pre-histogram sample so that neither scan's own
+     * forced full GC is counted as application GC overhead.
+     */
+    record GcTrend(boolean available, long deltaGcTimeMillis, long deltaUptimeMillis, long deltaGcCount) {
+
+        static GcTrend unavailable() {
+            return new GcTrend(false, 0, 0, 0);
+        }
+
+        static GcTrend between(GcSample previous, GcSample current) {
+            long deltaUptime = current.uptimeMillis() - previous.uptimeMillis();
+            if (deltaUptime <= 0 || previous.gcTimeMillis() < 0 || current.gcTimeMillis() < 0) {
+                return unavailable();
+            }
+            long deltaGcTime = Math.max(0, current.gcTimeMillis() - previous.gcTimeMillis());
+            long deltaGcCount = Math.max(0, current.gcCount() - previous.gcCount());
+            return new GcTrend(true, deltaGcTime, deltaUptime, deltaGcCount);
         }
     }
 }
