@@ -137,7 +137,7 @@ class HttpSessionsService {
                 log.warn(
                         "BootUI failed to remove HTTP session attribute '{}' from session key {}",
                         name,
-                        sessionKey,
+                        forLog(sessionKey),
                         ex);
                 return result(
                         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -148,7 +148,7 @@ class HttpSessionsService {
                         removed);
             }
         }
-        log.warn("BootUI cleared {} attributes from HTTP session key {}", removed, sessionKey);
+        log.warn("BootUI cleared {} attributes from HTTP session key {}", removed, forLog(sessionKey));
         return result(
                 HttpStatus.OK,
                 "cleared",
@@ -185,7 +185,7 @@ class HttpSessionsService {
         try {
             session.expire();
         } catch (RuntimeException ex) {
-            log.warn("BootUI failed to destroy HTTP session key {}", sessionKey, ex);
+            log.warn("BootUI failed to destroy HTTP session key {}", forLog(sessionKey), ex);
             return result(
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     "failed",
@@ -193,7 +193,7 @@ class HttpSessionsService {
                     sessionKey,
                     0);
         }
-        log.warn("BootUI destroyed HTTP session key {}", sessionKey);
+        log.warn("BootUI destroyed HTTP session key {}", forLog(sessionKey));
         return result(HttpStatus.OK, "destroyed", "Destroyed HTTP session.", sessionKey, 0);
     }
 
@@ -347,6 +347,10 @@ class HttpSessionsService {
 
     private boolean confirmed(HttpSessionActionRequest request) {
         return request != null && Boolean.TRUE.equals(request.confirm());
+    }
+
+    private static String forLog(String value) {
+        return value == null ? null : value.replaceAll("[\\r\\n\\t]+", " ").trim();
     }
 
     private ResponseEntity<HttpSessionActionResult> result(

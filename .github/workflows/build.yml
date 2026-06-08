@@ -77,7 +77,7 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: bootui-sample-app/e2e
-        run: npx playwright install --with-deps chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Run Playwright end-to-end tests
         working-directory: bootui-sample-app/e2e
