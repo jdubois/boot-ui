@@ -64,7 +64,13 @@ class GraalVmReadinessScannerTests {
                         "GRAAL-RES-002",
                         "GRAAL-SERVICE-001",
                         "GRAAL-SER-001",
+                        "GRAAL-SER-002",
                         "GRAAL-INIT-001",
+                        "GRAAL-INIT-002",
+                        "GRAAL-CLASSGEN-001",
+                        "GRAAL-SCAN-001",
+                        "SPRING-AOT-001",
+                        "SPRING-AOT-002",
                         "GRAAL-NATIVE-001",
                         "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
@@ -138,6 +144,32 @@ class GraalVmReadinessScannerTests {
         assertThat(report.checksRun()).isZero();
         assertThat(report.findings()).isEmpty();
         assertThat(report.findingsFound()).isZero();
+    }
+
+    @Test
+    void scanReportsDependencyTruncationWarning(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)
+            throws java.io.IOException {
+        java.nio.file.Path jar = dir.resolve("dep.jar");
+        try (java.util.jar.JarOutputStream out =
+                new java.util.jar.JarOutputStream(java.nio.file.Files.newOutputStream(jar))) {
+            out.putNextEntry(new java.util.jar.JarEntry("com/example/App.class"));
+            out.write("data".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.closeEntry();
+        }
+        int entries = GraalVmDependencyScanner.maxDependencies() + 3;
+        String classPath =
+                String.join(java.io.File.pathSeparator, java.util.Collections.nCopies(entries, jar.toString()));
+
+        GraalVmReadinessReport report = new GraalVmReadinessScanner(
+                        () -> List.of(),
+                        new ClassFileGraalVmImporter(),
+                        new GraalVmDependencyScanner(() -> classPath),
+                        CLOCK)
+                .scan(true)
+                .report();
+
+        assertThat(report.dependencies()).hasSize(GraalVmDependencyScanner.maxDependencies());
+        assertThat(report.warnings()).anySatisfy(warning -> assertThat(warning).contains("stopped after the first"));
     }
 
     @Test

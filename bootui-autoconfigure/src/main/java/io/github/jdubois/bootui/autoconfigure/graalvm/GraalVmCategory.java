@@ -11,7 +11,10 @@ enum GraalVmCategory {
     SERVICE_LOADER("Service loading"),
     SERIALIZATION("Serialization"),
     BUILD_TIME_INIT("Build-time initialization"),
-    NATIVE_ACCESS("Native access");
+    NATIVE_ACCESS("Native access"),
+    CLASS_GENERATION("Class generation"),
+    CLASSPATH_SCANNING("Classpath scanning"),
+    SPRING_AOT("Spring AOT");
 
     private final String label;
 
