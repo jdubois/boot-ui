@@ -45,6 +45,15 @@ abstract class AbstractSpringRule implements SpringRule {
         return SpringRuleSupport.violation(definition, List.of(detail));
     }
 
+    /** Violation whose severity is raised/lowered from the declared default based on context. */
+    SpringRuleResultDto violation(String severityOverride, List<String> details) {
+        return details.isEmpty() ? pass() : SpringRuleSupport.violation(definition, severityOverride, details);
+    }
+
+    SpringRuleResultDto violation(String severityOverride, String detail) {
+        return SpringRuleSupport.violation(definition, severityOverride, List.of(detail));
+    }
+
     static String names(List<BeanRef> refs) {
         return refs.stream().map(BeanRef::name).reduce((a, b) -> a + ", " + b).orElse("");
     }
@@ -308,6 +317,10 @@ final class LazyInitializationDisabledRule extends AbstractSpringRule {
 
 final class DebugOrTraceLoggingRule extends AbstractSpringRule {
 
+    /** Root and broad framework loggers whose DEBUG/TRACE output is verbose and detail-leaking. */
+    private static final List<String> VERBOSE_LOGGERS =
+            List.of("root", "web", "sql", "org.springframework", "org.hibernate");
+
     DebugOrTraceLoggingRule() {
         super(new SpringRuleDefinition(
                 "SPRING-CONFIG-002",
@@ -322,13 +335,21 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
+        List<String> findings = new ArrayList<>();
         if (context.isPropertyTrue("debug")) {
-            return violation("debug=true enables verbose auto-configuration debug logging.");
+            findings.add("debug=true enables verbose auto-configuration debug logging.");
         }
         if (context.isPropertyTrue("trace")) {
-            return violation("trace=true enables verbose auto-configuration trace logging.");
+            findings.add("trace=true enables verbose auto-configuration trace logging.");
         }
-        return pass();
+        for (String logger : VERBOSE_LOGGERS) {
+            String level = context.firstProperty("logging.level." + logger);
+            if (level != null && ("debug".equalsIgnoreCase(level) || "trace".equalsIgnoreCase(level))) {
+                findings.add("logging.level." + logger + "=" + level
+                        + " emits verbose framework logging that can leak internals and slow the application.");
+            }
+        }
+        return violation(findings);
     }
 }
 
@@ -336,7 +357,6 @@ final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
 
     /** Curated, high-confidence keys that were renamed or removed in Spring Boot 4. */
     private static final List<String[]> LEGACY_PROPERTIES = List.of(
-            new String[] {"management.tracing.enabled", "renamed to management.tracing.export.enabled"},
             new String[] {
                 "spring.dao.exceptiontranslation.enabled", "renamed to spring.persistence.exceptiontranslation.enabled"
             },
@@ -831,7 +851,7 @@ final class Http2DisabledRule extends AbstractSpringRule {
 final class ErrorDetailsExposedRule extends AbstractSpringRule {
 
     private static final List<String> ERROR_DETAIL_KEYS =
-            List.of("include-stacktrace", "include-message", "include-binding-errors");
+            List.of("include-stacktrace", "include-message", "include-binding-errors", "include-exception");
 
     ErrorDetailsExposedRule() {
         super(new SpringRuleDefinition(
@@ -852,7 +872,15 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
         List<String> findings = new ArrayList<>();
         for (String key : ERROR_DETAIL_KEYS) {
             String value = context.firstProperty("spring.web.error." + key, "server.error." + key);
-            if (value != null && "always".equalsIgnoreCase(value)) {
+            if (value == null) {
+                continue;
+            }
+            if ("include-exception".equals(key)) {
+                if ("true".equalsIgnoreCase(value)) {
+                    findings.add("error include-exception is set to 'true', exposing the exception type to every"
+                            + " client.");
+                }
+            } else if ("always".equalsIgnoreCase(value)) {
                 findings.add("error " + key + " is set to 'always', exposing details to every client.");
             }
         }
@@ -885,11 +913,16 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
         }
         boolean connectSet = context.hasProperty("spring.http.clients.connect-timeout");
         boolean readSet = context.hasProperty("spring.http.clients.read-timeout");
+        if (connectSet && readSet) {
+            return pass();
+        }
         if (!connectSet && !readSet) {
             return violation("An HTTP client bean is defined but neither spring.http.clients.connect-timeout nor"
                     + " spring.http.clients.read-timeout is set.");
         }
-        return pass();
+        String missing = connectSet ? "spring.http.clients.read-timeout" : "spring.http.clients.connect-timeout";
+        return violation("An HTTP client bean is defined but " + missing
+                + " is not set, so outbound calls can still block indefinitely.");
     }
 }
 
@@ -955,7 +988,7 @@ final class ActuatorExposeAllRule extends AbstractSpringRule {
                 "SPRING-MGMT-001",
                 "Avoid exposing all Actuator endpoints",
                 SpringCategory.MANAGEMENT,
-                "LOW",
+                "MEDIUM",
                 "management.endpoints.web.exposure.include is set to '*', which exposes every Actuator"
                         + " endpoint (including sensitive ones such as env, configprops, and loggers) over the"
                         + " web. This is convenient in development but rarely intended in production.",
@@ -967,10 +1000,184 @@ final class ActuatorExposeAllRule extends AbstractSpringRule {
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext context) {
-        String include = context.firstProperty("management.endpoints.web.exposure.include");
-        if (include != null && include.contains("*")) {
-            return violation("management.endpoints.web.exposure.include=" + include
-                    + " exposes all Actuator endpoints over the web.");
+        if (!ActuatorExposure.exposesAll(context) || context.managementWebDisabled()) {
+            return pass();
+        }
+        StringBuilder detail = new StringBuilder(
+                "management.endpoints.web.exposure.include=* exposes all Actuator endpoints over the web");
+        java.util.Set<String> exclude = ActuatorExposure.excludeTokens(context);
+        if (!exclude.isEmpty()) {
+            detail.append(" (except excluded: ")
+                    .append(String.join(", ", exclude))
+                    .append(')');
+        }
+        detail.append('.');
+        boolean prodSamePort = context.isProductionProfileActive() && context.managementOnApplicationPort();
+        String severity = prodSamePort ? SpringRuleSupport.HIGH : null;
+        return violation(severity, detail.toString());
+    }
+}
+
+final class SensitiveActuatorEndpointsExposedRule extends AbstractSpringRule {
+
+    SensitiveActuatorEndpointsExposedRule() {
+        super(new SpringRuleDefinition(
+                "SPRING-MGMT-002",
+                "Do not web-expose sensitive Actuator endpoints",
+                SpringCategory.MANAGEMENT,
+                "MEDIUM",
+                "Sensitive Actuator endpoints (such as env, configprops, beans, threaddump, or loggers) are"
+                        + " explicitly listed in management.endpoints.web.exposure.include and remain readable."
+                        + " They reveal configuration, environment values, and the bean graph to anyone who can"
+                        + " reach the management port.",
+                "Expose only health and info publicly; keep diagnostic endpoints off the web exposure list, move"
+                        + " them to a separate, firewalled management port, and require authentication. The"
+                        + " Security advisor covers endpoint authorization.",
+                "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        // The wildcard case is owned by SPRING-MGMT-001; this rule targets explicitly-named endpoints.
+        if (ActuatorExposure.exposesAll(context) || context.managementWebDisabled()) {
+            return pass();
+        }
+        List<String> findings = new ArrayList<>();
+        for (String id : ActuatorExposure.SENSITIVE_READ_ENDPOINTS) {
+            if (ActuatorExposure.isReadable(context, id)) {
+                findings.add("Actuator endpoint '" + id + "' is web-exposed and readable, revealing internal"
+                        + " details to callers that reach the management port.");
+            }
+        }
+        if (findings.isEmpty()) {
+            return pass();
+        }
+        findings.sort(String::compareTo);
+        boolean prodSamePort = context.isProductionProfileActive() && context.managementOnApplicationPort();
+        String severity = prodSamePort ? SpringRuleSupport.HIGH : null;
+        return violation(severity, findings);
+    }
+}
+
+final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
+
+    /** Endpoints whose show-values/show-details=ALWAYS only matters when they are readable. */
+    private static final List<String> VALUE_ENDPOINTS = List.of("env", "configprops");
+
+    ActuatorShowValuesAlwaysRule() {
+        super(
+                new SpringRuleDefinition(
+                        "SPRING-MGMT-003",
+                        "Do not always show Actuator values or health details",
+                        SpringCategory.MANAGEMENT,
+                        "MEDIUM",
+                        "An Actuator endpoint is configured to reveal full values unconditionally"
+                                + " (management.endpoint.env|configprops.show-values=ALWAYS or"
+                                + " management.endpoint.health.show-details=always). Property values, including"
+                                + " credentials, and internal health probe details are then returned to every caller.",
+                        "Use show-values=WHEN_AUTHORIZED and show-details=when-authorized so sensitive values and"
+                                + " health details are only revealed to authenticated, authorized users.",
+                        "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        List<String> findings = new ArrayList<>();
+        for (String id : VALUE_ENDPOINTS) {
+            String showValues = context.firstProperty("management.endpoint." + id + ".show-values");
+            if ("always".equalsIgnoreCase(showValues) && ActuatorExposure.isReadable(context, id)) {
+                findings.add("management.endpoint." + id + ".show-values=ALWAYS reveals full '" + id
+                        + "' values to every caller; use WHEN_AUTHORIZED.");
+            }
+        }
+        String showDetails = context.firstProperty("management.endpoint.health.show-details");
+        if ("always".equalsIgnoreCase(showDetails) && ActuatorExposure.isReadable(context, "health")) {
+            findings.add("management.endpoint.health.show-details=always exposes internal health probe details to"
+                    + " every caller; use when-authorized.");
+        }
+        findings.sort(String::compareTo);
+        return violation(findings);
+    }
+}
+
+final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule {
+
+    DangerousActuatorEndpointsAccessibleRule() {
+        super(new SpringRuleDefinition(
+                "SPRING-MGMT-004",
+                "Do not web-expose shutdown or heapdump endpoints",
+                SpringCategory.MANAGEMENT,
+                "HIGH",
+                "A high-impact Actuator endpoint is reachable over the web: the shutdown endpoint permits a"
+                        + " remote caller to stop the application, and the heapdump endpoint streams a full heap"
+                        + " dump that can contain credentials, tokens, and personal data.",
+                "Keep shutdown disabled (its default access is 'none') and never web-expose it; exclude heapdump"
+                        + " from the web exposure list or restrict it to an authenticated, firewalled management"
+                        + " port.",
+                "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        List<String> findings = new ArrayList<>();
+        boolean shutdown = ActuatorExposure.shutdownAccessible(context);
+        if (shutdown) {
+            findings.add("The shutdown endpoint is web-exposed with write access, letting a remote caller stop"
+                    + " the application.");
+        }
+        if (ActuatorExposure.heapdumpAccessible(context)) {
+            findings.add("The heapdump endpoint is web-exposed and readable, streaming a full heap dump that can"
+                    + " contain secrets and personal data.");
+        }
+        if (findings.isEmpty()) {
+            return pass();
+        }
+        findings.sort(String::compareTo);
+        // A remotely-triggerable shutdown on the public app port in production is critical.
+        boolean criticalShutdown =
+                shutdown && context.isProductionProfileActive() && context.managementOnApplicationPort();
+        String severity = criticalShutdown ? SpringRuleSupport.CRITICAL : null;
+        return violation(severity, findings);
+    }
+}
+
+final class OpenSessionInViewEnabledRule extends AbstractSpringRule {
+
+    OpenSessionInViewEnabledRule() {
+        super(
+                new SpringRuleDefinition(
+                        "SPRING-JPA-001",
+                        "Disable Open Session in View",
+                        SpringCategory.PERSISTENCE,
+                        "MEDIUM",
+                        "Open Session in View keeps a JPA persistence context (and often its database connection) open"
+                                + " for the whole web request, including view rendering. It hides lazy-loading boundaries,"
+                                + " encourages N+1 queries, and holds connections longer under load. Spring Boot leaves it"
+                                + " enabled by default and only logs a warning.",
+                        "Set spring.jpa.open-in-view=false and load the associations each request needs explicitly (fetch"
+                                + " joins, entity graphs, or DTO projections).",
+                        "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        if (!context.entityManagerFactoryPresent() || !context.dispatcherServletPresent()) {
+            return skipped("No JPA EntityManagerFactory and servlet web context, so Open Session in View does"
+                    + " not apply.");
+        }
+        String value = context.firstProperty("spring.jpa.open-in-view");
+        if (value == null) {
+            String severity = context.isProductionProfileActive() ? SpringRuleSupport.HIGH : null;
+            return violation(
+                    severity,
+                    "spring.jpa.open-in-view is not set and defaults to enabled, keeping a persistence context"
+                            + " open for the entire web request.");
+        }
+        if ("true".equalsIgnoreCase(value)) {
+            String severity = context.isProductionProfileActive() ? SpringRuleSupport.HIGH : null;
+            return violation(
+                    severity,
+                    "spring.jpa.open-in-view=true keeps a persistence context open for the entire web request.");
         }
         return pass();
     }

@@ -49,6 +49,8 @@ final class SpringScanner {
     private static final String REST_TEMPLATE_TYPE = "org.springframework.web.client.RestTemplate";
     private static final String REST_CLIENT_TYPE = "org.springframework.web.client.RestClient";
     private static final String CACHE_MANAGER_TYPE = "org.springframework.cache.CacheManager";
+    private static final String ENTITY_MANAGER_FACTORY_TYPE = "jakarta.persistence.EntityManagerFactory";
+    private static final String DISPATCHER_SERVLET_TYPE = "org.springframework.web.servlet.DispatcherServlet";
     private static final String ASYNC_PROCESSOR_BEAN =
             "org.springframework.context.annotation.internalAsyncAnnotationProcessor";
     private static final String CACHE_ADVISOR_BEAN = "org.springframework.cache.config.internalCacheAdvisor";
@@ -262,6 +264,10 @@ final class SpringScanner {
         boolean cachingEnabled = beanFactory != null && beanFactory.containsBeanDefinition(CACHE_ADVISOR_BEAN);
         List<CacheManagerRef> cacheManagers = cacheManagers(beanFactory, classLoader);
         boolean schedulingEnabled = beanFactory != null && beanFactory.containsBeanDefinition(SCHEDULED_PROCESSOR_BEAN);
+        boolean entityManagerFactoryPresent = !beansOfType(beanFactory, ENTITY_MANAGER_FACTORY_TYPE, classLoader)
+                .isEmpty();
+        boolean dispatcherServletPresent =
+                !beansOfType(beanFactory, DISPATCHER_SERVLET_TYPE, classLoader).isEmpty();
         List<String> defaultPackageBeans = defaultPackageBeans(beanFactory);
 
         return SpringContext.builder(environment)
@@ -282,6 +288,8 @@ final class SpringScanner {
                 .cachingEnabled(cachingEnabled)
                 .cacheManagers(cacheManagers)
                 .schedulingEnabled(schedulingEnabled)
+                .entityManagerFactoryPresent(entityManagerFactoryPresent)
+                .dispatcherServletPresent(dispatcherServletPresent)
                 .defaultPackageBeans(defaultPackageBeans)
                 .build();
     }

@@ -44,8 +44,13 @@ final class SpringRuleRegistry {
             new HttpClientTimeoutsUnsetRule(),
             new ForwardHeadersStrategyUnsetRule(),
             new RedundantTomcatThreadsRule(),
+            // Data and persistence
+            new OpenSessionInViewEnabledRule(),
             // Actuator and management
-            new ActuatorExposeAllRule());
+            new ActuatorExposeAllRule(),
+            new SensitiveActuatorEndpointsExposedRule(),
+            new ActuatorShowValuesAlwaysRule(),
+            new DangerousActuatorEndpointsAccessibleRule());
 
     private SpringRuleRegistry() {}
 

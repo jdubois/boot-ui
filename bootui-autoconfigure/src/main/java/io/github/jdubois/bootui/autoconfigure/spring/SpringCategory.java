@@ -10,6 +10,7 @@ enum SpringCategory {
     PROFILES("Profiles and environment"),
     PERFORMANCE("Performance and concurrency"),
     WEB("Web and HTTP"),
+    PERSISTENCE("Data and persistence"),
     MANAGEMENT("Actuator and management");
 
     private final String label;

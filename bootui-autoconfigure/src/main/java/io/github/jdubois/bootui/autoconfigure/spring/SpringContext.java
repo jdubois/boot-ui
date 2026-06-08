@@ -29,6 +29,8 @@ record SpringContext(
         boolean cachingEnabled,
         List<CacheManagerRef> cacheManagers,
         boolean schedulingEnabled,
+        boolean entityManagerFactoryPresent,
+        boolean dispatcherServletPresent,
         List<String> defaultPackageBeans) {
 
     SpringContext {
@@ -108,6 +110,30 @@ record SpringContext(
         return false;
     }
 
+    /** True when Actuator's web endpoints are disabled because {@code management.server.port=-1}. */
+    boolean managementWebDisabled() {
+        Integer port = firstIntegerProperty("management.server.port");
+        return port != null && port < 0;
+    }
+
+    /**
+     * True when Actuator endpoints share the application's HTTP port (so any web exposure is on the
+     * same, typically public, connector). A distinct {@code management.server.port} moves them to a
+     * separate connector.
+     */
+    boolean managementOnApplicationPort() {
+        if (managementWebDisabled()) {
+            return false;
+        }
+        Integer managementPort = firstIntegerProperty("management.server.port");
+        if (managementPort == null) {
+            return true;
+        }
+        Integer serverPort = firstIntegerProperty("server.port");
+        int effectiveServerPort = serverPort != null ? serverPort : 8080;
+        return managementPort == effectiveServerPort;
+    }
+
     static Builder builder(Environment environment) {
         return new Builder(environment);
     }
@@ -136,6 +162,8 @@ record SpringContext(
         private boolean cachingEnabled;
         private List<CacheManagerRef> cacheManagers = List.of();
         private boolean schedulingEnabled;
+        private boolean entityManagerFactoryPresent;
+        private boolean dispatcherServletPresent;
         private List<String> defaultPackageBeans = List.of();
 
         private Builder(Environment environment) {
@@ -227,6 +255,16 @@ record SpringContext(
             return this;
         }
 
+        Builder entityManagerFactoryPresent(boolean value) {
+            this.entityManagerFactoryPresent = value;
+            return this;
+        }
+
+        Builder dispatcherServletPresent(boolean value) {
+            this.dispatcherServletPresent = value;
+            return this;
+        }
+
         Builder defaultPackageBeans(List<String> value) {
             this.defaultPackageBeans = value;
             return this;
@@ -252,6 +290,8 @@ record SpringContext(
                     cachingEnabled,
                     cacheManagers,
                     schedulingEnabled,
+                    entityManagerFactoryPresent,
+                    dispatcherServletPresent,
                     defaultPackageBeans);
         }
     }
