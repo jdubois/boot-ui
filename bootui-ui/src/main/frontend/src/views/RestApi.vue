@@ -273,13 +273,16 @@ onMounted(async () => {
             <div class="fw-semibold">Rule findings</div>
             <div class="text-muted small">
               <template v-if="hasScanData && visibleResults.length > 0">
-                {{ visibleResults.length }} {{ pluralize(visibleResults.length, 'flagged rule') }}, sorted by
-                importance
+                {{ visibleResults.length }} {{ pluralize(visibleResults.length, 'flagged rule') }}, sorted by importance
               </template>
               <template v-else>{{ visibleResults.length }} rule finding(s)</template>
             </div>
           </div>
-          <span v-if="hasScanData && visibleResults.length === 0 && dismissedResults.length === 0" class="badge text-bg-success">No findings</span>
+          <span
+            v-if="hasScanData && visibleResults.length === 0 && dismissedResults.length === 0"
+            class="badge text-bg-success"
+            >No findings</span
+          >
         </div>
         <div v-if="visibleResults.length === 0" class="card-body text-center text-muted py-5">
           <i class="bi bi-signpost-split fs-2 d-block mb-2"></i>
@@ -339,11 +342,7 @@ onMounted(async () => {
             <i class="bi bi-eye-slash me-1"></i>Dismissed rules ({{ dismissedResults.length }}) — not counted in score
           </div>
           <div class="list-group list-group-flush">
-            <div
-              v-for="result in dismissedResults"
-              :key="result.id"
-              class="list-group-item opacity-50"
-            >
+            <div v-for="result in dismissedResults" :key="result.id" class="list-group-item opacity-50">
               <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                 <span :class="statusClass(result.status)" class="badge">{{ result.status }}</span>
                 <span :class="severityClass(result.severity)" class="badge">{{ result.severity }}</span>
