@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.architecture;
 
+import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,30 +22,35 @@ public class ArchitectureController {
 
     private final ArchitectureScanner scanner;
 
+    private final DismissedRulesStore dismissedRules;
+
     private volatile ArchitectureReport lastReport;
 
     @Autowired
-    public ArchitectureController(ApplicationContext applicationContext) {
-        this(new ArchitectureScanner(
-                () -> ArchitecturePackages.detect(applicationContext),
-                new ClassFileArchitectureImporter(),
-                Clock.systemUTC()));
+    public ArchitectureController(ApplicationContext applicationContext, DismissedRulesStore dismissedRules) {
+        this(
+                new ArchitectureScanner(
+                        () -> ArchitecturePackages.detect(applicationContext),
+                        new ClassFileArchitectureImporter(),
+                        Clock.systemUTC()),
+                dismissedRules);
     }
 
-    ArchitectureController(ArchitectureScanner scanner) {
+    ArchitectureController(ArchitectureScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
+        this.dismissedRules = dismissedRules;
         this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public ArchitectureReport architecture() {
-        return lastReport;
+        return scanner.applyDismissals(lastReport, dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public ArchitectureReport scan() {
         ArchitectureReport report = scanner.scan();
         lastReport = report;
-        return report;
+        return scanner.applyDismissals(report, dismissedRules.load());
     }
 }

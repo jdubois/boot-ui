@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
+import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,28 +26,32 @@ public class SpringController {
 
     private final SpringScanner scanner;
 
+    private final DismissedRulesStore dismissedRules;
+
     private volatile SpringReport lastReport;
 
     @Autowired
-    public SpringController(ApplicationContext applicationContext, Environment environment) {
-        this(new SpringScanner(beanFactory(applicationContext), environment, Clock.systemUTC()));
+    public SpringController(
+            ApplicationContext applicationContext, Environment environment, DismissedRulesStore dismissedRules) {
+        this(new SpringScanner(beanFactory(applicationContext), environment, Clock.systemUTC()), dismissedRules);
     }
 
-    SpringController(SpringScanner scanner) {
+    SpringController(SpringScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
+        this.dismissedRules = dismissedRules;
         this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public SpringReport spring() {
-        return lastReport;
+        return scanner.applyDismissals(lastReport, dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public SpringReport scan() {
         SpringReport report = scanner.scan();
         lastReport = report;
-        return report;
+        return scanner.applyDismissals(report, dismissedRules.load());
     }
 
     private static ConfigurableListableBeanFactory beanFactory(ApplicationContext applicationContext) {

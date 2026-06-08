@@ -4,6 +4,7 @@ import {computed, onMounted, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useDismissedRules} from '../utils/useDismissedRules.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
@@ -13,6 +14,8 @@ const report = ref(null)
 const error = ref(null)
 const actionMessage = ref(null)
 const loading = ref(false)
+
+const {dismissLoading, dismiss, restore} = useDismissedRules(loadReport)
 
 const severityClasses = {
   CRITICAL: 'text-bg-danger',
@@ -35,14 +38,18 @@ const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
 
 const summary = computed(() => report.value?.summary || null)
 
+const violations = computed(() =>
+  [...(report.value?.results || [])].filter((result) => result.status === 'VIOLATION').sort(compareImportance)
+)
+
+const visibleResults = computed(() => violations.value.filter((result) => !result.dismissed))
+
+const dismissedResults = computed(() => violations.value.filter((result) => result.dismissed))
+
 const maxSeverityCount = computed(() => {
   if (!report.value?.severityCounts?.length) return 1
   return Math.max(1, ...report.value.severityCounts.map((count) => count.count))
 })
-
-const visibleResults = computed(() =>
-  [...(report.value?.results || [])].filter((result) => result.status === 'VIOLATION').sort(compareImportance)
-)
 
 const emptyRuleResultsTitle = computed(() => {
   if (!hasScanData.value) return 'Run memory checks to see advisor findings'
@@ -202,6 +209,9 @@ onMounted(loadReport)
             <div class="card-body">
               <div class="text-muted small">Advisor findings</div>
               <div class="display-6">{{ report.violationsFound }}</div>
+              <div v-if="dismissedResults.length > 0" class="small text-muted">
+                {{ dismissedResults.length }} dismissed
+              </div>
             </div>
           </div>
         </div>
@@ -290,13 +300,17 @@ onMounted(loadReport)
           <div>
             <div class="fw-semibold">Rule results</div>
             <div class="text-muted small">
-              <template v-if="hasScanData && report.violationsFound > 0">
-                {{ report.violationsFound }} {{ pluralize(report.violationsFound, 'finding') }}, sorted by importance
+              <template v-if="hasScanData && visibleResults.length > 0">
+                {{ visibleResults.length }} {{ pluralize(visibleResults.length, 'finding') }}, sorted by importance
               </template>
-              <template v-else>{{ report.violationsFound }} advisor finding(s)</template>
+              <template v-else>{{ visibleResults.length }} advisor finding(s)</template>
             </div>
           </div>
-          <span v-if="hasScanData && report.violationsFound === 0" class="badge text-bg-success">No findings</span>
+          <span
+            v-if="hasScanData && visibleResults.length === 0 && dismissedResults.length === 0"
+            class="badge text-bg-success"
+            >No findings</span
+          >
         </div>
         <div v-if="visibleResults.length === 0" class="card-body text-center text-muted py-5">
           <i class="bi bi-clipboard2-pulse fs-2 d-block mb-2"></i>
@@ -310,6 +324,15 @@ onMounted(loadReport)
               <span :class="severityClass(result.severity)" class="badge">{{ result.severity }}</span>
               <span class="badge text-bg-light border">{{ result.category }}</span>
               <span class="text-muted small">{{ result.id }}</span>
+              <button
+                class="btn btn-sm btn-outline-secondary ms-auto"
+                type="button"
+                :disabled="dismissLoading"
+                @click="dismiss(result.id)"
+                title="Dismiss this rule"
+              >
+                <i class="bi bi-eye-slash me-1"></i>Dismiss
+              </button>
             </div>
             <h3 class="h6 mb-1">{{ result.name }}</h3>
             <div class="small text-muted mb-2">{{ result.description }}</div>
@@ -342,6 +365,31 @@ onMounted(loadReport)
             </div>
           </div>
         </div>
+        <template v-if="dismissedResults.length > 0">
+          <div class="card-header text-muted small">
+            <i class="bi bi-eye-slash me-1"></i>Dismissed rules ({{ dismissedResults.length }}) — not counted in score
+          </div>
+          <div class="list-group list-group-flush">
+            <div v-for="result in dismissedResults" :key="result.id" class="list-group-item opacity-50">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <span :class="statusClass(result.status)" class="badge">{{ result.status }}</span>
+                <span :class="severityClass(result.severity)" class="badge">{{ result.severity }}</span>
+                <span class="badge text-bg-light border">{{ result.category }}</span>
+                <span class="text-muted small">{{ result.id }}</span>
+                <button
+                  class="btn btn-sm btn-outline-secondary ms-auto"
+                  type="button"
+                  :disabled="dismissLoading"
+                  @click="restore(result.id)"
+                  title="Restore this rule"
+                >
+                  <i class="bi bi-eye me-1"></i>Restore
+                </button>
+              </div>
+              <div class="small fw-semibold">{{ result.name }}</div>
+            </div>
+          </div>
+        </template>
       </div>
     </template>
   </div>

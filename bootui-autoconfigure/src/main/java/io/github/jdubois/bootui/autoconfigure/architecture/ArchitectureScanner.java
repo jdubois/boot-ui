@@ -10,6 +10,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -143,6 +144,37 @@ final class ArchitectureScanner {
                 severityCounts(violations),
                 scan,
                 violations);
+    }
+
+    ArchitectureReport applyDismissals(ArchitectureReport report, Set<String> dismissedIds) {
+        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+            return report;
+        }
+        List<ArchitectureRuleResultDto> marked = report.results().stream()
+                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+                .toList();
+        List<ArchitectureRuleResultDto> active =
+                marked.stream().filter(result -> !result.dismissed()).toList();
+        int violationsFound = active.size();
+        ArchitectureScanStatusDto scan = report.scan();
+        ArchitectureScanStatusDto updatedScan = new ArchitectureScanStatusDto(
+                scan.analyzer(),
+                scan.status(),
+                scan.message(),
+                scan.scannedAt(),
+                scan.rulesEvaluated(),
+                scan.classesAnalyzed(),
+                violationsFound);
+        return new ArchitectureReport(
+                report.localOnly(),
+                report.disclaimer(),
+                report.basePackages(),
+                report.classesAnalyzed(),
+                report.rulesEvaluated(),
+                violationsFound,
+                severityCounts(active),
+                updatedScan,
+                marked);
     }
 
     private List<ArchitectureSeverityCountDto> severityCounts(List<ArchitectureRuleResultDto> results) {

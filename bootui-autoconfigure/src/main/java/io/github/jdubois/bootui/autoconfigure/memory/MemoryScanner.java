@@ -10,6 +10,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -107,6 +108,35 @@ final class MemoryScanner {
                 severityCounts(violations),
                 scan,
                 violations);
+    }
+
+    MemoryReport applyDismissals(MemoryReport report, Set<String> dismissedIds) {
+        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+            return report;
+        }
+        List<MemoryRuleResultDto> marked = report.results().stream()
+                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+                .toList();
+        List<MemoryRuleResultDto> active =
+                marked.stream().filter(result -> !result.dismissed()).toList();
+        int violationsFound = active.size();
+        MemoryScanStatusDto scan = report.scan();
+        MemoryScanStatusDto updatedScan = new MemoryScanStatusDto(
+                scan.analyzer(),
+                scan.status(),
+                scan.message(),
+                scan.scannedAt(),
+                scan.rulesEvaluated(),
+                violationsFound);
+        return new MemoryReport(
+                report.localOnly(),
+                report.disclaimer(),
+                report.rulesEvaluated(),
+                violationsFound,
+                report.summary(),
+                severityCounts(active),
+                updatedScan,
+                marked);
     }
 
     private MemorySummaryDto summary(MemoryContext context) {

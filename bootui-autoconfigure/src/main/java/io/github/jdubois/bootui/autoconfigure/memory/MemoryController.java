@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.memory;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.autoconfigure.web.ThreadDumpService;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import java.time.Clock;
@@ -24,31 +25,36 @@ public class MemoryController {
 
     private final MemoryScanner scanner;
 
+    private final DismissedRulesStore dismissedRules;
+
     private volatile MemoryReport lastReport;
 
     @Autowired
-    public MemoryController(BootUiProperties properties) {
-        this(new MemoryScanner(
-                new MemoryCollector(
-                        () -> new ThreadDumpService(properties).report(null, null, 0, 1000),
-                        MemoryCollector::diagnosticCommandHistogram),
-                Clock.systemUTC()));
+    public MemoryController(BootUiProperties properties, DismissedRulesStore dismissedRules) {
+        this(
+                new MemoryScanner(
+                        new MemoryCollector(
+                                () -> new ThreadDumpService(properties).report(null, null, 0, 1000),
+                                MemoryCollector::diagnosticCommandHistogram),
+                        Clock.systemUTC()),
+                dismissedRules);
     }
 
-    MemoryController(MemoryScanner scanner) {
+    MemoryController(MemoryScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
+        this.dismissedRules = dismissedRules;
         this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public MemoryReport memory() {
-        return lastReport;
+        return scanner.applyDismissals(lastReport, dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public MemoryReport scan() {
         MemoryReport report = scanner.scan();
         lastReport = report;
-        return report;
+        return scanner.applyDismissals(report, dismissedRules.load());
     }
 }

@@ -229,7 +229,8 @@ class BootUiAutoConfigurationTests {
                             StartupController.class,
                             TracesController.class,
                             ThreadDumpController.class,
-                            MemoryController.class)
+                            MemoryController.class,
+                            DismissedRulesController.class)
                     .forEach(beanType -> assertLazyBean(beanFactory, beanType));
 
             assertLazyBeanDefinition(beanFactory, "bootUiConfigOverrideService");

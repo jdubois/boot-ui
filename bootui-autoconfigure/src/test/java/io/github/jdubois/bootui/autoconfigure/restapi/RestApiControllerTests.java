@@ -2,7 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.restapi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -19,7 +21,7 @@ class RestApiControllerTests {
                 new ClassFileRestApiImporter(),
                 () -> false,
                 Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC));
-        return new RestApiController(scanner);
+        return new RestApiController(scanner, new DismissedRulesStore(Path.of("target", "no-such-dir", "boot-ui.yml")));
     }
 
     @Test

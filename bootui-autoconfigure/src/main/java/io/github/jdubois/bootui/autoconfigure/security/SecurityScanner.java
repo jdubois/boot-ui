@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -140,6 +141,37 @@ final class SecurityScanner {
 
     // The most recent context, captured so the report can list chain matchers.
     private volatile SecurityContext lastContext;
+
+    SecurityReport applyDismissals(SecurityReport report, Set<String> dismissedIds) {
+        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+            return report;
+        }
+        List<SecurityRuleResultDto> marked = report.results().stream()
+                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+                .toList();
+        List<SecurityRuleResultDto> active =
+                marked.stream().filter(result -> !result.dismissed()).toList();
+        int violationsFound = active.size();
+        SecurityScanStatusDto scan = report.scan();
+        SecurityScanStatusDto updatedScan = new SecurityScanStatusDto(
+                scan.analyzer(),
+                scan.status(),
+                scan.message(),
+                scan.scannedAt(),
+                scan.rulesEvaluated(),
+                scan.filterChainsAnalyzed(),
+                violationsFound);
+        return new SecurityReport(
+                report.localOnly(),
+                report.disclaimer(),
+                report.filterChains(),
+                report.filterChainsAnalyzed(),
+                report.rulesEvaluated(),
+                violationsFound,
+                severityCounts(active),
+                updatedScan,
+                marked);
+    }
 
     private SecurityDiscovery safeDiscovery() {
         try {

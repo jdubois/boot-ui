@@ -5,9 +5,12 @@ test.describe('Hibernate Advisor view', () => {
   test('runs mapped-entity checks and shows the sample advisor fixtures', async ({openView, page}) => {
     await openView('hibernate', 'Hibernate')
 
-    await expect(page.getByText('No Hibernate Advisor data yet')).toBeVisible()
+    // The pre-scan empty state is not asserted because the advisor caches the last scan, so a
+    // reused or retried server (or an earlier advisor test) may already have scan data on mount.
     await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
 
+    // After the scan the findings render and the empty state disappears.
+    await expect(page.getByText('No Hibernate Advisor data yet')).toHaveCount(0, {timeout: 30_000})
     await expect(page.getByText('Eager fetching should stay explicit and bounded')).toBeVisible()
     await expect(page.getByText(/SampleOrder#customer is mapped as FetchType.EAGER/)).toBeVisible()
     await expect(

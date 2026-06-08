@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
+import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import java.time.Clock;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -27,30 +28,34 @@ public class SecurityController {
 
     private final SecurityScanner scanner;
 
+    private final DismissedRulesStore dismissedRules;
+
     private volatile SecurityReport lastReport;
 
     @Autowired
     public SecurityController(
             ObjectProvider<FilterChainProxy> filterChainProxies,
             ObjectProvider<ListableBeanFactory> beanFactories,
-            Environment environment) {
-        this(new SecurityScanner(filterChainProxies, beanFactories, environment, Clock.systemUTC()));
+            Environment environment,
+            DismissedRulesStore dismissedRules) {
+        this(new SecurityScanner(filterChainProxies, beanFactories, environment, Clock.systemUTC()), dismissedRules);
     }
 
-    SecurityController(SecurityScanner scanner) {
+    SecurityController(SecurityScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
+        this.dismissedRules = dismissedRules;
         this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public SecurityReport security() {
-        return lastReport;
+        return scanner.applyDismissals(lastReport, dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public SecurityReport scan() {
         SecurityReport report = scanner.scan();
         lastReport = report;
-        return report;
+        return scanner.applyDismissals(report, dismissedRules.load());
     }
 }

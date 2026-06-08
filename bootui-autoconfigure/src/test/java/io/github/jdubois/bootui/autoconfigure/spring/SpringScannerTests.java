@@ -10,6 +10,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
@@ -97,6 +98,59 @@ class SpringScannerTests {
         assertThat(report.results()).isEmpty();
         assertThat(report.severityCounts())
                 .allSatisfy(count -> assertThat(count.count()).isZero());
+    }
+
+    @Test
+    void applyDismissalsReturnsTheSameReportWhenNothingIsDismissed() {
+        SpringScanner scanner = new SpringScanner(findingContext(), CLOCK);
+        SpringReport report = scanner.scan();
+
+        assertThat(scanner.applyDismissals(report, Set.of())).isSameAs(report);
+        assertThat(scanner.applyDismissals(report, null)).isSameAs(report);
+        assertThat(scanner.applyDismissals(null, Set.of("SPRING-WEB-001"))).isNull();
+    }
+
+    @Test
+    void applyDismissalsFlagsDismissedRulesAndExcludesThemFromCounts() {
+        SpringScanner scanner = new SpringScanner(findingContext(), CLOCK);
+        SpringReport report = scanner.scan();
+        String dismissedId = "SPRING-WEB-001";
+        assertThat(report.results()).extracting(SpringRuleResultDto::id).contains(dismissedId);
+
+        SpringReport dismissed = scanner.applyDismissals(report, Set.of(dismissedId));
+
+        // The dismissed rule is still present but flagged, so the UI can list it under "Dismissed".
+        assertThat(dismissed.results()).hasSameSizeAs(report.results());
+        assertThat(dismissed.results())
+                .filteredOn(SpringRuleResultDto::dismissed)
+                .extracting(SpringRuleResultDto::id)
+                .containsExactly(dismissedId);
+
+        // Counts and score inputs are recomputed from the active (non-dismissed) violations only.
+        assertThat(dismissed.violationsFound()).isEqualTo(report.violationsFound() - 1);
+        assertThat(dismissed.scan().violationsFound()).isEqualTo(dismissed.violationsFound());
+        assertThat(dismissed.results())
+                .filteredOn(result -> !result.dismissed())
+                .hasSize(dismissed.violationsFound());
+        assertThat(dismissed.severityCounts().stream()
+                        .mapToInt(SpringSeverityCountDto::count)
+                        .sum())
+                .isEqualTo(dismissed.violationsFound());
+    }
+
+    private static SpringContext findingContext() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.main.allow-bean-definition-overriding", "true")
+                .withProperty("spring.main.allow-circular-references", "true")
+                .withProperty("debug", "true")
+                .withProperty("server.shutdown", "immediate");
+        return SpringContext.builder(environment)
+                .virtualThreadsSupported(false)
+                .beanDefinitionCount(120)
+                .objectMappers(List.of(new BeanRef("objectMapper", false)))
+                .dataSources(List.of(new BeanRef("dataSource", false)))
+                .devToolsPresent(true)
+                .build();
     }
 
     private static SpringContext cleanContext(MockEnvironment environment) {

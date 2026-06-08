@@ -10,6 +10,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -196,6 +197,39 @@ final class RestApiScanner {
                 severityCounts(violations),
                 scan,
                 violations);
+    }
+
+    RestApiReport applyDismissals(RestApiReport report, Set<String> dismissedIds) {
+        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+            return report;
+        }
+        List<RestApiRuleResultDto> marked = report.results().stream()
+                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+                .toList();
+        List<RestApiRuleResultDto> active =
+                marked.stream().filter(result -> !result.dismissed()).toList();
+        int violationsFound = active.size();
+        RestApiScanStatusDto scan = report.scan();
+        RestApiScanStatusDto updatedScan = new RestApiScanStatusDto(
+                scan.analyzer(),
+                scan.status(),
+                scan.message(),
+                scan.scannedAt(),
+                scan.rulesEvaluated(),
+                scan.controllersAnalyzed(),
+                scan.handlersAnalyzed(),
+                violationsFound);
+        return new RestApiReport(
+                report.localOnly(),
+                report.disclaimer(),
+                report.basePackages(),
+                report.controllersAnalyzed(),
+                report.handlersAnalyzed(),
+                report.rulesEvaluated(),
+                violationsFound,
+                severityCounts(active),
+                updatedScan,
+                marked);
     }
 
     private List<RestApiSeverityCountDto> severityCounts(List<RestApiRuleResultDto> results) {

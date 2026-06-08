@@ -15,4 +15,46 @@ public record HibernateRuleResultDto(
         int violationCount,
         List<String> sampleViolations,
         String recommendation,
-        String learnMoreUrl) {}
+        String learnMoreUrl,
+        boolean dismissed) {
+
+    public HibernateRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation,
+            String learnMoreUrl) {
+        this(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                false);
+    }
+
+    public HibernateRuleResultDto withDismissed(boolean dismissed) {
+        return new HibernateRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed);
+    }
+}
