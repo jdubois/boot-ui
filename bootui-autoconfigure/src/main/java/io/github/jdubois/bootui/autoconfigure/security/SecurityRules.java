@@ -43,6 +43,10 @@ abstract class AbstractSecurityRule implements SecurityRule {
     SecurityRuleResultDto violation(List<String> details) {
         return details.isEmpty() ? pass() : SecurityRuleSupport.violation(definition, details);
     }
+
+    SecurityRuleResultDto violation(String severityOverride, List<String> details) {
+        return details.isEmpty() ? pass() : SecurityRuleSupport.violation(definition, severityOverride, details);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +60,7 @@ final class NoOpPasswordEncoderRule extends AbstractSecurityRule {
                 "SEC-AUTH-001",
                 "Password encoder must not store credentials in plain text",
                 SecurityCategory.AUTHENTICATION,
-                "HIGH",
+                "CRITICAL",
                 "Detects a NoOpPasswordEncoder bean, which keeps passwords in clear text.",
                 "Use a delegating encoder (PasswordEncoderFactories.createDelegatingPasswordEncoder()) backed by bcrypt, Argon2, or PBKDF2.",
                 "https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html"));
@@ -268,9 +272,12 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         List<String> details = new ArrayList<>();
         for (FilterChainModel chain : context.chains()) {
-            if (Boolean.TRUE.equals(chain.permitsAllAnonymous()) && chain.hasAuthenticationFilter()) {
-                details.add(chain.describe()
-                        + " permits every request anonymously even though it configures authentication.");
+            if (Boolean.TRUE.equals(chain.permitsAllAnonymous())
+                    && chain.matchesAnyRequest()
+                    && chain.hasRealAuthenticationFilter()) {
+                details.add(
+                        chain.describe()
+                                + " matches every request and permits it anonymously even though it configures authentication.");
             }
         }
         return violation(details);
@@ -301,7 +308,7 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityRule {
             return skipped("Authorization decisions could not be simulated for any chain.");
         }
         boolean allOpen = chains.stream().allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
-        boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasAuthenticationFilter);
+        boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasRealAuthenticationFilter);
         if (allOpen && !anyAuthentication) {
             return violation(List.of("All " + chains.size()
                     + " security filter chains permit every request anonymously with no authentication mechanism."));
@@ -758,6 +765,32 @@ final class PermissionsPolicyHeaderRule extends AbstractSecurityRule {
 // CORS
 // ---------------------------------------------------------------------------
 
+final class HeaderWritersDisabledRule extends AbstractSecurityRule {
+
+    HeaderWritersDisabledRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-HEAD-007",
+                "Security response headers should not be globally disabled",
+                SecurityCategory.HEADERS,
+                "HIGH",
+                "Detects a browser-facing (authenticated or session) chain that installs no HeaderWriterFilter, which means headers().disable() removed every security header (HSTS, X-Frame-Options, X-Content-Type-Options, ...).",
+                "Remove headers().disable(); keep the default HeaderWriterFilter so security headers are emitted, and only tune individual writers you do not need.",
+                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            boolean browserFacing = chain.hasRealAuthenticationFilter() || chain.isStateful();
+            if (browserFacing && !chain.headerWriterFilterPresent()) {
+                details.add(chain.describe() + " installs no HeaderWriterFilter, so security headers are disabled.");
+            }
+        }
+        return violation(details);
+    }
+}
+
 final class CorsWildcardOriginRule extends AbstractSecurityRule {
 
     CorsWildcardOriginRule() {
@@ -863,6 +896,40 @@ final class CorsWildcardMethodsHeadersRule extends AbstractSecurityRule {
             }
         }
         return violation(details);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CORS (continued)
+// ---------------------------------------------------------------------------
+
+final class BroadCorsOriginPatternRule extends AbstractSecurityRule {
+
+    BroadCorsOriginPatternRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-CORS-006",
+                "CORS should not allow broad origin patterns",
+                SecurityCategory.CORS,
+                "MEDIUM",
+                "Detects allowedOriginPatterns that match a dangerously broad set of origins (wildcard scheme or host, e.g. https://*, *://*, *.com) beyond the exact \"*\" already covered by SEC-CORS-001/002.",
+                "Replace broad patterns with the exact origins (or tightly-scoped subdomain wildcards such as https://*.example.com) the application trusts; broad patterns combined with credentials let untrusted sites make authenticated cross-site calls.",
+                "https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        boolean credentialed = false;
+        for (CorsConfigModel cors : context.corsConfigs()) {
+            List<String> broad = cors.broadOriginPatterns();
+            if (broad.isEmpty()) {
+                continue;
+            }
+            String suffix = cors.allowsCredentials() ? " with allowCredentials=true" : "";
+            credentialed = credentialed || cors.allowsCredentials();
+            details.add(cors.describe() + " uses broad origin patterns " + broad + suffix + ".");
+        }
+        return violation(credentialed ? SecurityRuleSupport.HIGH : SecurityRuleSupport.MEDIUM, details);
     }
 }
 
@@ -1108,6 +1175,37 @@ final class ManagementPortIsolationRule extends AbstractSecurityRule {
 // OAuth2 / JWT resource server
 // ---------------------------------------------------------------------------
 
+final class ActuatorShowValuesRule extends AbstractSecurityRule {
+
+    ActuatorShowValuesRule() {
+        super(
+                new SecurityRuleDefinition(
+                        "SEC-ACT-007",
+                        "Actuator env/configprops values must stay sanitized",
+                        SecurityCategory.ACTUATOR,
+                        "HIGH",
+                        "Detects management.endpoint.env.show-values=always or management.endpoint.configprops.show-values=always, which reveals unsanitized property values (including secrets) to callers of /env and /configprops.",
+                        "Leave show-values at 'never' or 'when-authorized' (the defaults) so the actuator sanitizer masks sensitive values; only relax it behind strict authorization.",
+                        "https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.env.show-values"))) {
+            details.add("management.endpoint.env.show-values=always exposes unsanitized /env values.");
+        }
+        if ("always".equalsIgnoreCase(context.firstHostProperty("management.endpoint.configprops.show-values"))) {
+            details.add("management.endpoint.configprops.show-values=always exposes unsanitized /configprops values.");
+        }
+        return violation(details);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 / JWT resource server (continued)
+// ---------------------------------------------------------------------------
+
 final class ResourceServerValidationRule extends AbstractSecurityRule {
 
     ResourceServerValidationRule() {
@@ -1168,6 +1266,14 @@ final class JwtAudienceValidationRule extends AbstractSecurityRule {
         String audiences = context.firstProperty("spring.security.oauth2.resourceserver.jwt.audiences");
         if (audiences != null) {
             return pass();
+        }
+        if (!context.jwtDecoderTypes().isEmpty()) {
+            // A custom JwtDecoder may already register an audience validator, so this is advisory only.
+            return violation(
+                    SecurityRuleSupport.INFO,
+                    List.of("Resource server uses issuer/JWK validation with a custom JwtDecoder ("
+                            + String.join(", ", context.jwtDecoderTypes())
+                            + "); confirm it validates the audience (aud) claim."));
         }
         return violation(
                 List.of(
@@ -1266,7 +1372,7 @@ final class WebSecurityConfigurerAdapterRule extends AbstractSecurityRule {
                 "LOW",
                 "Detects a WebSecurityConfigurerAdapter bean; the class was removed in Spring Security 6.",
                 "Expose SecurityFilterChain and WebSecurityCustomizer beans instead of extending WebSecurityConfigurerAdapter.",
-                "https://spring.io/blog/2022/02/21/spring-security-without-the-websecurityconfigureradapter"));
+                "https://docs.spring.io/spring-security/reference/servlet/configuration/java.html"));
     }
 
     @Override
@@ -1275,26 +1381,6 @@ final class WebSecurityConfigurerAdapterRule extends AbstractSecurityRule {
             return violation(List.of("A WebSecurityConfigurerAdapter is still in use."));
         }
         return pass();
-    }
-}
-
-final class WebIgnoringRule extends AbstractSecurityRule {
-
-    WebIgnoringRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-CONFIG-004",
-                "Avoid bypassing the filter chain with web.ignoring()",
-                SecurityCategory.CONFIGURATION,
-                "MEDIUM",
-                "Notes that web.ignoring() paths skip Spring Security entirely (including header writers) and cannot be introspected from registered chains.",
-                "Prefer permitAll() inside authorizeHttpRequests for non-static paths so security headers and context still apply; reserve web.ignoring() for truly static resources.",
-                "https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#jc-httpsecurity"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        return skipped(
-                "web.ignoring() paths bypass the filter chain and are not visible to the advisor; review them manually.");
     }
 }
 

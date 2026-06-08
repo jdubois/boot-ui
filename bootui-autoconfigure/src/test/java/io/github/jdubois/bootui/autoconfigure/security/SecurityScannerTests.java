@@ -23,7 +23,7 @@ import org.springframework.security.web.FilterChainProxy;
 
 class SecurityScannerTests {
 
-    private static final int RULE_COUNT = 46;
+    private static final int RULE_COUNT = 48;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
