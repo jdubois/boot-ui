@@ -1,8 +1,16 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {ref} from 'vue'
+import {defineComponent, h, KeepAlive, ref} from 'vue'
 
 import Overview from './Overview.vue'
+import ScannerScoreCard from './components/ScannerScoreCard.vue'
+
+function architectureScore(wrapper) {
+  const card = wrapper
+    .findAllComponents(ScannerScoreCard)
+    .find((component) => component.props('title') === 'Architecture')
+  return card.find('.scanner-score').text()
+}
 
 function severityReport(severityCounts, status = 'SCANNED') {
   return {severityCounts, scan: {status}}
@@ -37,6 +45,26 @@ function mountOverview(panels) {
       stubs: {RouterLink: {template: '<a><slot /></a>'}}
     }
   })
+}
+
+// Mounts the dashboard inside a <KeepAlive> with a toggle, mirroring App.vue's
+// `<keep-alive include="Overview">`. Flipping `show` deactivates and re-activates
+// the cached Overview so its `onActivated` refresh runs, just like navigating away
+// to a panel and back.
+function mountKeptAlive(panels) {
+  const show = ref(true)
+  const Host = defineComponent({
+    setup() {
+      return () => h(KeepAlive, null, {default: () => (show.value ? h(Overview) : h('div', 'away'))})
+    }
+  })
+  const wrapper = mount(Host, {
+    global: {
+      provide: {panels: ref(panels)},
+      stubs: {RouterLink: {template: '<a><slot /></a>'}}
+    }
+  })
+  return {wrapper, show}
 }
 
 const allPanels = {
@@ -162,5 +190,54 @@ describe('Overview', () => {
 
     expect(wrapper.text()).toContain('Connect to GitHub to load live security metrics')
     expect(wrapper.text()).toContain('0 of 1 scanners scored')
+  })
+
+  it('refreshes a scored advisor from its report on re-activation so dismissals reflect on the dashboard', async () => {
+    // POST /scan reports one HIGH finding (score 90); the GET report (re-fetched on
+    // re-activation) reflects that finding having been dismissed server-side (clean => 100).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input, init) => {
+        const url = typeof input === 'string' ? input : input.url
+        const method = (init?.method || 'GET').toUpperCase()
+        let body = {}
+        if (url.includes('api/architecture/scan') && method === 'POST') {
+          body = severityReport([{severity: 'HIGH', count: 1}])
+        } else if (url.includes('api/architecture')) {
+          body = severityReport([])
+        }
+        return Promise.resolve(new Response(JSON.stringify(body), {status: 200}))
+      })
+    )
+
+    const {wrapper, show} = mountKeptAlive({
+      panels: [
+        {id: 'architecture', available: true},
+        {id: 'memory', available: false},
+        {id: 'rest-api', available: false},
+        {id: 'spring', available: false},
+        {id: 'hibernate', available: false},
+        {id: 'security', available: false},
+        {id: 'pentesting', available: false},
+        {id: 'vulnerabilities', available: false},
+        {id: 'github', available: false}
+      ]
+    })
+    await flushPromises()
+
+    const runButton = wrapper.findAll('button').find((button) => button.text().includes('Run scan'))
+    await runButton.trigger('click')
+    await flushPromises()
+    expect(architectureScore(wrapper)).toBe('90')
+    expect(wrapper.text()).toContain('1 high')
+
+    // Navigate away (deactivate) then back (activate) -> onActivated refresh re-reads the report.
+    show.value = false
+    await flushPromises()
+    show.value = true
+    await flushPromises()
+
+    expect(architectureScore(wrapper)).toBe('100')
+    expect(wrapper.text()).not.toContain('1 high')
   })
 })

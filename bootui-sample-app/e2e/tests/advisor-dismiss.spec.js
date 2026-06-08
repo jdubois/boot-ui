@@ -35,6 +35,16 @@ async function findingsCount(card) {
   return Number.parseInt((await card.locator('.display-6').innerText()).trim(), 10) || 0
 }
 
+/**
+ * Reads the numeric advisor score rendered by the shared AdvisorScoreCard.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<number>}
+ */
+async function scoreValue(page) {
+  return Number.parseInt((await page.locator('.advisor-score-gauge__value').innerText()).trim(), 10)
+}
+
 test.describe('Advisor rule dismiss/restore', () => {
   // The dismiss/restore mechanism is shared by every advisor panel (Architecture,
   // REST API, Spring, Hibernate, Memory, Security). It is exercised here against
@@ -63,6 +73,10 @@ test.describe('Advisor rule dismiss/restore', () => {
     // Nothing is dismissed yet, so the "N dismissed" subline is absent.
     await expect(findingsCard).not.toContainText('dismissed')
 
+    // The advisor score card renders once a scan has produced findings.
+    await expect(page.locator('.advisor-score-card')).toBeVisible()
+    const scoreBefore = await scoreValue(page)
+
     // Capture the rule id of the first active finding so we can target it precisely.
     const firstActive = activeItems.first()
     const ruleId = (await firstActive.locator('span.text-muted.small').first().innerText()).trim()
@@ -84,6 +98,15 @@ test.describe('Advisor rule dismiss/restore', () => {
     await expect(findingsCard).toContainText('1 dismissed')
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before - 1)
 
+    // Dismissing a finding removes its weighted penalty. The score therefore rises or
+    // holds: the sample app's Hibernate model has enough findings to clamp the raw score
+    // at 0, so dropping a single rule can leave the displayed score unchanged. The strict
+    // "dismiss raises the score" guarantee is unit-tested in Spring.test.js against a
+    // non-clamped report; here we assert it never *decreases* and that the score card
+    // notes the exclusion. The exact-restore check below is what pins the wiring down.
+    await expect(page.getByText('excluded from this score')).toBeVisible()
+    await expect.poll(async () => scoreValue(page)).toBeGreaterThanOrEqual(scoreBefore)
+
     // The rule is no longer offered as an active (dismissible) finding.
     await expect(activeItemFor(ruleId)).toHaveCount(0)
 
@@ -92,7 +115,9 @@ test.describe('Advisor rule dismiss/restore', () => {
 
     await expect(dismissedItemFor(ruleId)).toHaveCount(0)
     await expect(findingsCard).not.toContainText('dismissed')
+    await expect(page.getByText('excluded from this score')).toHaveCount(0)
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before)
+    await expect.poll(async () => scoreValue(page)).toBe(scoreBefore)
     await expect(activeItemFor(ruleId)).toHaveCount(1)
   })
 })

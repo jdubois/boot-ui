@@ -2,6 +2,7 @@
 import {computed} from 'vue'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
+import AdvisorScoreCard from './components/AdvisorScoreCard.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
@@ -62,6 +63,7 @@ function formatBytes(value) {
     <div v-if="panel.actionMessage" class="alert alert-warning">{{ panel.actionMessage }}</div>
 
     <template v-if="panel.report">
+      <AdvisorScoreCard :score="panel.score" :dismissed-count="panel.dismissedResults.length" />
       <div class="alert alert-info">
         <strong>Heuristic JVM memory and thread health rules.</strong>
         {{ panel.report.disclaimer }}
