@@ -500,11 +500,19 @@ class DevServicesService {
     }
 
     private String slug(String value) {
-        String normalized = value == null
-                ? "service"
-                : value.toLowerCase(Locale.ROOT)
-                        .replaceAll("[^a-z0-9._-]+", "-")
-                        .replaceAll("(^-+|-+$)", "");
+        if (value == null) {
+            return "service";
+        }
+        String normalized = value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "-");
+        int start = 0;
+        int end = normalized.length();
+        while (start < end && normalized.charAt(start) == '-') {
+            start++;
+        }
+        while (end > start && normalized.charAt(end - 1) == '-') {
+            end--;
+        }
+        normalized = normalized.substring(start, end);
         return normalized.isBlank() ? "service" : normalized;
     }
 

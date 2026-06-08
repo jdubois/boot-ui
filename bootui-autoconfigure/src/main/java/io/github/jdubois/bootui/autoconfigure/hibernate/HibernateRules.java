@@ -56,7 +56,7 @@ final class HibernateRuleModelSupport {
     private static final Pattern JOIN_FETCH =
             Pattern.compile("\\bjoin\\s+fetch\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)+)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern SELECT_CLAUSE =
-            Pattern.compile("^\\s*select\\s+(.*?)\\s+from\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+            Pattern.compile("^\\s*select\\b(.*?)\\bfrom\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern DISTINCT_PREFIX = Pattern.compile("(?i)^distinct\\s+");
     private static final Pattern OBJECT_WRAPPER = Pattern.compile("(?i)^object\\(\\s*([A-Za-z_]\\w*)\\s*\\)$");
 

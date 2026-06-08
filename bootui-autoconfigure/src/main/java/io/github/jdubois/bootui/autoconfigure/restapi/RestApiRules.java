@@ -74,8 +74,6 @@ final class RestApiRuleHelp {
     static final String OPENAPI_DOCS = "https://springdoc.org/";
 
     private static final Pattern VERSION_SEGMENT = Pattern.compile("v\\d+", Pattern.CASE_INSENSITIVE);
-    private static final Pattern VERSIONED_MEDIA_TYPE =
-            Pattern.compile(".*(version=|vnd\\.).*", Pattern.CASE_INSENSITIVE);
     private static final Pattern PATH_VARIABLE_TOKEN = Pattern.compile("\\{([^}/]+)\\}");
     private static final Set<String> VERBS = Set.of(
             "get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify", "post", "put",
@@ -166,16 +164,21 @@ final class RestApiRuleHelp {
             }
         }
         for (String mediaType : handler.effectiveProduces()) {
-            if (VERSIONED_MEDIA_TYPE.matcher(mediaType).matches()) {
+            if (isVersionedMediaType(mediaType)) {
                 return true;
             }
         }
         for (String mediaType : handler.effectiveConsumes()) {
-            if (VERSIONED_MEDIA_TYPE.matcher(mediaType).matches()) {
+            if (isVersionedMediaType(mediaType)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isVersionedMediaType(String mediaType) {
+        String lower = mediaType.toLowerCase(Locale.ROOT);
+        return lower.contains("version=") || lower.contains("vnd.");
     }
 
     static boolean containsWildcardMediaType(HandlerMethodModel handler) {

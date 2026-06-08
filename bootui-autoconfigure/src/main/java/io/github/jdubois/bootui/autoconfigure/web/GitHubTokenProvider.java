@@ -46,6 +46,9 @@ final class DefaultGitHubTokenProvider implements GitHubTokenProvider {
     private Token ghCliToken(Duration timeout) {
         Process process = null;
         try {
+            // Resolve the GitHub CLI from the developer's PATH on purpose: BootUI is a localhost-only
+            // dev tool and must invoke whichever "gh" the developer installed (Homebrew, apt, etc.),
+            // so a fixed absolute path is intentionally not used. (Reviewed: SonarCloud S4036.)
             process = new ProcessBuilder("gh", "auth", "token")
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
                     .start();
