@@ -83,6 +83,9 @@ and pull requests targeting `main`. The build generates the coverage reports Son
 - **Frontend** — Vitest emits `bootui-ui/src/main/frontend/coverage/lcov.info` (a `posttest` hook rewrites the report
   paths so they resolve against the `bootui-ui` Maven module).
 
+The `bootui-sample-app` module is a reference/demo app and is excluded from Sonar analysis via `sonar.skip=true` in its
+POM, so its sources and coverage are not reported to SonarCloud.
+
 End-to-end (Playwright) tests still run in CI but do not contribute coverage.
 
 The analysis step is a no-op until two one-time setup steps are done:

@@ -329,11 +329,9 @@ public class LiquibaseController {
         }
 
         private LiquibaseActionResult updateInScope(String beanName, SpringLiquibase source) throws Exception {
-            Liquibase liquibase = null;
-            try {
-                Connection connection = source.getDataSource().getConnection();
-                BootUiSpringLiquibase runner = BootUiSpringLiquibase.from(source, changeLogParameters(source));
-                liquibase = runner.create(connection);
+            BootUiSpringLiquibase runner = BootUiSpringLiquibase.from(source, changeLogParameters(source));
+            try (Connection connection = source.getDataSource().getConnection();
+                    Liquibase liquibase = runner.create(connection)) {
                 Contexts contexts = new Contexts(source.getContexts());
                 LabelExpression labelExpression = new LabelExpression(source.getLabelFilter());
                 int before =
@@ -352,10 +350,6 @@ public class LiquibaseController {
                 return new LiquibaseActionResult("success", message, beanName, before, after, applied, List.of());
             } catch (SQLException ex) {
                 throw new DatabaseException(ex);
-            } finally {
-                if (liquibase != null) {
-                    liquibase.close();
-                }
             }
         }
 

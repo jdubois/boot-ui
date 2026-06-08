@@ -78,7 +78,7 @@
         <sonar.organization>jdubois</sonar.organization>
         <sonar.projectKey>jdubois_boot-ui</sonar.projectKey>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/bootui-core/target/site/jacoco/jacoco.xml,${maven.multiModuleProjectDirectory}/bootui-autoconfigure/target/site/jacoco/jacoco.xml,${maven.multiModuleProjectDirectory}/bootui-sample-app/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/bootui-core/target/site/jacoco/jacoco.xml,${maven.multiModuleProjectDirectory}/bootui-autoconfigure/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <!-- Project-relative patterns only (SonarCloud deprecates module-relative paths at project
              level). Listing **/*.test.js here keeps the bootui-ui Vitest files out of MAIN analysis;
              they are still indexed as tests via the module's sonar.tests + sonar.test.inclusions. -->

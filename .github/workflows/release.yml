@@ -112,12 +112,23 @@ jobs:
             exit 1
           fi
 
+          for npm_dir in . bootui-ui/src/main/frontend bootui-sample-app/e2e; do
+            ( cd "$npm_dir" && npm version "$VERSION" --no-git-tag-version --allow-same-version --ignore-scripts >/dev/null )
+            if ! grep -q "\"version\": \"$VERSION\"" "$npm_dir/package.json"; then
+              echo "::error::Failed to update the npm package version in $npm_dir/package.json to $VERSION"
+              exit 1
+            fi
+          done
+
           if [[ "$SKIP_BUILD" != "true" ]]; then
             ./mvnw -B -ntp -Prelease clean verify -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
           fi
 
           if [[ -n "$(git status --porcelain)" ]]; then
-            git add pom.xml */pom.xml README.md docs/SETUP.md
+            git add pom.xml */pom.xml README.md docs/SETUP.md \
+              package.json package-lock.json \
+              bootui-ui/src/main/frontend/package.json bootui-ui/src/main/frontend/package-lock.json \
+              bootui-sample-app/e2e/package.json bootui-sample-app/e2e/package-lock.json
             git commit -m "Release $TAG"
           else
             echo "Project files already declare version $VERSION; tagging current HEAD."
@@ -158,6 +169,22 @@ jobs:
               exit 1
             fi
           fi
+
+          for npm_dir in . bootui-ui/src/main/frontend bootui-sample-app/e2e; do
+            node -e '
+              const fs = require("fs");
+              const [dir, expected] = process.argv.slice(1);
+              const pkg = JSON.parse(fs.readFileSync(dir + "/package.json", "utf8"));
+              const lock = JSON.parse(fs.readFileSync(dir + "/package-lock.json", "utf8"));
+              const found = [pkg.version, lock.version, lock.packages?.[""]?.version];
+              for (const v of found) {
+                if (v !== expected) {
+                  console.error(`::error::npm version mismatch in ${dir}: expected ${expected}, found ${v}`);
+                  process.exit(1);
+                }
+              }
+            ' "$npm_dir" "$VERSION"
+          done
 
           echo "Releasing version $VERSION"
 
