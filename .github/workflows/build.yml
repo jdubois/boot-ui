@@ -85,7 +85,7 @@ jobs:
 
       - name: Publish Java test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
         with:
           name: Java tests (Surefire)
           path: '**/target/surefire-reports/TEST-*.xml'
@@ -95,7 +95,7 @@ jobs:
 
       - name: Publish frontend unit test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
         with:
           name: Frontend unit tests (Vitest)
           path: bootui-ui/src/main/frontend/test-results/vitest-junit.xml
@@ -105,7 +105,7 @@ jobs:
 
       - name: Publish end-to-end test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
         with:
           name: End-to-end tests (Playwright)
           path: bootui-sample-app/e2e/test-results/junit/results.xml
