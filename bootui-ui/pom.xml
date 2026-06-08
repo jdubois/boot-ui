@@ -18,13 +18,6 @@
         <frontend.dir>${project.basedir}/src/main/frontend</frontend.dir>
         <frontend.output.dir>${project.build.outputDirectory}/META-INF/resources/bootui</frontend.output.dir>
         <skipTests>false</skipTests>
-
-        <!-- This module has no Java sources; point Sonar at the Vue/JS frontend so it
-             is analyzed and the Vitest LCOV coverage maps onto the indexed sources. -->
-        <sonar.sources>src/main/frontend/src</sonar.sources>
-        <sonar.tests>src/main/frontend/src</sonar.tests>
-        <sonar.test.inclusions>**/*.test.js</sonar.test.inclusions>
-        <sonar.javascript.lcov.reportPaths>src/main/frontend/coverage/lcov.info</sonar.javascript.lcov.reportPaths>
     </properties>
 
     <build>

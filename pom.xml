@@ -60,8 +60,6 @@
         <native-build-tools-plugin.version>1.1.1</native-build-tools-plugin.version>
         <archunit.version>1.4.2</archunit.version>
         <central.autoPublish>true</central.autoPublish>
-        <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
-        <sonar-maven-plugin.version>5.7.0.6970</sonar-maven-plugin.version>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
@@ -72,17 +70,6 @@
         <spotless-maven-plugin.version>3.6.0</spotless-maven-plugin.version>
         <node.version>v24.16.0</node.version>
         <npm.version>11.15.0</npm.version>
-
-        <!-- SonarCloud (CI-based) analysis. Coverage import requires CI analysis;
-             Automatic Analysis (Autoscan) must be disabled in the SonarCloud UI. -->
-        <sonar.organization>jdubois</sonar.organization>
-        <sonar.projectKey>jdubois_boot-ui</sonar.projectKey>
-        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-        <sonar.coverage.jacoco.xmlReportPaths>${maven.multiModuleProjectDirectory}/bootui-core/target/site/jacoco/jacoco.xml,${maven.multiModuleProjectDirectory}/bootui-autoconfigure/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
-        <!-- Project-relative patterns only (SonarCloud deprecates module-relative paths at project
-             level). Listing **/*.test.js here keeps the bootui-ui Vitest files out of MAIN analysis;
-             they are still indexed as tests via the module's sonar.tests + sonar.test.inclusions. -->
-        <sonar.exclusions>**/*.test.js,**/node_modules/**,**/dist/**,**/coverage/**,**/target/**</sonar.exclusions>
     </properties>
 
     <dependencyManagement>
@@ -208,38 +195,9 @@
                         <autoPublish>${central.autoPublish}</autoPublish>
                     </configuration>
                 </plugin>
-                <plugin>
-                    <groupId>org.jacoco</groupId>
-                    <artifactId>jacoco-maven-plugin</artifactId>
-                    <version>${jacoco-maven-plugin.version}</version>
-                </plugin>
-                <plugin>
-                    <groupId>org.sonarsource.scanner.maven</groupId>
-                    <artifactId>sonar-maven-plugin</artifactId>
-                    <version>${sonar-maven-plugin.version}</version>
-                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>jacoco-prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>jacoco-report</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>report</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>

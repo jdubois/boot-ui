@@ -16,8 +16,6 @@
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
-        <!-- Reference/demo app: excluded from SonarCloud analysis. -->
-        <sonar.skip>true</sonar.skip>
         <spring-ai.version>2.0.0-M8</spring-ai.version>
     </properties>
 

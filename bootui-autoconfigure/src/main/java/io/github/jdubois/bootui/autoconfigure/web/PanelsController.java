@@ -69,7 +69,7 @@ public class PanelsController {
     }
 
     private Availability availability(String id) {
-        // Split across grouped helpers so no single switch exceeds Sonar's case/complexity thresholds.
+        // Split across grouped helpers so no single switch grows unwieldy.
         // Each helper covers a disjoint set of panel ids; coreAvailability() returns null for ids it does
         // not own so the dispatcher can fall through to scannerAvailability(), which owns the default case.
         Availability availability = coreAvailability(id);
