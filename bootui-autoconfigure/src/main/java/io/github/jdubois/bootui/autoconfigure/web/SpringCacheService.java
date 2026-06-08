@@ -25,6 +25,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.interceptor.*;
+import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.core.BridgeMethodResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -314,7 +315,7 @@ class SpringCacheService {
     }
 
     private boolean isNoOp(CacheManager manager) {
-        return manager.getClass().getName().equals("org.springframework.cache.support.NoOpCacheManager");
+        return manager instanceof NoOpCacheManager;
     }
 
     private Map<MetricKey, CacheMetricsAccumulator> cacheMetrics() {
