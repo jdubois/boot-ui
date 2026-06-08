@@ -32,15 +32,6 @@ export default defineConfig({
     clearMocks: true,
     restoreMocks: true,
     reporters: process.env.CI ? ['default', 'junit'] : 'default',
-    outputFile: {junit: './test-results/vitest-junit.xml'},
-    coverage: {
-      enabled: true,
-      provider: 'v8',
-      reporter: ['text-summary', 'lcov'],
-      reportsDirectory: './coverage',
-      all: true,
-      include: ['src/**/*.{js,vue}'],
-      exclude: ['src/**/*.test.js', 'src/main.js']
-    }
+    outputFile: {junit: './test-results/vitest-junit.xml'}
   }
 })
