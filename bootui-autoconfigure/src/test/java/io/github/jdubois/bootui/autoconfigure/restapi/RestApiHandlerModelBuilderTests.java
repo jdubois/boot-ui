@@ -72,7 +72,9 @@ class RestApiHandlerModelBuilderTests {
         assertThat(createUser.requestBodyValidated()).isTrue();
         assertThat(createUser.requestBodyIsEntity()).isFalse();
         assertThat(createUser.controllerValidated()).isTrue();
-        assertThat(createUser.responseStatusValue()).isEqualTo("CREATED");
+        // createUser now signals creation via ResponseEntity.created(...) rather than @ResponseStatus.
+        assertThat(createUser.returnsResponseEntity()).isTrue();
+        assertThat(createUser.responseStatusValue()).isEmpty();
 
         HandlerMethodModel createOrder = handler(model, "createOrder");
         assertThat(createOrder.hasRequestBody()).isTrue();

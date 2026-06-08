@@ -1,9 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.restapi.fixtures.good;
 
+import java.net.URI;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,9 +33,10 @@ public class GoodUserController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    @ResponseStatus(HttpStatus.CREATED)
-    public UserDto createUser(@Validated @RequestBody CreateUserRequest request) {
-        return new UserDto("1", request.name());
+    public ResponseEntity<UserDto> createUser(@Validated @RequestBody CreateUserRequest request) {
+        UserDto created = new UserDto("1", request.name());
+        return ResponseEntity.created(URI.create("/api/v1/users/" + created.id()))
+                .body(created);
     }
 
     @DeleteMapping("/{id}")
