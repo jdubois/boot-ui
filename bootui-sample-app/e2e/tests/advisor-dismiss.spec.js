@@ -4,7 +4,7 @@ import {expect, test} from './fixtures.js'
 /**
  * Removes every dismissed advisor rule so each test starts and ends from a
  * clean, deterministic state. Dismissals are persisted server-side in
- * `.bootui/dismissed-rules.yaml`, so without this a crashed run could leave a
+ * `.bootui/boot-ui.yml`, so without this a crashed run could leave a
  * rule dismissed and skew later assertions.
  *
  * The sample app puts Spring Security CSRF protection in front of the BootUI

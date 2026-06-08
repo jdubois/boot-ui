@@ -14,9 +14,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Manages the set of advisor rule IDs that have been dismissed by the developer.
  *
- * <p>Dismissed rules are stored in {@code .bootui/dismissed-rules.yaml} and are
- * purely a local, developer-facing preference. They are never sent to any external
- * service.</p>
+ * <p>Dismissed rules are stored under the {@code dismissedRules} node of
+ * {@code .bootui/boot-ui.yml} and are purely a local, developer-facing preference.
+ * They are never sent to any external service.</p>
  */
 @RestController
 @RequestMapping("/bootui/api/dismissed-rules")

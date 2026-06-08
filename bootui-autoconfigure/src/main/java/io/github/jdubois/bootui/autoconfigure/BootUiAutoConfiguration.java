@@ -256,7 +256,7 @@ public class BootUiAutoConfiguration {
                 ? Paths.get(overridesFile).getParent()
                 : null;
         String dir = (parent != null) ? parent.toString() : ".bootui";
-        return new DismissedRulesStore(Paths.get(dir, "dismissed-rules.yaml"));
+        return new DismissedRulesStore(Paths.get(dir, "boot-ui.yml"));
     }
 
     @Bean

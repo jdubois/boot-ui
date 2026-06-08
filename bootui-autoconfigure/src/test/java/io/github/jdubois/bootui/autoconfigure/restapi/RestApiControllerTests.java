@@ -21,8 +21,7 @@ class RestApiControllerTests {
                 new ClassFileRestApiImporter(),
                 () -> false,
                 Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC));
-        return new RestApiController(
-                scanner, new DismissedRulesStore(Path.of("target", "no-such-dir", "dismissed-rules.yaml")));
+        return new RestApiController(scanner, new DismissedRulesStore(Path.of("target", "no-such-dir", "boot-ui.yml")));
     }
 
     @Test

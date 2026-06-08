@@ -4,7 +4,8 @@ import {ref} from 'vue'
 /**
  * Composable for dismissing/restoring advisor rules.
  *
- * Dismissed rule IDs are persisted on the server in `.bootui/dismissed-rules.yaml`.
+ * Dismissed rule IDs are persisted on the server under the `dismissedRules` node
+ * of `.bootui/boot-ui.yml`.
  * The server applies them when building each advisor report, so dismissing or
  * restoring a rule simply POSTs/DELETEs and then reloads the panel report (passed
  * in as `reload`) to pick up the server-applied `dismissed` flags and recomputed
