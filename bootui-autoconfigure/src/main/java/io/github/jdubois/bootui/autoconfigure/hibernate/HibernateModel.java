@@ -616,10 +616,16 @@ record HibernateRepositoryMethodModel(
         return returnType != null && java.util.stream.Stream.class.isAssignableFrom(returnType);
     }
 
+    // Optional Spring Data type: compare by class name instead of hard-referencing a class that may be absent at
+    // runtime.
+    @SuppressWarnings("java:S1872")
     boolean returnsPage() {
         return returnType != null && "org.springframework.data.domain.Page".equals(returnType.getName());
     }
 
+    // Optional Spring Data type: compare by class name instead of hard-referencing a class that may be absent at
+    // runtime.
+    @SuppressWarnings("java:S1872")
     boolean returnsSlice() {
         return returnType != null && "org.springframework.data.domain.Slice".equals(returnType.getName());
     }

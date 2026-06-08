@@ -243,7 +243,7 @@ public class HttpExchangesController {
         if (!shouldMask(name) || exposure.valueExposure() == BootUiProperties.ValueExposure.FULL) {
             return part;
         }
-        return equalsIndex >= 0 ? name + "=" + SecretMasker.MASKED_VALUE : name + "=" + SecretMasker.MASKED_VALUE;
+        return equalsIndex >= 0 ? name + "=" + SecretMasker.MASKED_VALUE : SecretMasker.MASKED_VALUE;
     }
 
     private Long responseSizeBytes(List<HttpHeaderDto> responseHeaders) {

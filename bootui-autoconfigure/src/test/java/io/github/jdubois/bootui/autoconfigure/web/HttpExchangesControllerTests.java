@@ -120,6 +120,19 @@ class HttpExchangesControllerTests {
     }
 
     @Test
+    void masksBareSensitiveQueryParameterWithoutFabricatingEquals() {
+        HttpExchange appExchange = exchange("GET", "http://localhost/api/orders?token&page=1", 200);
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repositoryWith(appExchange)), new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
+
+        HttpExchangeDto dto = report.exchanges().get(0);
+        assertThat(dto.query()).isEqualTo(SecretMasker.MASKED_VALUE + "&page=1");
+        assertThat(dto.uri()).isEqualTo("http://localhost/api/orders?" + SecretMasker.MASKED_VALUE + "&page=1");
+    }
+
+    @Test
     void filtersAndPagesOnServer() throws Exception {
         HttpExchange alpha = exchange("GET", "http://localhost/api/alpha", 200);
         HttpExchange beta = exchange("POST", "http://localhost/api/beta", 404);
