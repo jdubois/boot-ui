@@ -13,8 +13,8 @@ actions:
 features:
   - title: Runtime observability
     details: Inspect health, metrics, memory, threads, heap dumps, startup timing, and JVM sizing from the running Spring Boot app.
-  - title: Configuration intelligence
-    details: Browse masked configuration, profile differences, loggers, beans, conditions, and mappings with stable BootUI DTOs.
+  - title: Advisors dashboard
+    details: Analyse and score your application with advanced advisors for architecture, REST API, Spring, Hibernate, JVM memory, Spring Security, pentesting, and vulnerabilities.
   - title: Diagnostics toolbox
     details: Review traces, log tail, HTTP exchanges, local probes, architecture checks, GraalVM readiness, and dependency vulnerabilities.
   - title: Data and services visibility
