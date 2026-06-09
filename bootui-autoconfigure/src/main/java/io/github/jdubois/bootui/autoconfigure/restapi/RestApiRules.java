@@ -89,8 +89,9 @@ final class RestApiRuleHelp {
      * standalone exact-match check to avoid false positives like /blog/post/{id}, but remain in
      * {@link #VERBS} so camelCase prefix detection (postMessage, putData, readAll) still works.
      */
-    private static final Set<String> VERB_STANDALONE = Set.of(
-            "get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify");
+    private static final Set<String> VERB_STANDALONE =
+            Set.of("get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify");
+
     private static final Set<String> CREATION_PREFIXES = Set.of("create", "add", "save", "insert", "register", "new");
     static final Set<String> PATCH_MEDIA_TYPES = Set.of("application/merge-patch+json", "application/json-patch+json");
 
@@ -1637,8 +1638,7 @@ final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
             for (String path : handler.effectivePaths()) {
                 List<String> duplicates = duplicateTokens(path);
                 if (!duplicates.isEmpty()) {
-                    violations.add(handler.describe() + " — path '" + path + "' has duplicate token(s): "
-                            + duplicates);
+                    violations.add(handler.describe() + " — path '" + path + "' has duplicate token(s): " + duplicates);
                 }
             }
         }

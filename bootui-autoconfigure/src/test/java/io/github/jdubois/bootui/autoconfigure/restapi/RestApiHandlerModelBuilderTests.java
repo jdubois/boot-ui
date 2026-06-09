@@ -186,7 +186,7 @@ class RestApiHandlerModelBuilderTests {
                 .findFirst()
                 .orElseThrow();
 
-        assertThat(get.hasResponseStatus()).isTrue();       // class-level counts
+        assertThat(get.hasResponseStatus()).isTrue(); // class-level counts
         assertThat(get.methodHasResponseStatus()).isFalse(); // method-level does not
     }
 
@@ -232,7 +232,6 @@ class RestApiHandlerModelBuilderTests {
         RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
 
         assertThat(model.responseStatusExceptionClasses()).isNotEmpty();
-        assertThat(model.responseStatusExceptionClasses())
-                .anyMatch(name -> name.contains("BizException"));
+        assertThat(model.responseStatusExceptionClasses()).anyMatch(name -> name.contains("BizException"));
     }
 }

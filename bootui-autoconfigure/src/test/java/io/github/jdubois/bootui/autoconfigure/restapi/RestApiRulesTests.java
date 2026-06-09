@@ -309,7 +309,8 @@ class RestApiRulesTests {
         // RESP-007 should only flag method-level @ResponseStatus, so this must PASS.
         RestApiContext context = context(false, PHASE3_FIXES);
 
-        assertThat(status(new ResponseStatusIgnoredWithResponseEntityRule(), context)).isEqualTo("PASS");
+        assertThat(status(new ResponseStatusIgnoredWithResponseEntityRule(), context))
+                .isEqualTo("PASS");
     }
 
     @Test

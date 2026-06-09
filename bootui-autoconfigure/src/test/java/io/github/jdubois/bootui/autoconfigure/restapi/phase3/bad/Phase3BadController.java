@@ -39,10 +39,7 @@ public class Phase3BadController {
     // RAPI-MAP-011: nesting depth 4 (> 3 collection/{id} pairs).
     @GetMapping("/a/{aId}/b/{bId}/c/{cId}/d/{dId}")
     public String deepNesting(
-            @PathVariable String aId,
-            @PathVariable String bId,
-            @PathVariable String cId,
-            @PathVariable String dId) {
+            @PathVariable String aId, @PathVariable String bId, @PathVariable String cId, @PathVariable String dId) {
         return aId;
     }
 

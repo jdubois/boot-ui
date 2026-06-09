@@ -97,9 +97,8 @@ final class RestApiHandlerModelBuilder {
             "byte[]");
 
     /** Lower-cased query-parameter names that signal manual pagination (so PAGE-001 should pass). */
-    private static final Set<String> PAGE_PARAM_NAMES = Set.of(
-            "page", "size", "limit", "offset", "pagenumber", "pagesize", "perpage",
-            "cursor", "after", "before");
+    private static final Set<String> PAGE_PARAM_NAMES =
+            Set.of("page", "size", "limit", "offset", "pagenumber", "pagesize", "perpage", "cursor", "after", "before");
 
     private final List<ControllerModel> controllers = new ArrayList<>();
     private final List<HandlerMethodModel> handlers = new ArrayList<>();
