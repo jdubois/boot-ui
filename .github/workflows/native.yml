@@ -3,14 +3,14 @@ name: Native image
 # Builds the GraalVM native image of the sample app and smoke-tests it.
 #
 # The native build is slow, so it does not run on every push. Instead it runs
-# once a week to catch regressions in the native configuration (runtime hints,
+# once a day to catch regressions in the native configuration (runtime hints,
 # reachability metadata, GraalVM/Spring Boot upgrades) and can also be started
 # manually from the Actions tab.
 
 on:
   schedule:
-    # Every Monday at 06:00 UTC.
-    - cron: '0 6 * * 1'
+    # Every day at 06:00 UTC.
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 concurrency:

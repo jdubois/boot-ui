@@ -100,11 +100,10 @@ else
 fi
 
 require_command java
-require_command docker
 
 echo "Building BootUI with tests skipped..."
 ./mvnw -B -ntp install -DskipTests
 
-echo "Starting the BootUI sample app with PostgreSQL, Redis, and Ollama."
-echo "First startup may also pull the qwen2.5:0.5b chat model. Open http://localhost:8080/bootui after startup."
+echo "Starting the BootUI sample application."
+echo "Open http://localhost:8080/bootui after startup."
 ./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev

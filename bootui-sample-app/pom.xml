@@ -100,6 +100,17 @@
             <version>42.7.11</version>
             <scope>runtime</scope>
         </dependency>
+        <!--
+            In-memory database used by the Docker-free "dev" profile
+            (the default; see application-dev.properties) so the sample app can
+            run without the Docker Compose PostgreSQL service. The "docker"
+            profile uses PostgreSQL via the Docker Compose connection details.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
