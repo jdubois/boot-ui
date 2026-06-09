@@ -222,14 +222,16 @@ body {
 
 .vp-site-name {
   display: inline-flex;
+  width: fit-content;
   align-items: center;
   border: 1px solid rgba(25, 135, 84, 0.14);
   border-radius: 1.25rem;
   background: linear-gradient(135deg, rgba(25, 135, 84, 0.12), rgba(13, 110, 253, 0.1));
-  padding: 0.55rem 0.85rem 0.55rem 0.55rem;
+  padding: 0.3rem 0.85rem 0.3rem 0.55rem;
   box-shadow: none;
   font-size: 1.08rem;
   font-weight: 800;
+  line-height: 1;
   transition:
     box-shadow 180ms ease,
     transform 180ms ease;
@@ -251,10 +253,12 @@ body {
 }
 
 .vp-toggle-sidebar-button {
+  top: 50%;
   border: 1px solid var(--bootui-border);
   border-radius: 0.8rem;
   background: var(--bootui-surface);
   color: var(--bootui-text);
+  transform: translateY(-50%);
   transition:
     background 150ms ease,
     transform 150ms ease;
@@ -262,7 +266,7 @@ body {
 
 .vp-toggle-sidebar-button:hover {
   background: var(--bootui-nav-hover-bg);
-  transform: translateY(-1px);
+  transform: translateY(calc(-50% - 1px));
 }
 
 .vp-sidebar .vp-sidebar-heading {
