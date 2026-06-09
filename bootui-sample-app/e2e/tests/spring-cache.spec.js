@@ -12,7 +12,9 @@ test.describe('Spring Cache view', () => {
     await expect(cacheSection).toContainText('sample-greetings')
 
     const productsRow = cacheSection.locator('tbody tr', {hasText: 'sample-products'}).first()
-    await expect(productsRow).toContainText(/Redis/)
+    // The cache provider depends on how the sample app was started: an in-memory ConcurrentHashMap in
+    // the default Docker-free (`dev`) profile, or Redis with the full Docker (`docker`) profile.
+    await expect(productsRow).toContainText(/Redis|ConcurrentHashMap/)
     await expect(productsRow.getByRole('button', {name: 'Clear'})).toBeEnabled()
 
     const operationsSection = page.locator('section', {hasText: 'Annotation operations'}).first()

@@ -7,11 +7,11 @@ the Playwright suite under `e2e/` exercises.
 ## What it shows
 
 - The `bootui-spring-boot-starter` dependency on a real Spring Boot 4 app.
-- BootUI auto-activating when the `dev` profile is active.
-- A PostgreSQL-backed Spring Data repository so the Spring Data panel has data to
-  show.
-- PostgreSQL, Redis, and Ollama Docker Compose services (`compose.yaml`) so the Spring Data,
-  Database Connection Pools, Spring Cache, AI Usage, and Dev Services panels have realistic infrastructure
+- BootUI auto-activating in local development (the `dev`/`docker` profiles, or via `spring-boot-devtools`).
+- A relational Spring Data repository so the Spring Data panel has data to show
+  (in-memory H2 by default, PostgreSQL with the `docker` profile).
+- Optional PostgreSQL, Redis, and Ollama Docker Compose services (`compose.yaml`, enabled by the `docker` profile) so the
+  Spring Data, Database Connection Pools, Spring Cache, AI Usage, and Dev Services panels have realistic infrastructure
   to show.
 - Flyway migrations (the `catalog_*` tables) and Liquibase change sets (the separate
   `inventory_*` tables) with two pending updates each so the Flyway and Liquibase actions can be exercised manually.
@@ -23,15 +23,34 @@ the Playwright suite under `e2e/` exercises.
 ## Prerequisites
 
 - Java 17 or later
-- Docker (or any Docker-compatible engine) for the Postgres, Redis, and Ollama containers
 - The repository's Maven Wrapper (`./mvnw`) — no global Maven install needed
+- Optional: Docker (or any Docker-compatible engine) — only for the [full Docker experience](#run-it-with-docker); the
+  default run is [Docker-free](#run-it)
 
 ## Run it
 
-From the repository root:
+By default the sample app runs **Docker-free**: a bare run uses the `dev` profile, which swaps PostgreSQL, Redis, and
+Ollama for an in-memory H2 database, a simple in-memory cache, and disabled Spring AI, so no Docker engine or model
+download is needed:
 
 ```bash
-./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -pl bootui-sample-app spring-boot:run
+```
+
+`dev` is the default Spring profile ([`application-dev.properties`](src/main/resources/application-dev.properties)), so
+it applies whenever no other profile is active (a bare run, the Playwright e2e suite, etc.); pass
+`-Dspring-boot.run.profiles=dev` explicitly for the same result. Most panels work normally, including Configuration,
+Database, Spring Data, Flyway, Liquibase, and Spring Cache. The Chat and AI Usage panels report that AI is unavailable,
+and Dev Services lists no containers. The [`run-sample`](../docs/TRY-SAMPLE-APP.md) helper scripts run this Docker-free
+`dev` profile.
+
+## Run it with Docker
+
+For the full experience — Postgres, Redis, Ollama, and every panel populated — activate the `docker` profile from the
+repository root:
+
+```bash
+./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=docker
 ```
 
 Spring Boot will start Docker Compose, wait for Postgres, Redis, and Ollama, pull the small `qwen2.5:0.5b` chat model
@@ -52,12 +71,16 @@ Useful URLs:
 
 ## Suggested walkthrough
 
-1. **Overview and GitHub** — confirm the activation reason is `profile=dev`,
-   localhost-only is `true`, and the local GitHub origin is detected.
+This walkthrough follows the default Docker-free `dev` mode (a bare `spring-boot:run`). The Dev Services, Spring Cache,
+and AI Usage steps note where the `docker` profile adds Postgres/Redis/Ollama-backed behavior.
+
+1. **Overview and GitHub** — confirm BootUI is active (the activation reason is `devtools` for a bare run, or
+   `profile=dev` when you pass the profile explicitly), localhost-only is `true`, and the local GitHub origin is
+   detected.
 2. **Beans** — search for `EchoScheduler` and follow the dependency graph back
    into Spring framework beans.
 3. **Conditions** — filter on `DataSourceAutoConfiguration` to see the matched
-   and skipped auto-configurations behind the Postgres datasource.
+   and skipped auto-configurations behind the H2 datasource.
 4. **Configuration** — locate `spring.datasource.password`, confirm the value is
    masked, then try toggling `bootui.expose-values` between `MASKED`,
    `METADATA_ONLY`, and `FULL` (only do `FULL` locally) and reload the panel.
@@ -79,26 +102,27 @@ Useful URLs:
 11. **Liquibase** — inspect the two applied and two pending `inventory_*` change sets
     tracked in `DATABASECHANGELOG`, on a table set fully separate from Flyway's, then
     apply the pending change sets after browser confirmation.
-12. **Spring Cache** — verify the Redis-backed `sample-products` and
-    `sample-greetings` caches are listed, inspect cache annotations, and clear a
-    cache after confirming the action.
-13. **Dev Services** — verify the Postgres and Redis Docker Compose entries are
-    present and their service-connection metadata matches the actual mapped
-    ports.
+12. **Spring Cache** — verify the in-memory (`ConcurrentHashMap`) `sample-products`
+    and `sample-greetings` caches are listed (Redis-backed with the `docker`
+    profile), inspect cache annotations, and clear a cache after confirming the action.
+13. **Dev Services** — in the default Docker-free mode no containers are listed;
+    with the `docker` profile the Postgres and Redis Docker Compose entries appear
+    and their service-connection metadata matches the actual mapped ports.
 14. **Spring Security and Security Logs** — inspect filter chains, endpoint rule explanations, and recent masked audit
     events.
 15. **Traces, Log Tail, HTTP Exchanges, Architecture, Pentesting, Vulnerabilities** — inspect local telemetry, logs,
     inbound requests, and run explicit local scans as development hygiene prompts.
 16. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
     external host and confirm it is rejected as non-loopback.
-17. **AI Usage** — exercise the sample endpoints and local AI helper
-    paths, then inspect the retained in-memory spans and token summaries.
+17. **AI Usage** — the Chat and AI Usage panels report AI is unavailable in the
+    default mode; with the `docker` profile, exercise the sample AI endpoints and
+    local AI helper paths, then inspect the retained in-memory spans and token summaries.
 18. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
     metadata/logs, and sanitized local agent activity.
 
 ## Stop it
 
-`Ctrl-C` the Spring Boot process. Spring Boot will stop Docker Compose.
+`Ctrl-C` the Spring Boot process. With the `docker` profile, Spring Boot also stops Docker Compose.
 
 ## Run it as a GraalVM native image
 

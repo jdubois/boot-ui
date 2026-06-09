@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Changed
+
+- **`bootui-sample-app` now runs Docker-free by default** — the `dev` Spring profile (the default via
+  `spring.profiles.default=dev`) swaps the Docker Compose PostgreSQL, Redis, and Ollama services for an in-memory H2
+  database, a simple in-memory cache, and disabled Spring AI, so a bare `spring-boot:run` (and the Playwright e2e suite)
+  starts offline with no Docker engine. A new `docker` profile (`-Dspring-boot.run.profiles=docker`) restores the full
+  Docker experience (PostgreSQL, Redis, Ollama, and the `qwen2.5:0.5b` chat model). The `run-sample` helper scripts no
+  longer require Docker and run the Docker-free `dev` profile.
+
 ## [1.1.0] - 2026-06-07
 
 Feature release that introduces a dedicated **Advisors** workspace with three new rule-based panels (Spring, REST API,

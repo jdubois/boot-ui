@@ -1,0 +1,89 @@
+name: Docker configuration
+
+# Validates the sample app's full Docker stack (the "docker" Spring profile: PostgreSQL, Redis, and
+# Ollama from bootui-sample-app/compose.yaml). It runs the full Maven test suite and then the
+# Playwright end-to-end suite against a sample app booted with the "docker" profile.
+#
+# The default CI build (build.yml) exercises the Docker-free "dev" profile, so the Docker-based path
+# is only checked once a day (and on demand from the Actions tab) to catch regressions in
+# compose.yaml, the Redis-backed cache, and the Ollama / Spring AI wiring.
+
+on:
+  schedule:
+    # Every day at 06:30 UTC (just after the native-image job).
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  docker-config:
+    name: Validate the Docker-based configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: |
+            bootui-ui/src/main/frontend/package-lock.json
+            bootui-sample-app/e2e/package-lock.json
+
+      - name: Build all modules and run the full test suite
+        run: ./mvnw -B -ntp clean install
+
+      - name: Install Playwright dependencies
+        working-directory: bootui-sample-app/e2e
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright browsers
+        working-directory: bootui-sample-app/e2e
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Pre-pull the Docker Compose images
+        run: docker compose -f bootui-sample-app/compose.yaml pull
+
+      - name: Run the end-to-end suite against the Docker profile
+        working-directory: bootui-sample-app/e2e
+        env:
+          # Boot the sample app with the full Docker stack instead of the Docker-free default.
+          BOOTUI_SAMPLE_PROFILES: docker
+          # Allow extra time for Docker Compose to start and for Ollama to pull the chat model.
+          BOOTUI_WEBSERVER_TIMEOUT: '600000'
+        run: npm test
+
+      - name: Print Docker Compose logs on failure
+        if: failure()
+        run: docker compose -f bootui-sample-app/compose.yaml logs --no-color
+
+      - name: Tear down any leftover Docker Compose services
+        if: always()
+        run: docker compose -f bootui-sample-app/compose.yaml down --volumes --remove-orphans
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-docker
+          path: |
+            bootui-sample-app/e2e/playwright-report/
+            bootui-sample-app/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

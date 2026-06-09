@@ -91,13 +91,12 @@ if ((Test-Path -LiteralPath ".\mvnw.cmd") -and (Test-Path -LiteralPath ".\bootui
 }
 
 Require-Command java
-Require-Command docker
 
 Write-Host "Building BootUI with tests skipped..."
 Invoke-Native -FilePath ".\mvnw.cmd" -Arguments @("-B", "-ntp", "install", "-DskipTests")
 
-Write-Host "Starting the BootUI sample app with PostgreSQL, Redis, and Ollama."
-Write-Host "First startup may also pull the qwen2.5:0.5b chat model. Open http://localhost:8080/bootui after startup."
+Write-Host "Starting the BootUI sample application."
+Write-Host "Open http://localhost:8080/bootui after startup."
 Invoke-Native -FilePath ".\mvnw.cmd" -Arguments @(
     "-pl",
     "bootui-sample-app",

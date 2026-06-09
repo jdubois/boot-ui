@@ -15,6 +15,15 @@ import {defineConfig, devices} from '@playwright/test'
 const PORT = Number(process.env.BOOTUI_SAMPLE_PORT || 8080)
 const BASE_URL = process.env.BOOTUI_BASE_URL || `http://localhost:${PORT}`
 
+// Optional Spring profile(s) for the auto-started sample app. Leave unset for the default
+// Docker-free `dev` profile; set BOOTUI_SAMPLE_PROFILES=docker to boot the full Docker stack
+// (PostgreSQL, Redis, Ollama) so the same suite can validate the Docker-based configuration.
+const SAMPLE_PROFILES = process.env.BOOTUI_SAMPLE_PROFILES
+const PROFILES_ARG = SAMPLE_PROFILES ? ` -Dspring-boot.run.profiles=${SAMPLE_PROFILES}` : ''
+// Booting the Docker stack (pulling images and the Ollama model) can take much longer than the
+// Docker-free default, so allow the web-server startup timeout to be raised from the environment.
+const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -49,12 +58,11 @@ export default defineConfig({
     ? undefined
     : {
         // Run from the e2e module through the root Maven Wrapper.
-        command:
-          '../../mvnw -f ../pom.xml -q spring-boot:run -Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false',
+        command: `../../mvnw -f ../pom.xml -q spring-boot:run -Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false${PROFILES_ARG}`,
         url: `${BASE_URL}/bootui/api/overview`,
         reuseExistingServer: !process.env.CI,
         stdout: 'pipe',
         stderr: 'pipe',
-        timeout: 240_000
+        timeout: WEBSERVER_TIMEOUT
       }
 })
