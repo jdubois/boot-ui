@@ -32,11 +32,10 @@ footer: Apache-2.0 Licensed | BootUI
 
 | Goal | Documentation |
 | ---- | ------------- |
+| Run the full demo locally | [Try the sample app](TRY-SAMPLE-APP.md) |
 | Add BootUI to a Spring Boot 4 app | [Setup](SETUP.md) |
 | Explore every panel | [Features](FEATURES.md) |
 | Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
-| Run the full demo locally | [Try the sample app](TRY-SAMPLE-APP.md) |
-| Understand the repository and docs site | [Repository and documentation](REPOSITORY.md) |
 
 ## How BootUI works
 
