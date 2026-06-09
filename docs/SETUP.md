@@ -12,7 +12,9 @@ BootUI is a local development console, so install it in a dedicated `dev` profil
 dependency. That keeps the starter out of your production build and lets the same profile turn on the `dev`
 Spring Boot profile automatically.
 
-### Maven
+::: tabs#build
+
+@tab Maven
 
 Add a `dev` Maven profile that declares the starter and tells the Spring Boot plugin to run with the `dev`
 Spring Boot profile:
@@ -45,7 +47,7 @@ Spring Boot profile:
 </profiles>
 ```
 
-### Gradle
+@tab Gradle
 
 Add a `dev` Gradle profile that is activated with the `-Pdev` project property. It pulls in the starter and
 sets the `dev` Spring Boot profile on `bootRun`:
@@ -74,20 +76,28 @@ if (project.hasProperty("dev")) {
 }
 ```
 
+:::
+
 ## 3) Run your app in development mode
 
 Activate the `dev` profile when you start the application. This both adds the BootUI starter and turns on the
 `dev` Spring Boot profile:
 
+:::: code-tabs#build
+
+@tab Maven
+
 ```bash
-# Maven
 ./mvnw spring-boot:run -Pdev
 ```
 
+@tab Gradle
+
 ```bash
-# Gradle
 ./gradlew bootRun -Pdev
 ```
+
+::::
 
 BootUI also activates automatically when `spring-boot-devtools` is on the classpath. To force it on or off:
 

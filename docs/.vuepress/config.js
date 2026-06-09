@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {viteBundler} from '@vuepress/bundler-vite'
+import {markdownTabPlugin} from '@vuepress/plugin-markdown-tab'
 import {defaultTheme} from '@vuepress/theme-default'
 import {defineUserConfig} from 'vuepress'
 import {inferRoutePath} from 'vuepress/shared'
@@ -22,7 +23,7 @@ export default defineUserConfig({
     ['meta', {property: 'og:description', content: 'A local-only developer console for Spring Boot 4 applications.'}]
   ],
   bundler: viteBundler(),
-  plugins: [cleanDocsPermalinksPlugin(), cleanMarkdownDocLinksPlugin()],
+  plugins: [cleanDocsPermalinksPlugin(), cleanMarkdownDocLinksPlugin(), markdownTabPlugin({tabs: true, codeTabs: true})],
   theme: defaultTheme({
     hostname: 'https://www.julien-dubois.com',
     themePlugins: {
