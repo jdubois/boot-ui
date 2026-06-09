@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 
 class MemoryScannerTests {
 
-    private static final int RULE_COUNT = 25;
+    private static final int RULE_COUNT = 32;
     private static final long MB = 1024L * 1024;
     private static final long GB = 1024L * 1024 * 1024;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC);
@@ -92,6 +92,7 @@ class MemoryScannerTests {
                 -1,
                 List.of("-Xmx1g"),
                 List.of("G1 Young Generation"),
+                null,
                 null);
         MemoryContext context = new MemoryContext(
                 memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
@@ -193,7 +194,8 @@ class MemoryScannerTests {
                 256 * MB,
                 List.of("-Xmx1g"),
                 List.of("G1 Young Generation"),
-                1 * GB);
+                1 * GB,
+                null);
         ThreadData threads = new ThreadData(
                 30, 30, 5, false, false, List.of(), List.of(new ThreadStateCountDto("RUNNABLE", 30)), List.of());
         MemoryContext context = new MemoryContext(
@@ -207,7 +209,7 @@ class MemoryScannerTests {
 
     @Test
     void highGcOverheadIsFlagged() {
-        RuntimeData runtime = new RuntimeData(700_000, 100_000, 5000, 0, -1, MB);
+        RuntimeData runtime = new RuntimeData(700_000, 100_000, 5000, 0, -1, MB, 4, -1, -1, null);
         MemoryContext context = new MemoryContext(
                 healthyMemory(), ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), runtime);
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
@@ -233,6 +235,7 @@ class MemoryScannerTests {
                 -1,
                 List.of("-Xmx40g"),
                 List.of("G1 Young Generation"),
+                null,
                 null);
         MemoryContext context = new MemoryContext(
                 memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
@@ -245,7 +248,7 @@ class MemoryScannerTests {
 
     @Test
     void pendingFinalizationBacklogIsFlagged() {
-        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 5000, -1, MB);
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 5000, -1, MB, 4, -1, -1, null);
         MemoryContext context = new MemoryContext(
                 healthyMemory(), ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), runtime);
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
@@ -271,7 +274,8 @@ class MemoryScannerTests {
                 256 * MB,
                 List.of("-Xmx1g"),
                 List.of("G1 Young Generation"),
-                2 * GB);
+                2 * GB,
+                null);
         MemoryContext context = new MemoryContext(
                 memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), healthyRuntime());
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
@@ -312,8 +316,9 @@ class MemoryScannerTests {
                 -1,
                 List.of("-Xmx4g", "-Xms1g"),
                 List.of("ZGC Cycles", "ZGC Pauses"),
+                null,
                 null);
-        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, 1 * GB, MB);
+        RuntimeData runtime = new RuntimeData(300_000, 1_500, 50, 0, 1 * GB, MB, 4, -1, -1, null);
         MemoryContext context = new MemoryContext(
                 memory, ThreadData.empty(), HeapContentData.unavailable(), ClassLoadingData.empty(), runtime);
         MemoryScanner scanner = new MemoryScanner(() -> context, CLOCK);
@@ -349,7 +354,7 @@ class MemoryScannerTests {
     }
 
     private static RuntimeData healthyRuntime() {
-        return new RuntimeData(300_000, 1_500, 50, 0, -1, MB);
+        return new RuntimeData(300_000, 1_500, 50, 0, -1, MB, 4, -1, -1, null);
     }
 
     private static MemoryData healthyMemory() {
@@ -370,6 +375,7 @@ class MemoryScannerTests {
                 256 * MB,
                 List.of("-Xmx2g"),
                 List.of("G1 Young Generation", "G1 Old Generation"),
+                null,
                 null);
     }
 

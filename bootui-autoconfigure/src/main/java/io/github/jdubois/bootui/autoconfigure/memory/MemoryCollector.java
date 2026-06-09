@@ -22,7 +22,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -46,6 +48,9 @@ final class MemoryCollector {
 
     private static final List<Path> CGROUP_LIMIT_FILES =
             List.of(Path.of("/sys/fs/cgroup/memory.max"), Path.of("/sys/fs/cgroup/memory/memory.limit_in_bytes"));
+
+    private static final List<Path> CGROUP_CURRENT_FILES =
+            List.of(Path.of("/sys/fs/cgroup/memory.current"), Path.of("/sys/fs/cgroup/memory/memory.usage_in_bytes"));
 
     @FunctionalInterface
     interface HistogramSource {
@@ -111,18 +116,43 @@ final class MemoryCollector {
         long gcTimeMillis = 0;
         long gcCount = 0;
         boolean gcTimeKnown = false;
+        Map<String, Long> perCollectorCounts = new HashMap<>();
         for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
-            long time = gc.getCollectionTime();
-            if (time >= 0) {
-                gcTimeMillis += time;
-                gcTimeKnown = true;
-            }
             long count = gc.getCollectionCount();
             if (count > 0) {
-                gcCount += count;
+                perCollectorCounts.put(gc.getName(), count);
+            }
+            // Exclude concurrent-cycle beans (ZGC Cycles, Shenandoah Cycles, G1 Concurrent GC,
+            // ConcurrentMarkSweep) from the STW-only time/count totals. Including their concurrent
+            // phase time would inflate overhead for apps that deliberately chose a concurrent collector.
+            if (!isConcurrentCycleBean(gc.getName())) {
+                long time = gc.getCollectionTime();
+                if (time >= 0) {
+                    gcTimeMillis += time;
+                    gcTimeKnown = true;
+                }
+                if (count > 0) {
+                    gcCount += count;
+                }
             }
         }
-        return new GcSample(uptimeMillis, gcTimeKnown ? gcTimeMillis : -1, gcCount);
+        return new GcSample(uptimeMillis, gcTimeKnown ? gcTimeMillis : -1, gcCount, perCollectorCounts);
+    }
+
+    /**
+     * Returns {@code true} for GarbageCollectorMXBeans that report concurrent (non-STW) cycle time.
+     * Their collection time runs while the application is still executing, so including it in an
+     * "overhead" percentage produces inflated, misleading results for concurrent collectors such as
+     * ZGC, Shenandoah, and G1 concurrent marking.
+     */
+    static boolean isConcurrentCycleBean(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        // "cycles" covers: ZGC Cycles, ZGC Major Cycles, ZGC Minor Cycles, Shenandoah Cycles
+        // "concurrent" covers: G1 Concurrent GC, ConcurrentMarkSweep (legacy CMS)
+        return lower.contains("cycles") || lower.contains("concurrent");
     }
 
     private MemoryData collectMemory() {
@@ -158,6 +188,8 @@ final class MemoryCollector {
 
         OptionalLong containerLimitValue = detectContainerLimit();
         Long containerLimit = containerLimitValue.isPresent() ? containerLimitValue.getAsLong() : null;
+        OptionalLong containerCurrentValue = detectContainerCurrentUsage();
+        Long containerCurrent = containerCurrentValue.isPresent() ? containerCurrentValue.getAsLong() : null;
 
         return new MemoryData(
                 heap.getUsed(),
@@ -173,7 +205,8 @@ final class MemoryCollector {
                 parseMaxDirectMemory(inputArgs),
                 inputArgs,
                 gcNames,
-                containerLimit);
+                containerLimit,
+                containerCurrent);
     }
 
     private ThreadData collectThreads() {
@@ -232,13 +265,23 @@ final class MemoryCollector {
         GcSample gc = currentGcSample();
         int pendingFinalization = ManagementFactory.getMemoryMXBean().getObjectPendingFinalizationCount();
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
+
+        int availableProcessors = ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors();
+        long freeSwap = readOsBeanLong("FreeSwapSpaceSize");
+        long totalSwap = readOsBeanLong("TotalSwapSpaceSize");
+        Boolean useCompressedOops = readVmOptionBoolean("UseCompressedOops");
+
         return new RuntimeData(
                 gc.uptimeMillis(),
                 gc.gcTimeMillis(),
                 gc.gcCount(),
                 pendingFinalization,
                 parseInitialHeap(inputArgs),
-                parseThreadStackBytes(inputArgs));
+                parseThreadStackBytes(inputArgs),
+                availableProcessors,
+                freeSwap,
+                totalSwap,
+                useCompressedOops);
     }
 
     private static List<HeapClassHistogramEntryDto> parseHistogram(String raw) {
@@ -327,7 +370,11 @@ final class MemoryCollector {
                 }
             }
         }
-        return -1;
+        // -Xms is not in the parsed args; fall back to the JVM's own reported initial heap size.
+        // MemoryUsage.getInit() returns the amount of memory in bytes that the JVM initially
+        // requested from the OS, which equals -Xms (or the ergonomic default when unset).
+        long init = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getInit();
+        return init > 0 ? init : -1;
     }
 
     private static long parseThreadStackBytes(List<String> inputArgs) {
@@ -349,8 +396,21 @@ final class MemoryCollector {
                         return kb * 1024L;
                     }
                 } catch (NumberFormatException ignored) {
-                    // fall through to the default estimate
+                    // fall through
                 }
+            }
+        }
+        // Neither -Xss nor -XX:ThreadStackSize was set; try the live VM option so we get the
+        // ergonomic default (which varies by OS and JVM version) rather than always guessing 1 MiB.
+        String vmValue = readVmOption("ThreadStackSize");
+        if (vmValue != null) {
+            try {
+                long kb = Long.parseLong(vmValue.trim());
+                if (kb > 0) {
+                    return kb * 1024L;
+                }
+            } catch (NumberFormatException ignored) {
+                // fall through to the compile-time default
             }
         }
         return RuntimeData.DEFAULT_THREAD_STACK_BYTES;
@@ -399,6 +459,67 @@ final class MemoryCollector {
             }
         }
         return OptionalLong.empty();
+    }
+
+    private static OptionalLong detectContainerCurrentUsage() {
+        for (Path file : CGROUP_CURRENT_FILES) {
+            if (!Files.isRegularFile(file)) {
+                continue;
+            }
+            try {
+                String value = Files.readString(file).trim();
+                if (value.isEmpty() || "max".equals(value)) {
+                    continue;
+                }
+                long parsed = Long.parseLong(value);
+                if (parsed > 0 && parsed < Long.MAX_VALUE / 2) {
+                    return OptionalLong.of(parsed);
+                }
+            } catch (RuntimeException | java.io.IOException ex) {
+                // best-effort detection; ignore unreadable cgroup files
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    /**
+     * Reads a single HotSpot VM diagnostic option value via JMX. Returns {@code null} when the JVM
+     * is not HotSpot, the option is not recognised, or the lookup fails for any reason.
+     */
+    static String readVmOption(String optionName) {
+        try {
+            MBeanServer server = ManagementFactory.getPlatformMBeanServer();
+            ObjectName name = new ObjectName("com.sun.management:type=HotSpotDiagnostic");
+            Object vmOption = server.invoke(
+                    name, "getVMOption", new Object[] {optionName}, new String[] {String.class.getName()});
+            if (vmOption instanceof javax.management.openmbean.CompositeData cd) {
+                Object val = cd.get("value");
+                return val instanceof String s ? s : null;
+            }
+        } catch (Exception | Error ignored) {
+            // non-HotSpot JVM or option not available
+        }
+        return null;
+    }
+
+    private static Boolean readVmOptionBoolean(String optionName) {
+        String value = readVmOption(optionName);
+        return value != null ? Boolean.parseBoolean(value) : null;
+    }
+
+    /** Reads a numeric attribute from the platform OperatingSystem MXBean; returns -1 on failure. */
+    private static long readOsBeanLong(String attributeName) {
+        try {
+            MBeanServer server = ManagementFactory.getPlatformMBeanServer();
+            ObjectName name = new ObjectName("java.lang:type=OperatingSystem");
+            Object value = server.getAttribute(name, attributeName);
+            if (value instanceof Number n) {
+                return n.longValue();
+            }
+        } catch (Exception | Error ignored) {
+            // attribute may not exist on non-HotSpot JVMs
+        }
+        return -1;
     }
 
     /** Reads the live class histogram through the HotSpot diagnostic command, like the Heap Dump panel. */
