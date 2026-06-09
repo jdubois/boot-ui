@@ -1970,6 +1970,75 @@ const graalVm = {
   ]
 }
 
+const crac = {
+  localOnly: true,
+  disclaimer:
+    'Heuristic checkpoint/restore readiness checks run against the host application only and complement, but do not replace, an actual checkpoint/restore run on a CRaC-enabled JDK.',
+  runtime: {
+    cracApiPresent: true,
+    cracCapableJvm: true,
+    jvmName: 'OpenJDK 64-Bit Server VM Zulu-CRaC',
+    checkpointOnRefresh: true,
+    checkpointTo: '/var/run/bootui/cr',
+    restoreFrom: null,
+    cracJvmArgs: ['-XX:CRaCCheckpointTo=/var/run/bootui/cr'],
+    summary:
+      'A CRaC-enabled JVM is running with the org.crac API on the classpath and automatic checkpoint-on-refresh enabled.'
+  },
+  basePackages: ['io.github.jdubois.bootui.sample'],
+  classesAnalyzed: 42,
+  checksRun: 7,
+  findingsFound: 3,
+  warnings: [],
+  scan: {
+    scanner: 'BootUI CRaC readiness',
+    status: 'SCANNED',
+    message: 'Readiness checks completed against 42 application class(es).',
+    scannedAt: new Date(nowMillis - 42_000).toISOString()
+  },
+  severityCounts: [
+    {severity: 'HIGH', count: 2},
+    {severity: 'MEDIUM', count: 1},
+    {severity: 'LOW', count: 0},
+    {severity: 'INFO', count: 0}
+  ],
+  findings: [
+    cracFinding(
+      'CRAC-RES-001',
+      'Open resources held in fields must be released at checkpoint',
+      'Resources',
+      'HIGH',
+      'A field holds an OS resource on a class that does not implement org.crac.Resource or a Spring Lifecycle.',
+      1,
+      ['io.github.jdubois.bootui.sample.LegacyExporter holds a java.io.RandomAccessFile field'],
+      'Implement org.crac.Resource and close the resource in beforeCheckpoint(), re-opening it in afterRestore().'
+    ),
+    cracFinding(
+      'CRAC-RANDOM-001',
+      'Static Random/SecureRandom state is frozen into the checkpoint',
+      'Randomness',
+      'HIGH',
+      'A static SecureRandom field is captured at checkpoint time, so every restored instance replays the same sequence.',
+      1,
+      ['io.github.jdubois.bootui.sample.TokenFactory declares a static java.security.SecureRandom'],
+      'Re-seed or recreate the generator in an org.crac.Resource.afterRestore() callback.'
+    ),
+    cracFinding(
+      'CRAC-THREAD-001',
+      'Threads or executor pools created outside the Spring lifecycle',
+      'Threads',
+      'MEDIUM',
+      'A background executor is created directly and is snapshotted while running.',
+      2,
+      [
+        'io.github.jdubois.bootui.sample.BackgroundWorker calls Executors.newFixedThreadPool(4)',
+        'io.github.jdubois.bootui.sample.BackgroundWorker starts a new Thread'
+      ],
+      'Drive background work through Spring (TaskExecutor/@Async) or quiesce the pool in an org.crac.Resource.'
+    )
+  ]
+}
+
 const dependencies = {
   total: 6,
   vulnerable: 2,
@@ -2324,6 +2393,7 @@ const screenshots = [
   ['threads', 'Threads', 'bootui-threads.png', waitForText('http-nio-8080-exec-1')],
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
   ['graalvm', 'GraalVM', 'bootui-graalvm.png', waitForText('Reflective constructor access needs metadata')],
+  ['crac', 'CRaC', 'bootui-crac.png', waitForText('Open resources held in fields must be released at checkpoint')],
   ['config', 'Configuration', 'bootui-configuration.png', waitForText('sample.greeting')],
   ['profile-diff', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
   ['loggers', 'Loggers', 'bootui-loggers.png', waitForText('io.github.jdubois.bootui')],
@@ -2959,6 +3029,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'memory/scan') return fulfillJson(route, memoryAdvisor)
   if (endpoint === 'graalvm') return fulfillJson(route, graalVm)
   if (endpoint === 'graalvm/scan') return fulfillJson(route, graalVm)
+  if (endpoint === 'crac') return fulfillJson(route, crac)
+  if (endpoint === 'crac/scan') return fulfillJson(route, crac)
 
   return fulfillJson(route, {error: `No screenshot fixture for ${endpoint}`}, 404)
 }
@@ -3171,6 +3243,21 @@ function graalVmFinding(id, name, category, severity, description, occurrenceCou
     occurrenceCount,
     sampleOccurrences,
     recommendation
+  }
+}
+
+function cracFinding(id, name, category, severity, description, occurrenceCount, sampleOccurrences, recommendation) {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description,
+    status: 'REVIEW',
+    occurrenceCount,
+    sampleOccurrences,
+    recommendation,
+    learnMoreUrl: 'https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html'
   }
 }
 
