@@ -325,6 +325,23 @@ do not replace, the GraalVM tracing agent and an actual native build. See
 
 ![BootUI GraalVM panel](./images/bootui-graalvm.png)
 
+### CRaC
+
+The CRaC panel reviews the host application's [Coordinated Restore at Checkpoint](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html)
+readiness, combining live runtime status with a heuristic readiness advisor. The runtime-status card (always read-only)
+reports whether the `org.crac` API is on the classpath, whether the running JVM is a CRaC-capable JDK (such as Azul Zulu
+CRaC or BellSoft Liberica, detected via the real CRaC implementation rather than the no-op shim), whether
+`spring.context.checkpoint=onRefresh` is set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read
+from the same `RuntimeMXBean` input arguments the JVM Tuning panel uses). On demand the readiness advisor imports the
+application's own classes (bounded to the detected base package(s)) and runs a curated set of `CRaC-*` checks for
+constructs that complicate checkpoint/restore — open resources held outside Spring/CRaC lifecycle, unmanaged threads,
+captured timestamps, static random seeds, eagerly captured secrets, network listeners, and missing `org.crac.Resource`
+registrations. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run
+on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
+each one inspects.
+
+![BootUI CRaC panel](./images/bootui-crac.png)
+
 ## Configuration
 
 ### Configuration
