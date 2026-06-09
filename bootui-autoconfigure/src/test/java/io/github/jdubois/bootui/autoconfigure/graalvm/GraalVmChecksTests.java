@@ -6,23 +6,30 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ActiveSerializer;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.AnnotationReader;
+import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.AwtUser;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.CglibProxyGenerator;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ClassGraphScanner;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ClasspathScanner;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.CleanComponent;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.DeepReflector;
+import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.DevOnlyConfiguration;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.DynamicClassLoader;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.FieldMetadataReader;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.FieldValueAccessor;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.FilesMetadataInitializer;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.InstanceSupplierRegistrar;
+import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.JmxUser;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.MessagesLoader;
+import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.MethodHandleUser;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.NativeMethodHolder;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ProxyClassFactory;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ReflectionsScanner;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.RuntimeClassGenerator;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.RuntimeSingletonRegistrar;
+import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.SecondaryContextCreator;
+import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.SecurityProviderRegistrar;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ServiceConsumer;
+import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.SpelUser;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.StateCapturingInitializer;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.StaticInitializerComponent;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.SupplierBeanDefiner;
@@ -204,7 +211,7 @@ class GraalVmChecksTests {
     void runtimeSingletonRegistrationCheckDetectsRegisterSingleton() {
         GraalVmFindingDto finding = evaluate(new RuntimeSingletonRegistrationCheck(), RuntimeSingletonRegistrar.class);
         assertThat(finding.id()).isEqualTo("SPRING-AOT-001");
-        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
         assertThat(finding.status()).isEqualTo("REVIEW");
         assertThat(evaluate(new RuntimeSingletonRegistrationCheck(), CleanComponent.class)
                         .status())
@@ -228,5 +235,76 @@ class GraalVmChecksTests {
         assertThat(evaluate(new RuntimeInstanceSupplierCheck(), UnrelatedSupplierHolder.class)
                         .status())
                 .isEqualTo("OK");
+    }
+
+    @Test
+    void springAotConditionedBeansCheckDetectsProfileOnConfiguration() {
+        GraalVmFindingDto finding = evaluate(new SpringAotConditionedBeansCheck(), DevOnlyConfiguration.class);
+        assertThat(finding.id()).isEqualTo("SPRING-AOT-003");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.occurrenceCount()).isPositive();
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), CleanComponent.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void runtimeApplicationContextCheckDetectsSecondaryContextCreation() {
+        GraalVmFindingDto finding = evaluate(new RuntimeApplicationContextCheck(), SecondaryContextCreator.class);
+        assertThat(finding.id()).isEqualTo("SPRING-AOT-004");
+        assertThat(finding.severity()).isEqualTo("HIGH");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new RuntimeApplicationContextCheck(), CleanComponent.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void spelUsageCheckDetectsRuntimeParseExpression() {
+        GraalVmFindingDto finding = evaluate(new SpelUsageCheck(), SpelUser.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-SPEL-001");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new SpelUsageCheck(), CleanComponent.class).status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void methodHandleUsageCheckDetectsFindVirtual() {
+        GraalVmFindingDto finding = evaluate(new MethodHandleUsageCheck(), MethodHandleUser.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-MH-001");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new MethodHandleUsageCheck(), CleanComponent.class).status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void securityProviderCheckDetectsAddProvider() {
+        GraalVmFindingDto finding = evaluate(new SecurityProviderCheck(), SecurityProviderRegistrar.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-SEC-001");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new SecurityProviderCheck(), CleanComponent.class).status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void jmxUsageCheckDetectsGetPlatformMBeanServer() {
+        GraalVmFindingDto finding = evaluate(new JmxUsageCheck(), JmxUser.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-JMX-001");
+        assertThat(finding.severity()).isEqualTo("LOW");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new JmxUsageCheck(), CleanComponent.class).status()).isEqualTo("OK");
+    }
+
+    @Test
+    void awtUsageCheckDetectsAwtDependency() {
+        GraalVmFindingDto finding = evaluate(new AwtUsageCheck(), AwtUser.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-AWT-001");
+        assertThat(finding.severity()).isEqualTo("LOW");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new AwtUsageCheck(), CleanComponent.class).status()).isEqualTo("OK");
     }
 }
