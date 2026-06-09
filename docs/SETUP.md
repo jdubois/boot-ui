@@ -4,7 +4,7 @@
 
 - Java 17 or later
 - Spring Boot 4.x application
-- Maven or Gradle (or your application's wrapper)
+- Maven or Gradle (or their local wrappers)
 
 ## 2) Add the starter dependency
 
