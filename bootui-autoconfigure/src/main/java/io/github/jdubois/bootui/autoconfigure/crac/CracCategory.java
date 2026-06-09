@@ -5,7 +5,7 @@ package io.github.jdubois.bootui.autoconfigure.crac;
  * describe what each check inspects.
  */
 enum CracCategory {
-    RESOURCES("Open resources"),
+    RESOURCES("Open I/O resources"),
     NETWORK("Network connections"),
     THREADS("Threads & schedulers"),
     TIME("Captured time"),

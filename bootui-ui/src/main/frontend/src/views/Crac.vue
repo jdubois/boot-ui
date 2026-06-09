@@ -136,7 +136,9 @@ onMounted(loadReport)
       <div v-if="runtime" class="card mb-3">
         <div class="card-header d-flex justify-content-between align-items-center">
           <span class="fw-semibold">Runtime status</span>
-          <span class="text-muted small font-monospace">{{ runtime.jvmName }}</span>
+          <span class="text-muted small font-monospace" :title="`JVM: ${runtime.jvmName}`" aria-label="Running JVM">{{
+            runtime.jvmName
+          }}</span>
         </div>
         <div class="card-body">
           <div class="alert alert-info mb-3">{{ runtime.summary }}</div>
