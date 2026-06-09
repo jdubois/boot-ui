@@ -16,7 +16,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     # Pinned to 11434: unlike Postgres/Redis, spring-ai-starter-model-ollama
-    # (2.0.0-M8) ships no docker-compose connection-details factory, so the app
+    # (2.0.0-RC1) ships no docker-compose connection-details factory, so the app
     # resolves Ollama only via the static spring.ai.ollama.base-url
     # (http://localhost:11434) and a dynamic host port would be unreachable.
     ports:
