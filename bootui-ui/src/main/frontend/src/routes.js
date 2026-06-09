@@ -82,7 +82,7 @@ export const routes = [
     path: '/spring',
     name: 'spring',
     component: Spring,
-    meta: {group: groups.advisors, icon: 'bi-lightbulb', title: 'Spring'}
+    meta: {group: groups.advisors, icon: 'bi-leaf', title: 'Spring'}
   },
   {
     path: '/hibernate',

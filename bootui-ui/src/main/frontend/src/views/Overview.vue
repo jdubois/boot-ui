@@ -60,7 +60,7 @@ const scannerDefs = [
   {
     id: 'spring',
     title: 'Spring',
-    icon: 'bi-lightbulb',
+    icon: 'bi-leaf',
     tone: 'info',
     to: '/spring',
     endpoint: 'api/spring/scan',
