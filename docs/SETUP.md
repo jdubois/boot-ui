@@ -74,9 +74,9 @@ closed and keep BootUI disabled.
 
 ## 4) Open BootUI
 
-Visit: <http://localhost:8080/bootui>
-
 Nice job! BootUI is now configured 🚀
+
+Visit: <http://localhost:8080/bootui>
 
 ## Advanced: scope BootUI to a dev-only profile
 
