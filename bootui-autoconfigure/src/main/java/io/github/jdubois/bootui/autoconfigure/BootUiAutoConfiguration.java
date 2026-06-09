@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
+import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
@@ -115,6 +116,7 @@ import org.springframework.core.env.Environment;
     CopilotController.class,
     ClaudeCodeController.class,
     GraalVmController.class,
+    CracController.class,
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
@@ -144,6 +146,7 @@ public class BootUiAutoConfiguration {
             DevToolsController.class.getName(),
             GitHubController.class.getName(),
             GraalVmController.class.getName(),
+            CracController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
             HttpExchangesController.class.getName(),
