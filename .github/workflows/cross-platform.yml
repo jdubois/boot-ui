@@ -1,0 +1,74 @@
+name: Cross-platform build
+
+# Verifies the full Maven build on Linux, Windows and macOS, most importantly the
+# bootui-ui module: its frontend-maven-plugin downloads platform-specific Node/npm
+# binaries and runs a Vite build that pulls in platform-specific optional
+# dependencies (esbuild/rollup). The main build (build.yml) only runs on Linux, so
+# this catches packaging/tooling regressions that are specific to a single OS.
+#
+# A 3-OS matrix is more expensive than the main build, so it runs once a day to
+# catch regressions and can also be started manually from the Actions tab.
+
+on:
+  schedule:
+    # Every day at 05:00 UTC (ahead of the native-image build at 06:00).
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+    defaults:
+      run:
+        # Use bash on every runner so the ./mvnw wrapper invocation is identical.
+        # The default shell on Windows is PowerShell, where ./mvnw does not resolve.
+        shell: bash
+    steps:
+      - name: Disable Git line-ending conversion
+        # Windows runners default to core.autocrlf=true, which would rewrite the LF
+        # mvnw wrapper to CRLF and break its shebang under Git Bash. Configure this
+        # before checkout so the working tree keeps the committed LF endings.
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build all modules
+        # clean install builds every module, including the bootui-ui frontend
+        # (Node/npm download + npm ci with optional deps + Vite build) and runs the
+        # Java and Vitest unit tests. Node/npm are downloaded by the Maven plugin,
+        # so no separate Node setup is needed here. Invoke via `bash ./mvnw` so the
+        # build does not depend on the wrapper's executable bit being preserved on
+        # the Windows checkout.
+        run: bash ./mvnw -B -ntp clean install
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ matrix.os }}
+          path: |
+            **/target/surefire-reports/TEST-*.xml
+            bootui-ui/src/main/frontend/test-results/vitest-junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
