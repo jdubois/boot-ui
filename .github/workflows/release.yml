@@ -31,6 +31,7 @@ jobs:
     environment: maven-central
     permissions:
       contents: write
+      actions: write
     env:
       CENTRAL_AUTO_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_publish }}
     steps:
@@ -203,3 +204,12 @@ jobs:
           ./mvnw -B -ntp -Prelease clean deploy \
             -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}" \
             -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
+
+      - name: Redeploy documentation site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The release commit is pushed to main with GITHUB_TOKEN, which does not
+          # trigger the Pages workflow. Dispatch it explicitly so the docs site
+          # rebuilds with the released version's setup instructions.
+          gh workflow run pages.yml --ref main
