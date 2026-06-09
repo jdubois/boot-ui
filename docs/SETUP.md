@@ -4,22 +4,89 @@
 
 - Java 17 or later
 - Spring Boot 4.x application
-- Maven or your application's Maven Wrapper
+- Maven or Gradle (or your application's wrapper)
 
-## 2) Add the starter dependency
+## 2) Add the starter to a development-only profile
+
+BootUI is a local development console, so install it in a dedicated `dev` profile instead of as a normal
+dependency. That keeps the starter out of your production build and lets the same profile turn on the `dev`
+Spring Boot profile automatically.
+
+### Maven
+
+Add a `dev` Maven profile that declares the starter and tells the Spring Boot plugin to run with the `dev`
+Spring Boot profile:
 
 ```xml
-<dependency>
-  <groupId>com.julien-dubois.bootui</groupId>
-  <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>1.1.0</version>
-</dependency>
+<profiles>
+  <profile>
+    <id>dev</id>
+    <dependencies>
+      <dependency>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-spring-boot-starter</artifactId>
+        <version>1.1.0</version>
+      </dependency>
+    </dependencies>
+    <build>
+      <plugins>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <configuration>
+            <profiles>
+              <profile>dev</profile>
+            </profiles>
+          </configuration>
+        </plugin>
+      </plugins>
+    </build>
+  </profile>
+</profiles>
+```
+
+### Gradle
+
+Add a `dev` Gradle profile that is activated with the `-Pdev` project property. It pulls in the starter and
+sets the `dev` Spring Boot profile on `bootRun`:
+
+```groovy
+// Groovy DSL (build.gradle)
+if (project.hasProperty('dev')) {
+    dependencies {
+        runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.1.0'
+    }
+    tasks.named('bootRun') {
+        systemProperty 'spring.profiles.active', 'dev'
+    }
+}
+```
+
+```kotlin
+// Kotlin DSL (build.gradle.kts)
+if (project.hasProperty("dev")) {
+    dependencies {
+        "runtimeOnly"("com.julien-dubois.bootui:bootui-spring-boot-starter:1.1.0")
+    }
+    tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+        systemProperty("spring.profiles.active", "dev")
+    }
+}
 ```
 
 ## 3) Run your app in development mode
 
+Activate the `dev` profile when you start the application. This both adds the BootUI starter and turns on the
+`dev` Spring Boot profile:
+
 ```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+# Maven
+./mvnw spring-boot:run -Pdev
+```
+
+```bash
+# Gradle
+./gradlew bootRun -Pdev
 ```
 
 BootUI also activates automatically when `spring-boot-devtools` is on the classpath. To force it on or off:
