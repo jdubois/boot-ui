@@ -6,7 +6,6 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ActiveSerializer;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.AnnotationReader;
-import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.AwtUser;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.CglibProxyGenerator;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ClassGraphScanner;
 import io.github.jdubois.bootui.autoconfigure.graalvm.fixtures.ClasspathScanner;
@@ -300,11 +299,23 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void awtUsageCheckDetectsAwtDependency() {
-        GraalVmFindingDto finding = evaluate(new AwtUsageCheck(), AwtUser.class);
-        assertThat(finding.id()).isEqualTo("GRAAL-AWT-001");
+    void foreignFunctionCheckMatchesLinkerByName() {
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.foreign.Linker"))
+                .isTrue();
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.foreign.Linker$Option"))
+                .isTrue();
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.foreign.MemorySegment"))
+                .isFalse();
+        assertThat(ForeignFunctionUsageCheck.isForeignLinkerClass("java.lang.String"))
+                .isFalse();
+    }
+
+    @Test
+    void foreignFunctionCheckExposesMetadataAndPassesCleanClasses() {
+        GraalVmFindingDto finding = evaluate(new ForeignFunctionUsageCheck(), CleanComponent.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-FFM-001");
         assertThat(finding.severity()).isEqualTo("LOW");
-        assertThat(finding.status()).isEqualTo("REVIEW");
-        assertThat(evaluate(new AwtUsageCheck(), CleanComponent.class).status()).isEqualTo("OK");
+        assertThat(finding.category()).isEqualTo(GraalVmCategory.NATIVE_ACCESS.label());
+        assertThat(finding.status()).isEqualTo("OK");
     }
 }

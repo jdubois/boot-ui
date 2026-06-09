@@ -33,7 +33,7 @@ final class GraalVmCheckRegistry {
             new MethodHandleUsageCheck(),
             new SecurityProviderCheck(),
             new JmxUsageCheck(),
-            new AwtUsageCheck());
+            new ForeignFunctionUsageCheck());
 
     private GraalVmCheckRegistry() {}
 

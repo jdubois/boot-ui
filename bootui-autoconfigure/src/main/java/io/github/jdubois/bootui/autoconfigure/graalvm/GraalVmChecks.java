@@ -1217,34 +1217,44 @@ final class JmxUsageCheck extends AbstractArchUnitGraalVmCheck {
 }
 
 /**
- * Flags application classes that depend on {@code java.awt.*} or {@code javax.swing.*}. AWT and
- * Swing require JNI configuration and platform libraries; native-image AWT support is Linux-only and
- * requires explicit build flags.
+ * Flags application classes that depend on {@link java.lang.foreign.Linker} to build native
+ * downcall handles or upcall stubs. Foreign Function &amp; Memory down/upcalls reach native symbols
+ * that are invisible to the closed-world analysis and must be described under {@code foreign} in
+ * {@code reachability-metadata.json}. The check matches the {@code Linker} type by name, so it
+ * works even when BootUI itself runs on a JDK without the Foreign Function API.
  */
-final class AwtUsageCheck extends AbstractArchUnitGraalVmCheck {
+final class ForeignFunctionUsageCheck extends AbstractArchUnitGraalVmCheck {
 
-    AwtUsageCheck() {
+    ForeignFunctionUsageCheck() {
         super(new GraalVmCheckDefinition(
-                "GRAAL-AWT-001",
-                "AWT / Swing dependency requires platform-native configuration in native images",
-                GraalVmCategory.AWT,
+                "GRAAL-FFM-001",
+                "Foreign Function downcalls/upcalls may need foreign metadata in native images",
+                GraalVmCategory.NATIVE_ACCESS,
                 "LOW",
-                "Detects application classes that depend on java.awt.* or javax.swing.*; AWT and Swing require JNI configuration and platform libraries that must be explicitly included in the native image and are only supported on Linux in GraalVM native-image.",
-                "Verify that AWT/Swing usage is intentional, add the required JNI and resource configuration, and test thoroughly on the target platform. Consider replacing with a headless alternative if GUI functionality is not needed.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/guides/"));
+                "Detects application classes that depend on java.lang.foreign.Linker to create native downcall handles or upcall stubs; Foreign Function & Memory down/upcalls reach native symbols that must be registered under foreign in reachability-metadata.json and are otherwise unreachable in a native image. Pure heap/off-heap MemorySegment or Arena usage that never touches Linker does not require this metadata and is not flagged.",
+                "Register the native down/upcall descriptors under foreign in reachability-metadata.json, or confine native interop behind a boundary that can be described for the native image.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
+    }
+
+    /**
+     * Matches the {@code java.lang.foreign.Linker} interface (and its nested types) by fully
+     * qualified name. Extracted so the matching logic can be unit-tested on a JDK that predates the
+     * Foreign Function &amp; Memory API.
+     */
+    static boolean isForeignLinkerClass(String name) {
+        return "java.lang.foreign.Linker".equals(name) || name.startsWith("java.lang.foreign.Linker$");
     }
 
     @Override
     ArchRule rule(GraalVmContext context) {
         return noClasses()
                 .should()
-                .dependOnClassesThat(new DescribedPredicate<JavaClass>("an AWT or Swing class") {
+                .dependOnClassesThat(new DescribedPredicate<JavaClass>("the Foreign Function Linker") {
                     @Override
                     public boolean test(JavaClass javaClass) {
-                        String name = javaClass.getName();
-                        return name.startsWith("java.awt.") || name.startsWith("javax.swing.");
+                        return isForeignLinkerClass(javaClass.getName());
                     }
                 })
-                .as("Classes should not depend on AWT/Swing without native-image platform configuration");
+                .as("Classes should not use the Foreign Function Linker without native-image foreign metadata");
     }
 }

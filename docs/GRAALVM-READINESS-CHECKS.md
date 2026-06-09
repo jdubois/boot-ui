@@ -77,7 +77,8 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
   (reflection, dynamic class loading, deep reflection, dynamic proxies, active JDK serialization, SpEL, method handles,
   frozen AOT conditions, custom security providers, runtime singleton registration).
 - **LOW** — a construct that often needs extra configuration (runtime resource loading, resource bundles, service
-  loading, reflective annotation access, static-initializer side effects, native access, native methods, JMX, AWT).
+  loading, reflective annotation access, static-initializer side effects, native access, native methods, JMX, foreign
+  functions).
 - **INFO** — an informational prompt that only matters if the type is actually used that way (serialization).
 
 The scan evaluates every registered check, but the panel only lists checks that found something to review. Findings are
@@ -252,6 +253,17 @@ a handful of sample detail lines.
 - **Recommendation**: provide JNI configuration under `jni` in `reachability-metadata.json` and ensure the native library
   is bundled with and loadable by the native image.
 
+### GRAAL-FFM-001 — Foreign Function downcalls/upcalls may need foreign metadata in native images
+
+- **Severity**: LOW
+- **Inspects**: application classes that depend on `java.lang.foreign.Linker`.
+- **Fires when**: a class uses `Linker` to build native downcall handles or upcall stubs; those down/upcalls reach native
+  symbols that the closed-world analysis cannot see and must be described under `foreign` in `reachability-metadata.json`.
+  Pure heap/off-heap `MemorySegment` or `Arena` usage that never touches `Linker` does not require this metadata and is
+  not flagged.
+- **Recommendation**: register the native down/upcall descriptors under `foreign` in `reachability-metadata.json`, or
+  confine native interop behind a boundary that can be described for the native image.
+
 ## Class generation
 
 ### GRAAL-CLASSGEN-001 — Runtime class generation is unsupported in native images
@@ -373,15 +385,3 @@ a handful of sample detail lines.
   plus MBean reflection metadata.
 - **Recommendation**: add `--enable-monitoring=jmxserver` to the native-image build arguments and register all MBean
   interfaces and implementations under `reflection` in `reachability-metadata.json`.
-
-## AWT / Swing
-
-### GRAAL-AWT-001 — AWT / Swing dependency requires platform-native configuration in native images
-
-- **Severity**: LOW
-- **Inspects**: application classes that depend on `java.awt.*` or `javax.swing.*`.
-- **Fires when**: a class uses AWT or Swing; these libraries require JNI configuration and platform libraries that must
-  be explicitly included in the native image. GraalVM native-image AWT/Swing support is Linux-only.
-- **Recommendation**: verify that AWT/Swing usage is intentional, add the required JNI and resource configuration, and
-  test thoroughly on the target platform. Consider replacing with a headless alternative if GUI functionality is not
-  needed at runtime.
