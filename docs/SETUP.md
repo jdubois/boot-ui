@@ -10,7 +10,7 @@
 
 The simplest setup is to drop the starter into your build — nothing else is required. BootUI ships dormant and only
 wakes up in local development (the `dev` / `local` profiles, or when `spring-boot-devtools` is on the classpath), and
-it force-disables itself in `prod` / `production`, so it is safe to leave the dependency in place.
+it force-disables itself in `prod` / `production`.
 
 ::: tabs#build
 
