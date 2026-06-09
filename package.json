@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@vuepress/bundler-vite": "2.0.0-rc.30",
+    "@vuepress/plugin-markdown-tab": "^2.0.0-rc.130",
     "@vuepress/theme-default": "2.0.0-rc.130",
     "bootstrap": "5.3.8",
     "bootstrap-icons": "1.13.1",
