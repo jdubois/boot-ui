@@ -740,6 +740,71 @@ html[data-theme='dark'] [vp-content] code {
   color: var(--bootui-green);
 }
 
+.vp-tabs {
+  overflow: hidden;
+  border-color: var(--bootui-border);
+  border-radius: 1.1rem;
+  background: var(--bootui-surface);
+  box-shadow: var(--bootui-shadow-sm);
+}
+
+.vp-tabs-nav,
+.vp-code-tabs-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.45rem;
+  background: var(--bootui-surface-alt);
+}
+
+.vp-tabs-nav {
+  border-bottom: 1px solid var(--bootui-border);
+}
+
+.vp-code-tabs-nav {
+  margin: 0 0 0.5rem;
+  border: 1px solid var(--bootui-border);
+  border-radius: 0.9rem;
+}
+
+.vp-tab-nav,
+.vp-code-tab-nav {
+  min-width: 0;
+  border-radius: 0.7rem;
+  padding: 0.4rem 0.95rem;
+  color: var(--bootui-text-muted);
+  font-weight: 700;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.vp-tab-nav::before,
+.vp-tab-nav::after,
+.vp-code-tab-nav::before,
+.vp-code-tab-nav::after {
+  display: none;
+}
+
+.vp-tab-nav:hover,
+.vp-code-tab-nav:hover {
+  background: var(--bootui-nav-hover-bg);
+  color: var(--bootui-nav-hover-color);
+}
+
+.vp-tab-nav.active,
+.vp-code-tab-nav.active {
+  background: var(--bootui-nav-active-bg);
+  color: var(--bootui-nav-active-color);
+  box-shadow: 0 0.5rem 1rem rgba(25, 135, 84, 0.18);
+}
+
+.vp-tab-nav.active:hover,
+.vp-code-tab-nav.active:hover {
+  color: var(--bootui-nav-active-color);
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;

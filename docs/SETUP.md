@@ -45,7 +45,7 @@ Prefer to keep the starter jar out of your production artifact entirely? Use the
 
 Start the application with the `dev` profile active so BootUI turns on:
 
-:::: code-tabs#build
+::: tabs#build
 
 @tab Maven
 
@@ -59,7 +59,7 @@ Start the application with the `dev` profile active so BootUI turns on:
 ./gradlew bootRun --args='--spring.profiles.active=dev'
 ```
 
-::::
+:::
 
 BootUI also activates automatically when `spring-boot-devtools` is on the classpath. To force it on or off:
 
@@ -72,21 +72,11 @@ bootui.enabled=OFF
 `prod` and `production` profiles disable BootUI unless `bootui.enabled=ON` is set. Invalid `bootui.enabled` values fail
 closed and keep BootUI disabled.
 
-### Command-line (non-web) applications
-
-BootUI also works in non-web applications, such as command-line apps. The starter brings Spring MVC and an embedded
-servlet container, so when BootUI is active it automatically starts a servlet web server even if your application is
-configured as non-web (`spring.main.web-application-type=none` or `SpringApplication#setWebApplicationType(NONE)`). Your
-`CommandLineRunner` / `ApplicationRunner` beans still run as usual; the application simply keeps running so the console
-stays reachable.
-
-Because BootUI only activates in development contexts by default, this never affects production. Applications that are
-already servlet web apps, or that are explicitly configured as reactive, are left untouched. To opt out and keep your
-application's web-application type exactly as declared, set `bootui.force-web=false`.
-
 ## 4) Open BootUI
 
 Visit: <http://localhost:8080/bootui>
+
+Nice job! BootUI is now configured 🚀
 
 ## Advanced: scope BootUI to a dev-only profile
 
@@ -164,7 +154,7 @@ if (project.hasProperty("dev")) {
 Then activate the profile when you start the app. This both adds the BootUI starter and turns on the `dev`
 Spring Boot profile:
 
-:::: code-tabs#build
+::: tabs#build
 
 @tab Maven
 
@@ -178,7 +168,7 @@ Spring Boot profile:
 ./gradlew bootRun -Pdev
 ```
 
-::::
+:::
 
 ## Safety defaults
 
@@ -204,6 +194,18 @@ The Configuration panel can create, update, and delete local runtime overrides. 
 `.bootui/application-bootui.properties` by default, loaded at high precedence on the next startup, and never modify your
 application source configuration. Already-bound `@ConfigurationProperties` beans may keep their previous value until the
 app restarts; BootUI returns that warning with every override mutation.
+
+## Command-line (non-web) applications
+
+BootUI also works in non-web applications, such as command-line apps. The starter brings Spring MVC and an embedded
+servlet container, so when BootUI is active it automatically starts a servlet web server even if your application is
+configured as non-web (`spring.main.web-application-type=none` or `SpringApplication#setWebApplicationType(NONE)`). Your
+`CommandLineRunner` / `ApplicationRunner` beans still run as usual; the application simply keeps running so the console
+stays reachable.
+
+Because BootUI only activates in development contexts by default, this never affects production. Applications that are
+already servlet web apps, or that are explicitly configured as reactive, are left untouched. To opt out and keep your
+application's web-application type exactly as declared, set `bootui.force-web=false`.
 
 ## Troubleshooting
 
