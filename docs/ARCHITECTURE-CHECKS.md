@@ -161,7 +161,7 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Fires when**: an exception type's simple class name does not end with `Exception`.
 - **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear.
 
-### ARCH-CODE-011 — Interfaces should not have names ending with Interface
+### ARCH-CODE-011 — Interfaces should not have names ending with 'Interface'
 
 - **Severity**: LOW
 - **Inspects**: Java interfaces.
