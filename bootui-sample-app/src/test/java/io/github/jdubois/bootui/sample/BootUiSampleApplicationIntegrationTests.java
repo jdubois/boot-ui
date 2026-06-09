@@ -56,7 +56,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
             "bootui.show-banner=false",
             "bootui.overrides-file=target/bootui-test-overrides.properties"
         })
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class BootUiSampleApplicationIntegrationTests {
 
     private static final Path OVERRIDES_FILE = Paths.get("target/bootui-test-overrides.properties");

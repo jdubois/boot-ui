@@ -46,7 +46,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * discovered Flyway bean whose {@code info().all()} exposes one applied and one
  * pending migration.</p>
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class FlywayControllerTests {
 
     private static final String MODULITH_ACTIONS_DISABLED =
