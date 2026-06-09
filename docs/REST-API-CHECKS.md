@@ -48,7 +48,7 @@ Findings are ranked in the scanner's severity order:
 - `LOW`
 - `INFO`
 
-The catalogue below ships **39 rules across 8 categories** (7 HIGH, 10 MEDIUM, 13 LOW, 9 INFO; no active CRITICAL
+The catalogue below ships **47 rules across 8 categories** (8 HIGH, 10 MEDIUM, 18 LOW, 11 INFO; no active CRITICAL
 rules). The `RAPI-DOC-*` documentation rules only run when springdoc-openapi is on the host classpath; otherwise they are
 reported as `SKIPPED`.
 
@@ -59,15 +59,15 @@ reported as `SKIPPED`.
 ### RAPI-MAP-001 - Use HTTP-method-specific mappings
 
 - **Severity**: MEDIUM
-- **Detects**: Handlers mapped with @RequestMapping but no HTTP method match every verb, which hides intent and can expose state-changing operations over GET.
-- **Recommendation**: Replace @RequestMapping without a method with @GetMapping/@PostMapping/@PutMapping/@DeleteMapping/@PatchMapping (or set the method attribute).
+- **Detects**: Handlers mapped with @RequestMapping but no HTTP method (neither on the method itself nor inherited from a class-level @RequestMapping method attribute) match every verb, which hides intent and can expose state-changing operations over GET.
+- **Recommendation**: Replace @RequestMapping without a method with @GetMapping/@PostMapping/@PutMapping/@DeleteMapping/@PatchMapping (or set the method attribute at the method or class level).
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
 ### RAPI-MAP-002 - No duplicate route mappings
 
 - **Severity**: HIGH
-- **Detects**: Two handlers mapped to the same HTTP method and path lead to ambiguous mapping exceptions at startup or unpredictable dispatch.
-- **Recommendation**: Ensure each (HTTP method, path) pair is handled by exactly one method.
+- **Detects**: Two handlers with the same HTTP method, path, consumes/produces, params, headers, and version lead to ambiguous mapping exceptions at startup or unpredictable dispatch.
+- **Recommendation**: Ensure each (HTTP method, path, consumes/produces/params/headers/version) combination is handled by exactly one method.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
 ### RAPI-MAP-003 - State-changing handlers are not mapped to GET
@@ -112,19 +112,40 @@ reported as `SKIPPED`.
 - **Recommendation**: Add a path variable that identifies the resource (e.g. /orders/{id}); for intentional collection-wide mutations, name the endpoint explicitly (e.g. /orders/bulk).
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
+### RAPI-MAP-009 - No duplicate path-variable tokens in one template
+
+- **Severity**: HIGH
+- **Detects**: A path template with the same {token} name in two positions (e.g. /users/{id}/orders/{id}) is ambiguous — Spring can only bind one value to the parameter, and the mapping is broken by construction.
+- **Recommendation**: Use distinct token names for each path variable (e.g. /users/{userId}/orders/{orderId}).
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
+
+### RAPI-MAP-010 - No catch-all wildcard patterns on REST handlers
+
+- **Severity**: MEDIUM
+- **Detects**: A /** or {*path} catch-all on a REST handler silently shadows sibling routes and swallows typos as 200 OK responses, masking 404s and making API discovery unreliable.
+- **Recommendation**: Map each endpoint explicitly; use a dedicated wildcard handler only for truly generic forwarding outside the REST API surface.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
+
+### RAPI-MAP-011 - Resource nesting depth should not exceed 3 levels
+
+- **Severity**: INFO
+- **Detects**: Path templates with more than 3 collection/{id} pairs (e.g. /a/{aId}/b/{bId}/c/{cId}/d/{dId}) are hard to read, often indicate a missing intermediate resource, and produce unwieldy URLs.
+- **Recommendation**: Flatten deep nesting by exposing a top-level resource or limiting path templates to at most 3 collection/{id} pairs.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
+
 ## Naming & resource design
 
 ### RAPI-NAME-001 - Resource paths are nouns, not verbs
 
 - **Severity**: LOW
-- **Detects**: Verb-based path segments such as /getUser or /createOrder duplicate the HTTP method and break the resource-oriented REST model.
+- **Detects**: Verb-based path segments such as /getUser or /createOrder duplicate the HTTP method and break the resource-oriented REST model. Ambiguous English words that are also HTTP method names (post, put, patch) are only flagged when used in camelCase (e.g. /postMessage), not as standalone segments where they may be legitimate nouns (e.g. /blog/post/{id}).
 - **Recommendation**: Model resources as nouns (/users, /orders) and express the action with the HTTP method.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
 ### RAPI-NAME-002 - Collections use plural nouns
 
 - **Severity**: INFO
-- **Detects**: Endpoints returning a collection but addressed with a singular noun read inconsistently (/user vs /users).
+- **Detects**: Endpoints returning a collection but addressed with a singular noun read inconsistently (/user vs /users). Uncountable or collective nouns (history, inventory, staff, info, search, news, status, etc.) are not flagged.
 - **Recommendation**: Use plural nouns for collection resources and keep singular forms for single-item paths.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
@@ -134,6 +155,13 @@ reported as `SKIPPED`.
 - **Detects**: camelCase, snake_case, or upper-case path segments produce inconsistent, case-sensitive URLs.
 - **Recommendation**: Use lower-case kebab-case path segments (/order-items, not /orderItems or /order_items).
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
+
+### RAPI-NAME-004 - No format-extension suffixes in path segments
+
+- **Severity**: LOW
+- **Detects**: Path segments ending in .json, .xml, or similar format suffixes rely on suffix content negotiation, which was removed in Spring Framework 6 and is not supported in Spring Framework 7.
+- **Recommendation**: Use the Accept header for content negotiation and remove format-extension suffixes from paths.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
 ## Status codes & responses
 
@@ -182,8 +210,8 @@ reported as `SKIPPED`.
 ### RAPI-RESP-007 - @ResponseStatus is not combined with ResponseEntity
 
 - **Severity**: MEDIUM
-- **Detects**: When a handler returns ResponseEntity, its status wins and a method-level @ResponseStatus is silently ignored, so the declared status is misleading.
-- **Recommendation**: Set the status through ResponseEntity (e.g. ResponseEntity.status(...)) and drop the redundant @ResponseStatus.
+- **Detects**: When a handler returns ResponseEntity, its status wins and a method-level @ResponseStatus is silently ignored, so the declared status is misleading. A class-level @ResponseStatus is not flagged here since it can serve as a default for non-ResponseEntity methods.
+- **Recommendation**: Set the status through ResponseEntity (e.g. ResponseEntity.status(...)) and drop the redundant method-level @ResponseStatus.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
 ### RAPI-RESP-008 - Created responses expose a Location
@@ -216,6 +244,13 @@ reported as `SKIPPED`.
 - **Recommendation**: Use the boxed wrapper type (e.g. Integer) or provide a defaultValue for optional primitive query parameters.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html>
 
+### RAPI-VALID-004 - Avoid @RequestParam Map/MultiValueMap on public endpoints
+
+- **Severity**: LOW
+- **Detects**: @RequestParam Map<String,?> or MultiValueMap binds every query parameter into an untyped map, creating an unbounded, undocumented input contract that is invisible to OpenAPI tooling and cannot be validated with bean-validation constraints.
+- **Recommendation**: Declare each accepted query parameter explicitly with a typed @RequestParam so the contract is self-documenting and validatable.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html>
+
 ## DTO & payload contracts
 
 ### RAPI-DTO-001 - Don't expose JPA entities in responses
@@ -232,27 +267,27 @@ reported as `SKIPPED`.
 - **Recommendation**: Return a typed DTO/record instead of Map/Object/JsonNode.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
-### RAPI-DTO-003 - Wrap top-level collections
-
-- **Severity**: INFO
-- **Detects**: Returning a raw non-GET top-level array or List outside ResponseEntity makes the response impossible to evolve (you cannot add metadata without a breaking change); GET collection reads are covered by RAPI-PAGE-001.
-- **Recommendation**: Wrap non-GET collection responses in an object (e.g. a result wrapper) rather than returning a bare List/array.
-- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
-
-### RAPI-DTO-004 - Request/response DTOs are immutable
+### RAPI-DTO-004 - Response DTOs are immutable
 
 - **Severity**: INFO
 - **Detects**: Response payload types that expose public setters are mutable, which makes them easy to mutate accidentally and harder to reason about.
-- **Recommendation**: Prefer Java records or otherwise immutable DTOs without public setters.
+- **Recommendation**: Prefer Java records or otherwise immutable response DTOs without public setters.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
+
+### RAPI-DTO-005 - Response/request DTOs should use java.time, not java.util.Date/Calendar
+
+- **Severity**: LOW
+- **Detects**: Fields typed java.util.Date or java.util.Calendar have ambiguous timezone semantics and serialise inconsistently across Jackson versions; Spring Boot 4 defaults to java.time.
+- **Recommendation**: Replace java.util.Date/Calendar fields with java.time equivalents (Instant, LocalDate, ZonedDateTime, etc.).
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
 ## Pagination & collections
 
 ### RAPI-PAGE-001 - Collection reads are paginated
 
-- **Severity**: MEDIUM
-- **Detects**: A GET returning a Collection with no Pageable parameter loads and serializes the entire result set, which does not scale.
-- **Recommendation**: Accept a Pageable parameter (or explicit page/size) and return a bounded result.
+- **Severity**: LOW
+- **Detects**: A GET returning a Collection with no Pageable parameter and no manual pagination parameter (page, size, limit, offset, cursor, after, before, etc.) loads and serializes the entire result set, which does not scale.
+- **Recommendation**: Accept a Pageable parameter (or explicit page/size/cursor) and return a bounded result.
 - **Learn more**: <https://docs.spring.io/spring-data/commons/reference/repositories/core-extensions.html>
 
 ### RAPI-PAGE-002 - Pageable handlers return a paged type
@@ -267,8 +302,8 @@ reported as `SKIPPED`.
 ### RAPI-VER-001 - API uses a consistent versioning strategy
 
 - **Severity**: INFO
-- **Detects**: No version signal (no /vN path segment, version header/param, or versioned media type) was found, or only some handlers are versioned, which makes breaking changes hard to roll out consistently.
-- **Recommendation**: Adopt one versioning strategy (path, header/param, or media-type versioning) and apply it across all API endpoints before the API is consumed externally.
+- **Detects**: No version signal (no /vN path segment, version header/param, versioned media type, or Spring Framework 7 version attribute) was found, or only some handlers are versioned, which makes breaking changes hard to roll out consistently.
+- **Recommendation**: Adopt one versioning strategy (path, header/param, media-type, or Spring Framework 7 version attribute) and apply it across all API endpoints before the API is consumed externally.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html>
 
 ### RAPI-VER-002 - Mutating endpoints declare a consumes media type
@@ -299,6 +334,13 @@ reported as `SKIPPED`.
 - **Recommendation**: Declare produces (e.g. application/json) consistently on the response-producing handlers of a controller.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html>
 
+### RAPI-VER-006 - Consistent versioning strategy across handlers
+
+- **Severity**: INFO
+- **Detects**: Handlers in the same application use different API versioning strategies (e.g. some use /vN/ path segments, others use versioned media types or version headers/params), producing an inconsistent contract that clients must handle specially.
+- **Recommendation**: Settle on a single versioning strategy (path, header/param, media-type, or Spring Framework 7 version attribute) and apply it uniformly.
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html>
+
 ## Error handling & documentation
 
 ### RAPI-ERR-001 - Centralized exception handling exists
@@ -327,6 +369,20 @@ reported as `SKIPPED`.
 - **Severity**: MEDIUM
 - **Detects**: An @ExceptionHandler that renders a non-ProblemDetail body but neither returns ResponseEntity, declares @ResponseStatus, nor accepts a servlet response argument falls back to 200 OK, masking the failure from clients.
 - **Recommendation**: Return ResponseEntity/ProblemDetail or add @ResponseStatus so the handler responds with an error status.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
+
+### RAPI-ERR-005 - Broad @ExceptionHandler should not collapse all errors to one status
+
+- **Severity**: LOW
+- **Detects**: @ExceptionHandler(Exception.class) or Throwable mapped to a single fixed HTTP status collapses all 4xx and 5xx semantics: a validation error, a not-found, and a server fault all look the same to clients.
+- **Recommendation**: Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409, 500), or delegate to ResponseEntityExceptionHandler.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
+
+### RAPI-ERR-006 - Prefer ErrorResponseException over @ResponseStatus on exceptions
+
+- **Severity**: INFO
+- **Detects**: The project uses ProblemDetail (RFC 9457) for error responses but some application exception classes are annotated with @ResponseStatus instead, mixing error-handling approaches.
+- **Recommendation**: Replace @ResponseStatus on exception classes with ErrorResponseException (or a subclass) so all errors consistently produce RFC 9457 ProblemDetail responses.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 
 ### RAPI-DOC-001 - Endpoints are documented

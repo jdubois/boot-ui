@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiModel.ControllerModel;
+import io.github.jdubois.bootui.autoconfigure.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiModel.HandlerMethodModel;
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +15,8 @@ class RestApiHandlerModelBuilderTests {
 
     private static final String FIXTURES = "io.github.jdubois.bootui.autoconfigure.restapi.fixtures";
     private static final String EDGE = "io.github.jdubois.bootui.autoconfigure.restapi.edgecases";
+    private static final String PHASE3_BAD = "io.github.jdubois.bootui.autoconfigure.restapi.phase3.bad";
+    private static final String PHASE3_FIXES = "io.github.jdubois.bootui.autoconfigure.restapi.phase3.fixes";
 
     private RestApiHandlerModelBuilder model() {
         JavaClasses classes = new ClassFileImporter().importPackages(FIXTURES);
@@ -155,5 +158,81 @@ class RestApiHandlerModelBuilderTests {
         assertThat(model.handlers()).isEmpty();
         assertThat(model.exceptionHandlers()).isEmpty();
         assertThat(model.hasExceptionHandling()).isFalse();
+    }
+
+    @Test
+    void detectsTypeLevelHttpMethodInheritance() {
+        JavaClasses classes = new ClassFileImporter().importPackages(PHASE3_FIXES);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        // TypeLevelMethodController has @RequestMapping(method=GET) at class level.
+        HandlerMethodModel getData = model.handlers().stream()
+                .filter(h -> h.methodName().equals("getData"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(getData.httpMethods()).contains("GET");
+        assertThat(getData.explicitHttpMethod()).isTrue();
+    }
+
+    @Test
+    void detectsMethodHasResponseStatusVsClassLevelOnly() {
+        JavaClasses classes = new ClassFileImporter().importPackages(PHASE3_FIXES);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        // ClassStatusController has @ResponseStatus at class level — method is NOT annotated.
+        HandlerMethodModel get = model.handlers().stream()
+                .filter(h -> h.controllerSimpleName().equals("ClassStatusController"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(get.hasResponseStatus()).isTrue();       // class-level counts
+        assertThat(get.methodHasResponseStatus()).isFalse(); // method-level does not
+    }
+
+    @Test
+    void detectsUnboundedMapRequestParam() {
+        JavaClasses classes = new ClassFileImporter().importPackages(PHASE3_BAD);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        HandlerMethodModel searchWithMap = model.handlers().stream()
+                .filter(h -> h.methodName().equals("searchWithMap"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(searchWithMap.hasUnboundedMapRequestParam()).isTrue();
+    }
+
+    @Test
+    void detectsLegacyDateFieldInResponseDto() {
+        JavaClasses classes = new ClassFileImporter().importPackages(PHASE3_BAD);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        HandlerMethodModel getDated = model.handlers().stream()
+                .filter(h -> h.methodName().equals("getDated"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(getDated.bodyHasLegacyDateField()).isTrue();
+    }
+
+    @Test
+    void detectsCatchesExceptionOrThrowable() {
+        JavaClasses classes = new ClassFileImporter().importPackages(PHASE3_BAD);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        assertThat(model.exceptionHandlers())
+                .filteredOn(ExceptionHandlerModel::catchesExceptionOrThrowable)
+                .isNotEmpty();
+    }
+
+    @Test
+    void detectsResponseStatusAnnotatedExceptionClasses() {
+        JavaClasses classes = new ClassFileImporter().importPackages(PHASE3_BAD);
+        RestApiHandlerModelBuilder model = RestApiHandlerModelBuilder.build(classes);
+
+        assertThat(model.responseStatusExceptionClasses()).isNotEmpty();
+        assertThat(model.responseStatusExceptionClasses())
+                .anyMatch(name -> name.contains("BizException"));
     }
 }

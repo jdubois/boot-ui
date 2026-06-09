@@ -4,6 +4,7 @@ import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaEnumConstant;
+import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaParameterizedType;
@@ -96,12 +97,14 @@ final class RestApiHandlerModelBuilder {
             "byte[]");
 
     /** Lower-cased query-parameter names that signal manual pagination (so PAGE-001 should pass). */
-    private static final Set<String> PAGE_PARAM_NAMES =
-            Set.of("page", "size", "limit", "offset", "pagenumber", "pagesize", "perpage");
+    private static final Set<String> PAGE_PARAM_NAMES = Set.of(
+            "page", "size", "limit", "offset", "pagenumber", "pagesize", "perpage",
+            "cursor", "after", "before");
 
     private final List<ControllerModel> controllers = new ArrayList<>();
     private final List<HandlerMethodModel> handlers = new ArrayList<>();
     private final List<ExceptionHandlerModel> exceptionHandlers = new ArrayList<>();
+    private final List<String> responseStatusExceptionClasses = new ArrayList<>();
     private boolean hasExceptionHandling;
 
     private RestApiHandlerModelBuilder() {}
@@ -130,11 +133,16 @@ final class RestApiHandlerModelBuilder {
         return List.copyOf(exceptionHandlers);
     }
 
+    List<String> responseStatusExceptionClasses() {
+        return List.copyOf(responseStatusExceptionClasses);
+    }
+
     boolean hasExceptionHandling() {
         return hasExceptionHandling;
     }
 
     private void inspect(JavaClass type) {
+        scanResponseStatusException(type);
         collectExceptionHandlers(type);
         if (!isController(type)) {
             return;
@@ -149,6 +157,8 @@ final class RestApiHandlerModelBuilder {
         List<String> typeLevelConsumes = mappingAttribute(type, Types.REQUEST_MAPPING, "consumes");
         List<String> typeLevelParams = mappingAttribute(type, Types.REQUEST_MAPPING, "params");
         List<String> typeLevelHeaders = mappingAttribute(type, Types.REQUEST_MAPPING, "headers");
+        List<String> typeLevelMethods = mappingEnumAttribute(type, Types.REQUEST_MAPPING, "method");
+        String typeLevelVersion = mappingStringAttribute(type, Types.REQUEST_MAPPING, "version");
 
         int handlerCount = 0;
         for (JavaMethod method : type.getMethods()) {
@@ -164,7 +174,9 @@ final class RestApiHandlerModelBuilder {
                         typeLevelProduces,
                         typeLevelConsumes,
                         typeLevelParams,
-                        typeLevelHeaders);
+                        typeLevelHeaders,
+                        typeLevelMethods,
+                        typeLevelVersion);
                 if (model != null) {
                     handlers.add(model);
                     handlerCount++;
@@ -211,6 +223,7 @@ final class RestApiHandlerModelBuilder {
                         || "java.lang.Void".equals(bodyType);
                 boolean hasResponseStatus =
                         method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
+                boolean catchesExceptionOrThrowable = catchesBroadException(method);
                 boolean hasResponseParam = hasResponseParameter(method);
                 boolean methodRendersBody =
                         rendersBody || method.isAnnotatedWith(Types.RESPONSE_BODY) || returnsResponseEntity;
@@ -222,6 +235,7 @@ final class RestApiHandlerModelBuilder {
                         returnsResponseEntity,
                         returnsVoid,
                         hasResponseStatus,
+                        catchesExceptionOrThrowable,
                         hasResponseParam,
                         methodRendersBody));
                 if (isAdvice) {
@@ -247,7 +261,9 @@ final class RestApiHandlerModelBuilder {
             List<String> typeLevelProduces,
             List<String> typeLevelConsumes,
             List<String> typeLevelParams,
-            List<String> typeLevelHeaders) {
+            List<String> typeLevelHeaders,
+            List<String> typeLevelMethods,
+            String typeLevelVersion) {
 
         Set<String> httpMethods = new LinkedHashSet<>();
         List<String> mappingPaths = new ArrayList<>();
@@ -278,6 +294,11 @@ final class RestApiHandlerModelBuilder {
 
         if (!isHandler) {
             return null;
+        }
+
+        // Inherit the class-level HTTP method constraint when no method-level annotation sets one.
+        if (httpMethods.isEmpty() && !typeLevelMethods.isEmpty()) {
+            httpMethods.addAll(typeLevelMethods);
         }
 
         boolean explicitHttpMethod = !httpMethods.isEmpty();
@@ -314,6 +335,7 @@ final class RestApiHandlerModelBuilder {
         boolean bodyIsScalar = SCALAR_TYPES.contains(bodyTypeName) || isPrimitive(bodyErasure);
         boolean bodyIsRecord = safeIsRecord(bodyErasure);
         boolean bodyExposesSetters = exposesPublicSetters(bodyErasure, bodyIsRecord, bodyIsEntity);
+        boolean bodyHasLegacyDateField = hasLegacyDateField(bodyErasure);
 
         boolean hasRequestBody = false;
         boolean requestBodyValidated = false;
@@ -322,6 +344,7 @@ final class RestApiHandlerModelBuilder {
         boolean hasConstrainedSimpleParam = false;
         boolean hasPageable = false;
         boolean hasUnboundedPrimitiveRequestParam = false;
+        boolean hasUnboundedMapRequestParam = false;
         boolean hasExplicitPageParam = false;
         List<String> pathVariableNames = new ArrayList<>();
 
@@ -347,6 +370,10 @@ final class RestApiHandlerModelBuilder {
                     if (isPrimitive(parameter.getRawType()) && isOptionalRequestParam(parameter)) {
                         hasUnboundedPrimitiveRequestParam = true;
                     }
+                    String paramTypeName2 = parameter.getRawType().getName();
+                    if ("java.util.Map".equals(paramTypeName2) || Types.MULTI_VALUE_MAP.equals(paramTypeName2)) {
+                        hasUnboundedMapRequestParam = true;
+                    }
                     String explicitName = explicitBindingName(parameter, Types.REQUEST_PARAM);
                     if (explicitName != null && PAGE_PARAM_NAMES.contains(explicitName.toLowerCase(Locale.ROOT))) {
                         hasExplicitPageParam = true;
@@ -368,6 +395,7 @@ final class RestApiHandlerModelBuilder {
 
         boolean hasResponseStatus =
                 method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
+        boolean methodHasResponseStatus = method.isAnnotatedWith(Types.RESPONSE_STATUS);
         String responseStatusValue = responseStatusValue(method, type);
         boolean declaresBroadThrows = declaresBroadThrows(method);
         boolean hasOperation = method.isAnnotatedWith(Types.OPERATION);
@@ -385,6 +413,9 @@ final class RestApiHandlerModelBuilder {
                 || method.isAnnotatedWith(Types.RESPONSE_BODY)
                 || returnsResponseEntity;
         String mappingVersion = mappingString(method, "version");
+        if (mappingVersion.isBlank()) {
+            mappingVersion = typeLevelVersion;
+        }
         List<String> effectiveProduces = produces.isEmpty() ? List.copyOf(typeLevelProduces) : dedupe(produces);
         List<String> effectiveConsumes = consumes.isEmpty() ? List.copyOf(typeLevelConsumes) : dedupe(consumes);
         List<String> params = union(typeLevelParams, mappingStrings(method, "params"));
@@ -417,14 +448,17 @@ final class RestApiHandlerModelBuilder {
                 bodyIsScalar,
                 bodyExposesSetters,
                 bodyIsRecord,
+                bodyHasLegacyDateField,
                 hasRequestBody,
                 requestBodyValidated,
                 requestBodyIsEntity,
                 hasConstrainedSimpleParam,
                 hasPageable,
                 hasUnboundedPrimitiveRequestParam,
+                hasUnboundedMapRequestParam,
                 hasExplicitPageParam,
                 hasResponseStatus,
+                methodHasResponseStatus,
                 responseStatusValue,
                 declaresBroadThrows,
                 hasOperation,
@@ -848,5 +882,103 @@ final class RestApiHandlerModelBuilder {
 
     private static List<String> dedupe(List<String> values) {
         return List.copyOf(new LinkedHashSet<>(values));
+    }
+
+    /** Reads enum-valued attributes (e.g. {@code method}) from a type-level annotation. */
+    private static List<String> mappingEnumAttribute(JavaClass type, String annotationName, String key) {
+        Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
+        if (annotation.isEmpty()) {
+            return List.of();
+        }
+        return enumValues(annotation.get(), key);
+    }
+
+    /** Reads the first non-blank string attribute from a type-level annotation. */
+    private static String mappingStringAttribute(JavaClass type, String annotationName, String key) {
+        for (String value : mappingAttribute(type, annotationName, key)) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    /**
+     * True when the response body type exposes any field typed {@code java.util.Date} or
+     * {@code java.util.Calendar}.
+     */
+    private static boolean hasLegacyDateField(JavaClass type) {
+        String name = type.getName();
+        if (name.startsWith("java.")
+                || UNTYPED_TYPES.contains(name)
+                || SCALAR_TYPES.contains(name)
+                || isPrimitive(type)) {
+            return false;
+        }
+        try {
+            for (JavaField field : type.getFields()) {
+                String fieldTypeName = field.getRawType().getName();
+                if (Types.DATE.equals(fieldTypeName) || Types.CALENDAR.equals(fieldTypeName)) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * True when the method's {@code @ExceptionHandler} annotation declares {@code Exception} or
+     * {@code Throwable} in its {@code value} array.
+     */
+    private static boolean catchesBroadException(JavaMethod method) {
+        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(Types.EXCEPTION_HANDLER);
+        if (annotation.isEmpty()) {
+            return false;
+        }
+        Optional<Object> value = annotation.get().get("value");
+        if (value.isEmpty()) {
+            return false;
+        }
+        return containsBroadExceptionType(value.get());
+    }
+
+    private static boolean containsBroadExceptionType(Object value) {
+        if (value instanceof Object[] array) {
+            for (Object element : array) {
+                if (isBroadExceptionClass(element)) {
+                    return true;
+                }
+            }
+        } else {
+            return isBroadExceptionClass(value);
+        }
+        return false;
+    }
+
+    private static boolean isBroadExceptionClass(Object element) {
+        if (element instanceof JavaClass jc) {
+            String name = jc.getName();
+            return "java.lang.Exception".equals(name) || "java.lang.Throwable".equals(name);
+        }
+        return false;
+    }
+
+    /**
+     * Records exception classes annotated with {@code @ResponseStatus} for RAPI-ERR-006 detection.
+     * Called for every imported class (not just controllers).
+     */
+    private void scanResponseStatusException(JavaClass type) {
+        try {
+            if (!type.isAnnotatedWith(Types.RESPONSE_STATUS)) {
+                return;
+            }
+            if (extendsClass(type, "java.lang.Throwable")) {
+                responseStatusExceptionClasses.add(type.getName());
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Skip unresolvable class.
+        }
     }
 }

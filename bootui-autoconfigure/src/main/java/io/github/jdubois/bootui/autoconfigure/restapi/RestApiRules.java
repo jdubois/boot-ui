@@ -82,8 +82,30 @@ final class RestApiRuleHelp {
     private static final Set<String> VERBS = Set.of(
             "get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify", "post", "put",
             "patch", "read");
+
+    /**
+     * Verbs that are unambiguously HTTP-method-like when standing alone as a path segment.
+     * HTTP-method words (post, put, patch) and generic-English words (read) are excluded from the
+     * standalone exact-match check to avoid false positives like /blog/post/{id}, but remain in
+     * {@link #VERBS} so camelCase prefix detection (postMessage, putData, readAll) still works.
+     */
+    private static final Set<String> VERB_STANDALONE = Set.of(
+            "get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify");
     private static final Set<String> CREATION_PREFIXES = Set.of("create", "add", "save", "insert", "register", "new");
     static final Set<String> PATCH_MEDIA_TYPES = Set.of("application/merge-patch+json", "application/json-patch+json");
+
+    private static final Set<String> FORMAT_EXTENSIONS = Set.of(".json", ".xml", ".html", ".csv", ".yaml", ".yml");
+
+    /** Format-extension suffixes removed from Spring's suffix content negotiation in Spring Framework 6+. */
+    static boolean hasFormatExtension(String segment) {
+        String lower = segment.toLowerCase(Locale.ROOT);
+        for (String ext : FORMAT_EXTENSIONS) {
+            if (lower.endsWith(ext) && lower.length() > ext.length()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** Exact mapping param/header names (case-insensitive) that signal header/param API versioning. */
     private static final Set<String> VERSION_PARAM_NAMES =
@@ -165,10 +187,12 @@ final class RestApiRuleHelp {
 
     static boolean isVerbSegment(String segment) {
         String lower = segment.toLowerCase(Locale.ROOT);
+        // Standalone exact match: only clear, HTTP-method-unambiguous verbs.
+        if (VERB_STANDALONE.contains(lower)) {
+            return true;
+        }
+        // camelCase prefix check: all verbs including post/put/patch/read to catch postMessage etc.
         for (String verb : VERBS) {
-            if (lower.equals(verb)) {
-                return true;
-            }
             if (lower.startsWith(verb)
                     && segment.length() > verb.length()
                     && Character.isUpperCase(segment.charAt(verb.length()))) {
@@ -378,9 +402,10 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
                 "No duplicate route mappings",
                 RestApiCategory.ROUTING,
                 "HIGH",
-                "Two handlers mapped to the same HTTP method and path lead to ambiguous mapping exceptions at startup"
-                        + " or unpredictable dispatch.",
-                "Ensure each (HTTP method, path) pair is handled by exactly one method.",
+                "Two handlers mapped to the same HTTP method, path, consumes/produces, params, headers, and version"
+                        + " lead to ambiguous mapping exceptions at startup or unpredictable dispatch.",
+                "Ensure each (HTTP method, path, consumes/produces/params/headers/version) combination is handled by"
+                        + " exactly one method.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
     }
 
@@ -676,6 +701,29 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
             "series",
             "species");
 
+    // Uncountable / collective / operational nouns that are legitimately singular in URLs.
+    private static final Set<String> UNCOUNTABLE_NOUNS = Set.of(
+            "history",
+            "inventory",
+            "staff",
+            "info",
+            "information",
+            "search",
+            "news",
+            "status",
+            "metadata",
+            "feedback",
+            "content",
+            "equipment",
+            "software",
+            "hardware",
+            "analytics",
+            "reporting",
+            "billing",
+            "processing",
+            "shipping",
+            "access");
+
     CollectionsUsePluralNounsRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-NAME-002",
@@ -702,7 +750,7 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
                 }
                 String last = staticSegments.get(staticSegments.size() - 1);
                 String lower = last.toLowerCase(Locale.ROOT);
-                if (!lower.endsWith("s") && !IRREGULAR_PLURALS.contains(lower)) {
+                if (!lower.endsWith("s") && !IRREGULAR_PLURALS.contains(lower) && !UNCOUNTABLE_NOUNS.contains(lower)) {
                     violations.add(handler.describe() + " — collection path '/" + last + "' is singular");
                     break;
                 }
@@ -933,7 +981,7 @@ final class ResponseStatusIgnoredWithResponseEntityRule extends AbstractRestApiR
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         return handlersMatching(
                 context,
-                handler -> handler.hasResponseStatus() && handler.returnsResponseEntity(),
+                handler -> handler.methodHasResponseStatus() && handler.returnsResponseEntity(),
                 "@ResponseStatus is ignored alongside ResponseEntity");
     }
 }
@@ -1055,45 +1103,16 @@ final class NoUntypedResponseBodiesRule extends AbstractRestApiRule {
     }
 }
 
-final class WrapTopLevelCollectionsRule extends AbstractRestApiRule {
-    WrapTopLevelCollectionsRule() {
-        super(new RestApiRuleDefinition(
-                "RAPI-DTO-003",
-                "Wrap top-level collections",
-                RestApiCategory.PAYLOADS,
-                "INFO",
-                "Returning a raw top-level array or List makes the response impossible to evolve (you cannot add"
-                        + " metadata without a breaking change). GET collection reads are covered separately by"
-                        + " RAPI-PAGE-001.",
-                "Wrap non-GET collection responses in an object (e.g. a result wrapper) rather than returning a bare"
-                        + " List/array.",
-                RestApiRuleHelp.REST_GUIDELINES));
-    }
-
-    @Override
-    RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        return handlersMatching(
-                context,
-                handler -> handler.returnsCollection()
-                        && !handler.returnsPageOrSlice()
-                        && !handler.hasPageable()
-                        && !handler.returnsResponseEntity()
-                        && !handler.httpMethods().contains("GET")
-                        && handler.serializesBody(),
-                "returns a raw top-level collection");
-    }
-}
-
 final class DtosAreImmutableRule extends AbstractRestApiRule {
     DtosAreImmutableRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-DTO-004",
-                "Request/response DTOs are immutable",
+                "Response DTOs are immutable",
                 RestApiCategory.PAYLOADS,
                 "INFO",
                 "Response payload types that expose public setters are mutable, which makes them easy to mutate"
                         + " accidentally and harder to reason about.",
-                "Prefer Java records or otherwise immutable DTOs without public setters.",
+                "Prefer Java records or otherwise immutable response DTOs without public setters.",
                 RestApiRuleHelp.SPRING_WEB_DOCS));
     }
 
@@ -1120,10 +1139,10 @@ final class CollectionReadsArePaginatedRule extends AbstractRestApiRule {
                 "RAPI-PAGE-001",
                 "Collection reads are paginated",
                 RestApiCategory.PAGINATION,
-                "MEDIUM",
+                "LOW",
                 "A GET returning a Collection with no Pageable parameter loads and serializes the entire result set,"
                         + " which does not scale.",
-                "Accept a Pageable parameter (or explicit page/size) and return a bounded result.",
+                "Accept a Pageable parameter (or explicit page/size/cursor) and return a bounded result.",
                 RestApiRuleHelp.PAGINATION_DOCS));
     }
 
@@ -1590,5 +1609,366 @@ final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestAp
 
     private static boolean serializesRepresentation(HandlerMethodModel handler) {
         return handler.serializesBody() && !handler.returnsVoid();
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Phase 3 additions — new routing rules
+// ---------------------------------------------------------------------------------------------
+
+final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
+    DuplicatePathVariableTokenRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-MAP-009",
+                "No duplicate path-variable tokens in one template",
+                RestApiCategory.ROUTING,
+                "HIGH",
+                "A path template with the same {token} name in two positions (e.g. /users/{id}/orders/{id}) is"
+                        + " ambiguous — Spring can only bind one value to the parameter, and the mapping is broken by"
+                        + " construction.",
+                "Use distinct token names for each path variable (e.g. /users/{userId}/orders/{orderId}).",
+                RestApiRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        List<String> violations = new ArrayList<>();
+        for (HandlerMethodModel handler : context.handlers()) {
+            for (String path : handler.effectivePaths()) {
+                List<String> duplicates = duplicateTokens(path);
+                if (!duplicates.isEmpty()) {
+                    violations.add(handler.describe() + " — path '" + path + "' has duplicate token(s): "
+                            + duplicates);
+                }
+            }
+        }
+        return RestApiRuleSupport.fromViolations(definition(), violations);
+    }
+
+    private static List<String> duplicateTokens(String path) {
+        Map<String, Integer> count = new LinkedHashMap<>();
+        Matcher matcher = Pattern.compile("\\{([^}/]+)\\}").matcher(path);
+        while (matcher.find()) {
+            String inner = matcher.group(1);
+            if (inner.startsWith("*")) {
+                inner = inner.substring(1);
+            }
+            int colon = inner.indexOf(':');
+            if (colon >= 0) {
+                inner = inner.substring(0, colon);
+            }
+            inner = inner.trim();
+            if (!inner.isEmpty()) {
+                count.merge(inner, 1, Integer::sum);
+            }
+        }
+        List<String> duplicates = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : count.entrySet()) {
+            if (entry.getValue() > 1) {
+                duplicates.add(entry.getKey());
+            }
+        }
+        return duplicates;
+    }
+}
+
+final class CatchAllPatternRule extends AbstractRestApiRule {
+    CatchAllPatternRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-MAP-010",
+                "No catch-all wildcard patterns on REST handlers",
+                RestApiCategory.ROUTING,
+                "MEDIUM",
+                "A /** or {*path} catch-all on a REST handler silently shadows sibling routes and swallows typos as"
+                        + " 200 OK responses, masking 404s and making API discovery unreliable.",
+                "Map each endpoint explicitly; use a dedicated wildcard handler only for truly generic forwarding"
+                        + " outside the REST API surface.",
+                RestApiRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return handlersMatching(context, CatchAllPatternRule::hasCatchAllPattern, "catch-all wildcard in mapping path");
+    }
+
+    private static boolean hasCatchAllPattern(HandlerMethodModel handler) {
+        for (String path : handler.effectivePaths()) {
+            if (path.contains("/**") || path.contains("{*")) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+final class DeepResourceNestingRule extends AbstractRestApiRule {
+    private static final int MAX_NESTING_DEPTH = 3;
+
+    DeepResourceNestingRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-MAP-011",
+                "Resource nesting depth should not exceed 3 levels",
+                RestApiCategory.ROUTING,
+                "INFO",
+                "A path template with more than 3 collection/{id} pairs (e.g. /a/{aId}/b/{bId}/c/{cId}/d/{dId}) is"
+                        + " hard to read, often indicates a missing intermediate resource, and produces unwieldy URLs.",
+                "Flatten deep nesting by exposing a top-level resource or reducing to at most 3 collection/{id}"
+                        + " pairs in one path template.",
+                RestApiRuleHelp.REST_GUIDELINES));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return handlersMatching(
+                context,
+                handler -> maxNestingDepth(handler) > MAX_NESTING_DEPTH,
+                "path template has more than " + MAX_NESTING_DEPTH + " collection/{id} nesting levels");
+    }
+
+    private static int maxNestingDepth(HandlerMethodModel handler) {
+        int max = 0;
+        for (String path : handler.effectivePaths()) {
+            max = Math.max(max, nestingDepth(path));
+        }
+        return max;
+    }
+
+    private static int nestingDepth(String path) {
+        List<String> segs = RestApiRuleHelp.segments(path);
+        int depth = 0;
+        boolean prevWasStatic = false;
+        for (String seg : segs) {
+            boolean isVar = RestApiRuleHelp.isVariable(seg);
+            if (!isVar) {
+                prevWasStatic = true;
+            } else if (prevWasStatic) {
+                depth++;
+                prevWasStatic = false;
+            } else {
+                prevWasStatic = false;
+            }
+        }
+        return depth;
+    }
+}
+
+final class FormatSuffixInPathRule extends AbstractRestApiRule {
+    FormatSuffixInPathRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-NAME-004",
+                "No format-extension suffixes in path segments",
+                RestApiCategory.NAMING,
+                "LOW",
+                "Path segments ending in .json, .xml, or similar format suffixes rely on suffix content negotiation,"
+                        + " which was removed in Spring Framework 6 and is not supported in Spring Framework 7.",
+                "Use the Accept header for content negotiation and remove format-extension suffixes from paths.",
+                RestApiRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        List<String> violations = new ArrayList<>();
+        for (HandlerMethodModel handler : context.handlers()) {
+            for (String path : handler.effectivePaths()) {
+                for (String segment : RestApiRuleHelp.staticSegments(path)) {
+                    if (RestApiRuleHelp.hasFormatExtension(segment)) {
+                        violations.add(handler.describe() + " — path segment '" + segment
+                                + "' uses a format-extension suffix");
+                        break;
+                    }
+                }
+            }
+        }
+        return RestApiRuleSupport.fromViolations(definition(), violations);
+    }
+}
+
+final class MixedVersioningStrategiesRule extends AbstractRestApiRule {
+    MixedVersioningStrategiesRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-VER-006",
+                "Consistent versioning strategy across handlers",
+                RestApiCategory.VERSIONING,
+                "INFO",
+                "Handlers in the same application use different API versioning strategies (e.g. some use /vN/ path"
+                        + " segments, others use versioned media types or version headers/params), producing an"
+                        + " inconsistent contract that clients must handle specially.",
+                "Settle on a single versioning strategy (path, header/param, media-type, or Spring Framework 7 version"
+                        + " attribute) and apply it uniformly.",
+                RestApiRuleHelp.API_VERSIONING_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.handlers().isEmpty()) {
+            return RestApiRuleSupport.pass(definition());
+        }
+        Set<String> strategies = new LinkedHashSet<>();
+        for (HandlerMethodModel handler : context.handlers()) {
+            if (RestApiRuleHelp.isNonApiEndpoint(handler)) {
+                continue;
+            }
+            strategies.addAll(versioningStrategies(handler));
+        }
+        if (strategies.size() <= 1) {
+            return RestApiRuleSupport.pass(definition());
+        }
+        return RestApiRuleSupport.fromViolations(
+                definition(),
+                List.of("Mixed versioning strategies detected: " + strategies
+                        + ". Standardise on one strategy across all API handlers."));
+    }
+
+    private static Set<String> versioningStrategies(HandlerMethodModel handler) {
+        Set<String> strategies = new LinkedHashSet<>();
+        if (!handler.mappingVersion().isBlank()) {
+            strategies.add("MAPPING_VERSION");
+        }
+        for (String path : handler.effectivePaths()) {
+            for (String segment : RestApiRuleHelp.segments(path)) {
+                if (segment.matches("(?i)v\\d+")) {
+                    strategies.add("PATH");
+                }
+            }
+        }
+        for (String mediaType : handler.effectiveProduces()) {
+            if (isVersionedMediaType(mediaType)) {
+                strategies.add("MEDIA_TYPE");
+            }
+        }
+        for (String mediaType : handler.effectiveConsumes()) {
+            if (isVersionedMediaType(mediaType)) {
+                strategies.add("MEDIA_TYPE");
+            }
+        }
+        return strategies;
+    }
+
+    private static boolean isVersionedMediaType(String mediaType) {
+        String lower = mediaType.toLowerCase(Locale.ROOT);
+        return lower.contains("version=") || lower.contains("vnd.");
+    }
+}
+
+final class BroadExceptionHandlerRule extends AbstractRestApiRule {
+    BroadExceptionHandlerRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-ERR-005",
+                "Broad @ExceptionHandler should not collapse all errors to one status",
+                RestApiCategory.ERROR_HANDLING,
+                "LOW",
+                "@ExceptionHandler(Exception.class) or Throwable mapped to a single fixed HTTP status collapses all"
+                        + " 4xx and 5xx semantics: a validation error, a not-found, and a server fault all look the"
+                        + " same to clients.",
+                "Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409, 500),"
+                        + " or delegate to ResponseEntityExceptionHandler.",
+                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.exceptionHandlers().isEmpty()) {
+            return RestApiRuleSupport.pass(definition());
+        }
+        List<String> violations = new ArrayList<>();
+        for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
+            if (handler.catchesExceptionOrThrowable()
+                    && (handler.hasResponseStatus() || handler.returnsResponseEntity())
+                    && !handler.returnsProblemType()) {
+                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
+                        + " catches Exception/Throwable and maps all errors to a single fixed status");
+            }
+        }
+        return RestApiRuleSupport.fromViolations(definition(), violations);
+    }
+
+    private static String simpleName(String fullName) {
+        int lastDot = fullName.lastIndexOf('.');
+        return lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
+    }
+}
+
+final class ResponseStatusOnExceptionRule extends AbstractRestApiRule {
+    ResponseStatusOnExceptionRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-ERR-006",
+                "Prefer ErrorResponseException over @ResponseStatus on exceptions",
+                RestApiCategory.ERROR_HANDLING,
+                "INFO",
+                "The project uses ProblemDetail (RFC 9457) for error responses but some application exception classes"
+                        + " are annotated with @ResponseStatus instead, mixing error-handling approaches.",
+                "Replace @ResponseStatus on exception classes with ErrorResponseException (or a subclass) so all"
+                        + " errors consistently produce RFC 9457 ProblemDetail responses.",
+                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (context.responseStatusExceptionClasses().isEmpty()) {
+            return RestApiRuleSupport.pass(definition());
+        }
+        boolean projectUsesProblemDetail =
+                context.exceptionHandlers().stream().anyMatch(ExceptionHandlerModel::returnsProblemType);
+        if (!projectUsesProblemDetail) {
+            return RestApiRuleSupport.pass(definition());
+        }
+        List<String> violations = new ArrayList<>();
+        for (String className : context.responseStatusExceptionClasses()) {
+            violations.add(simpleName(className)
+                    + " is annotated @ResponseStatus but the project uses ProblemDetail elsewhere");
+        }
+        return RestApiRuleSupport.fromViolations(definition(), violations);
+    }
+
+    private static String simpleName(String fullName) {
+        int lastDot = fullName.lastIndexOf('.');
+        return lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
+    }
+}
+
+final class UnboundedMapRequestParamRule extends AbstractRestApiRule {
+    UnboundedMapRequestParamRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-VALID-004",
+                "Avoid @RequestParam Map/MultiValueMap on public endpoints",
+                RestApiCategory.VALIDATION,
+                "LOW",
+                "@RequestParam Map<String,?> or MultiValueMap binds every query parameter into an untyped map,"
+                        + " creating an unbounded, undocumented input contract that is invisible to OpenAPI tooling and"
+                        + " cannot be validated with bean-validation constraints.",
+                "Declare each accepted query parameter explicitly with a typed @RequestParam so the contract is"
+                        + " self-documenting and validatable.",
+                RestApiRuleHelp.VALIDATION_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return handlersMatching(
+                context,
+                HandlerMethodModel::hasUnboundedMapRequestParam,
+                "@RequestParam Map/MultiValueMap binds all query parameters without type or validation");
+    }
+}
+
+final class LegacyDateInDtoRule extends AbstractRestApiRule {
+    LegacyDateInDtoRule() {
+        super(new RestApiRuleDefinition(
+                "RAPI-DTO-005",
+                "Response/request DTOs should use java.time, not java.util.Date/Calendar",
+                RestApiCategory.PAYLOADS,
+                "LOW",
+                "Fields typed java.util.Date or java.util.Calendar have ambiguous timezone semantics and"
+                        + " serialise inconsistently across Jackson versions; Spring Boot 4 defaults to java.time.",
+                "Replace java.util.Date/Calendar fields with java.time equivalents (Instant, LocalDate,"
+                        + " ZonedDateTime, etc.).",
+                RestApiRuleHelp.SPRING_WEB_DOCS));
+    }
+
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return handlersMatching(
+                context,
+                handler -> handler.bodyHasLegacyDateField() && !handler.returnsVoid() && handler.serializesBody(),
+                "response DTO contains java.util.Date/Calendar fields — prefer java.time types");
     }
 }
