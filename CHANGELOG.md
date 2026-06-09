@@ -16,6 +16,61 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Docker experience (PostgreSQL, Redis, Ollama, and the `qwen2.5:0.5b` chat model). The `run-sample` helper scripts no
   longer require Docker and run the Docker-free `dev` profile.
 
+## [1.2.0] - 2026-06-09
+
+Feature release headlined by a **sweeping hardening pass across all eight rule-based advisors** — recalibrated
+severities, far fewer false positives and negatives, and a wave of new high-signal checks — backed by the new ability to
+**dismiss and restore advisor findings**. It also makes the console load even when the host disables Spring's
+static-resource mappings, and fixes scheduled-task and sample-app native-image regressions.
+
+### Added
+
+- **New high-signal advisor checks** added across the rule advisors during the hardening pass, including Architecture
+  (`ARCH-SPRING-017`, `ARCH-SPRING-018`, `ARCH-SPRING-019`, `ARCH-SPRING-021`, `ARCH-MOD-001`), REST API (`RAPI-MAP-008`,
+  `RAPI-RESP-008`, `RAPI-VER-005`), and GraalVM (`GRAAL-CLASSGEN-001`, `GRAAL-INIT-002`, `GRAAL-SER-002`,
+  `GRAAL-SCAN-001`, `SPRING-AOT-001`, `SPRING-AOT-002`, plus new class-generation, classpath-scanning, and Spring-AOT
+  categories), with further new Spring, Hibernate, Memory, Security, and Pentesting rules catalogued in the refreshed
+  `docs/*-CHECKS.md`.
+- Added `CRITICAL` severity to the Architecture, REST API, Spring, Hibernate, Security, Pentesting, and GraalVM advisors;
+  official "learn more" links to the Architecture, Pentesting, and GraalVM panels; and a muted analysis-error channel on
+  the Architecture, Spring, Security, and Memory panels that surfaces rules which throw during evaluation.
+- **Dismiss / restore advisor findings** — every finding surfaced by the seven Overview-scored rule advisors
+  (Architecture, REST API, Spring, Hibernate, Memory, Security, Pentesting) now carries a _Dismiss_ button. Dismissed
+  rules collapse into a "Dismissed rules" list at the bottom of the panel and are excluded from the panel's finding
+  count, severity bars, the panel's own advisor score, and the weighted Overview score; they can be restored at any time.
+  Dismissals are keyed by the globally unique rule IDs, applied server-side, and persisted under the `dismissedRules`
+  node of a developer-local `.bootui/boot-ui.yml` file (next to the runtime overrides file), so they survive restarts and
+  stay consistent between each panel and the Overview dashboard.
+- Per-advisor **0–100 score** now shown on each of those advisor panels (100 minus the weighted finding penalty), always
+  matching the value the Overview dashboard computes for that advisor, rendered through a shared `AdvisorScoreCard`.
+
+### Changed
+
+- **Hardened every rule-based advisor (Phases 0–8)** — Architecture, REST API, Spring, Hibernate, Memory, Security,
+  Pentesting, and GraalVM — with context- and profile-aware dynamic severity, recalibrated thresholds, canonical Spring
+  Boot 4 property names, and fewer false positives/negatives. The matching `docs/*-CHECKS.md` catalogues were refreshed.
+- Reworked Memory heap-pressure detection to measure pressure from a post-GC dual snapshot and to track GC-overhead
+  trend across scans rather than within a single forced GC.
+- Extracted shared UI building blocks (`FlashBanner`, `SpinnerButton`, `ReadOnlyNotice`, `AdvisorScoreCard`) and a shared
+  `AgentSessionController` base for the Copilot and Claude Code panels.
+- Changed the Spring panel icon from a lightbulb to a leaf.
+- Restructured the documentation site: install the starter via a dedicated dev Maven/Gradle profile, render the
+  Maven/Gradle setup as VuePress tabs, reordered the setup sections, and removed the README badges.
+
+### Fixed
+
+- Serve the BootUI console assets even when the host sets `spring.web.resources.add-mappings=false`: a dedicated
+  `WebMvcConfigurer` maps `/bootui/**` to the bundled SPA without re-exposing the host's own static resources, and
+  disabled static-resource mappings are now logged at `WARN` with a troubleshooting note (#291).
+- Scheduled Tasks panel no longer returns HTTP 500 when the host application registers its own `ScheduledTaskHolder`
+  bean; tasks are aggregated across every holder so programmatically registered timers appear alongside `@Scheduled`
+  tasks (#288).
+- Fixed the sample app's native-image smoke test for its new `@Inheritance(TABLE_PER_CLASS)` and `UUID` `@Id` demo
+  entities by registering reflection hints for the `UnionSubclassEntityPersister` constructor and the `UUID[]` multi-id
+  loader array in the sample app's native-hints configuration.
+- Fixed a Liquibase connection leak and a brittle cache type check flagged by static analysis, and stabilized the
+  Hibernate advisor end-to-end tests against cached scan state and duplicated paged collection-fetch detail rendering.
+
 ## [1.1.0] - 2026-06-07
 
 Feature release that introduces a dedicated **Advisors** workspace with three new rule-based panels (Spring, REST API,
@@ -401,7 +456,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/jdubois/boot-ui/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/jdubois/boot-ui/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/jdubois/boot-ui/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/jdubois/boot-ui/compare/v0.5.0...v0.5.1

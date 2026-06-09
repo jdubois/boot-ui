@@ -13,8 +13,8 @@ actions:
 features:
   - title: Runtime observability
     details: Inspect health, metrics, memory, threads, heap dumps, startup timing, and JVM sizing from the running Spring Boot app.
-  - title: Configuration intelligence
-    details: Browse masked configuration, profile differences, loggers, beans, conditions, and mappings with stable BootUI DTOs.
+  - title: Advisors dashboard
+    details: Analyse and score your application with advanced advisors for architecture, REST API, Spring, Hibernate, JVM memory, Spring Security, pentesting, and vulnerabilities.
   - title: Diagnostics toolbox
     details: Review traces, log tail, HTTP exchanges, local probes, architecture checks, GraalVM readiness, and dependency vulnerabilities.
   - title: Data and services visibility
@@ -32,11 +32,10 @@ footer: Apache-2.0 Licensed | BootUI
 
 | Goal | Documentation |
 | ---- | ------------- |
+| Run the full demo locally | [Try the sample app](TRY-SAMPLE-APP.md) |
 | Add BootUI to a Spring Boot 4 app | [Setup](SETUP.md) |
 | Explore every panel | [Features](FEATURES.md) |
 | Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
-| Run the full demo locally | [Try the sample app](TRY-SAMPLE-APP.md) |
-| Understand the repository and docs site | [Repository and documentation](REPOSITORY.md) |
 
 ## How BootUI works
 
