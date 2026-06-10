@@ -40,15 +40,17 @@ test.describe('CRaC view', () => {
     const assets = page.locator('.card', {hasText: 'Container assets'})
     await expect(assets).toContainText('Container assets')
 
-    // Both download links are present (no scan required).
-    await expect(page.locator('a[href="api/crac/dockerfile"]')).toBeVisible()
+    // Both download links are present in the assets accordion (no scan required).
+    await expect(page.locator('a[href="api/crac/dockerfile"]')).toHaveCount(1)
     await expect(page.locator('a[href="api/crac/entrypoint"]')).toHaveCount(1)
 
-    // The Dockerfile preview shows the CRaC-enabled runtime image.
+    // Opening the Dockerfile-crac entry reveals its download link and the CRaC-enabled runtime image.
+    await assets.getByRole('button', {name: 'Dockerfile-crac'}).click()
+    await expect(page.locator('a[href="api/crac/dockerfile"]')).toBeVisible()
     await expect(assets).toContainText('bellsoft/liberica-runtime-container')
 
     // The checkpoint-and-run.sh accordion entry opens its entrypoint preview.
-    await page.getByRole('button', {name: 'checkpoint-and-run.sh'}).click()
+    await assets.getByRole('button', {name: 'checkpoint-and-run.sh'}).click()
     await expect(assets).toContainText('CRaCCheckpointTo')
   })
 })
