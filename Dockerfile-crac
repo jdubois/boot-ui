@@ -15,6 +15,15 @@
 # build stage and the sample app is built together with the modules it depends on
 # (`-pl bootui-sample-app -am`). For a JVM image see Dockerfile, for a GraalVM
 # native image see Dockerfile-native.
+#
+# Build and run (CRIU needs extra privileges; the named volume keeps the checkpoint
+# between restarts, and -p publishes the port so the app is reachable from the host):
+#   docker build -f Dockerfile-crac -t bootui-sample-app-crac .
+#   docker run --rm -p 8080:8080 \
+#     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
+#     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
+#
+# Or use docker-compose-crac.yml (docker compose -f docker-compose-crac.yml up --build).
 
 # Build stage (a plain JDK is enough; CRaC only matters at runtime).
 FROM eclipse-temurin:21-jdk-noble AS build
@@ -28,7 +37,7 @@ RUN chmod +x mvnw
 # Build the sample app and its reactor dependencies. The sample app binds the
 # spring-boot-maven-plugin "repackage" goal, so this produces a runnable Spring
 # Boot jar (with BOOT-INF and a Main-Class) alongside the thin *.jar.original.
-RUN ./mvnw -DskipTests -pl bootui-sample-app -am clean package
+RUN ./mvnw -Pcrac -DskipTests -pl bootui-sample-app -am clean package
 
 # Runtime stage with a CRaC-enabled JDK (BellSoft Liberica with CRaC support).
 FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc
