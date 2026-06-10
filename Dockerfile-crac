@@ -51,7 +51,7 @@ ENV SPRING_PROFILES_ACTIVE=dev
 # Copy the repackaged, runnable Spring Boot jar (the glob skips the thin
 # *.jar.original) and the checkpoint/restore entrypoint.
 COPY --from=build /app/bootui-sample-app/target/bootui-sample-app-*.jar ${APP_JAR}
-COPY --from=build /app/bootui-sample-app/crac/checkpoint-and-run.sh /app/checkpoint-and-run.sh
+COPY --from=build /app/bootui-sample-app/src/main/script/checkpoint-and-run.sh /app/checkpoint-and-run.sh
 
 RUN chmod +x /app/checkpoint-and-run.sh && mkdir -p ${CRAC_CHECKPOINT_DIR}
 

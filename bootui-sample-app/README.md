@@ -204,7 +204,7 @@ process — needs them. Ready-to-use Docker assets live at the repository root:
 
 - [`Dockerfile-crac`](../Dockerfile-crac) — builds the reactor and produces a
   runtime image on a CRaC-enabled JDK.
-- [`bootui-sample-app/crac/checkpoint-and-run.sh`](crac/checkpoint-and-run.sh) —
+- [`bootui-sample-app/src/main/script/checkpoint-and-run.sh`](src/main/script/checkpoint-and-run.sh) —
   the container entrypoint: it creates a checkpoint on the first start and
   restores from it on every start afterwards.
 - [`docker-compose-crac.yml`](../docker-compose-crac.yml) — runs the CRaC image
