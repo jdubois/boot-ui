@@ -23,6 +23,12 @@ final class GraalVmDockerfileGenerator {
 
     private static final String DEFAULT_ARTIFACT = "app";
 
+    /** Maven release installed in the build stage when the project carries no Maven Wrapper. */
+    private static final String MAVEN_VERSION = "3.9.16";
+
+    /** Gradle release installed in the build stage when the project carries no Gradle Wrapper. */
+    private static final String GRADLE_VERSION = "9.5.1";
+
     /**
      * The build system the generated Dockerfile drives. Each variant carries the human-readable
      * description used in the file header, the in-image setup step (make the wrapper executable, or
@@ -41,15 +47,12 @@ final class GraalVmDockerfileGenerator {
                 "Maven and the `native` profile that spring-boot-starter-parent provides",
                 """
                 # Maven is not bundled in the GraalVM image and the project has no Maven Wrapper, so
-                # resolve and install the latest stable Maven release at build time. It builds with the
-                # image's GraalVM JDK via JAVA_HOME.
+                # install a known Maven release. It builds with the image's GraalVM JDK via JAVA_HOME.
+                ARG MAVEN_VERSION=%s
                 RUN microdnf install -y curl tar gzip && microdnf clean all && \\
-                    MAVEN_VERSION=$(curl -fsSL https://repo1.maven.org/maven2/org/apache/maven/apache-maven/maven-metadata.xml \\
-                      | grep -o '<version>[^<]*</version>' | sed 's/<[^>]*>//g' \\
-                      | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+$' | sort -V | tail -1) && \\
-                    curl -fsSL "https://dlcdn.apache.org/maven/maven-${MAVEN_VERSION%%.*}/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o /tmp/maven.tar.gz && \\
+                    curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o /tmp/maven.tar.gz && \\
                     tar -xzf /tmp/maven.tar.gz -C /opt && rm /tmp/maven.tar.gz && \\
-                    ln -s "/opt/apache-maven-${MAVEN_VERSION}/bin/mvn" /usr/local/bin/mvn""",
+                    ln -s "/opt/apache-maven-${MAVEN_VERSION}/bin/mvn" /usr/local/bin/mvn""".formatted(MAVEN_VERSION),
                 "mvn -Pnative -DskipTests clean package",
                 "target"),
         GRADLE_WRAPPER(
@@ -63,14 +66,12 @@ final class GraalVmDockerfileGenerator {
                 "Gradle and the GraalVM `org.graalvm.buildtools.native` plugin",
                 """
                 # Gradle is not bundled in the GraalVM image and the project has no Gradle Wrapper, so
-                # resolve and install the latest Gradle release at build time. It builds with the image's
-                # GraalVM JDK via JAVA_HOME.
+                # install a known Gradle release. It builds with the image's GraalVM JDK via JAVA_HOME.
+                ARG GRADLE_VERSION=%s
                 RUN microdnf install -y curl unzip && microdnf clean all && \\
-                    GRADLE_VERSION=$(curl -fsSL https://services.gradle.org/versions/current \\
-                      | sed -n 's/.*"version" *: *"\\([^"]*\\)".*/\\1/p') && \\
                     curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip && \\
                     unzip -q /tmp/gradle.zip -d /opt && rm /tmp/gradle.zip && \\
-                    ln -s "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle""",
+                    ln -s "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle""".formatted(GRADLE_VERSION),
                 "gradle nativeCompile",
                 "build/native/nativeCompile");
 

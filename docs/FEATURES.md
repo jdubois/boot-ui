@@ -329,8 +329,8 @@ did not generate. Alongside the metadata scaffold the panel also generates a tai
 **`Dockerfile-native`** that builds a GraalVM native image of the host application. It detects the project's build
 system — Maven or Gradle, with or without the wrapper — and uses the matching native build command (`./mvnw`/`mvn
 -Pnative -DskipTests clean package`, or `./gradlew`/`gradle nativeCompile`), then packages the resulting executable —
-named after the resolved `artifactId` — into a minimal Debian runtime image (resolving and installing the latest
-Maven/Gradle release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
+named after the resolved `artifactId` — into a minimal Debian runtime image (installing a known, pinned Maven/Gradle
+release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
 same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
 generate). The checks and generated
 metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native
