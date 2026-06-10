@@ -141,6 +141,20 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <!--
+                    This module inherits the BootUI parent (not spring-boot-starter-parent), so the
+                    plugin's default "repackage" execution is not pre-bound. Bind it explicitly so
+                    `package` produces a runnable Spring Boot jar (with BOOT-INF and a Main-Class),
+                    as the Dockerfile and CRaC container image expect when running it with `java -jar`.
+                -->
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
