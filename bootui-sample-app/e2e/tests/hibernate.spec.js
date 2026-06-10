@@ -24,12 +24,11 @@ test.describe('Hibernate Advisor view', () => {
     await expect(page.getByText(/SampleOrder#tags is @ManyToMany and declared as a List/)).toBeVisible()
     await expect(page.getByText('Enum attributes should declare an explicit storage strategy')).toBeVisible()
     await expect(page.getByText(/SampleOrder#status relies on JPA's default ORDINAL enum storage/)).toBeVisible()
-    await expect(page.getByText('Collection fetch joins should not be paged directly')).toBeVisible()
-    // This finding is reported by both HIB-FETCH-003 and HIB-CONFIG-016 (which lists the same risky
-    // paginated collection-fetch queries as evidence), so the detail intentionally renders twice.
-    await expect(
-      page.getByText(/SampleOrderRepository#findPageWithTags pages a collection JOIN FETCH/).first()
-    ).toBeVisible()
+    // HIB-FETCH-003 and HIB-CONFIG-016 (paginated collection JOIN FETCH) are skipped on Hibernate 7.4+
+    // (shipped by Spring Boot 4.1+), where pagination over a collection fetch is handled in memory with a
+    // warning instead of the legacy silent full-table fetch, so neither the finding nor its evidence renders.
+    await expect(page.getByText('Collection fetch joins should not be paged directly')).toHaveCount(0)
+    await expect(page.getByText(/SampleOrderRepository#findPageWithTags pages a collection JOIN FETCH/)).toHaveCount(0)
     await expect(page.getByText('Generated identifiers should avoid GenerationType.TABLE')).toBeVisible()
     await expect(page.getByText(/SampleLegacyTicket#id uses GenerationType.TABLE/)).toBeVisible()
     await expect(page.getByText('@SequenceGenerator should use pooled allocation')).toBeVisible()
