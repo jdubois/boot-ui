@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.graalvm;
 
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectBuildSystem;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.InstallOutcome;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Resolution;
@@ -128,7 +129,7 @@ public class GraalVmController {
     /** Generates the Dockerfile-native tailored to the host application's artifact and build system. */
     private String generateDockerfile() {
         return dockerfileGenerator.generate(
-                sourceLayout.artifactName(), GraalVmDockerfileGenerator.detect(sourceLayout.projectRoot()));
+                sourceLayout.artifactName(), ProjectBuildSystem.detect(sourceLayout.projectRoot()));
     }
 
     private ResponseEntity<GraalVmInstallResultDto> toResponse(InstallOutcome outcome) {

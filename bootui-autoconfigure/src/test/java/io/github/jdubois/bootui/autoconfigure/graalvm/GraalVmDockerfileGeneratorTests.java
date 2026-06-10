@@ -2,12 +2,8 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmDockerfileGenerator.BuildTool;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectBuildSystem;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 class GraalVmDockerfileGeneratorTests {
 
@@ -50,19 +46,21 @@ class GraalVmDockerfileGeneratorTests {
 
     @Test
     void generatesPlainMavenVariant() {
-        String dockerfile = generator.generate("my-service", BuildTool.MAVEN);
+        String dockerfile = generator.generate("my-service", ProjectBuildSystem.MAVEN);
 
         assertThat(dockerfile).contains("mvn -Pnative -DskipTests clean native:compile");
         assertThat(dockerfile).doesNotContain("./mvnw");
         assertThat(dockerfile).contains("apache-maven");
         assertThat(dockerfile).contains("target/my-service");
+        // The GraalVM image is UBI-based, so a missing build tool is installed with microdnf.
+        assertThat(dockerfile).contains("microdnf install -y curl tar gzip");
         // Installs a known, pinned Maven release exposed as a clear constant.
         assertThat(dockerfile).contains("ARG MAVEN_VERSION=3.9.16");
     }
 
     @Test
     void generatesGradleWrapperVariant() {
-        String dockerfile = generator.generate("my-service", BuildTool.GRADLE_WRAPPER);
+        String dockerfile = generator.generate("my-service", ProjectBuildSystem.GRADLE_WRAPPER);
 
         assertThat(dockerfile).contains("chmod +x gradlew");
         assertThat(dockerfile).contains("./gradlew nativeCompile");
@@ -72,59 +70,14 @@ class GraalVmDockerfileGeneratorTests {
 
     @Test
     void generatesPlainGradleVariant() {
-        String dockerfile = generator.generate("my-service", BuildTool.GRADLE);
+        String dockerfile = generator.generate("my-service", ProjectBuildSystem.GRADLE);
 
         assertThat(dockerfile).contains("gradle nativeCompile");
         assertThat(dockerfile).doesNotContain("./gradlew");
         assertThat(dockerfile).contains("services.gradle.org");
+        assertThat(dockerfile).contains("microdnf install -y curl unzip");
         assertThat(dockerfile).contains("build/native/nativeCompile/my-service");
         // Installs a known, pinned Gradle release exposed as a clear constant.
         assertThat(dockerfile).contains("ARG GRADLE_VERSION=9.5.1");
-    }
-
-    @Test
-    void detectsMavenWrapperWhenMvnwPresent(@TempDir Path projectRoot) throws IOException {
-        Files.writeString(projectRoot.resolve("pom.xml"), "<project/>");
-        Files.writeString(projectRoot.resolve("mvnw"), "#!/bin/sh");
-
-        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN_WRAPPER);
-    }
-
-    @Test
-    void detectsPlainMavenWhenOnlyPomPresent(@TempDir Path projectRoot) throws IOException {
-        Files.writeString(projectRoot.resolve("pom.xml"), "<project/>");
-
-        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN);
-    }
-
-    @Test
-    void detectsGradleWrapperWhenGradlewPresent(@TempDir Path projectRoot) throws IOException {
-        Files.writeString(projectRoot.resolve("build.gradle"), "plugins {}");
-        Files.writeString(projectRoot.resolve("gradlew"), "#!/bin/sh");
-
-        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.GRADLE_WRAPPER);
-    }
-
-    @Test
-    void detectsPlainGradleFromKotlinBuildScript(@TempDir Path projectRoot) throws IOException {
-        Files.writeString(projectRoot.resolve("build.gradle.kts"), "plugins {}");
-
-        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.GRADLE);
-    }
-
-    @Test
-    void prefersMavenWhenBothBuildSystemsPresent(@TempDir Path projectRoot) throws IOException {
-        Files.writeString(projectRoot.resolve("pom.xml"), "<project/>");
-        Files.writeString(projectRoot.resolve("mvnw"), "#!/bin/sh");
-        Files.writeString(projectRoot.resolve("build.gradle"), "plugins {}");
-        Files.writeString(projectRoot.resolve("gradlew"), "#!/bin/sh");
-
-        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN_WRAPPER);
-    }
-
-    @Test
-    void defaultsToMavenWrapperWhenNoBuildFilesOrNullRoot(@TempDir Path projectRoot) {
-        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN_WRAPPER);
-        assertThat(GraalVmDockerfileGenerator.detect(null)).isEqualTo(BuildTool.MAVEN_WRAPPER);
     }
 }

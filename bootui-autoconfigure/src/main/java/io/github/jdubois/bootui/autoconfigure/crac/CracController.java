@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.crac;
 
-import io.github.jdubois.bootui.autoconfigure.crac.CracDockerfileGenerator.BuildTool;
 import io.github.jdubois.bootui.autoconfigure.crac.CracReadinessScanner.CracScanResult;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectBuildSystem;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.InstallOutcome;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Resolution;
@@ -153,7 +153,7 @@ public class CracController {
 
     /** Generates the Dockerfile-crac tailored to the host application's artifact and build system. */
     private String generateDockerfile() {
-        BuildTool buildTool = CracDockerfileGenerator.detect(sourceTree.projectRoot());
+        ProjectBuildSystem buildTool = ProjectBuildSystem.detect(sourceTree.projectRoot());
         return dockerfileGenerator.generateDockerfile(sourceTree.artifactName(), buildTool);
     }
 
