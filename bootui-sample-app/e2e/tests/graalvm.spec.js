@@ -35,12 +35,24 @@ test.describe('GraalVM view', () => {
     // The readiness-concerns section renders once the scan completes.
     await expect(page.getByText('Readiness concerns')).toBeVisible()
 
-    // The metadata and Dockerfile artifacts live in a two-drawer accordion; the reachability-metadata.json
-    // drawer is open by default. The sample app runs from an exploded build (spring-boot:run), so the panel
-    // offers to write the generated scaffold into the source tree and surfaces the resolved target path. The
-    // button is intentionally not clicked here to avoid writing a metadata file into the working tree. Both
-    // drawers share the "Write into project" label, so the lookup is scoped to each accordion item.
-    const metadataDrawer = page.locator('.accordion-item', {hasText: 'reachability-metadata.json'}).first()
+    // The metadata, Dockerfile and combined artifacts live in a three-drawer accordion. The combined
+    // "Both files" drawer is open by default and offers a single action that writes both artifacts into
+    // the source tree. Drawers are located by their header button so the shared "Write into project" label
+    // and the filenames referenced in the combined summary don't make the lookups ambiguous. None of the
+    // write buttons are clicked here, to avoid writing files into the working tree.
+    const bothDrawer = page
+      .locator('.accordion-item')
+      .filter({has: page.getByRole('button', {name: 'Both files', exact: true})})
+    await expect(bothDrawer.getByText("writes both directly into the project's source tree")).toBeVisible()
+    await expect(bothDrawer.getByRole('button', {name: 'Write into project'})).toBeVisible()
+
+    // The sample app runs from an exploded build (spring-boot:run), so the reachability-metadata.json drawer
+    // offers to write the generated scaffold into the source tree and surfaces the resolved target path.
+    // Expand it first since the combined drawer is open by default.
+    const metadataDrawer = page
+      .locator('.accordion-item')
+      .filter({has: page.getByRole('button', {name: 'reachability-metadata.json', exact: true})})
+    await metadataDrawer.getByRole('button', {name: 'reachability-metadata.json'}).click()
     await expect(metadataDrawer.getByRole('button', {name: 'Write into project'})).toBeVisible()
     await expect(metadataDrawer.getByText('Detected source tree:')).toBeVisible()
 
@@ -54,9 +66,10 @@ test.describe('GraalVM view', () => {
 
     // A tailored native-image Dockerfile-native is generated alongside the metadata scaffold. Its drawer
     // is collapsed by default, so expand it first. The preview embeds the resolved artifactId so the
-    // COPY/cp paths point at the real executable name. The download is available; the write button is
-    // intentionally not clicked to avoid writing a Dockerfile into the working tree.
-    const dockerDrawer = page.locator('.accordion-item', {hasText: 'Dockerfile-native'}).first()
+    // COPY/cp paths point at the real executable name.
+    const dockerDrawer = page
+      .locator('.accordion-item')
+      .filter({has: page.getByRole('button', {name: 'Dockerfile-native', exact: true})})
     await dockerDrawer.getByRole('button', {name: 'Dockerfile-native'}).click()
     await expect(dockerDrawer.getByRole('link', {name: 'Download'})).toBeVisible()
     await expect(dockerDrawer.getByRole('button', {name: 'Write into project'})).toBeVisible()

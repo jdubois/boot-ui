@@ -273,4 +273,62 @@ describe('GraalVm', () => {
     expect(writeButton).toBeUndefined()
     expect(wrapper.text()).toContain('Direct write unavailable')
   })
+
+  it('opens the combined drawer by default and summarises the one-step write', async () => {
+    const wrapper = await mountWithReport(graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)]))
+
+    const bothCard = cardByTitle(wrapper, 'Both files')
+    expect(bothCard).toBeDefined()
+    expect(bothCard.find('.accordion-collapse').classes()).toContain('show')
+    expect(wrapper.text()).toContain("writes both directly into the project's source tree")
+    const writeButton = bothCard.findAll('button').find((button) => button.text().includes('Write into project'))
+    expect(writeButton).toBeDefined()
+  })
+
+  it('writes both files into the project source tree in a single action', async () => {
+    const report = graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)])
+    const fetchMock = vi.fn((url) => {
+      if (String(url).includes('api/graalvm/install/all')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              installed: true,
+              status: 'WRITTEN',
+              message: 'Wrote reachability-metadata.json and Dockerfile-native into the project source tree.',
+              metadata: {installed: true, status: 'WRITTEN', message: 'Wrote the metadata scaffold.', path: 'a'},
+              dockerfile: {installed: true, status: 'WRITTEN', message: 'Wrote the Dockerfile.', path: 'b'}
+            }),
+            {status: 200}
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify(report), {status: 200}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(GraalVm)
+    await flushPromises()
+
+    const bothCard = cardByTitle(wrapper, 'Both files')
+    const writeButton = bothCard.findAll('button').find((button) => button.text().includes('Write into project'))
+    expect(writeButton).toBeDefined()
+    await writeButton.trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('api/graalvm/install/all', {method: 'POST'})
+    expect(wrapper.text()).toContain('Wrote reachability-metadata.json and Dockerfile-native')
+    expect(wrapper.text()).toContain('Wrote the metadata scaffold.')
+    expect(wrapper.text()).toContain('Wrote the Dockerfile.')
+  })
+
+  it('hides the combined write button when the app is not running from source', async () => {
+    const wrapper = await mountWithReport(
+      graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)], {installable: false})
+    )
+
+    const bothCard = cardByTitle(wrapper, 'Both files')
+    const writeButton = bothCard.findAll('button').find((button) => button.text().includes('Write into project'))
+    expect(writeButton).toBeUndefined()
+    expect(bothCard.text()).toContain('Direct write unavailable')
+  })
 })

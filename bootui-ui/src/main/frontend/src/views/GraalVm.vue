@@ -18,8 +18,10 @@ const installing = ref(false)
 const installResult = ref(null)
 const installingDockerfile = ref(false)
 const dockerInstallResult = ref(null)
+const installingBoth = ref(false)
+const bothInstallResult = ref(null)
 const includeDependencies = ref(false)
-const openArtifact = ref('metadata')
+const openArtifact = ref('both')
 
 const severityClasses = {
   CRITICAL: 'text-bg-danger',
@@ -51,6 +53,10 @@ const canDownloadMetadata = computed(
       report.value?.metadata?.resourceEntries > 0)
 )
 
+const canWriteBoth = computed(
+  () => hasScanData.value && report.value?.installable && report.value?.dockerfile?.installable
+)
+
 function alertClassForStatus(status) {
   switch (status) {
     case 'WRITTEN':
@@ -66,6 +72,7 @@ function alertClassForStatus(status) {
 
 const installResultClass = computed(() => alertClassForStatus(installResult.value?.status))
 const dockerInstallResultClass = computed(() => alertClassForStatus(dockerInstallResult.value?.status))
+const bothInstallResultClass = computed(() => alertClassForStatus(bothInstallResult.value?.status))
 
 const emptyFindingsTitle = computed(() => {
   if (!hasScanData.value) return 'Run readiness checks to see native-image concerns'
@@ -163,6 +170,28 @@ async function installDockerfile() {
     }
   } finally {
     installingDockerfile.value = false
+  }
+}
+
+async function installBoth() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  installingBoth.value = true
+  try {
+    const res = await apiFetch('api/graalvm/install/all', {method: 'POST'})
+    bothInstallResult.value = await res.json()
+  } catch (e) {
+    bothInstallResult.value = {
+      installed: false,
+      status: 'ERROR',
+      message: describeLoadError(e, 'Unable to write the GraalVM artifacts'),
+      metadata: null,
+      dockerfile: null
+    }
+  } finally {
+    installingBoth.value = false
   }
 }
 
@@ -302,6 +331,61 @@ onMounted(loadReport)
 
         <div class="col-lg-7">
           <div class="accordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button
+                  :class="['accordion-button', {collapsed: openArtifact !== 'both'}]"
+                  :aria-expanded="openArtifact === 'both'"
+                  type="button"
+                  @click="toggleArtifact('both')"
+                >
+                  <span class="fw-semibold">Both files</span>
+                </button>
+              </h2>
+              <div :class="['accordion-collapse collapse', {show: openArtifact === 'both'}]">
+                <div class="accordion-body">
+                  <div v-if="!hasScanData" class="text-muted">
+                    Run readiness checks to generate and write both GraalVM artifacts in one step.
+                  </div>
+                  <template v-else>
+                    <p class="small text-muted mb-3">
+                      Generates the <code>reachability-metadata.json</code> scaffold and a tailored
+                      <code>Dockerfile-native</code>, then writes both directly into the project's source tree in a
+                      single step — the metadata under <code>{{ report.metadataDirectory }}</code> and the Dockerfile at
+                      the project root. Each write is fail-closed and never overwrites a file BootUI did not generate.
+                    </p>
+                    <div class="d-flex gap-2 mb-3">
+                      <SpinnerButton
+                        v-if="canWriteBoth"
+                        :loading="installingBoth"
+                        :disabled="installingBoth || readOnly"
+                        class="btn btn-primary btn-sm"
+                        type="button"
+                        label="Write into project"
+                        loading-label="Writing..."
+                        @click="installBoth"
+                      />
+                    </div>
+                    <div v-if="bothInstallResult" :class="bothInstallResultClass" class="alert py-2 small mb-0">
+                      <div>{{ bothInstallResult.message }}</div>
+                      <ul v-if="bothInstallResult.metadata || bothInstallResult.dockerfile" class="mb-0 mt-1 ps-3">
+                        <li v-if="bothInstallResult.metadata">
+                          <code>reachability-metadata.json</code> — {{ bothInstallResult.metadata.message }}
+                        </li>
+                        <li v-if="bothInstallResult.dockerfile">
+                          <code>Dockerfile-native</code> — {{ bothInstallResult.dockerfile.message }}
+                        </li>
+                      </ul>
+                    </div>
+                    <div v-else-if="!canWriteBoth" class="small text-muted mb-0">
+                      Direct write unavailable: writing both files requires the application to run from an exploded
+                      build (for example <code>mvn spring-boot:run</code> or an IDE) rather than a packaged jar.
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
             <div class="accordion-item">
               <h2 class="accordion-header">
                 <button

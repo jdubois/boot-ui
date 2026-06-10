@@ -332,7 +332,10 @@ system — Maven or Gradle, with or without the wrapper — and uses the matchin
 named after the resolved `artifactId` — into a minimal Debian runtime image (installing a known, pinned Maven/Gradle
 release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
 same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
-generate). The checks and generated
+generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
+top drawer is a **Both files** action that generates and writes both artifacts into the project's source tree in a
+single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. The checks
+and generated
 metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native
 build. See [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one
 inspects.

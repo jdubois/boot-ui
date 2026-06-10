@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Coordi
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.InstallOutcome;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Resolution;
 import io.github.jdubois.bootui.core.dto.GraalVmDockerfileDto;
+import io.github.jdubois.bootui.core.dto.GraalVmInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
 import java.net.URL;
@@ -40,7 +41,7 @@ import org.springframework.web.bind.annotation.RestController;
  * source tree when it is detectably running from an exploded build rather than a packaged jar;
  * {@code GET /dockerfile} downloads a native-image {@code Dockerfile-native} tailored to the host
  * application; {@code POST /dockerfile/install} writes it to the project root under the same
- * exploded-build constraint.</p>
+ * exploded-build constraint; {@code POST /install/all} writes both artifacts in a single action.</p>
  */
 @RestController
 @RequestMapping("/bootui/api/graalvm")
@@ -105,6 +106,20 @@ public class GraalVmController {
         return toResponse(sourceLayout.install(json));
     }
 
+    @PostMapping("/install/all")
+    public ResponseEntity<GraalVmInstallAllResultDto> installAll() {
+        InstallOutcome metadataOutcome = sourceLayout.install(metadataGenerator.generate(lastResult.metadata()));
+        InstallOutcome dockerfileOutcome = sourceLayout.installDockerfile(generateDockerfile());
+        String status = mostSevere(metadataOutcome.status(), dockerfileOutcome.status());
+        boolean installed = "WRITTEN".equals(metadataOutcome.status()) && "WRITTEN".equals(dockerfileOutcome.status());
+        String message = installed
+                ? "Wrote reachability-metadata.json and Dockerfile-native into the project source tree."
+                : "Finished writing the GraalVM artifacts \u2014 review the per-file results below.";
+        GraalVmInstallAllResultDto body = new GraalVmInstallAllResultDto(
+                installed, status, message, toDto(metadataOutcome), toDto(dockerfileOutcome));
+        return ResponseEntity.status(httpStatusFor(status)).body(body);
+    }
+
     @GetMapping(value = "/dockerfile", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<byte[]> dockerfile() {
         byte[] body = generateDockerfile().getBytes(StandardCharsets.UTF_8);
@@ -126,16 +141,35 @@ public class GraalVmController {
     }
 
     private ResponseEntity<GraalVmInstallResultDto> toResponse(InstallOutcome outcome) {
-        GraalVmInstallResultDto body = new GraalVmInstallResultDto(
+        return ResponseEntity.status(httpStatusFor(outcome.status())).body(toDto(outcome));
+    }
+
+    private static GraalVmInstallResultDto toDto(InstallOutcome outcome) {
+        return new GraalVmInstallResultDto(
                 "WRITTEN".equals(outcome.status()), outcome.status(), outcome.message(), outcome.path());
-        HttpStatus status =
-                switch (outcome.status()) {
-                    case "WRITTEN" -> HttpStatus.OK;
-                    case "EXISTS" -> HttpStatus.CONFLICT;
-                    case "UNAVAILABLE" -> HttpStatus.UNPROCESSABLE_ENTITY;
-                    default -> HttpStatus.INTERNAL_SERVER_ERROR;
-                };
-        return ResponseEntity.status(status).body(body);
+    }
+
+    private static HttpStatus httpStatusFor(String status) {
+        return switch (status) {
+            case "WRITTEN" -> HttpStatus.OK;
+            case "EXISTS" -> HttpStatus.CONFLICT;
+            case "UNAVAILABLE" -> HttpStatus.UNPROCESSABLE_ENTITY;
+            default -> HttpStatus.INTERNAL_SERVER_ERROR;
+        };
+    }
+
+    /** Returns the more severe of two install statuses, so a combined write reflects its worst outcome. */
+    private static String mostSevere(String first, String second) {
+        return severityRank(first) >= severityRank(second) ? first : second;
+    }
+
+    private static int severityRank(String status) {
+        return switch (status) {
+            case "ERROR" -> 3;
+            case "UNAVAILABLE" -> 2;
+            case "EXISTS" -> 1;
+            default -> 0;
+        };
     }
 
     private GraalVmReadinessReport augment(GraalVmReadinessReport report) {
