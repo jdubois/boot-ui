@@ -35,10 +35,13 @@ test.describe('GraalVM view', () => {
     // The readiness-concerns section renders once the scan completes.
     await expect(page.getByText('Readiness concerns')).toBeVisible()
 
-    // The sample app runs from an exploded build (spring-boot:run), so the panel offers to install
-    // the generated scaffold into the source tree and surfaces the resolved target path. The button
-    // is intentionally not clicked here to avoid writing a metadata file into the working tree.
-    await expect(page.getByRole('button', {name: 'Install into source tree'})).toBeVisible()
+    // The sample app runs from an exploded build (spring-boot:run), so the panel offers to write the
+    // generated scaffold into the source tree and surfaces the resolved target path. The button is
+    // intentionally not clicked here to avoid writing a metadata file into the working tree. Both the
+    // metadata and Dockerfile cards share the "Write into project source tree" label, so the lookup is
+    // scoped to the reachability-metadata.json card.
+    const metadataCard = page.locator('.card', {hasText: 'reachability-metadata.json'}).first()
+    await expect(metadataCard.getByRole('button', {name: 'Write into project source tree'})).toBeVisible()
     await expect(page.getByText('Detected source tree:')).toBeVisible()
 
     // The scaffold-placement hint substitutes the resolved Maven coordinates (groupId/artifactId)
@@ -55,7 +58,8 @@ test.describe('GraalVM view', () => {
     // Dockerfile into the working tree.
     const dockerCard = page.locator('.card', {hasText: 'Dockerfile-native'}).first()
     await expect(dockerCard).toBeVisible()
-    await expect(dockerCard.getByRole('link', {name: 'Download Dockerfile'})).toBeVisible()
+    await expect(dockerCard.getByRole('link', {name: 'Download Dockerfile-native'})).toBeVisible()
+    await expect(dockerCard.getByRole('button', {name: 'Write into project source tree'})).toBeVisible()
     await expect(dockerCard.locator('pre')).toContainText('FROM ghcr.io/graalvm/graalvm-community')
     await expect(dockerCard.locator('pre')).toContainText('target/bootui-sample-app')
   })

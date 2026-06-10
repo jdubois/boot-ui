@@ -81,6 +81,13 @@ async function mountWithReport(report) {
   return wrapper
 }
 
+function cardByTitle(wrapper, title) {
+  return wrapper.findAll('.card').find((card) => {
+    const header = card.find('.card-header .fw-semibold')
+    return header.exists() && header.text() === title
+  })
+}
+
 describe('GraalVm', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -192,7 +199,10 @@ describe('GraalVm', () => {
     const wrapper = mount(GraalVm)
     await flushPromises()
 
-    const installButton = wrapper.findAll('button').find((button) => button.text().includes('Install into source tree'))
+    const metadataCard = cardByTitle(wrapper, 'reachability-metadata.json')
+    const installButton = metadataCard
+      .findAll('button')
+      .find((button) => button.text().includes('Write into project source tree'))
     expect(installButton).toBeDefined()
     await installButton.trigger('click')
     await flushPromises()
@@ -206,7 +216,10 @@ describe('GraalVm', () => {
       graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)], {installable: false})
     )
 
-    const installButton = wrapper.findAll('button').find((button) => button.text().includes('Install into source tree'))
+    const metadataCard = cardByTitle(wrapper, 'reachability-metadata.json')
+    const installButton = metadataCard
+      .findAll('button')
+      .find((button) => button.text().includes('Write into project source tree'))
     expect(installButton).toBeUndefined()
     expect(wrapper.text()).toContain('Direct install unavailable')
   })
@@ -244,7 +257,10 @@ describe('GraalVm', () => {
     const wrapper = mount(GraalVm)
     await flushPromises()
 
-    const writeButton = wrapper.findAll('button').find((button) => button.text().includes('Write to project root'))
+    const dockerCard = cardByTitle(wrapper, 'Dockerfile-native')
+    const writeButton = dockerCard
+      .findAll('button')
+      .find((button) => button.text().includes('Write into project source tree'))
     expect(writeButton).toBeDefined()
     await writeButton.trigger('click')
     await flushPromises()
@@ -258,7 +274,10 @@ describe('GraalVm', () => {
       graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)], {installable: false})
     )
 
-    const writeButton = wrapper.findAll('button').find((button) => button.text().includes('Write to project root'))
+    const dockerCard = cardByTitle(wrapper, 'Dockerfile-native')
+    const writeButton = dockerCard
+      .findAll('button')
+      .find((button) => button.text().includes('Write into project source tree'))
     expect(writeButton).toBeUndefined()
     expect(wrapper.text()).toContain('Direct write unavailable')
   })

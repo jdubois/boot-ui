@@ -306,7 +306,7 @@ onMounted(loadReport)
                   download="reachability-metadata.json"
                   href="api/graalvm/metadata"
                 >
-                  <i class="bi bi-download me-1"></i>Download scaffold
+                  <i class="bi bi-download me-1"></i>Download reachability-metadata.json
                 </a>
                 <SpinnerButton
                   v-if="canDownloadMetadata && report.installable"
@@ -315,8 +315,8 @@ onMounted(loadReport)
                   :title="report.installPath"
                   class="btn btn-primary btn-sm"
                   type="button"
-                  label="Install into source tree"
-                  loading-label="Installing..."
+                  label="Write into project source tree"
+                  loading-label="Writing..."
                   @click="installMetadata"
                 />
               </div>
@@ -366,7 +366,7 @@ onMounted(loadReport)
                   download="Dockerfile-native"
                   href="api/graalvm/dockerfile"
                 >
-                  <i class="bi bi-download me-1"></i>Download Dockerfile
+                  <i class="bi bi-download me-1"></i>Download Dockerfile-native
                 </a>
                 <SpinnerButton
                   v-if="hasScanData && report.dockerfile && report.dockerfile.installable"
@@ -375,7 +375,7 @@ onMounted(loadReport)
                   :title="report.dockerfile.installPath"
                   class="btn btn-primary btn-sm"
                   type="button"
-                  label="Write to project root"
+                  label="Write into project source tree"
                   loading-label="Writing..."
                   @click="installDockerfile"
                 />
