@@ -5,9 +5,9 @@ readiness. It combines a live runtime-status view with a heuristic readiness adv
 ships with BootUI today, what it inspects, when it fires, and what to do about it.
 
 Each check is a small class registered in
-[`CracCheckRegistry`](../bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracCheckRegistry.java)
+[`CracCheckRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracCheckRegistry.java)
 and implemented in
-[`CracChecks.java`](../bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracChecks.java).
+[`CracChecks.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracChecks.java).
 The list intentionally stays compact and reviewable; adding a new check means adding one focused class plus a registry
 entry.
 
