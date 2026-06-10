@@ -16,7 +16,9 @@ const actionMessage = ref(null)
 const loading = ref(false)
 const installing = ref(false)
 const installResult = ref(null)
-const includeDependencies = ref(true)
+const installingDockerfile = ref(false)
+const dockerInstallResult = ref(null)
+const includeDependencies = ref(false)
 
 const severityClasses = {
   CRITICAL: 'text-bg-danger',
@@ -48,8 +50,8 @@ const canDownloadMetadata = computed(
       report.value?.metadata?.resourceEntries > 0)
 )
 
-const installResultClass = computed(() => {
-  switch (installResult.value?.status) {
+function alertClassForStatus(status) {
+  switch (status) {
     case 'WRITTEN':
       return 'alert-success'
     case 'EXISTS':
@@ -59,7 +61,10 @@ const installResultClass = computed(() => {
     default:
       return 'alert-info'
   }
-})
+}
+
+const installResultClass = computed(() => alertClassForStatus(installResult.value?.status))
+const dockerInstallResultClass = computed(() => alertClassForStatus(dockerInstallResult.value?.status))
 
 const emptyFindingsTitle = computed(() => {
   if (!hasScanData.value) return 'Run readiness checks to see native-image concerns'
@@ -136,6 +141,27 @@ async function installMetadata() {
     }
   } finally {
     installing.value = false
+  }
+}
+
+async function installDockerfile() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  installingDockerfile.value = true
+  try {
+    const res = await apiFetch('api/graalvm/dockerfile/install', {method: 'POST'})
+    dockerInstallResult.value = await res.json()
+  } catch (e) {
+    dockerInstallResult.value = {
+      installed: false,
+      status: 'ERROR',
+      message: describeLoadError(e, 'Unable to write Dockerfile-native'),
+      path: null
+    }
+  } finally {
+    installingDockerfile.value = false
   }
 }
 
@@ -270,7 +296,7 @@ onMounted(loadReport)
         </div>
 
         <div class="col-lg-7">
-          <div class="card h-100">
+          <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
               <span class="fw-semibold">reachability-metadata.json</span>
               <div class="d-flex gap-2">
@@ -302,8 +328,8 @@ onMounted(loadReport)
               <template v-else>
                 <p class="small text-muted mb-2">
                   A heuristic scaffold seeded from the last scan. Review and complete it with the GraalVM tracing agent,
-                  then place it under
-                  <code>src/main/resources/META-INF/native-image/&lt;groupId&gt;/&lt;artifactId&gt;/</code>.
+                  then place it under <code>{{ report.metadataDirectory }}</code
+                  >.
                 </p>
                 <div v-if="installResult" :class="installResultClass" class="alert py-2 small mb-2">
                   {{ installResult.message }}
@@ -326,6 +352,65 @@ onMounted(loadReport)
                     <strong>{{ report.metadata.resourceEntries }}</strong> resource globs
                   </li>
                 </ul>
+              </template>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span class="fw-semibold">Dockerfile-native</span>
+              <div class="d-flex gap-2">
+                <a
+                  v-if="hasScanData"
+                  class="btn btn-outline-primary btn-sm"
+                  download="Dockerfile-native"
+                  href="api/graalvm/dockerfile"
+                >
+                  <i class="bi bi-download me-1"></i>Download Dockerfile
+                </a>
+                <SpinnerButton
+                  v-if="hasScanData && report.dockerfile && report.dockerfile.installable"
+                  :loading="installingDockerfile"
+                  :disabled="installingDockerfile || readOnly"
+                  :title="report.dockerfile.installPath"
+                  class="btn btn-primary btn-sm"
+                  type="button"
+                  label="Write to project root"
+                  loading-label="Writing..."
+                  @click="installDockerfile"
+                />
+              </div>
+            </div>
+            <div class="card-body">
+              <div v-if="!hasScanData" class="text-muted">
+                Run readiness checks to generate a native-image Dockerfile tailored to this application.
+              </div>
+              <template v-else>
+                <p class="small text-muted mb-2">
+                  A multi-stage native-image build that compiles the application with GraalVM and packages the resulting
+                  executable into a minimal runtime image.
+                </p>
+                <div v-if="dockerInstallResult" :class="dockerInstallResultClass" class="alert py-2 small mb-2">
+                  {{ dockerInstallResult.message }}
+                </div>
+                <div
+                  v-else-if="report.dockerfile && report.dockerfile.installable && report.dockerfile.installPath"
+                  class="small text-muted mb-2"
+                >
+                  Detected source tree: write saves to <code>{{ report.dockerfile.installPath }}</code
+                  >.
+                </div>
+                <div
+                  v-else-if="report.dockerfile && !report.dockerfile.installable && report.dockerfile.installPath"
+                  class="small text-muted mb-2"
+                >
+                  Direct write unavailable: {{ report.dockerfile.installPath }}
+                </div>
+                <pre
+                  v-if="report.dockerfile && report.dockerfile.content"
+                  class="bg-body-tertiary border rounded p-2 mb-0 small"
+                  style="max-height: 16rem; overflow: auto"
+                ><code>{{ report.dockerfile.content }}</code></pre>
               </template>
             </div>
           </div>

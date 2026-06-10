@@ -21,7 +21,7 @@ invoked, caching the last report in the controller.
 
 In addition to the checks, the scan does two things:
 
-- **Surveys classpath dependencies** (when the _Include dependencies_ toggle is on, which is the default) to report which
+- **Surveys classpath dependencies** (when the _Include dependencies_ toggle is on; it is off by default) to report which
   third-party JARs already ship bundled reachability metadata under `META-INF/native-image/`. BootUI counts metadata only
   when a `.json` file exists under that directory; a JAR that only has `native-image.properties` is reported as bundling
   native-image build arguments, not reachability metadata. The survey opens only classpath JARs, stops after 500 JARs,
@@ -35,6 +35,11 @@ In addition to the checks, the scan does two things:
   resolved from `build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated` namespace). The
   write is confined under `src/main/resources` and refuses to overwrite a `reachability-metadata.json` that BootUI did
   not generate.
+- **Generates a tailored `Dockerfile-native`** for the host application — a multi-stage build that compiles a GraalVM
+  native image with `./mvnw -Pnative -DskipTests clean package` and packages the resulting executable (named after the
+  resolved `artifactId`) into a minimal Debian runtime image with a non-root user and an Actuator health check. You can
+  download it, or — under the same exploded-build constraint as the scaffold install — write it to the project root.
+  That write is fail-closed and refuses to overwrite a `Dockerfile-native` that BootUI did not generate.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when ArchUnit is on the classpath and a base
@@ -69,7 +74,10 @@ image (records, `Serializable` types, and JPA entities); serialization candidate
 types; resource globs cover the standard `application*.properties` / `application*.yml` / `application*.yaml` files.
 
 Review the generated file with the tracing agent, then place it under
-`src/main/resources/META-INF/native-image/<groupId>/<artifactId>/` in your application.
+`src/main/resources/META-INF/native-image/<groupId>/<artifactId>/` in your application. The panel substitutes the
+resolved `groupId`/`artifactId` into that hint whenever it can determine them — from `build-info.properties` (which works
+even when running from a packaged jar) or the project `pom.xml` — and keeps the `<groupId>`/`<artifactId>` placeholders
+only when no coordinates can be resolved.
 
 ## Severity scale
 

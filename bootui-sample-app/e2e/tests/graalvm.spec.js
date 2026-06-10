@@ -40,5 +40,23 @@ test.describe('GraalVM view', () => {
     // is intentionally not clicked here to avoid writing a metadata file into the working tree.
     await expect(page.getByRole('button', {name: 'Install into source tree'})).toBeVisible()
     await expect(page.getByText('Detected source tree:')).toBeVisible()
+
+    // The scaffold-placement hint substitutes the resolved Maven coordinates (groupId/artifactId)
+    // rather than leaving the <groupId>/<artifactId> placeholders.
+    const placement = page.locator('p', {hasText: 'then place it under'})
+    await expect(placement).toContainText(
+      'src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-sample-app/'
+    )
+    await expect(placement).not.toContainText('<groupId>')
+
+    // A tailored native-image Dockerfile-native is generated alongside the metadata scaffold. The
+    // preview embeds the resolved artifactId so the COPY/cp paths point at the real executable name.
+    // The download is available; the write button is intentionally not clicked to avoid writing a
+    // Dockerfile into the working tree.
+    const dockerCard = page.locator('.card', {hasText: 'Dockerfile-native'}).first()
+    await expect(dockerCard).toBeVisible()
+    await expect(dockerCard.getByRole('link', {name: 'Download Dockerfile'})).toBeVisible()
+    await expect(dockerCard.locator('pre')).toContainText('FROM ghcr.io/graalvm/graalvm-community')
+    await expect(dockerCard.locator('pre')).toContainText('target/bootui-sample-app')
   })
 })

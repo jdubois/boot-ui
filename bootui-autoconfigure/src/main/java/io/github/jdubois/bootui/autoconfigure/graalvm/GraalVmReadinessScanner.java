@@ -236,6 +236,8 @@ final class GraalVmReadinessScanner {
                 warnings,
                 metadataSummary,
                 false,
+                null,
+                null,
                 null);
     }
 
