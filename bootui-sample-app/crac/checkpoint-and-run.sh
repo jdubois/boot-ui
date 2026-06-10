@@ -22,8 +22,9 @@ APP_JAR="${APP_JAR:-/app/app.jar}"
 
 # Run with the "dev" profile *active* so BootUI turns on (its activation condition
 # inspects the active profiles, not spring.profiles.default) and the app uses the
-# in-memory H2 database / cache. CRaC reads this at checkpoint time (first start)
-# and freezes it into the image, so it must be set before the checkpoint is taken.
+# in-memory H2 database / cache. CRaC reads this when the checkpoint is taken (the
+# first start) and freezes that value into the image; changing it for a later
+# restore-only start has no effect until the checkpoint is regenerated.
 SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-dev}"
 export SPRING_PROFILES_ACTIVE
 

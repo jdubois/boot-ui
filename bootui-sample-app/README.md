@@ -235,6 +235,9 @@ docker compose -f docker-compose-crac.yml down
 docker volume rm boot-ui_crac-checkpoint
 ```
 
+(Docker Compose prefixes the volume with the project name, which defaults to the
+working directory — `boot-ui` here; run `docker volume ls` if yours differs.)
+
 Then open <http://localhost:8080/bootui/> or hit
 <http://localhost:8080/actuator/health>. The Compose file binds the app port to
 host loopback (`127.0.0.1`) so BootUI stays local-only while the browser can
