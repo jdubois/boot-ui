@@ -14,7 +14,14 @@ const report = ref(null)
 const error = ref(null)
 const actionMessage = ref(null)
 const loading = ref(false)
-const includeDependencies = ref(true)
+const installing = ref(false)
+const installResult = ref(null)
+const installingDockerfile = ref(false)
+const dockerInstallResult = ref(null)
+const installingBoth = ref(false)
+const bothInstallResult = ref(null)
+const includeDependencies = ref(false)
+const openArtifact = ref('both')
 
 const severityClasses = {
   CRITICAL: 'text-bg-danger',
@@ -45,6 +52,27 @@ const canDownloadMetadata = computed(
       report.value?.metadata?.serializationEntries > 0 ||
       report.value?.metadata?.resourceEntries > 0)
 )
+
+const canWriteBoth = computed(
+  () => hasScanData.value && report.value?.installable && report.value?.dockerfile?.installable
+)
+
+function alertClassForStatus(status) {
+  switch (status) {
+    case 'WRITTEN':
+      return 'alert-success'
+    case 'EXISTS':
+      return 'alert-warning'
+    case 'ERROR':
+      return 'alert-danger'
+    default:
+      return 'alert-info'
+  }
+}
+
+const installResultClass = computed(() => alertClassForStatus(installResult.value?.status))
+const dockerInstallResultClass = computed(() => alertClassForStatus(dockerInstallResult.value?.status))
+const bothInstallResultClass = computed(() => alertClassForStatus(bothInstallResult.value?.status))
 
 const emptyFindingsTitle = computed(() => {
   if (!hasScanData.value) return 'Run readiness checks to see native-image concerns'
@@ -103,11 +131,79 @@ async function runScan() {
   }
 }
 
+async function installMetadata() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  installing.value = true
+  try {
+    const res = await apiFetch('api/graalvm/install', {method: 'POST'})
+    installResult.value = await res.json()
+  } catch (e) {
+    installResult.value = {
+      installed: false,
+      status: 'ERROR',
+      message: describeLoadError(e, 'Unable to install reachability metadata'),
+      path: null
+    }
+  } finally {
+    installing.value = false
+  }
+}
+
+async function installDockerfile() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  installingDockerfile.value = true
+  try {
+    const res = await apiFetch('api/graalvm/dockerfile/install', {method: 'POST'})
+    dockerInstallResult.value = await res.json()
+  } catch (e) {
+    dockerInstallResult.value = {
+      installed: false,
+      status: 'ERROR',
+      message: describeLoadError(e, 'Unable to write Dockerfile-native'),
+      path: null
+    }
+  } finally {
+    installingDockerfile.value = false
+  }
+}
+
+async function installBoth() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  installingBoth.value = true
+  try {
+    const res = await apiFetch('api/graalvm/install/all', {method: 'POST'})
+    bothInstallResult.value = await res.json()
+  } catch (e) {
+    bothInstallResult.value = {
+      installed: false,
+      status: 'ERROR',
+      message: describeLoadError(e, 'Unable to write the GraalVM artifacts'),
+      metadata: null,
+      dockerfile: null
+    }
+  } finally {
+    installingBoth.value = false
+  }
+}
+
 function showReadOnlyMessage() {
   actionMessage.value = readOnlyReason.value
   setTimeout(() => {
     actionMessage.value = null
   }, 6000)
+}
+
+function toggleArtifact(name) {
+  openArtifact.value = openArtifact.value === name ? null : name
 }
 
 onMounted(loadReport)
@@ -234,40 +330,197 @@ onMounted(loadReport)
         </div>
 
         <div class="col-lg-7">
-          <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <span class="fw-semibold">reachability-metadata.json</span>
-              <a
-                v-if="canDownloadMetadata"
-                class="btn btn-outline-primary btn-sm"
-                download="reachability-metadata.json"
-                href="api/graalvm/metadata"
-              >
-                <i class="bi bi-download me-1"></i>Download scaffold
-              </a>
-            </div>
-            <div class="card-body">
-              <div v-if="!hasScanData" class="text-muted">
-                Run readiness checks to derive a metadata scaffold from the application's own classes.
+          <div class="accordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button
+                  :class="['accordion-button', {collapsed: openArtifact !== 'both'}]"
+                  :aria-expanded="openArtifact === 'both'"
+                  type="button"
+                  @click="toggleArtifact('both')"
+                >
+                  <span class="fw-semibold">All files</span>
+                </button>
+              </h2>
+              <div :class="['accordion-collapse collapse', {show: openArtifact === 'both'}]">
+                <div class="accordion-body">
+                  <div v-if="!hasScanData" class="text-muted">
+                    Run readiness checks to generate and write both GraalVM artifacts in one step.
+                  </div>
+                  <template v-else>
+                    <p class="small text-muted mb-3">
+                      Generates the <code>reachability-metadata.json</code> scaffold and a tailored
+                      <code>Dockerfile-native</code>, then writes both directly into the project's source tree in a
+                      single step — the metadata under <code>{{ report.metadataDirectory }}</code> and the Dockerfile at
+                      the project root. Each write is fail-closed and never overwrites a file BootUI did not generate.
+                    </p>
+                    <div class="d-flex gap-2 mb-3">
+                      <SpinnerButton
+                        v-if="canWriteBoth"
+                        :loading="installingBoth"
+                        :disabled="installingBoth || readOnly"
+                        class="btn btn-primary btn-sm"
+                        type="button"
+                        label="Write into project"
+                        loading-label="Writing..."
+                        @click="installBoth"
+                      />
+                    </div>
+                    <div v-if="bothInstallResult" :class="bothInstallResultClass" class="alert py-2 small mb-0">
+                      <div>{{ bothInstallResult.message }}</div>
+                      <ul v-if="bothInstallResult.metadata || bothInstallResult.dockerfile" class="mb-0 mt-1 ps-3">
+                        <li v-if="bothInstallResult.metadata">
+                          <code>reachability-metadata.json</code> — {{ bothInstallResult.metadata.message }}
+                        </li>
+                        <li v-if="bothInstallResult.dockerfile">
+                          <code>Dockerfile-native</code> — {{ bothInstallResult.dockerfile.message }}
+                        </li>
+                      </ul>
+                    </div>
+                    <div v-else-if="!canWriteBoth" class="small text-muted mb-0">
+                      Direct write unavailable: writing both files requires the application to run from an exploded
+                      build (for example <code>mvn spring-boot:run</code> or an IDE) rather than a packaged jar.
+                    </div>
+                  </template>
+                </div>
               </div>
-              <template v-else>
-                <p class="small text-muted mb-2">
-                  A heuristic scaffold seeded from the last scan. Review and complete it with the GraalVM tracing agent,
-                  then place it under
-                  <code>src/main/resources/META-INF/native-image/&lt;groupId&gt;/&lt;artifactId&gt;/</code>.
-                </p>
-                <ul class="list-unstyled mb-0 small">
-                  <li>
-                    <strong>{{ report.metadata.reflectionEntries }}</strong> reflection entries
-                  </li>
-                  <li>
-                    <strong>{{ report.metadata.serializationEntries }}</strong> serialization entries
-                  </li>
-                  <li>
-                    <strong>{{ report.metadata.resourceEntries }}</strong> resource globs
-                  </li>
-                </ul>
-              </template>
+            </div>
+
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button
+                  :class="['accordion-button', {collapsed: openArtifact !== 'metadata'}]"
+                  :aria-expanded="openArtifact === 'metadata'"
+                  type="button"
+                  @click="toggleArtifact('metadata')"
+                >
+                  <span class="fw-semibold">reachability-metadata.json</span>
+                </button>
+              </h2>
+              <div :class="['accordion-collapse collapse', {show: openArtifact === 'metadata'}]">
+                <div class="accordion-body">
+                  <div v-if="!hasScanData" class="text-muted">
+                    Run readiness checks to derive a metadata scaffold from the application's own classes.
+                  </div>
+                  <template v-else>
+                    <div class="d-flex gap-2 mb-3">
+                      <a
+                        v-if="canDownloadMetadata"
+                        class="btn btn-outline-primary btn-sm"
+                        download="reachability-metadata.json"
+                        href="api/graalvm/metadata"
+                      >
+                        <i class="bi bi-download me-1"></i>Download
+                      </a>
+                      <SpinnerButton
+                        v-if="canDownloadMetadata && report.installable"
+                        :loading="installing"
+                        :disabled="installing || readOnly"
+                        :title="report.installPath"
+                        class="btn btn-primary btn-sm"
+                        type="button"
+                        label="Write into project"
+                        loading-label="Writing..."
+                        @click="installMetadata"
+                      />
+                    </div>
+                    <p class="small text-muted mb-2">
+                      A heuristic scaffold seeded from the last scan. Review and complete it with the GraalVM tracing
+                      agent, then place it under <code>{{ report.metadataDirectory }}</code
+                      >.
+                    </p>
+                    <div v-if="installResult" :class="installResultClass" class="alert py-2 small mb-2">
+                      {{ installResult.message }}
+                    </div>
+                    <div v-else-if="report.installable && report.installPath" class="small text-muted mb-2">
+                      Detected source tree: install writes to <code>{{ report.installPath }}</code
+                      >.
+                    </div>
+                    <div v-else-if="!report.installable && report.installPath" class="small text-muted mb-2">
+                      Direct install unavailable: {{ report.installPath }}
+                    </div>
+                    <ul class="list-unstyled mb-0 small">
+                      <li>
+                        <strong>{{ report.metadata.reflectionEntries }}</strong> reflection entries
+                      </li>
+                      <li>
+                        <strong>{{ report.metadata.serializationEntries }}</strong> serialization entries
+                      </li>
+                      <li>
+                        <strong>{{ report.metadata.resourceEntries }}</strong> resource globs
+                      </li>
+                    </ul>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button
+                  :class="['accordion-button', {collapsed: openArtifact !== 'dockerfile'}]"
+                  :aria-expanded="openArtifact === 'dockerfile'"
+                  type="button"
+                  @click="toggleArtifact('dockerfile')"
+                >
+                  <span class="fw-semibold">Dockerfile-native</span>
+                </button>
+              </h2>
+              <div :class="['accordion-collapse collapse', {show: openArtifact === 'dockerfile'}]">
+                <div class="accordion-body">
+                  <div v-if="!hasScanData" class="text-muted">
+                    Run readiness checks to generate a native-image Dockerfile tailored to this application.
+                  </div>
+                  <template v-else>
+                    <div class="d-flex gap-2 mb-3">
+                      <a
+                        v-if="hasScanData"
+                        class="btn btn-outline-primary btn-sm"
+                        download="Dockerfile-native"
+                        href="api/graalvm/dockerfile"
+                      >
+                        <i class="bi bi-download me-1"></i>Download
+                      </a>
+                      <SpinnerButton
+                        v-if="hasScanData && report.dockerfile && report.dockerfile.installable"
+                        :loading="installingDockerfile"
+                        :disabled="installingDockerfile || readOnly"
+                        :title="report.dockerfile.installPath"
+                        class="btn btn-primary btn-sm"
+                        type="button"
+                        label="Write into project"
+                        loading-label="Writing..."
+                        @click="installDockerfile"
+                      />
+                    </div>
+                    <p class="small text-muted mb-2">
+                      A multi-stage native-image build that compiles the application with GraalVM and packages the
+                      resulting executable into a minimal runtime image.
+                    </p>
+                    <div v-if="dockerInstallResult" :class="dockerInstallResultClass" class="alert py-2 small mb-2">
+                      {{ dockerInstallResult.message }}
+                    </div>
+                    <div
+                      v-else-if="report.dockerfile && report.dockerfile.installable && report.dockerfile.installPath"
+                      class="small text-muted mb-2"
+                    >
+                      Detected source tree: write saves to <code>{{ report.dockerfile.installPath }}</code
+                      >.
+                    </div>
+                    <div
+                      v-else-if="report.dockerfile && !report.dockerfile.installable && report.dockerfile.installPath"
+                      class="small text-muted mb-2"
+                    >
+                      Direct write unavailable: {{ report.dockerfile.installPath }}
+                    </div>
+                    <pre
+                      v-if="report.dockerfile && report.dockerfile.content"
+                      class="bg-body-tertiary border rounded p-2 mb-0 small"
+                      style="max-height: 16rem; overflow: auto"
+                    ><code>{{ report.dockerfile.content }}</code></pre>
+                  </template>
+                </div>
+              </div>
             </div>
           </div>
         </div>

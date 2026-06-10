@@ -234,7 +234,11 @@ final class GraalVmReadinessScanner {
                 dependenciesWithoutMetadata,
                 dependencies,
                 warnings,
-                metadataSummary);
+                metadataSummary,
+                false,
+                null,
+                null,
+                null);
     }
 
     private List<GraalVmSeverityCountDto> severityCounts(List<GraalVmFindingDto> findings) {
