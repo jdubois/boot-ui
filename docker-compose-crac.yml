@@ -1,0 +1,76 @@
+# Runs the BootUI sample app with CRaC (Coordinated Restore at Checkpoint)
+# together with the PostgreSQL and Redis services it needs.
+#
+#   docker compose -f docker-compose-crac.yml up --build
+#
+# On the very first start the app boots once to write a CRaC checkpoint
+# (spring.context.checkpoint=onRefresh); every start after that restores the
+# warmed-up JVM image in a few tens of milliseconds. The checkpoint is kept in
+# the `crac-checkpoint` named volume so it survives `down`/`up` cycles (delete
+# the volume to force a fresh checkpoint).
+#
+# CRaC only works on a Linux host: CRIU snapshots and restores the live process,
+# which is why the `app` service runs privileged. Spring Boot's Docker Compose
+# support is disabled here because the infrastructure is provided by this file.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: bootui_sample
+      POSTGRES_USER: bootui
+      POSTGRES_PASSWORD: bootui
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bootui"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-crac
+    # CRIU needs broad privileges to checkpoint and restore the JVM process. A
+    # narrower set (cap_add: CHECKPOINT_RESTORE, SYS_PTRACE, SYS_ADMIN and
+    # security_opt: seccomp:unconfined) works on most hosts; `privileged` is the
+    # most portable choice for a local demo.
+    privileged: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      # BootUI is a development console; keep it active in the container.
+      BOOTUI_ENABLED: "ON"
+      # Host browser requests arrive through Docker's bridge gateway rather than
+      # loopback from the container's point of view. The port is bound to
+      # 127.0.0.1 below, so this stays local-only on the host.
+      BOOTUI_ALLOW_NON_LOCALHOST: "true"
+      # Give CRaC a real connection pool (HikariCP) to close before the
+      # checkpoint and reopen after restore, instead of the dev-profile H2.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bootui_sample
+      SPRING_DATASOURCE_USERNAME: bootui
+      SPRING_DATASOURCE_PASSWORD: bootui
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      # Avoid reaching out to a (here absent) Ollama server during startup.
+      SPRING_AI_OLLAMA_INIT_PULL_MODEL_STRATEGY: never
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - crac-checkpoint:/opt/crac/checkpoint
+    restart: unless-stopped
+
+volumes:
+  crac-checkpoint:

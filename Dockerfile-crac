@@ -1,0 +1,45 @@
+# Multi-stage Dockerfile for a CRaC (Coordinated Restore at Checkpoint) image of
+# the BootUI sample app.
+#
+# CRaC snapshots a fully warmed-up JVM process to disk and restores it in tens of
+# milliseconds. It only works on Linux and needs a CRaC-enabled JDK plus elevated
+# container privileges (CRIU) to take and restore the checkpoint - see
+# docker-compose-crac.yml and bootui-sample-app/README.md.
+#
+# BootUI is a multi-module Maven project, so the whole reactor is copied into the
+# build stage and the sample app is built together with the modules it depends on
+# (`-pl bootui-sample-app -am`). For a JVM image see Dockerfile, for a GraalVM
+# native image see Dockerfile-native.
+
+# Build stage (a plain JDK is enough; CRaC only matters at runtime).
+FROM eclipse-temurin:21-jdk-noble AS build
+
+WORKDIR /app
+
+# Copy the whole multi-module project (see .dockerignore for exclusions).
+COPY . .
+RUN chmod +x mvnw
+
+# Build the sample app and its reactor dependencies.
+RUN ./mvnw -DskipTests -pl bootui-sample-app -am clean package
+
+# Runtime stage with a CRaC-enabled JDK (BellSoft Liberica with CRaC support).
+FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc
+
+WORKDIR /app
+
+# Where the checkpoint image is written/read. Mounted as a volume in
+# docker-compose-crac.yml so the checkpoint survives container restarts.
+ENV CRAC_CHECKPOINT_DIR=/opt/crac/checkpoint
+ENV APP_JAR=/app/app.jar
+
+# Copy the repackaged Spring Boot jar and the checkpoint/restore entrypoint.
+COPY --from=build /app/bootui-sample-app/target/bootui-sample-app-*.jar ${APP_JAR}
+COPY --from=build /app/bootui-sample-app/crac/checkpoint-and-run.sh /app/checkpoint-and-run.sh
+
+RUN chmod +x /app/checkpoint-and-run.sh && mkdir -p ${CRAC_CHECKPOINT_DIR}
+
+EXPOSE 8080
+
+# Take a checkpoint on the first start, then restore on every start.
+ENTRYPOINT ["/app/checkpoint-and-run.sh"]

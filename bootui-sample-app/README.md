@@ -189,6 +189,83 @@ Applications that embed BootUI through the starter inherit these hints
 automatically; they only need to ensure BootUI is active during their own AOT
 processing for it to appear in their native image.
 
+## Run it with CRaC (fast restore)
+
+[CRaC](https://crac.org/) (Coordinated Restore at Checkpoint) snapshots a fully
+warmed-up JVM process to disk and restores it in a few tens of milliseconds,
+without the ahead-of-time compilation a native image requires. The BootUI **CRaC**
+panel (Runtime group) inspects this readiness; this section actually runs the
+sample app from a checkpoint.
+
+CRaC only works on a **Linux** host and needs a **CRaC-enabled JDK** (here
+BellSoft Liberica with CRaC) plus elevated container privileges, because
+[CRIU](https://criu.org/) — the tool that checkpoints and restores the live
+process — needs them. Ready-to-use Docker assets live at the repository root:
+
+- [`Dockerfile-crac`](../Dockerfile-crac) — builds the reactor and produces a
+  runtime image on a CRaC-enabled JDK.
+- [`bootui-sample-app/crac/checkpoint-and-run.sh`](crac/checkpoint-and-run.sh) —
+  the container entrypoint: it creates a checkpoint on the first start and
+  restores from it on every start afterwards.
+- [`docker-compose-crac.yml`](../docker-compose-crac.yml) — runs the CRaC image
+  together with the PostgreSQL and Redis services it needs.
+
+### With Docker Compose (recommended)
+
+No local CRaC JDK is required — the toolchain lives in the build image. From the
+repository root, on a Linux host:
+
+```bash
+docker compose -f docker-compose-crac.yml up --build
+```
+
+The **first** start boots the app once to write the checkpoint
+(`spring.context.checkpoint=onRefresh`), so it takes as long as a normal start.
+Watch the logs for the `[crac]` lines: the process is checkpointed and then
+restored. Every later start (`docker compose -f docker-compose-crac.yml up`)
+restores the warmed-up image almost instantly. The checkpoint is stored in the
+`crac-checkpoint` named volume; delete it to force a fresh checkpoint:
+
+```bash
+docker compose -f docker-compose-crac.yml down
+docker volume rm boot-ui_crac-checkpoint
+```
+
+Then open <http://localhost:8080/bootui/> or hit
+<http://localhost:8080/actuator/health>. The Compose file binds the app port to
+host loopback (`127.0.0.1`) so BootUI stays local-only while the browser can
+still reach the containerized app. The BootUI **CRaC** panel's runtime status
+will now report a CRaC-capable JVM.
+
+To build just the image:
+
+```bash
+docker build -f Dockerfile-crac -t bootui-sample-crac .
+```
+
+### Without Docker Compose
+
+The `app` service must run with CRIU privileges, so a plain `docker run` needs
+`--privileged` (or, more narrowly,
+`--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN
+--security-opt seccomp=unconfined`) and a volume for the checkpoint. Provide the
+Postgres/Redis connection details through environment variables as in
+[`docker-compose-crac.yml`](../docker-compose-crac.yml).
+
+### How the checkpoint is taken
+
+`spring.context.checkpoint=onRefresh` asks Spring to take the checkpoint as soon
+as the application context finishes refreshing. Spring first lets CRaC-aware
+resources quiesce — HikariCP closes its PostgreSQL connections and the Lettuce
+Redis client disconnects — so nothing holds an open socket or file descriptor at
+checkpoint time. On restore those resources reconnect, which is why the Postgres
+and Redis services must be available both when the checkpoint is taken and when
+it is restored. The sample app does not implement any custom
+[`org.crac.Resource`](https://crac.org/) callbacks; it relies on the CRaC
+integrations that Spring Boot and these libraries already provide. Run the
+BootUI **CRaC** panel's readiness scan first if you add code that holds OS
+resources directly.
+
 ## Playwright suite
 
 The Playwright end-to-end tests in [`e2e/`](e2e/README.md) drive the same
