@@ -6,7 +6,7 @@ read those before changing public behavior or visible panel behavior.
 
 ## Toolchain
 
-- Java 17, Spring Boot 4.0.x (`spring-boot.version` in root `pom.xml`; currently 4.0.6).
+- Java 17, Spring Boot 4.1.x (`spring-boot.version` in root `pom.xml`; currently 4.1.0).
 - Maven Wrapper (`./mvnw`) using Maven 3.9.16; do not require a system Maven install.
 - Published Maven coordinates use `com.julien-dubois.bootui:*`; Java packages remain `io.github.jdubois.bootui.*`.
 - Node.js / npm for the packaged Vue app are downloaded automatically by the `frontend-maven-plugin` (`node.version` /

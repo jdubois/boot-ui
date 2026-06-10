@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.otlp;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.common.Value;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.data.EventData;
@@ -102,7 +103,15 @@ public final class BootUiSpanExporter implements SpanExporter {
             case BOOLEAN -> AttributeValue.ofBoolean((Boolean) value);
             case LONG, DOUBLE -> AttributeValue.ofNumber((Number) value);
             case STRING_ARRAY, BOOLEAN_ARRAY, LONG_ARRAY, DOUBLE_ARRAY -> AttributeValue.ofList(toAttributeList(value));
+            case VALUE -> AttributeValue.ofString(truncate(stringifyValue(value)));
         };
+    }
+
+    private String stringifyValue(Object value) {
+        if (value instanceof Value<?> typed) {
+            return typed.asString();
+        }
+        return String.valueOf(value);
     }
 
     private List<Object> toAttributeList(Object value) {
