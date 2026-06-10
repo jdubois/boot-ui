@@ -48,6 +48,10 @@ final class RestApiModel {
         static final String PROBLEM_DETAIL = "org.springframework.http.ProblemDetail";
         static final String ERROR_RESPONSE = "org.springframework.web.ErrorResponse";
 
+        static final String MULTI_VALUE_MAP = "org.springframework.util.MultiValueMap";
+        static final String DATE = "java.util.Date";
+        static final String CALENDAR = "java.util.Calendar";
+
         static final String OPTIONAL = "java.util.Optional";
         static final String PAGEABLE = "org.springframework.data.domain.Pageable";
         static final String PAGE = "org.springframework.data.domain.Page";
@@ -99,14 +103,17 @@ final class RestApiModel {
             boolean bodyIsScalar,
             boolean bodyExposesSetters,
             boolean bodyIsRecord,
+            boolean bodyHasLegacyDateField,
             boolean hasRequestBody,
             boolean requestBodyValidated,
             boolean requestBodyIsEntity,
             boolean hasConstrainedSimpleParam,
             boolean hasPageable,
             boolean hasUnboundedPrimitiveRequestParam,
+            boolean hasUnboundedMapRequestParam,
             boolean hasExplicitPageParam,
             boolean hasResponseStatus,
+            boolean methodHasResponseStatus,
             String responseStatusValue,
             boolean declaresBroadThrows,
             boolean hasOperationAnnotation,
@@ -153,6 +160,7 @@ final class RestApiModel {
             boolean returnsResponseEntity,
             boolean returnsVoid,
             boolean hasResponseStatus,
+            boolean catchesExceptionOrThrowable,
             boolean hasResponseParam,
             boolean rendersBody) {}
 }

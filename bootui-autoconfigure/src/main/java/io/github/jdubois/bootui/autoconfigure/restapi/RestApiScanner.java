@@ -131,7 +131,8 @@ final class RestApiScanner {
                 model.handlers(),
                 model.exceptionHandlers(),
                 safeSpringdocPresent(),
-                model.hasExceptionHandling());
+                model.hasExceptionHandling(),
+                model.responseStatusExceptionClasses());
 
         List<RestApiRuleResultDto> results = RestApiRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))

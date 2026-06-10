@@ -3,8 +3,10 @@ package io.github.jdubois.bootui.autoconfigure.memory;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.core.dto.ThreadStateCountDto;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -96,7 +98,8 @@ record MemoryContext(
             long maxDirectMemoryBytes,
             List<String> inputArguments,
             List<String> gcCollectorNames,
-            Long containerMemoryLimitBytes) {
+            Long containerMemoryLimitBytes,
+            Long containerMemoryCurrentBytes) {
 
         MemoryData {
             pools = pools == null ? List.of() : List.copyOf(pools);
@@ -105,7 +108,7 @@ record MemoryContext(
         }
 
         static MemoryData empty() {
-            return new MemoryData(0, 0, 0, 0, 0, 0, List.of(), 0, 0, 0, -1, List.of(), List.of(), null);
+            return new MemoryData(0, 0, 0, 0, 0, 0, List.of(), 0, 0, 0, -1, List.of(), List.of(), null, null);
         }
 
         Optional<MemoryPoolSnapshot> oldGenerationPool() {
@@ -122,6 +125,10 @@ record MemoryContext(
 
         Optional<MemoryPoolSnapshot> metaspacePool() {
             return findPool(name -> name.equals("metaspace"));
+        }
+
+        Optional<MemoryPoolSnapshot> compressedClassSpacePool() {
+            return findPool(name -> name.equals("compressed class space"));
         }
 
         List<MemoryPoolSnapshot> codeCachePools() {
@@ -216,8 +223,9 @@ record MemoryContext(
     /**
      * Process-level scalars that are cheap single readings from the JVM but are not part of the
      * memory, thread, or heap-content snapshots: JVM uptime, cumulative GC time/count, the pending
-     * finalization backlog, and the parsed {@code -Xms}/{@code -Xss} sizes used by the native-memory
-     * and GC-overhead rules.
+     * finalization backlog, the parsed {@code -Xms}/{@code -Xss} sizes used by the native-memory
+     * and GC-overhead rules, plus OS-level metrics (available processors, swap space, and the
+     * UseCompressedOops VM option) collected once per scan for GC and footprint heuristics.
      */
     record RuntimeData(
             long uptimeMillis,
@@ -225,12 +233,16 @@ record MemoryContext(
             long gcCollectionCount,
             int objectPendingFinalizationCount,
             long initialHeapBytes,
-            long threadStackBytes) {
+            long threadStackBytes,
+            int availableProcessors,
+            long freeSwapSpaceBytes,
+            long totalSwapSpaceBytes,
+            Boolean useCompressedOops) {
 
         static final long DEFAULT_THREAD_STACK_BYTES = 1024L * 1024;
 
         static RuntimeData empty() {
-            return new RuntimeData(0, -1, 0, 0, -1, DEFAULT_THREAD_STACK_BYTES);
+            return new RuntimeData(0, -1, 0, 0, -1, DEFAULT_THREAD_STACK_BYTES, 1, -1, -1, null);
         }
     }
 
@@ -249,7 +261,16 @@ record MemoryContext(
     }
 
     /** A point-in-time GC counter reading used to derive scan-to-scan {@link GcTrend} deltas. */
-    record GcSample(long uptimeMillis, long gcTimeMillis, long gcCount) {
+    record GcSample(long uptimeMillis, long gcTimeMillis, long gcCount, Map<String, Long> perCollectorCounts) {
+
+        GcSample {
+            perCollectorCounts = perCollectorCounts == null ? Map.of() : Map.copyOf(perCollectorCounts);
+        }
+
+        /** Backward-compatible constructor without per-collector breakdown. */
+        GcSample(long uptimeMillis, long gcTimeMillis, long gcCount) {
+            this(uptimeMillis, gcTimeMillis, gcCount, null);
+        }
 
         static GcSample from(RuntimeData runtime) {
             return new GcSample(runtime.uptimeMillis(), runtime.gcCollectionTimeMillis(), runtime.gcCollectionCount());
@@ -259,12 +280,22 @@ record MemoryContext(
     /**
      * GC activity between the previous scan and this one. The window deliberately spans the previous
      * scan's post-histogram sample to this scan's pre-histogram sample so that neither scan's own
-     * forced full GC is counted as application GC overhead.
+     * forced full GC is counted as application GC overhead. Per-collector deltas allow rules to
+     * track specific collectors (e.g. G1 Full GC frequency).
      */
-    record GcTrend(boolean available, long deltaGcTimeMillis, long deltaUptimeMillis, long deltaGcCount) {
+    record GcTrend(
+            boolean available,
+            long deltaGcTimeMillis,
+            long deltaUptimeMillis,
+            long deltaGcCount,
+            Map<String, Long> perCollectorDeltas) {
+
+        GcTrend {
+            perCollectorDeltas = perCollectorDeltas == null ? Map.of() : Map.copyOf(perCollectorDeltas);
+        }
 
         static GcTrend unavailable() {
-            return new GcTrend(false, 0, 0, 0);
+            return new GcTrend(false, 0, 0, 0, null);
         }
 
         static GcTrend between(GcSample previous, GcSample current) {
@@ -274,7 +305,15 @@ record MemoryContext(
             }
             long deltaGcTime = Math.max(0, current.gcTimeMillis() - previous.gcTimeMillis());
             long deltaGcCount = Math.max(0, current.gcCount() - previous.gcCount());
-            return new GcTrend(true, deltaGcTime, deltaUptime, deltaGcCount);
+            Map<String, Long> deltas = new HashMap<>();
+            for (Map.Entry<String, Long> entry : current.perCollectorCounts().entrySet()) {
+                long prev = previous.perCollectorCounts().getOrDefault(entry.getKey(), 0L);
+                long delta = Math.max(0L, entry.getValue() - prev);
+                if (delta > 0) {
+                    deltas.put(entry.getKey(), delta);
+                }
+            }
+            return new GcTrend(true, deltaGcTime, deltaUptime, deltaGcCount, deltas);
         }
     }
 }

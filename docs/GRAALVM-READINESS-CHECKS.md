@@ -72,12 +72,13 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
 - **CRITICAL** — a construct with the most severe native-image impact if the finding is real. No active GraalVM check
   currently emits this severity.
 - **HIGH** — a construct native images generally cannot support or Spring AOT cannot capture at run time (runtime class
-  generation, runtime classpath scanning, runtime bean registration/suppliers).
+  generation, runtime classpath scanning, runtime instance suppliers, secondary context creation).
 - **MEDIUM** — a construct GraalVM cannot resolve at build time that will usually fail at run time without metadata
-  (reflection, dynamic class loading, deep reflection, dynamic proxies, active JDK serialization, build-machine state
-  captured in static initializers).
+  (reflection, dynamic class loading, deep reflection, dynamic proxies, active JDK serialization, SpEL, method handles,
+  frozen AOT conditions, custom security providers, runtime singleton registration).
 - **LOW** — a construct that often needs extra configuration (runtime resource loading, resource bundles, service
-  loading, reflective annotation access, static-initializer side effects, native access, native methods).
+  loading, reflective annotation access, static-initializer side effects, native access, native methods, JMX, foreign
+  functions).
 - **INFO** — an informational prompt that only matters if the type is actually used that way (serialization).
 
 The scan evaluates every registered check, but the panel only lists checks that found something to review. Findings are
@@ -123,8 +124,9 @@ a handful of sample detail lines.
 
 - **Severity**: LOW
 - **Inspects**: reflective annotation queries (`getAnnotation`, `getDeclaredAnnotations`, `isAnnotationPresent`, …) on
-  reflected members (`Method`, `Field`, `Constructor`, `Parameter`). Reads on `java.lang.Class` are intentionally ignored
-  as too common to be actionable.
+  reflected members (`Method`, `Field`, `Constructor`, `Parameter`). Reads on `java.lang.Class` and other
+  `AnnotatedElement` subtypes (`Package`, `Module`, `RecordComponent`) are intentionally ignored — only calls whose
+  receiver is exactly one of those four member types are flagged.
 - **Fires when**: a class reads annotations from a reflected member whose annotations native-image only retains when the
   element is registered for reflection.
 - **Recommendation**: register the inspected members under `reflection` in `reachability-metadata.json` so their
@@ -137,6 +139,8 @@ a handful of sample detail lines.
 - **Severity**: MEDIUM
 - **Inspects**: calls to `Proxy.newProxyInstance` and `Proxy.getProxyClass`.
 - **Fires when**: a class creates or obtains a JDK dynamic proxy whose interface list must be known to native-image.
+  When the interface array is a compile-time constant, native-image may auto-register the proxy (similar to how
+  constant-arg `Class.forName` is auto-folded); runtime-computed interface sets always need explicit registration.
 - **Recommendation**: declare the proxied interfaces in `reachability-metadata.json`, or for application code register
   them with Spring's RuntimeHints (`RuntimeHints.proxies().registerJdkProxy(...)` via `@ImportRuntimeHints`). Spring's own
   proxy mechanisms are covered by Spring AOT.
@@ -179,9 +183,11 @@ a handful of sample detail lines.
 ### GRAAL-SER-001 — Serializable types may need serialization metadata
 
 - **Severity**: INFO
-- **Inspects**: application classes that implement `java.io.Serializable`.
+- **Inspects**: application classes that implement `java.io.Serializable` (concrete, non-enum types).
 - **Fires when**: an application type implements `Serializable`; types that are actually serialized at runtime require
-  serialization metadata.
+  serialization metadata. If GRAAL-SER-002 (active JDK serialization) also fires, the listed types are likely
+  serialized at runtime and should be reviewed carefully. Enum types are excluded because GraalVM handles standard enum
+  serialization automatically.
 - **Recommendation**: if these types are serialized (e.g. via the JDK serialization protocol), register them under
   `serialization` in `reachability-metadata.json`.
 
@@ -205,29 +211,34 @@ a handful of sample detail lines.
   `java.nio.file.Files` calls) or start threads / processes (`Thread.start`, `Runtime.exec`, `ProcessBuilder.start`).
   Lightweight `Files` metadata predicates such as `exists`, `isDirectory`, and `isReadable` are intentionally ignored;
   side effects in helper methods or lambdas are out of scope.
-- **Fires when**: a class runs I/O or starts a thread/process from its static initializer; with build-time class
-  initialization these run during the native build, capturing build-time state or failing the build.
-- **Recommendation**: move the side effect out of the static initializer, or initialize the class at run time (e.g.
-  `--initialize-at-run-time=<class>`) so the I/O or thread starts when the application runs.
+- **Fires when**: a class runs I/O or starts a thread/process from its static initializer. Since GraalVM 21.3+ classes
+  are run-time-initialized by default, this only applies when the class is explicitly initialized at build time via
+  `--initialize-at-build-time` or Spring AOT's build-time-init list.
+- **Recommendation**: if the class is listed under `--initialize-at-build-time`, move the side effect out of the static
+  initializer or switch the class to `--initialize-at-run-time` so the I/O or thread starts when the application runs
+  rather than during the native build.
 
 ### GRAAL-INIT-002 — Static initializer captures build-machine state
 
-- **Severity**: MEDIUM
+- **Severity**: LOW
 - **Inspects**: static initializers that read environment- or time-sensitive state (`System.getenv` / `getProperty` /
   `getProperties`, current time, `java.time` `now()`, default `Locale` / `TimeZone`, `InetAddress`, `Random` /
   `SecureRandom` constructors or `next*` calls, `UUID.randomUUID`).
-- **Fires when**: a class captures those values in a static initializer; with build-time class initialization they are
-  frozen at native build time instead of being read when the application runs.
-- **Recommendation**: move the state capture into a runtime code path, or mark the class `--initialize-at-run-time` so the
-  values are read when the native image starts rather than baked in during the build.
+- **Fires when**: a class captures those values in a static initializer. Since GraalVM 21.3+ classes are
+  run-time-initialized by default, this is only a concern when the class is explicitly initialized at build time via
+  `--initialize-at-build-time` or Spring AOT's build-time-init list; GraalVM's simulated class-init safely refuses
+  unsafe initializers in ambiguous cases.
+- **Recommendation**: if the class is listed under `--initialize-at-build-time`, move the state capture into a runtime
+  code path or switch the class to `--initialize-at-run-time` so the values are read when the native image starts
+  rather than baked in during the build.
 
 ## Native access
 
 ### GRAAL-NATIVE-001 — Native access (JNI / Unsafe) may need native-image configuration
 
 - **Severity**: LOW
-- **Inspects**: loading of native libraries (`System.loadLibrary`, `Runtime.load`) and use of `sun.misc.Unsafe` /
-  `jdk.internal.misc.Unsafe`.
+- **Inspects**: loading of native libraries (`System.loadLibrary`, `System.load`, `Runtime.loadLibrary`, `Runtime.load`)
+  and use of `sun.misc.Unsafe` / `jdk.internal.misc.Unsafe`.
 - **Fires when**: a class loads a native library or uses an `Unsafe` API that often requires JNI or extra native-image
   configuration.
 - **Recommendation**: confirm the native libraries are available to the native image and add JNI configuration if
@@ -241,6 +252,17 @@ a handful of sample detail lines.
   for the native image.
 - **Recommendation**: provide JNI configuration under `jni` in `reachability-metadata.json` and ensure the native library
   is bundled with and loadable by the native image.
+
+### GRAAL-FFM-001 — Foreign Function downcalls/upcalls may need foreign metadata in native images
+
+- **Severity**: LOW
+- **Inspects**: application classes that depend on `java.lang.foreign.Linker`.
+- **Fires when**: a class uses `Linker` to build native downcall handles or upcall stubs; those down/upcalls reach native
+  symbols that the closed-world analysis cannot see and must be described under `foreign` in `reachability-metadata.json`.
+  Pure heap/off-heap `MemorySegment` or `Arena` usage that never touches `Linker` does not require this metadata and is
+  not flagged.
+- **Recommendation**: register the native down/upcall descriptors under `foreign` in `reachability-metadata.json`, or
+  confine native interop behind a boundary that can be described for the native image.
 
 ## Class generation
 
@@ -271,13 +293,15 @@ a handful of sample detail lines.
 
 ### SPRING-AOT-001 — Runtime bean singleton registration is not captured by Spring AOT
 
-- **Severity**: HIGH
+- **Severity**: MEDIUM
 - **Inspects**: calls to `SingletonBeanRegistry.registerSingleton(...)`.
 - **Fires when**: a class adds beans to the context at run time; Spring AOT processes the bean factory at build time, so
-  dynamically registered singletons are invisible to the AOT-generated context and native-image.
+  dynamically registered singletons are invisible to the AOT-generated context and native-image. Note: the singleton
+  instance itself is present at runtime; the risk is only for reflective bean construction and AOT-generated context
+  completeness.
 - **Recommendation**: register the bean through standard build-time configuration (`@Bean` / `@Component` /
-  `BeanFactoryInitializationAotContribution`) so Spring AOT can see it, instead of calling `registerSingleton` at run
-  time.
+  `BeanFactoryInitializationAotContribution`) so Spring AOT can see it. For programmatic AOT-aware registration,
+  consider Spring Framework 7's `BeanRegistrar` API.
 
 ### SPRING-AOT-002 — Programmatic instance suppliers are not captured by Spring AOT
 
@@ -287,4 +311,77 @@ a handful of sample detail lines.
 - **Fires when**: a class registers a bean definition whose instance comes from a supplier lambda; Spring AOT cannot
   trace through that supplier at build time, so the bean's type and dependencies may be missing from the native image.
 - **Recommendation**: prefer declarative bean definitions (`@Bean` methods / component scanning) whose types Spring AOT
-  can resolve, or provide a `RuntimeHintsRegistrar` that registers the supplied type for reflection.
+  can resolve, or use Spring Framework 7's `BeanRegistrar` / `BeanRegistrarDsl` for AOT-friendly programmatic
+  registration; alternatively provide a `RuntimeHintsRegistrar` that registers the supplied type for reflection.
+
+### SPRING-AOT-003 — @Profile / @ConditionalOnProperty freezes profile/property selection at AOT build time
+
+- **Severity**: MEDIUM
+- **Inspects**: `@Profile` or `@ConditionalOnProperty` on `@Configuration` / `@Component` (and stereotype) classes, or
+  on `@Bean` methods.
+- **Fires when**: a Spring component or `@Bean` method carries a profile or property condition. Spring AOT evaluates
+  these conditions once at build time; if the active profiles or application properties differ between the AOT build and
+  the production runtime, the conditioned beans may be unexpectedly absent or present in the native image.
+- **Recommendation**: ensure the profiles and properties active during the AOT build (native-image compilation) match
+  the intended production configuration, or restructure the configuration to use explicit build-time selection rather
+  than runtime conditions.
+
+### SPRING-AOT-004 — Runtime ApplicationContext creation outside main entry point is not AOT-processed
+
+- **Severity**: HIGH
+- **Inspects**: constructor calls to `AnnotationConfigApplicationContext` or `GenericApplicationContext`, and
+  `SpringApplicationBuilder.child(...)` calls.
+- **Fires when**: a class programmatically creates a secondary application context; such contexts are never processed by
+  Spring AOT, so their beans, runtime hints, and configuration are absent from the native image.
+- **Recommendation**: consolidate configuration into the main application context processed by Spring AOT, or use
+  `@Import` / `@ImportResource` to include additional configuration statically at build time.
+
+## SpEL / Expression language
+
+### GRAAL-SPEL-001 — Programmatic SpEL expression parsing relies on reflection with no AOT visibility
+
+- **Severity**: MEDIUM
+- **Inspects**: calls to `ExpressionParser.parseExpression` and `parseRaw` (the SpEL programmatic parsing API).
+- **Fires when**: a class parses a SpEL expression at run time; the parsed expression uses reflection to access object
+  properties that is not visible to native-image, and the SpEL bytecode compiler is unsupported in native images.
+- **Recommendation**: replace programmatic SpEL with direct Java code or annotation-driven evaluation (`@PreAuthorize`,
+  `@Value`, `@Cacheable`) that Spring AOT processes statically. If programmatic SpEL is required, register all
+  reflectively accessed types under `reflection` in `reachability-metadata.json`.
+
+## Method handles
+
+### GRAAL-MH-001 — Non-constant MethodHandle lookups may need reflection metadata
+
+- **Severity**: MEDIUM
+- **Inspects**: calls to `MethodHandles.Lookup` lookup methods: `findVirtual`, `findStatic`, `findConstructor`,
+  `findSpecial`, `findGetter`/`findSetter` variants, `unreflect` and `unreflect*` variants, and `findVarHandle` /
+  `findStaticVarHandle`.
+- **Fires when**: a class performs a `MethodHandles.Lookup` lookup; non-constant method handles require reflection
+  metadata for the target members that is not visible to the existing REFLECT checks. For compile-time-constant
+  handles, native-image may fold the lookup automatically.
+- **Recommendation**: register the target members under `reflection` in `reachability-metadata.json` so native-image
+  retains the necessary member descriptors.
+
+## Security providers
+
+### GRAAL-SEC-001 — Custom security providers may not initialize correctly in native images
+
+- **Severity**: MEDIUM
+- **Inspects**: calls to `Security.addProvider` / `Security.insertProviderAt` and application classes that extend
+  `java.security.Provider`.
+- **Fires when**: a class registers a custom or third-party security provider (e.g. BouncyCastle) or extends
+  `Provider` directly; such providers rely on reflection-based service registration that is invisible to native-image.
+- **Recommendation**: register the provider and all its service implementations under `reflection` in
+  `reachability-metadata.json`. Many providers (BouncyCastle, Conscrypt) publish a native-image integration guide or
+  companion module.
+
+## JMX
+
+### GRAAL-JMX-001 — JMX usage requires --enable-monitoring in the native image
+
+- **Severity**: LOW
+- **Inspects**: calls to `ManagementFactory.getPlatformMBeanServer` and `MBeanServer.registerMBean`.
+- **Fires when**: a class uses JMX; JMX is disabled by default in native images and requires `--enable-monitoring=jmxserver`
+  plus MBean reflection metadata.
+- **Recommendation**: add `--enable-monitoring=jmxserver` to the native-image build arguments and register all MBean
+  interfaces and implementations under `reflection` in `reachability-metadata.json`.

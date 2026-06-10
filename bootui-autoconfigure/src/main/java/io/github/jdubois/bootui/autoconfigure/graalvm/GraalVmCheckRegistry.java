@@ -26,7 +26,14 @@ final class GraalVmCheckRegistry {
             new RuntimeClassGenerationCheck(),
             new RuntimeClasspathScanningCheck(),
             new RuntimeSingletonRegistrationCheck(),
-            new RuntimeInstanceSupplierCheck());
+            new RuntimeInstanceSupplierCheck(),
+            new SpringAotConditionedBeansCheck(),
+            new RuntimeApplicationContextCheck(),
+            new SpelUsageCheck(),
+            new MethodHandleUsageCheck(),
+            new SecurityProviderCheck(),
+            new JmxUsageCheck(),
+            new ForeignFunctionUsageCheck());
 
     private GraalVmCheckRegistry() {}
 
