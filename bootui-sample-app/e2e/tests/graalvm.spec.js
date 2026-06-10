@@ -35,32 +35,32 @@ test.describe('GraalVM view', () => {
     // The readiness-concerns section renders once the scan completes.
     await expect(page.getByText('Readiness concerns')).toBeVisible()
 
-    // The sample app runs from an exploded build (spring-boot:run), so the panel offers to write the
-    // generated scaffold into the source tree and surfaces the resolved target path. The button is
-    // intentionally not clicked here to avoid writing a metadata file into the working tree. Both the
-    // metadata and Dockerfile cards share the "Write into project source tree" label, so the lookup is
-    // scoped to the reachability-metadata.json card.
-    const metadataCard = page.locator('.card', {hasText: 'reachability-metadata.json'}).first()
-    await expect(metadataCard.getByRole('button', {name: 'Write into project source tree'})).toBeVisible()
-    await expect(page.getByText('Detected source tree:')).toBeVisible()
+    // The metadata and Dockerfile artifacts live in a two-drawer accordion; the reachability-metadata.json
+    // drawer is open by default. The sample app runs from an exploded build (spring-boot:run), so the panel
+    // offers to write the generated scaffold into the source tree and surfaces the resolved target path. The
+    // button is intentionally not clicked here to avoid writing a metadata file into the working tree. Both
+    // drawers share the "Write into project" label, so the lookup is scoped to each accordion item.
+    const metadataDrawer = page.locator('.accordion-item', {hasText: 'reachability-metadata.json'}).first()
+    await expect(metadataDrawer.getByRole('button', {name: 'Write into project'})).toBeVisible()
+    await expect(metadataDrawer.getByText('Detected source tree:')).toBeVisible()
 
     // The scaffold-placement hint substitutes the resolved Maven coordinates (groupId/artifactId)
     // rather than leaving the <groupId>/<artifactId> placeholders.
-    const placement = page.locator('p', {hasText: 'then place it under'})
+    const placement = metadataDrawer.locator('p', {hasText: 'then place it under'})
     await expect(placement).toContainText(
       'src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-sample-app/'
     )
     await expect(placement).not.toContainText('<groupId>')
 
-    // A tailored native-image Dockerfile-native is generated alongside the metadata scaffold. The
-    // preview embeds the resolved artifactId so the COPY/cp paths point at the real executable name.
-    // The download is available; the write button is intentionally not clicked to avoid writing a
-    // Dockerfile into the working tree.
-    const dockerCard = page.locator('.card', {hasText: 'Dockerfile-native'}).first()
-    await expect(dockerCard).toBeVisible()
-    await expect(dockerCard.getByRole('link', {name: 'Download Dockerfile-native'})).toBeVisible()
-    await expect(dockerCard.getByRole('button', {name: 'Write into project source tree'})).toBeVisible()
-    await expect(dockerCard.locator('pre')).toContainText('FROM ghcr.io/graalvm/graalvm-community')
-    await expect(dockerCard.locator('pre')).toContainText('target/bootui-sample-app')
+    // A tailored native-image Dockerfile-native is generated alongside the metadata scaffold. Its drawer
+    // is collapsed by default, so expand it first. The preview embeds the resolved artifactId so the
+    // COPY/cp paths point at the real executable name. The download is available; the write button is
+    // intentionally not clicked to avoid writing a Dockerfile into the working tree.
+    const dockerDrawer = page.locator('.accordion-item', {hasText: 'Dockerfile-native'}).first()
+    await dockerDrawer.getByRole('button', {name: 'Dockerfile-native'}).click()
+    await expect(dockerDrawer.getByRole('link', {name: 'Download'})).toBeVisible()
+    await expect(dockerDrawer.getByRole('button', {name: 'Write into project'})).toBeVisible()
+    await expect(dockerDrawer.locator('pre')).toContainText('FROM ghcr.io/graalvm/graalvm-community')
+    await expect(dockerDrawer.locator('pre')).toContainText('target/bootui-sample-app')
   })
 })

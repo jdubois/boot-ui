@@ -82,8 +82,8 @@ async function mountWithReport(report) {
 }
 
 function cardByTitle(wrapper, title) {
-  return wrapper.findAll('.card').find((card) => {
-    const header = card.find('.card-header .fw-semibold')
+  return wrapper.findAll('.accordion-item').find((item) => {
+    const header = item.find('.accordion-button .fw-semibold')
     return header.exists() && header.text() === title
   })
 }
@@ -200,9 +200,7 @@ describe('GraalVm', () => {
     await flushPromises()
 
     const metadataCard = cardByTitle(wrapper, 'reachability-metadata.json')
-    const installButton = metadataCard
-      .findAll('button')
-      .find((button) => button.text().includes('Write into project source tree'))
+    const installButton = metadataCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(installButton).toBeDefined()
     await installButton.trigger('click')
     await flushPromises()
@@ -217,9 +215,7 @@ describe('GraalVm', () => {
     )
 
     const metadataCard = cardByTitle(wrapper, 'reachability-metadata.json')
-    const installButton = metadataCard
-      .findAll('button')
-      .find((button) => button.text().includes('Write into project source tree'))
+    const installButton = metadataCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(installButton).toBeUndefined()
     expect(wrapper.text()).toContain('Direct install unavailable')
   })
@@ -258,9 +254,7 @@ describe('GraalVm', () => {
     await flushPromises()
 
     const dockerCard = cardByTitle(wrapper, 'Dockerfile-native')
-    const writeButton = dockerCard
-      .findAll('button')
-      .find((button) => button.text().includes('Write into project source tree'))
+    const writeButton = dockerCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(writeButton).toBeDefined()
     await writeButton.trigger('click')
     await flushPromises()
@@ -275,9 +269,7 @@ describe('GraalVm', () => {
     )
 
     const dockerCard = cardByTitle(wrapper, 'Dockerfile-native')
-    const writeButton = dockerCard
-      .findAll('button')
-      .find((button) => button.text().includes('Write into project source tree'))
+    const writeButton = dockerCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(writeButton).toBeUndefined()
     expect(wrapper.text()).toContain('Direct write unavailable')
   })

@@ -30,7 +30,7 @@ In addition to the checks, the scan does two things:
 - **Builds a `reachability-metadata.json` scaffold** from the application's own classes — reflection and serialization
   candidates plus the standard externalized-configuration resource globs — which you can download from the panel.
 - **Installs the scaffold into the source tree** when the application is detectably running from an exploded build (for
-  example `mvn spring-boot:run` or an IDE) rather than a packaged jar. The **Write into project source tree** action
+  example `mvn spring-boot:run` or an IDE) rather than a packaged jar. The **Write into project** action
   writes the scaffold to `src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json`
   (coordinates resolved from `build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated`
   namespace). The write is confined under `src/main/resources` and refuses to overwrite a `reachability-metadata.json`

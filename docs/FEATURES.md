@@ -320,8 +320,8 @@ off by default), it also surveys the classpath to report which third-party libra
 `META-INF/native-image/`. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
 (modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
 standard configuration resource globs. When BootUI detects the application is running from an exploded build (for
-example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers a **Write into project source
-tree** action that writes the same scaffold directly to
+example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers a **Write into project**
+action that writes the same scaffold directly to
 `src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json` (resolving coordinates from
 `build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated` namespace). The install is
 fail-closed: it is confined under `src/main/resources` and never overwrites a `reachability-metadata.json` that BootUI
