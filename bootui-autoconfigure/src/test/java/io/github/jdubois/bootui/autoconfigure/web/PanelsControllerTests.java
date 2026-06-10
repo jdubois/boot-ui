@@ -62,7 +62,8 @@ class PanelsControllerTests {
             BootUiPanels.LIQUIBASE,
             BootUiPanels.GITHUB,
             BootUiPanels.REST_API,
-            BootUiPanels.SPRING);
+            BootUiPanels.SPRING,
+            BootUiPanels.CRAC);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
