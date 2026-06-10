@@ -357,6 +357,15 @@ registrations. The checks are heuristic review aids that complement, but do not 
 on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
 each one inspects.
 
+The panel also generates ready-to-use container assets for the host application: a multi-stage `Dockerfile-crac` that
+builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it
+relies on (it takes a checkpoint on the first start via `spring.context.checkpoint=onRefresh` and restores it on later
+starts). The build command is tailored to the detected build system (Maven or Gradle, with or without the wrapper). Each
+file can be downloaded, and — when the application is running from an exploded build (for example `mvn spring-boot:run`
+or an IDE) rather than a packaged jar — written directly into the project root. Writes are fail-closed and never
+overwrite a file BootUI did not generate. This shares the same source-tree writer the GraalVM panel uses for its
+`Dockerfile-native`.
+
 ![BootUI CRaC panel](./images/bootui-crac.png)
 
 ## Configuration

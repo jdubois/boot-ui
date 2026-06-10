@@ -144,7 +144,8 @@ final class CracReadinessScanner {
                 severityCounts(findings),
                 status,
                 findings,
-                scan.warnings());
+                scan.warnings(),
+                List.of());
     }
 
     private BasePackageDetection detectBasePackages() {

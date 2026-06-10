@@ -2,9 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Coordinates;
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.InstallOutcome;
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Resolution;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Coordinates;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.InstallOutcome;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Resolution;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
