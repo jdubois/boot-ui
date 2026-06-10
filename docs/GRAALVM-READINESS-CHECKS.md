@@ -35,11 +35,14 @@ In addition to the checks, the scan does two things:
   (coordinates resolved from `build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated`
   namespace). The write is confined under `src/main/resources` and refuses to overwrite a `reachability-metadata.json`
   that BootUI did not generate.
-- **Generates a tailored `Dockerfile-native`** for the host application — a multi-stage build that compiles a GraalVM
-  native image with `./mvnw -Pnative -DskipTests clean package` and packages the resulting executable (named after the
-  resolved `artifactId`) into a minimal Debian runtime image with a non-root user and an Actuator health check. You can
-  download it, or — under the same exploded-build constraint as the scaffold install — write it to the project root.
-  That write is fail-closed and refuses to overwrite a `Dockerfile-native` that BootUI did not generate.
+- **Generates a tailored `Dockerfile-native`** for the host application — a multi-stage build that detects the project's
+  build system (Maven or Gradle, with or without the wrapper) and compiles a GraalVM native image with the matching
+  command (`./mvnw`/`mvn -Pnative -DskipTests clean package`, or `./gradlew`/`gradle nativeCompile`), then packages the
+  resulting executable (named after the resolved `artifactId`) into a minimal Debian runtime image with a non-root user
+  and an Actuator health check. When the project carries no wrapper, the build stage installs a pinned Maven/Gradle
+  release so the image is self-contained. You can download it, or — under the same exploded-build constraint as the
+  scaffold install — write it to the project root. That write is fail-closed and refuses to overwrite a
+  `Dockerfile-native` that BootUI did not generate.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when ArchUnit is on the classpath and a base

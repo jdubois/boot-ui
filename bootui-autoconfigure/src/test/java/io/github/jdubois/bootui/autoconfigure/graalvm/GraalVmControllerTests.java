@@ -119,6 +119,19 @@ class GraalVmControllerTests {
     }
 
     @Test
+    void dockerfileReflectsDetectedGradleBuild(@TempDir Path projectRoot) throws IOException {
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins {}");
+        Files.writeString(projectRoot.resolve("gradlew"), "#!/bin/sh");
+        GraalVmController controller = controller(sourceLayout(projectRoot));
+
+        String content = controller.graalvm().dockerfile().content();
+
+        assertThat(content).contains("./gradlew nativeCompile");
+        assertThat(content).contains("build/native/nativeCompile/demo");
+        assertThat(content).doesNotContain("./mvnw");
+    }
+
+    @Test
     void installDockerfileWritesToProjectRootAndReturnsOk(@TempDir Path projectRoot) throws IOException {
         GraalVmController controller = controller(sourceLayout(projectRoot));
 

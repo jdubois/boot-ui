@@ -107,7 +107,7 @@ public class GraalVmController {
 
     @GetMapping(value = "/dockerfile", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<byte[]> dockerfile() {
-        byte[] body = dockerfileGenerator.generate(sourceLayout.artifactName()).getBytes(StandardCharsets.UTF_8);
+        byte[] body = generateDockerfile().getBytes(StandardCharsets.UTF_8);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"Dockerfile-native\"")
                 .contentType(MediaType.TEXT_PLAIN)
@@ -116,8 +116,13 @@ public class GraalVmController {
 
     @PostMapping("/dockerfile/install")
     public ResponseEntity<GraalVmInstallResultDto> installDockerfile() {
-        String content = dockerfileGenerator.generate(sourceLayout.artifactName());
-        return toResponse(sourceLayout.installDockerfile(content));
+        return toResponse(sourceLayout.installDockerfile(generateDockerfile()));
+    }
+
+    /** Generates the Dockerfile-native tailored to the host application's artifact and build system. */
+    private String generateDockerfile() {
+        return dockerfileGenerator.generate(
+                sourceLayout.artifactName(), GraalVmDockerfileGenerator.detect(sourceLayout.projectRoot()));
     }
 
     private ResponseEntity<GraalVmInstallResultDto> toResponse(InstallOutcome outcome) {
@@ -137,7 +142,7 @@ public class GraalVmController {
         Resolution resolution = sourceLayout.resolve();
         Resolution dockerResolution = sourceLayout.resolveDockerfile();
         GraalVmDockerfileDto dockerfile = new GraalVmDockerfileDto(
-                dockerfileGenerator.generate(sourceLayout.artifactName()),
+                generateDockerfile(),
                 dockerResolution.installable(),
                 dockerResolution.installable() ? dockerResolution.displayPath() : dockerResolution.reason());
         return report.withInstallTarget(

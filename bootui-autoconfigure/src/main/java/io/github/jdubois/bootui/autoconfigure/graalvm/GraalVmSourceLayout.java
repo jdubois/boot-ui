@@ -148,6 +148,16 @@ final class GraalVmSourceLayout {
                 .orElse(DEFAULT_ARTIFACT);
     }
 
+    /** Best-effort absolute project root, or {@code null} when it cannot be determined. */
+    Path projectRoot() {
+        try {
+            Path root = projectRootSupplier.get();
+            return root == null ? null : root.toAbsolutePath().normalize();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     /** Resolves whether (and where) the native-image {@code Dockerfile-native} can be written. */
     Resolution resolveDockerfile() {
         Path projectRoot;

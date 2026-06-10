@@ -2,7 +2,12 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmDockerfileGenerator.BuildTool;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class GraalVmDockerfileGeneratorTests {
 
@@ -23,5 +28,81 @@ class GraalVmDockerfileGeneratorTests {
     void fallsBackToAppWhenArtifactIsMissing() {
         assertThat(generator.generate(null)).contains("target/app");
         assertThat(generator.generate("  ")).contains("target/app");
+    }
+
+    @Test
+    void generatesPlainMavenVariant() {
+        String dockerfile = generator.generate("my-service", BuildTool.MAVEN);
+
+        assertThat(dockerfile).contains("mvn -Pnative -DskipTests clean package");
+        assertThat(dockerfile).doesNotContain("./mvnw");
+        assertThat(dockerfile).contains("apache-maven");
+        assertThat(dockerfile).contains("target/my-service");
+    }
+
+    @Test
+    void generatesGradleWrapperVariant() {
+        String dockerfile = generator.generate("my-service", BuildTool.GRADLE_WRAPPER);
+
+        assertThat(dockerfile).contains("chmod +x gradlew");
+        assertThat(dockerfile).contains("./gradlew nativeCompile");
+        assertThat(dockerfile).contains("build/native/nativeCompile/my-service");
+        assertThat(dockerfile).doesNotContain("-Pnative");
+    }
+
+    @Test
+    void generatesPlainGradleVariant() {
+        String dockerfile = generator.generate("my-service", BuildTool.GRADLE);
+
+        assertThat(dockerfile).contains("gradle nativeCompile");
+        assertThat(dockerfile).doesNotContain("./gradlew");
+        assertThat(dockerfile).contains("services.gradle.org");
+        assertThat(dockerfile).contains("build/native/nativeCompile/my-service");
+    }
+
+    @Test
+    void detectsMavenWrapperWhenMvnwPresent(@TempDir Path projectRoot) throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project/>");
+        Files.writeString(projectRoot.resolve("mvnw"), "#!/bin/sh");
+
+        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN_WRAPPER);
+    }
+
+    @Test
+    void detectsPlainMavenWhenOnlyPomPresent(@TempDir Path projectRoot) throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project/>");
+
+        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN);
+    }
+
+    @Test
+    void detectsGradleWrapperWhenGradlewPresent(@TempDir Path projectRoot) throws IOException {
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins {}");
+        Files.writeString(projectRoot.resolve("gradlew"), "#!/bin/sh");
+
+        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.GRADLE_WRAPPER);
+    }
+
+    @Test
+    void detectsPlainGradleFromKotlinBuildScript(@TempDir Path projectRoot) throws IOException {
+        Files.writeString(projectRoot.resolve("build.gradle.kts"), "plugins {}");
+
+        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.GRADLE);
+    }
+
+    @Test
+    void prefersMavenWhenBothBuildSystemsPresent(@TempDir Path projectRoot) throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project/>");
+        Files.writeString(projectRoot.resolve("mvnw"), "#!/bin/sh");
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins {}");
+        Files.writeString(projectRoot.resolve("gradlew"), "#!/bin/sh");
+
+        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN_WRAPPER);
+    }
+
+    @Test
+    void defaultsToMavenWrapperWhenNoBuildFilesOrNullRoot(@TempDir Path projectRoot) {
+        assertThat(GraalVmDockerfileGenerator.detect(projectRoot)).isEqualTo(BuildTool.MAVEN_WRAPPER);
+        assertThat(GraalVmDockerfileGenerator.detect(null)).isEqualTo(BuildTool.MAVEN_WRAPPER);
     }
 }
