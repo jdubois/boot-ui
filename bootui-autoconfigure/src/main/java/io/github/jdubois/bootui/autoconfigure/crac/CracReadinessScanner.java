@@ -39,11 +39,21 @@ final class CracReadinessScanner {
     private final Supplier<List<String>> basePackagesSupplier;
     private final CracClassImporter importer;
     private final Clock clock;
+    private final Supplier<CracRuntimeInventory> inventorySupplier;
 
     CracReadinessScanner(Supplier<List<String>> basePackagesSupplier, CracClassImporter importer, Clock clock) {
+        this(basePackagesSupplier, importer, clock, CracRuntimeInventory::empty);
+    }
+
+    CracReadinessScanner(
+            Supplier<List<String>> basePackagesSupplier,
+            CracClassImporter importer,
+            Clock clock,
+            Supplier<CracRuntimeInventory> inventorySupplier) {
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
         this.clock = clock;
+        this.inventorySupplier = inventorySupplier;
     }
 
     CracScanResult initialResult() {
@@ -104,7 +114,7 @@ final class CracReadinessScanner {
                     basePackages.warnings());
         }
 
-        CracContext context = new CracContext(classes, basePackages.packages());
+        CracContext context = new CracContext(classes, basePackages.packages(), safeInventory());
         List<CracFindingDto> results = CracCheckRegistry.activeChecks().stream()
                 .map(check -> check.evaluate(context))
                 .toList();
@@ -146,6 +156,15 @@ final class CracReadinessScanner {
                 findings,
                 scan.warnings(),
                 List.of());
+    }
+
+    private CracRuntimeInventory safeInventory() {
+        try {
+            CracRuntimeInventory inventory = inventorySupplier.get();
+            return inventory == null ? CracRuntimeInventory.empty() : inventory;
+        } catch (RuntimeException ex) {
+            return CracRuntimeInventory.empty();
+        }
     }
 
     private BasePackageDetection detectBasePackages() {

@@ -18,10 +18,14 @@ class CracReadinessScannerTests {
     private static final String FIXTURES = "io.github.jdubois.bootui.autoconfigure.crac.fixtures";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
     private static final CracRuntimeStatusDto RUNTIME =
-            new CracRuntimeStatusDto(false, false, "Test JVM", false, null, null, List.of(), "summary");
+            new CracRuntimeStatusDto(false, false, "Test JVM", false, null, null, List.of(), "summary", List.of());
 
     private CracReadinessScanner scanner(List<String> basePackages) {
         return new CracReadinessScanner(() -> basePackages, new ClassFileCracImporter(), CLOCK);
+    }
+
+    private CracReadinessScanner scanner(List<String> basePackages, CracRuntimeInventory inventory) {
+        return new CracReadinessScanner(() -> basePackages, new ClassFileCracImporter(), CLOCK, () -> inventory);
     }
 
     @Test
@@ -94,6 +98,32 @@ class CracReadinessScannerTests {
 
         assertThat(report.scan().status()).isEqualTo("SCANNED");
         assertThat(report.warnings()).anyMatch(warning -> warning.contains("base packages could not be detected"));
+    }
+
+    @Test
+    void scanWithoutConnectionPoolsDoesNotFlagPoolCheck() {
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES));
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        assertThat(report.findings()).extracting(CracFindingDto::id).doesNotContain("CRAC-POOL-001");
+    }
+
+    @Test
+    void scanFlagsConnectionPoolWhenInventoryReportsOne() {
+        CracRuntimeInventory inventory =
+                new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"), null);
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
+
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        CracFindingDto pool = report.findings().stream()
+                .filter(finding -> "CRAC-POOL-001".equals(finding.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(pool.severity()).isEqualTo("HIGH");
+        assertThat(pool.status()).isEqualTo("REVIEW");
+        assertThat(pool.occurrenceCount()).isEqualTo(1);
+        assertThat(pool.sampleOccurrences()).anyMatch(sample -> sample.contains("HikariDataSource"));
     }
 
     private static int severityRank(String severity) {

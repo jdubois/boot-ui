@@ -7,6 +7,7 @@ package io.github.jdubois.bootui.autoconfigure.crac;
 enum CracCategory {
     RESOURCES("Open I/O resources"),
     NETWORK("Network connections"),
+    POOLS("Connection pools"),
     THREADS("Threads & schedulers"),
     TIME("Captured time"),
     RANDOMNESS("Randomness"),

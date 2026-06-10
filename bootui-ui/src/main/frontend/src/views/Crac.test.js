@@ -13,6 +13,7 @@ function runtime(overrides = {}) {
     checkpointTo: null,
     restoreFrom: null,
     cracJvmArgs: [],
+    restoreCaveats: [],
     ...overrides
   }
 }
@@ -36,11 +37,11 @@ function generatedFiles({installable = true} = {}) {
   ]
 }
 
-function cracReport({installable = true, status = 'NOT_SCANNED', files} = {}) {
+function cracReport({installable = true, status = 'NOT_SCANNED', files, runtimeOverrides} = {}) {
   return {
     localOnly: true,
     disclaimer: 'CRaC disclaimer.',
-    runtime: runtime(),
+    runtime: runtime(runtimeOverrides),
     basePackages: ['com.example'],
     classesAnalyzed: 0,
     checksRun: 0,
@@ -100,6 +101,24 @@ describe('Crac', () => {
     expect(entrypointDownload.exists()).toBe(true)
     expect(entrypointDownload.attributes('download')).toBe('checkpoint-and-run.sh')
     expect(wrapper.text()).toContain('bellsoft/liberica-runtime-container')
+  })
+
+  it('renders the checkpoint and restore caveats from the runtime status', async () => {
+    const wrapper = await mountWithReport(
+      cracReport({
+        runtimeOverrides: {
+          checkpointOnRefresh: true,
+          restoreCaveats: [
+            'Configuration is frozen into the checkpoint.',
+            'Detected 1 connection pool bean(s) (see check CRAC-POOL-001).'
+          ]
+        }
+      })
+    )
+
+    expect(wrapper.text()).toContain('Checkpoint & restore caveats')
+    expect(wrapper.text()).toContain('Configuration is frozen into the checkpoint.')
+    expect(wrapper.text()).toContain('CRAC-POOL-001')
   })
 
   it('writes both files into the project and reports the per-file outcome', async () => {

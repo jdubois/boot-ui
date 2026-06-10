@@ -271,6 +271,12 @@ onMounted(loadReport)
           <div v-if="runtime.restoreFrom" class="small text-muted mt-2">
             Restoring from <code>{{ runtime.restoreFrom }}</code>
           </div>
+          <div v-if="runtime.restoreCaveats && runtime.restoreCaveats.length" class="mt-3">
+            <div class="small fw-semibold">Checkpoint &amp; restore caveats</div>
+            <ul class="small mb-0">
+              <li v-for="(caveat, index) in runtime.restoreCaveats" :key="index">{{ caveat }}</li>
+            </ul>
+          </div>
           <div v-if="runtime.cracJvmArgs && runtime.cracJvmArgs.length" class="mt-3">
             <div class="small fw-semibold">CRaC JVM arguments</div>
             <ul class="small mb-0 font-monospace">

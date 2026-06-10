@@ -58,8 +58,12 @@ public class CracController {
     public CracController(ApplicationContext applicationContext, Environment environment) {
         this(
                 new CracReadinessScanner(
-                        () -> CracPackages.detect(applicationContext), new ClassFileCracImporter(), Clock.systemUTC()),
-                new CracRuntimeStatusCollector(environment),
+                        () -> CracPackages.detect(applicationContext),
+                        new ClassFileCracImporter(),
+                        Clock.systemUTC(),
+                        () -> CracRuntimeInventoryCollector.collect(applicationContext)),
+                new CracRuntimeStatusCollector(
+                        environment, () -> CracRuntimeInventoryCollector.collect(applicationContext)),
                 ProjectSourceTree.forApplication(applicationContext));
     }
 

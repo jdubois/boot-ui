@@ -12,6 +12,7 @@ final class CracCheckRegistry {
     private static final List<CracCheck> ACTIVE_CHECKS = List.of(
             new OpenResourceFieldCheck(),
             new SocketConstructionCheck(),
+            new ConnectionPoolCheck(),
             new UnmanagedThreadCheck(),
             new CapturedTimeCheck(),
             new StaticRandomFieldCheck(),

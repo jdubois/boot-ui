@@ -26,18 +26,32 @@ final class CracRuntimeStatusCollector {
     private final Environment environment;
     private final Supplier<List<String>> jvmArgumentsSupplier;
     private final ClassPresenceCheck classPresenceCheck;
+    private final Supplier<CracRuntimeInventory> inventorySupplier;
 
     CracRuntimeStatusCollector(Environment environment) {
-        this(environment, defaultJvmArguments(), CracRuntimeStatusCollector::isClassPresent);
+        this(environment, CracRuntimeInventory::empty);
+    }
+
+    CracRuntimeStatusCollector(Environment environment, Supplier<CracRuntimeInventory> inventorySupplier) {
+        this(environment, defaultJvmArguments(), CracRuntimeStatusCollector::isClassPresent, inventorySupplier);
     }
 
     CracRuntimeStatusCollector(
             Environment environment,
             Supplier<List<String>> jvmArgumentsSupplier,
             ClassPresenceCheck classPresenceCheck) {
+        this(environment, jvmArgumentsSupplier, classPresenceCheck, CracRuntimeInventory::empty);
+    }
+
+    CracRuntimeStatusCollector(
+            Environment environment,
+            Supplier<List<String>> jvmArgumentsSupplier,
+            ClassPresenceCheck classPresenceCheck,
+            Supplier<CracRuntimeInventory> inventorySupplier) {
         this.environment = environment;
         this.jvmArgumentsSupplier = jvmArgumentsSupplier;
         this.classPresenceCheck = classPresenceCheck;
+        this.inventorySupplier = inventorySupplier;
     }
 
     CracRuntimeStatusDto collect() {
@@ -52,6 +66,7 @@ final class CracRuntimeStatusCollector {
         List<String> cracJvmArgs = cracArguments(jvmArguments);
 
         String summary = summary(cracApiPresent, cracCapableJvm, checkpointOnRefresh, checkpointTo);
+        List<String> restoreCaveats = restoreCaveats(checkpointOnRefresh);
         return new CracRuntimeStatusDto(
                 cracApiPresent,
                 cracCapableJvm,
@@ -60,7 +75,39 @@ final class CracRuntimeStatusCollector {
                 checkpointTo,
                 restoreFrom,
                 cracJvmArgs,
-                summary);
+                summary,
+                restoreCaveats);
+    }
+
+    /**
+     * Builds the human-readable caveats shown alongside the runtime status. CRaC reads configuration
+     * (environment variables, system properties, the active profile) when the checkpoint is taken and
+     * freezes it into the image, and any connection pool must be reachable both when the checkpoint is
+     * taken and when it is restored. These are review prompts, not detected failures.
+     */
+    private List<String> restoreCaveats(boolean checkpointOnRefresh) {
+        List<String> caveats = new ArrayList<>();
+        if (checkpointOnRefresh) {
+            caveats.add("Configuration is frozen into the checkpoint. Environment variables, system properties, and "
+                    + "the active Spring profile are read when the checkpoint is taken, not when it is restored; "
+                    + "changing them for a restore-only start has no effect until a new checkpoint is taken.");
+        }
+        List<String> poolBeans = safeInventory().connectionPoolBeans();
+        if (!poolBeans.isEmpty()) {
+            caveats.add("Detected " + poolBeans.size() + " connection pool bean(s) (" + String.join(", ", poolBeans)
+                    + "). The backing service must be reachable both when the checkpoint is taken and when it is "
+                    + "restored, and no pooled connection may be open at checkpoint time (see check CRAC-POOL-001).");
+        }
+        return List.copyOf(caveats);
+    }
+
+    private CracRuntimeInventory safeInventory() {
+        try {
+            CracRuntimeInventory inventory = inventorySupplier.get();
+            return inventory == null ? CracRuntimeInventory.empty() : inventory;
+        } catch (RuntimeException ex) {
+            return CracRuntimeInventory.empty();
+        }
     }
 
     private boolean checkpointOnRefresh() {

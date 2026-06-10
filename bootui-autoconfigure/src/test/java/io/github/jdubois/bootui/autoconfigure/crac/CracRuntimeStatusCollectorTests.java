@@ -65,4 +65,36 @@ class CracRuntimeStatusCollectorTests {
         assertThat(status.restoreFrom()).isEqualTo("/snapshots/app");
         assertThat(status.cracJvmArgs()).containsExactly("-XX:CRaCRestoreFrom=/snapshots/app");
     }
+
+    @Test
+    void addsFrozenConfigurationCaveatWhenCheckpointOnRefresh() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.context.checkpoint", "onRefresh");
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(environment, CracRuntimeInventory::empty);
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.restoreCaveats()).anyMatch(caveat -> caveat.contains("frozen into the checkpoint"));
+    }
+
+    @Test
+    void hasNoFrozenConfigurationCaveatWithoutCheckpointOnRefresh() {
+        CracRuntimeStatusCollector collector =
+                new CracRuntimeStatusCollector(new MockEnvironment(), CracRuntimeInventory::empty);
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.restoreCaveats()).noneMatch(caveat -> caveat.contains("frozen into the checkpoint"));
+    }
+
+    @Test
+    void surfacesConnectionPoolsAsRestoreCaveat() {
+        CracRuntimeInventory inventory =
+                new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"), null);
+        CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(new MockEnvironment(), () -> inventory);
+
+        CracRuntimeStatusDto status = collector.collect();
+
+        assertThat(status.restoreCaveats())
+                .anyMatch(caveat -> caveat.contains("connection pool") && caveat.contains("CRAC-POOL-001"));
+    }
 }

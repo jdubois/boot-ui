@@ -19,8 +19,12 @@ The runtime-status section (always read-only) reports:
 - whether the running JVM is a CRaC-capable JDK (such as Azul Zulu CRaC or BellSoft Liberica), detected via the real CRaC
   implementation (`jdk.crac.Core`) rather than the no-op shim that ships with stock JDKs,
 - whether automatic checkpoint-on-refresh is enabled (`spring.context.checkpoint=onRefresh`),
-- and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments, read from the `RuntimeMXBean` input arguments
-  (the same source the JVM Tuning panel uses).
+- any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments, read from the `RuntimeMXBean` input arguments
+  (the same source the JVM Tuning panel uses),
+- and any *checkpoint &amp; restore caveats* worth reviewing before a checkpoint: a reminder that CRaC freezes
+  configuration (environment variables, system properties, the active Spring profile) into the image at checkpoint time
+  when `spring.context.checkpoint=onRefresh` is set, and a note when live connection pools are detected so the backing
+  service is kept reachable at both checkpoint and restore (see `CRAC-POOL-001`).
 
 The readiness advisor detects the host application's base package(s) from the `@SpringBootApplication` configuration via
 `AutoConfigurationPackages`, imports the compiled `.class` files from those packages with
@@ -32,6 +36,11 @@ When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is inclu
 without an extra application dependency. The advisor is available only when ArchUnit is on the classpath and a base
 package is resolvable from the running application. If no classes can be imported, the panel degrades to a stable, empty
 report with an explanatory reason rather than failing.
+
+One check — `CRAC-POOL-001` — is different: connection pools are contributed by Spring Boot auto-configuration and never
+appear in the application's own base package, so that check reads a small read-only inventory of live pool beans (JDBC
+`DataSource`s, Redis connection factories) from the running context instead of imported bytecode. It still triggers only
+on demand and never opens, closes, or checkpoints anything.
 
 ## What BootUI does not do
 
@@ -49,7 +58,7 @@ Severity reflects the worst plausible impact if the finding is real, not the lik
 - **CRITICAL** — a construct with the most severe checkpoint/restore impact if the finding is real. No active CRaC check
   currently emits this severity.
 - **HIGH** — a construct that typically blocks a clean checkpoint or leaks/duplicates state across restore (open OS
-  resources, direct network sockets, frozen random state, captured secrets).
+  resources, direct network sockets, connection pools with an open connection, frozen random state, captured secrets).
 - **MEDIUM** — a construct that often misbehaves across restore unless handled (unmanaged threads/pools, captured
   wall-clock time).
 - **LOW** — a construct that usually needs review but rarely breaks restore on its own.
@@ -74,6 +83,23 @@ a handful of sample detail lines.
   `afterRestore()`, or let a managed component (Spring `Lifecycle` bean, server connector) own the socket so the
   framework closes it around the checkpoint.
 
+## Connection pools
+
+### CRAC-POOL-001 — Connection pools must hold no open connection at checkpoint
+
+- **Severity**: HIGH
+- **Inspects**: live connection pools in the running context — JDBC `DataSource`s and Redis connection factories —
+  detected from the application's beans rather than its bytecode.
+- **Fires when**: at least one such pool bean is present. This is the most common real-world cause of a failed
+  checkpoint: a pooled connection that is still open when `spring.context.checkpoint=onRefresh` fires holds an OS socket
+  that CRaC refuses to snapshot, so the checkpoint aborts with `CheckpointOpenSocketException`. The backing service must
+  also be reachable both when the checkpoint is taken and when it is restored.
+- **Recommendation**: ensure no pooled connection is open at checkpoint time — let the pool drain to zero idle
+  connections (for example `spring.datasource.hikari.minimum-idle=0`) or rely on Spring closing CRaC-aware pools before
+  the checkpoint — and keep the database/cache reachable at both checkpoint and restore. Take the checkpoint after the
+  context refreshes but before traffic opens a connection. An in-memory profile (such as H2 with no network socket)
+  avoids the problem entirely.
+
 ## Resources
 
 ### CRAC-RES-001 — Open resources held in fields must be released at checkpoint
@@ -81,10 +107,11 @@ a handful of sample detail lines.
 - **Severity**: HIGH
 - **Inspects**: fields whose type holds an OS resource (sockets, file streams, `RandomAccessFile`, NIO channels, JDBC
   `Connection`) on classes that do not implement `org.crac.Resource` or a Spring `Lifecycle`.
-- **Fires when**: such a field exists on an unmanaged class. CRaC cannot snapshot live file descriptors.
+- **Fires when**: such a field exists on an unmanaged class. CRaC cannot snapshot live file descriptors. Auto-configured
+  pools (a HikariCP `DataSource`, a Redis client) are the common case and are covered separately by `CRAC-POOL-001`.
 - **Recommendation**: implement `org.crac.Resource` and close the resource in `beforeCheckpoint()`, re-opening it in
   `afterRestore()`; or hold the resource in a Spring `Lifecycle` / `SmartLifecycle` bean so the framework stops it before
-  the checkpoint.
+  the checkpoint. For auto-configured connection pools, see `CRAC-POOL-001`.
 
 ## Threads
 

@@ -11,6 +11,11 @@ test.describe('CRaC view', () => {
     // The runtime-status card renders without a scan (always read-only).
     await expect(page.locator('main')).toContainText('org.crac API')
 
+    // The sample app auto-configures a JDBC DataSource, so the runtime status surfaces the
+    // connection-pool checkpoint/restore caveat (CRAC-POOL-001) without needing a scan.
+    await expect(page.locator('main')).toContainText('Checkpoint & restore caveats')
+    await expect(page.locator('main')).toContainText('CRAC-POOL-001')
+
     // The heuristic disclaimer is always present.
     await expect(page.locator('main')).toContainText('Heuristic readiness checks.')
 

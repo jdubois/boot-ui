@@ -209,8 +209,8 @@ final class OpenResourceFieldCheck implements CracCheck {
             "Open resources held in fields must be released at checkpoint",
             CracCategory.RESOURCES,
             "HIGH",
-            "Detects fields whose type holds an OS resource (sockets, file streams, RandomAccessFile, NIO channels, JDBC Connection) on classes that do not implement org.crac.Resource or a Spring Lifecycle. CRaC cannot snapshot live file descriptors.",
-            "Implement org.crac.Resource and close the resource in beforeCheckpoint(), re-opening it in afterRestore(); or hold the resource in a Spring Lifecycle/SmartLifecycle bean so the framework stops it before the checkpoint.",
+            "Detects fields whose type holds an OS resource (sockets, file streams, RandomAccessFile, NIO channels, JDBC Connection) on classes that do not implement org.crac.Resource or a Spring Lifecycle. CRaC cannot snapshot live file descriptors. Auto-configured pools (a HikariCP DataSource, a Redis client) are the common case and are covered separately by CRAC-POOL-001.",
+            "Implement org.crac.Resource and close the resource in beforeCheckpoint(), re-opening it in afterRestore(); or hold the resource in a Spring Lifecycle/SmartLifecycle bean so the framework stops it before the checkpoint. For auto-configured connection pools, see CRAC-POOL-001.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
     private static final Set<String> RESOURCE_TYPES = Set.of(
@@ -425,6 +425,53 @@ final class ResourceRegistrationCheck implements CracCheck {
                     List.of(
                             CracCheckSupport.detail(
                                     "No application class implements org.crac.Resource; resource handling relies on Spring lifecycle only.")));
+        } catch (RuntimeException | LinkageError ex) {
+            return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+}
+
+/**
+ * Flags auto-configured connection pools (JDBC {@code DataSource}s, Redis connection factories) that
+ * are live in the running context. Such pools hold OS sockets that CRaC refuses to checkpoint while
+ * open: if a pooled connection is still established when {@code spring.context.checkpoint=onRefresh}
+ * fires, CRaC aborts with a {@code CheckpointOpenSocketException}.
+ *
+ * <p>Unlike the other checks this one reads the live {@link CracRuntimeInventory} rather than the
+ * imported application bytecode, because pools are contributed by Spring Boot auto-configuration and
+ * never appear in the application's own base package.</p>
+ */
+final class ConnectionPoolCheck implements CracCheck {
+
+    private static final CracCheckDefinition DEFINITION = new CracCheckDefinition(
+            "CRAC-POOL-001",
+            "Connection pools must hold no open connection at checkpoint",
+            CracCategory.POOLS,
+            "HIGH",
+            "Detects live connection pools (JDBC DataSource, Redis connection factory). A pooled connection that is still open when the checkpoint is taken holds an OS socket that CRaC refuses to snapshot, so the checkpoint aborts with CheckpointOpenSocketException. The backing service must also be reachable both when the checkpoint is taken and when it is restored.",
+            "Ensure no pooled connection is open at checkpoint time: let the pool drain to zero idle connections (for example spring.datasource.hikari.minimum-idle=0) or rely on Spring closing CRaC-aware pools before the checkpoint, and keep the database/cache reachable at both checkpoint and restore. Take the checkpoint after the context refreshes but before traffic opens a connection.",
+            "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
+
+    @Override
+    public CracCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public CracFindingDto evaluate(CracContext context) {
+        try {
+            List<String> poolBeans = context.runtime().connectionPoolBeans();
+            if (poolBeans.isEmpty()) {
+                return CracCheckSupport.ok(DEFINITION);
+            }
+            List<String> samples = new ArrayList<>();
+            for (String poolBean : poolBeans) {
+                if (samples.size() >= CracCheckSupport.maxSampleOccurrences()) {
+                    break;
+                }
+                samples.add(CracCheckSupport.detail(poolBean));
+            }
+            return CracCheckSupport.review(DEFINITION, poolBeans.size(), samples);
         } catch (RuntimeException | LinkageError ex) {
             return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
         }

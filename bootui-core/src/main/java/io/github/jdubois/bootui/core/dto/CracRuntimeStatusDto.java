@@ -17,6 +17,8 @@ import java.util.List;
  * @param restoreFrom the {@code -XX:CRaCRestoreFrom} directory, or {@code null} when not set
  * @param cracJvmArgs the CRaC-related JVM input arguments detected for the running process
  * @param summary a short human-readable summary of the current CRaC readiness state
+ * @param restoreCaveats review prompts about state that CRaC freezes at checkpoint time (frozen
+ *     configuration, connection pools that must be reachable at restore); empty when none apply
  */
 public record CracRuntimeStatusDto(
         boolean cracApiPresent,
@@ -26,4 +28,5 @@ public record CracRuntimeStatusDto(
         String checkpointTo,
         String restoreFrom,
         List<String> cracJvmArgs,
-        String summary) {}
+        String summary,
+        List<String> restoreCaveats) {}
