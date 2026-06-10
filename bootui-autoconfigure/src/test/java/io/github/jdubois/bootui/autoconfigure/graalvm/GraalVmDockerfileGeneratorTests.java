@@ -38,6 +38,9 @@ class GraalVmDockerfileGeneratorTests {
         assertThat(dockerfile).doesNotContain("./mvnw");
         assertThat(dockerfile).contains("apache-maven");
         assertThat(dockerfile).contains("target/my-service");
+        // Resolves the latest stable Maven at build time rather than pinning a version.
+        assertThat(dockerfile).contains("maven-metadata.xml");
+        assertThat(dockerfile).doesNotContain("MAVEN_VERSION=3");
     }
 
     @Test
@@ -58,6 +61,9 @@ class GraalVmDockerfileGeneratorTests {
         assertThat(dockerfile).doesNotContain("./gradlew");
         assertThat(dockerfile).contains("services.gradle.org");
         assertThat(dockerfile).contains("build/native/nativeCompile/my-service");
+        // Resolves the latest Gradle at build time rather than pinning a version.
+        assertThat(dockerfile).contains("services.gradle.org/versions/current");
+        assertThat(dockerfile).doesNotContain("GRADLE_VERSION=8");
     }
 
     @Test
