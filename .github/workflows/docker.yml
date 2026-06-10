@@ -10,8 +10,11 @@ name: Docker configuration
 
 on:
   schedule:
-    # Every day at 06:30 UTC (just after the native-image job).
-    - cron: '30 6 * * *'
+    # Every day at 06:47 UTC (just after the native-image job). Deliberately off
+    # the top of the hour: GitHub delays and, under sufficiently high load, drops
+    # scheduled events during the peak window at the start of each hour, so a
+    # ':00' cron is unreliable.
+    - cron: '47 6 * * *'
   workflow_dispatch:
 
 concurrency:
