@@ -57,6 +57,7 @@ Panel settings are consistent across the UI and API:
 | Runtime         | Threads                   | `threads`                   | `bootui.panels.threads.enabled`                   | `bootui.panels.threads.read-only`         |
 | Runtime         | Startup Timeline          | `startup`                   | `bootui.panels.startup.enabled`                   | Not applicable; view-only.                |
 | Runtime         | GraalVM                   | `graalvm`                   | `bootui.panels.graalvm.enabled`                   | `bootui.panels.graalvm.read-only`         |
+| Runtime         | CRaC                      | `crac`                      | `bootui.panels.crac.enabled`                      | `bootui.panels.crac.read-only`            |
 | Configuration   | Configuration             | `config`                    | `bootui.panels.config.enabled`                    | `bootui.panels.config.read-only`          |
 | Configuration   | Profile Diff              | `profile-diff`              | `bootui.panels.profile-diff.enabled`              | Not applicable; view-only.                |
 | Configuration   | Loggers                   | `loggers`                   | `bootui.panels.loggers.enabled`                   | `bootui.panels.loggers.read-only`         |
@@ -279,6 +280,13 @@ Panel settings are consistent across the UI and API:
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------ |
 | `bootui.panels.graalvm.enabled`   | `true`  | Show the GraalVM native-image readiness panel and its latest report.                 |
 | `bootui.panels.graalvm.read-only` | `false` | Disable the on-demand readiness scan action (the metadata download stays available). |
+
+### CRaC
+
+| Property                       | Default | Description                                                                                                    |
+| ------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.crac.enabled`   | `true`  | Show the CRaC (Coordinated Restore at Checkpoint) readiness panel and its latest report.                       |
+| `bootui.panels.crac.read-only` | `false` | Disable the on-demand readiness scan and the Dockerfile/entrypoint install actions (downloads stay available). |
 
 ### DevTools
 

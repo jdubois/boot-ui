@@ -2,7 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Coordinates;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Coordinates;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;

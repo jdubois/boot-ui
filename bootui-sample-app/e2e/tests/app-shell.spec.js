@@ -14,6 +14,7 @@ const allPanelLinks = [
   {id: 'memory', title: 'Memory', heading: /^Memory/},
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
   {id: 'graalvm', title: 'GraalVM', heading: /^GraalVM/},
+  {id: 'crac', title: 'CRaC', heading: /^CRaC/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
   {id: 'profile-diff', title: 'Profile Diff', heading: /Profile Diff/},
   {id: 'loggers', title: 'Loggers', heading: /^Loggers/},
@@ -100,7 +101,7 @@ test.describe('BootUI app shell', () => {
 
     const groups = [
       {title: 'Advisors', count: 8},
-      {title: 'Runtime', count: 9},
+      {title: 'Runtime', count: 10},
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 4},
       {title: 'Security', count: 2},

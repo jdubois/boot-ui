@@ -1,0 +1,61 @@
+# Multi-stage Dockerfile for a CRaC (Coordinated Restore at Checkpoint) image of
+# the BootUI sample app.
+#
+# CRaC snapshots a fully warmed-up JVM process to disk and restores it in tens of
+# milliseconds. It only works on Linux and needs a CRaC-enabled JDK plus elevated
+# container privileges (CRIU) to take and restore the checkpoint - see
+# docker-compose-crac.yml and bootui-sample-app/README.md.
+#
+# The sample app runs with its default "dev" profile, which uses an in-memory H2
+# database (and an in-memory cache) instead of PostgreSQL/Redis, so the checkpoint
+# is taken with no open network sockets and restores cleanly out of the box. See
+# the README for the (more involved) external-services variant.
+#
+# BootUI is a multi-module Maven project, so the whole reactor is copied into the
+# build stage and the sample app is built together with the modules it depends on
+# (`-pl bootui-sample-app -am`). For a JVM image see Dockerfile, for a GraalVM
+# native image see Dockerfile-native.
+
+# Build stage (a plain JDK is enough; CRaC only matters at runtime).
+FROM eclipse-temurin:21-jdk-noble AS build
+
+WORKDIR /app
+
+# Copy the whole multi-module project (see .dockerignore for exclusions).
+COPY . .
+RUN chmod +x mvnw
+
+# Build the sample app and its reactor dependencies. The sample app binds the
+# spring-boot-maven-plugin "repackage" goal, so this produces a runnable Spring
+# Boot jar (with BOOT-INF and a Main-Class) alongside the thin *.jar.original.
+RUN ./mvnw -DskipTests -pl bootui-sample-app -am clean package
+
+# Runtime stage with a CRaC-enabled JDK (BellSoft Liberica with CRaC support).
+FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc
+
+WORKDIR /app
+
+# Where the checkpoint image is written/read. Mounted as a volume in
+# docker-compose-crac.yml so the checkpoint survives container restarts.
+ENV CRAC_CHECKPOINT_DIR=/opt/crac/checkpoint
+ENV APP_JAR=/app/app.jar
+
+# Run the sample app with its "dev" profile *active* (not merely the default).
+# BootUI's activation condition checks Environment.getActiveProfiles(), which does
+# NOT include profiles set only via spring.profiles.default. Without an active
+# profile (and with devtools stripped from the repackaged jar) BootUI would stay
+# disabled in the container. CRaC freezes this into the checkpoint at first start,
+# so it must be set before the checkpoint is taken - hence baking it in here.
+ENV SPRING_PROFILES_ACTIVE=dev
+
+# Copy the repackaged, runnable Spring Boot jar (the glob skips the thin
+# *.jar.original) and the checkpoint/restore entrypoint.
+COPY --from=build /app/bootui-sample-app/target/bootui-sample-app-*.jar ${APP_JAR}
+COPY --from=build /app/bootui-sample-app/src/main/script/checkpoint-and-run.sh /app/checkpoint-and-run.sh
+
+RUN chmod +x /app/checkpoint-and-run.sh && mkdir -p ${CRAC_CHECKPOINT_DIR}
+
+EXPOSE 8080
+
+# Take a checkpoint on the first start, then restore on every start.
+ENTRYPOINT ["/app/checkpoint-and-run.sh"]

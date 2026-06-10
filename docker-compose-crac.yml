@@ -1,0 +1,54 @@
+# Runs the BootUI sample app with CRaC (Coordinated Restore at Checkpoint) using
+# the simple in-memory profile, so it works out of the box:
+#
+#   docker compose -f docker-compose-crac.yml up --build
+#
+# The app starts with its default "dev" profile (in-memory H2 database and an
+# in-memory cache), so no PostgreSQL or Redis is required and nothing holds an
+# open network socket when the checkpoint is taken. On the very first start the
+# app boots once to write a CRaC checkpoint (spring.context.checkpoint=onRefresh);
+# every start after that restores the warmed-up JVM image in a few tens of
+# milliseconds. The checkpoint is kept in the `crac-checkpoint` named volume so it
+# survives `down`/`up` cycles (delete the volume to force a fresh checkpoint).
+#
+# CRaC only works on a Linux host: CRIU snapshots and restores the live process,
+# which is why the `app` service runs privileged.
+#
+# Running the sample app against a real PostgreSQL + Redis under CRaC is possible
+# but needs extra care (those services must be up both when the checkpoint is
+# taken and when it is restored, and an open pooled connection at checkpoint time
+# aborts CRaC). See the "Run it with CRaC" section of bootui-sample-app/README.md.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-crac
+    # CRIU needs broad privileges to checkpoint and restore the JVM process. A
+    # narrower set (cap_add: CHECKPOINT_RESTORE, SYS_PTRACE, SYS_ADMIN and
+    # security_opt: seccomp:unconfined) works on most hosts; `privileged` is the
+    # most portable choice for a local demo.
+    privileged: true
+    environment:
+      SERVER_PORT: 8080
+      # Run the "dev" profile as an *active* profile (the image already defaults
+      # to this). BootUI activates on an active profile listed in
+      # bootui.enabled-profiles (dev,local,docker) - a profile set only via
+      # spring.profiles.default does not count - and "dev" also selects the
+      # in-memory H2 database and cache. CRaC freezes this into the checkpoint on
+      # the first start.
+      SPRING_PROFILES_ACTIVE: "dev"
+      # Host browser requests arrive through Docker's bridge gateway rather than
+      # loopback from the container's point of view. The port is bound to
+      # 127.0.0.1 below, so this stays local-only on the host. This must be set
+      # when the checkpoint is taken (the first start), because CRaC freezes the
+      # configuration into the checkpoint image.
+      BOOTUI_ALLOW_NON_LOCALHOST: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - crac-checkpoint:/opt/crac/checkpoint
+    restart: unless-stopped
+
+volumes:
+  crac-checkpoint:
