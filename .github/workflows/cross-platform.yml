@@ -11,8 +11,11 @@ name: Cross-platform build
 
 on:
   schedule:
-    # Every day at 05:00 UTC (ahead of the native-image build at 06:00).
-    - cron: '0 5 * * *'
+    # Every day at 05:17 UTC (ahead of the native-image build). Deliberately off
+    # the top of the hour: GitHub delays and, under sufficiently high load, drops
+    # scheduled events during the peak window at the start of each hour, so a
+    # ':00' cron is unreliable.
+    - cron: '17 5 * * *'
   workflow_dispatch:
 
 concurrency:

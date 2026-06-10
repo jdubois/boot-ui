@@ -11,19 +11,26 @@ final class MemoryRuleRegistry {
             new UnsetOrSmallMaxHeapRule(),
             new CompressedOopsCliffRule(),
             new PendingFinalizationBacklogRule(),
+            new OverProvisionedHeapRule(),
             // Native memory
             new CommittedFootprintNearContainerLimitRule(),
             new PlatformThreadStackReservationRule(),
+            new ContainerMemoryPressureRule(),
+            new HighSwapUtilizationRule(),
             // Memory pools
             new MetaspaceSaturationRule(),
             new CodeCacheSaturationRule(),
             new DirectBufferGrowthRule(),
             new UnboundedMetaspaceInContainerRule(),
+            new CompressedClassSpaceRule(),
+            new InterpretedJitModeRule(),
             // GC configuration
             new MissingHeapSizingInContainerRule(),
             new HighGcOverheadRule(),
             new RecentGcOverheadRule(),
             new UnequalInitialAndMaxHeapRule(),
+            new SerialGcOnMultiCoreRule(),
+            new G1FullGcFrequencyRule(),
             // Threads
             new DeadlockDetectedRule(),
             new HighBlockedThreadRatioRule(),

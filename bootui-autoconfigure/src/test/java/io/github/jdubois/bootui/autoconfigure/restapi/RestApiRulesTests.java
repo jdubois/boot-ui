@@ -16,6 +16,9 @@ class RestApiRulesTests {
     private static final String EDGE = "io.github.jdubois.bootui.autoconfigure.restapi.edgecases";
     private static final String PHASE2_BAD = "io.github.jdubois.bootui.autoconfigure.restapi.phase2.bad";
     private static final String PHASE2_GOOD = "io.github.jdubois.bootui.autoconfigure.restapi.phase2.good";
+    private static final String PHASE3_BAD = "io.github.jdubois.bootui.autoconfigure.restapi.phase3.bad";
+    private static final String PHASE3_GOOD = "io.github.jdubois.bootui.autoconfigure.restapi.phase3.good";
+    private static final String PHASE3_FIXES = "io.github.jdubois.bootui.autoconfigure.restapi.phase3.fixes";
 
     private RestApiContext context(boolean springdocPresent, String... packages) {
         JavaClasses classes = new ClassFileImporter().importPackages(packages);
@@ -26,7 +29,8 @@ class RestApiRulesTests {
                 model.handlers(),
                 model.exceptionHandlers(),
                 springdocPresent,
-                model.hasExceptionHandling());
+                model.hasExceptionHandling(),
+                model.responseStatusExceptionClasses());
     }
 
     private String status(RestApiRule rule, RestApiContext context) {
@@ -196,7 +200,6 @@ class RestApiRulesTests {
         assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("VIOLATION");
         assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
                 .isEqualTo("VIOLATION");
-        assertThat(status(new WrapTopLevelCollectionsRule(), context)).isEqualTo("VIOLATION");
     }
 
     @Test
@@ -207,7 +210,6 @@ class RestApiRulesTests {
         assertThat(status(new CreatedResponsesExposeLocationRule(), context)).isEqualTo("PASS");
         assertThat(status(new ResponseProducingEndpointsDeclareProducesRule(), context))
                 .isEqualTo("PASS");
-        assertThat(status(new WrapTopLevelCollectionsRule(), context)).isEqualTo("PASS");
     }
 
     @Test
@@ -239,5 +241,93 @@ class RestApiRulesTests {
         RestApiRuleResultDto result = throwingRule.evaluate(context(false, FIXTURES));
         assertThat(result.status()).isEqualTo("ERROR");
         assertThat(result.sampleViolations()).isNotEmpty();
+    }
+
+    @Test
+    void phase3NewRulesFlagBadController() {
+        RestApiContext context = context(false, PHASE3_BAD);
+
+        assertThat(status(new DuplicatePathVariableTokenRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new CatchAllPatternRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new DeepResourceNestingRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new FormatSuffixInPathRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new UnboundedMapRequestParamRule(), context)).isEqualTo("VIOLATION");
+        assertThat(status(new LegacyDateInDtoRule(), context)).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void phase3NewRulesPassGoodController() {
+        RestApiContext context = context(false, PHASE3_GOOD);
+
+        assertThat(status(new DuplicatePathVariableTokenRule(), context)).isEqualTo("PASS");
+        assertThat(status(new CatchAllPatternRule(), context)).isEqualTo("PASS");
+        assertThat(status(new DeepResourceNestingRule(), context)).isEqualTo("PASS");
+        assertThat(status(new FormatSuffixInPathRule(), context)).isEqualTo("PASS");
+        assertThat(status(new UnboundedMapRequestParamRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void phase3ErrorHandlingRulesFlagAndPass() {
+        RestApiContext badContext = context(false, PHASE3_BAD);
+
+        // ERR-005: broad @ExceptionHandler(Exception.class) with fixed status.
+        assertThat(status(new BroadExceptionHandlerRule(), badContext)).isEqualTo("VIOLATION");
+
+        // ERR-006: @ResponseStatus exception (BizException) + ProblemDetail handler present.
+        assertThat(status(new ResponseStatusOnExceptionRule(), badContext)).isEqualTo("VIOLATION");
+
+        // Good fixtures: no broad catch-all advice.
+        RestApiContext goodContext = context(false, PHASE3_GOOD);
+        assertThat(status(new BroadExceptionHandlerRule(), goodContext)).isEqualTo("PASS");
+        assertThat(status(new ResponseStatusOnExceptionRule(), goodContext)).isEqualTo("PASS");
+    }
+
+    @Test
+    void phase3MixedVersioningRuleFlagsAndPasses() {
+        // Bad: MixedVersionController uses /v1/ path AND versioned media type.
+        RestApiContext mixed = context(false, PHASE3_BAD);
+        assertThat(status(new MixedVersioningStrategiesRule(), mixed)).isEqualTo("VIOLATION");
+
+        // Good: all handlers share one versioning strategy.
+        RestApiContext consistent = context(false, PHASE3_GOOD);
+        assertThat(status(new MixedVersioningStrategiesRule(), consistent)).isEqualTo("PASS");
+    }
+
+    @Test
+    void classLevelRequestMappingMethodIsInherited() {
+        // TypeLevelMethodController has @RequestMapping(method=GET) at class level and
+        // @RequestMapping("/{id}") at method level — the handler must be considered explicitly mapped
+        // (GET) so MAP-001 does NOT fire.
+        RestApiContext context = context(false, PHASE3_FIXES);
+
+        assertThat(status(new UseHttpMethodSpecificMappingsRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void classLevelResponseStatusDoesNotTriggerResp007() {
+        // ClassStatusController has @ResponseStatus at class level and a ResponseEntity method —
+        // RESP-007 should only flag method-level @ResponseStatus, so this must PASS.
+        RestApiContext context = context(false, PHASE3_FIXES);
+
+        assertThat(status(new ResponseStatusIgnoredWithResponseEntityRule(), context))
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void name001DoesNotFlagAmbiguousNounSegments() {
+        // /blog/post/{id} from Phase3GoodController: "post" is an ambiguous noun (blog post),
+        // not a clear HTTP-method verb, so NAME-001 must not flag it.
+        RestApiContext context = context(false, PHASE3_GOOD);
+
+        assertThat(status(new ResourcePathsAreNounsRule(), context)).isEqualTo("PASS");
+    }
+
+    @Test
+    void name002DoesNotFlagUncountableNouns() {
+        // /history from Phase3GoodController returns a collection but the noun is uncountable —
+        // NAME-002 must not flag it.
+        RestApiContext context = context(false, PHASE3_GOOD);
+
+        assertThat(status(new CollectionsUsePluralNounsRule(), context)).isEqualTo("PASS");
     }
 }

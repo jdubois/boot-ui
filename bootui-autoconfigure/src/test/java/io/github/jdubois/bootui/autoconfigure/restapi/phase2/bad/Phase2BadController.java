@@ -49,7 +49,6 @@ public class Phase2BadController {
 
     @PostMapping("/search")
     public List<ItemDto> search(@RequestBody ItemDto query) {
-        // RAPI-DTO-003: non-GET handler returns a raw top-level collection.
         return List.of();
     }
 }

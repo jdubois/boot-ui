@@ -15,12 +15,14 @@ record RestApiContext(
         List<HandlerMethodModel> handlers,
         List<ExceptionHandlerModel> exceptionHandlers,
         boolean springdocPresent,
-        boolean hasExceptionHandling) {
+        boolean hasExceptionHandling,
+        List<String> responseStatusExceptionClasses) {
 
     RestApiContext {
         basePackages = List.copyOf(basePackages);
         controllers = List.copyOf(controllers);
         handlers = List.copyOf(handlers);
         exceptionHandlers = List.copyOf(exceptionHandlers);
+        responseStatusExceptionClasses = List.copyOf(responseStatusExceptionClasses);
     }
 }

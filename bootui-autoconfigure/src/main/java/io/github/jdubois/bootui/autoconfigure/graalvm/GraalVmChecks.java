@@ -152,7 +152,7 @@ final class DynamicProxyCheck extends AbstractArchUnitGraalVmCheck {
                 "Dynamic JDK proxies may need proxy metadata",
                 GraalVmCategory.PROXIES,
                 "MEDIUM",
-                "Detects calls to Proxy.newProxyInstance and Proxy.getProxyClass, which create JDK dynamic proxies whose interface lists must be known to native-image.",
+                "Detects calls to Proxy.newProxyInstance and Proxy.getProxyClass, which create JDK dynamic proxies whose interface lists must be known to native-image. When the interface array is a compile-time constant, native-image may auto-register the proxy; runtime-computed interface sets always need explicit metadata.",
                 "Declare the proxied interfaces in reachability-metadata.json, or for application code register them with Spring's RuntimeHints (RuntimeHints.proxies().registerJdkProxy(...) via @ImportRuntimeHints). Spring's own proxy mechanisms are covered by Spring AOT.",
                 "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/DynamicProxy/"));
     }
@@ -223,7 +223,7 @@ final class SerializationCheck implements GraalVmCheck {
             "Serializable types may need serialization metadata",
             GraalVmCategory.SERIALIZATION,
             "INFO",
-            "Detects application classes that implement java.io.Serializable; types that are actually serialized at runtime require serialization metadata.",
+            "Detects application classes that implement java.io.Serializable (non-enum, concrete types); types that are actually serialized at runtime require serialization metadata. If GRAAL-SER-002 (active JDK serialization) also fires, the listed types are likely serialized at runtime. Enum types are excluded because GraalVM handles standard enum serialization automatically.",
             "If these types are serialized (e.g. via the JDK serialization protocol), register them under serialization in reachability-metadata.json.",
             "https://www.graalvm.org/latest/reference-manual/native-image/metadata/");
 
@@ -408,11 +408,11 @@ final class AnnotationReflectionCheck extends AbstractArchUnitGraalVmCheck {
                         if (!ANNOTATION_LOOKUPS.contains(target.getName())) {
                             return false;
                         }
-                        JavaClass owner = target.getOwner();
-                        if ("java.lang.Class".equals(owner.getName())) {
-                            return false;
-                        }
-                        return owner.isAssignableTo("java.lang.reflect.AnnotatedElement");
+                        String ownerName = target.getOwner().getName();
+                        return "java.lang.reflect.Method".equals(ownerName)
+                                || "java.lang.reflect.Field".equals(ownerName)
+                                || "java.lang.reflect.Constructor".equals(ownerName)
+                                || "java.lang.reflect.Parameter".equals(ownerName);
                     }
                 })
                 .as("Classes should not read annotations from reflected members without reflection metadata");
@@ -529,8 +529,8 @@ final class BuildTimeInitializationCheck extends AbstractArchUnitGraalVmCheck {
                         "Static initializer I/O or thread starts may break build-time initialization",
                         GraalVmCategory.BUILD_TIME_INIT,
                         "LOW",
-                        "Detects static initializers that perform file I/O (java.io file streams or filesystem-touching java.nio.file.Files calls) or start threads/processes directly; with build-time class initialization these run during the native build, capturing build-time state or failing the build.",
-                        "Move the side effect out of the static initializer, or initialize the class at run time (e.g. --initialize-at-run-time=<class>) so the I/O or thread starts when the application runs.",
+                        "Detects static initializers that perform file I/O (java.io file streams or filesystem-touching java.nio.file.Files calls) or start threads/processes directly. Since GraalVM 21.3+ classes are run-time-initialized by default, this only applies when the class is explicitly initialized at build time via --initialize-at-build-time or Spring AOT's build-time-init list.",
+                        "If the class is listed under --initialize-at-build-time, move the side effect out of the static initializer or switch the class to --initialize-at-run-time so the I/O or thread starts when the application runs rather than during the native build.",
                         "https://www.graalvm.org/latest/reference-manual/native-image/optimizations-and-performance/ClassInitialization/"));
     }
 
@@ -684,9 +684,9 @@ final class BuildTimeStateCaptureCheck extends AbstractArchUnitGraalVmCheck {
                         "GRAAL-INIT-002",
                         "Static initializer captures build-machine state",
                         GraalVmCategory.BUILD_TIME_INIT,
-                        "MEDIUM",
-                        "Detects static initializers that read environment- or time-sensitive state (System.getenv/getProperty, current time, java.time now(), default Locale/TimeZone, InetAddress, Random/SecureRandom seeds, UUID.randomUUID); with build-time class initialization these values are frozen at native build time instead of being read when the application runs.",
-                        "Move the state capture into a runtime code path, or mark the class --initialize-at-run-time so the values are read when the native image starts rather than baked in during the build.",
+                        "LOW",
+                        "Detects static initializers that read environment- or time-sensitive state (System.getenv/getProperty, current time, java.time now(), default Locale/TimeZone, InetAddress, Random/SecureRandom seeds, UUID.randomUUID). Since GraalVM 21.3+ classes are run-time-initialized by default, this is only a concern when the class is explicitly initialized at build time via --initialize-at-build-time or Spring AOT's build-time-init list.",
+                        "If the class is listed under --initialize-at-build-time, move the state capture into a runtime code path or switch the class to --initialize-at-run-time so the values are read when the native image starts rather than baked in during the build.",
                         "https://www.graalvm.org/latest/reference-manual/native-image/optimizations-and-performance/ClassInitialization/"));
     }
 
@@ -832,9 +832,9 @@ final class RuntimeSingletonRegistrationCheck extends AbstractArchUnitGraalVmChe
                 "SPRING-AOT-001",
                 "Runtime bean singleton registration is not captured by Spring AOT",
                 GraalVmCategory.SPRING_AOT,
-                "HIGH",
+                "MEDIUM",
                 "Detects SingletonBeanRegistry.registerSingleton(...) calls that add beans to the context at run time; Spring AOT processes the bean factory at build time, so dynamically registered singletons are invisible to the AOT-generated context and native-image.",
-                "Register the bean through standard build-time configuration (@Bean / @Component / a BeanFactoryInitializationAotContribution) so Spring AOT can see it, instead of calling registerSingleton at run time.",
+                "Register the bean through standard build-time configuration (@Bean / @Component / a BeanFactoryInitializationAotContribution) so Spring AOT can see it. For programmatic AOT-aware registration consider Spring Framework 7's BeanRegistrar API. Note: the singleton instance itself is present at runtime; the risk is only for reflective construction and AOT-generated context completeness.",
                 "https://docs.spring.io/spring-framework/reference/core/aot.html"));
     }
 
@@ -875,7 +875,7 @@ final class RuntimeInstanceSupplierCheck extends AbstractArchUnitGraalVmCheck {
                 GraalVmCategory.SPRING_AOT,
                 "HIGH",
                 "Detects bean definitions backed by a programmatic instance supplier (setInstanceSupplier, or registerBean/BeanDefinitionBuilder with a Supplier); Spring AOT cannot trace through the supplier lambda at build time, so the bean's type and dependencies may be missing from the native image.",
-                "Prefer declarative bean definitions (@Bean methods / component scanning) whose types Spring AOT can resolve, or provide a RuntimeHintsRegistrar that registers the supplied type for reflection.",
+                "Prefer declarative bean definitions (@Bean methods / component scanning) whose types Spring AOT can resolve, or use Spring Framework 7's BeanRegistrar / BeanRegistrarDsl for AOT-friendly programmatic registration; alternatively provide a RuntimeHintsRegistrar that registers the supplied type for reflection.",
                 "https://docs.spring.io/spring-framework/reference/core/aot.html"));
     }
 
@@ -908,5 +908,353 @@ final class RuntimeInstanceSupplierCheck extends AbstractArchUnitGraalVmCheck {
                             }
                         })
                 .as("Classes should not register programmatic instance suppliers under Spring AOT");
+    }
+}
+
+/**
+ * Flags {@code @Profile} or {@code @ConditionalOnProperty} on {@code @Configuration} /
+ * {@code @Component} classes or {@code @Bean} methods. Spring AOT evaluates these conditions once at
+ * build time; if the active profiles or properties differ between the AOT build and runtime, the
+ * conditioned beans may be unexpectedly absent or present in the native image.
+ */
+final class SpringAotConditionedBeansCheck implements GraalVmCheck {
+
+    private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
+            "SPRING-AOT-003",
+            "@Profile / @ConditionalOnProperty freezes profile/property selection at AOT build time",
+            GraalVmCategory.SPRING_AOT,
+            "MEDIUM",
+            "Detects @Profile or @ConditionalOnProperty on @Configuration/@Component classes or @Bean methods. Spring AOT evaluates these conditions once at build time; if the active profiles or application properties differ between the AOT build and the production runtime, the conditioned beans may be unexpectedly absent or present in the native image.",
+            "Ensure the profiles and properties active during the AOT build (native-image compilation) match the intended production configuration, or restructure the configuration to use explicit build-time selection rather than runtime conditions.",
+            "https://docs.spring.io/spring-boot/reference/packaging/native-image/introduction.html");
+
+    private static final List<String> SPRING_COMPONENT_ANNOTATIONS = List.of(
+            "org.springframework.context.annotation.Configuration",
+            "org.springframework.stereotype.Component",
+            "org.springframework.stereotype.Service",
+            "org.springframework.stereotype.Repository",
+            "org.springframework.stereotype.Controller",
+            "org.springframework.web.bind.annotation.RestController");
+
+    private static final List<String> CONDITION_ANNOTATIONS = List.of(
+            "org.springframework.context.annotation.Profile",
+            "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty");
+
+    private static final String BEAN_ANNOTATION = "org.springframework.context.annotation.Bean";
+
+    @Override
+    public GraalVmCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public GraalVmFindingDto evaluate(GraalVmContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                if (hasAnyAnnotation(javaClass, SPRING_COMPONENT_ANNOTATIONS)
+                        && hasAnyAnnotation(javaClass, CONDITION_ANNOTATIONS)) {
+                    count++;
+                    if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+                        samples.add(GraalVmCheckSupport.detail(
+                                javaClass.getName() + " is a Spring component with a profile/property condition"));
+                    }
+                }
+                for (JavaMethod method : javaClass.getMethods()) {
+                    if (method.isAnnotatedWith(BEAN_ANNOTATION)
+                            && hasAnyMethodAnnotation(method, CONDITION_ANNOTATIONS)) {
+                        count++;
+                        if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+                            samples.add(GraalVmCheckSupport.detail(javaClass.getName() + "." + method.getName()
+                                    + " @Bean method has a profile/property condition"));
+                        }
+                    }
+                }
+            }
+            if (count == 0) {
+                return GraalVmCheckSupport.ok(DEFINITION);
+            }
+            return GraalVmCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+
+    private static boolean hasAnyAnnotation(JavaClass javaClass, List<String> annotationNames) {
+        for (String annotation : annotationNames) {
+            if (javaClass.isAnnotatedWith(annotation)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasAnyMethodAnnotation(JavaMethod method, List<String> annotationNames) {
+        for (String annotation : annotationNames) {
+            if (method.isAnnotatedWith(annotation)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+/**
+ * Flags runtime construction of {@code AnnotationConfigApplicationContext} or
+ * {@code GenericApplicationContext}, and {@code SpringApplicationBuilder.child()} calls. Secondary
+ * contexts created programmatically are never processed by Spring AOT, so their beans and runtime
+ * hints are absent from the native image.
+ */
+final class RuntimeApplicationContextCheck extends AbstractArchUnitGraalVmCheck {
+
+    RuntimeApplicationContextCheck() {
+        super(new GraalVmCheckDefinition(
+                "SPRING-AOT-004",
+                "Runtime ApplicationContext creation outside main entry point is not AOT-processed",
+                GraalVmCategory.SPRING_AOT,
+                "HIGH",
+                "Detects runtime construction of AnnotationConfigApplicationContext or GenericApplicationContext and SpringApplicationBuilder.child() calls; secondary contexts created programmatically are never processed by Spring AOT, so their beans and hints are absent from the native image.",
+                "Consolidate configuration into the main application context processed by Spring AOT, or use @Import / @ImportResource to include additional configuration statically at build time.",
+                "https://docs.spring.io/spring-framework/reference/core/aot.html"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callCodeUnitWhere(
+                        new DescribedPredicate<JavaCall<?>>(
+                                "a secondary ApplicationContext is created or a child context is built") {
+                            @Override
+                            public boolean test(JavaCall<?> call) {
+                                CodeUnitCallTarget target = call.getTarget();
+                                String name = target.getName();
+                                String ownerName = target.getOwner().getName();
+                                if ("<init>".equals(name)) {
+                                    return "org.springframework.context.annotation.AnnotationConfigApplicationContext"
+                                                    .equals(ownerName)
+                                            || "org.springframework.context.support.GenericApplicationContext"
+                                                    .equals(ownerName);
+                                }
+                                return "child".equals(name)
+                                        && "org.springframework.boot.builder.SpringApplicationBuilder"
+                                                .equals(ownerName);
+                            }
+                        })
+                .as("Classes should not create secondary ApplicationContexts outside the AOT-processed main context");
+    }
+}
+
+/**
+ * Flags programmatic SpEL expression parsing ({@code ExpressionParser.parseExpression} /
+ * {@code parseRaw}). Runtime-parsed expressions use reflection to access object properties that is
+ * not visible to native-image, and the SpEL bytecode compiler is unsupported in native images.
+ */
+final class SpelUsageCheck extends AbstractArchUnitGraalVmCheck {
+
+    SpelUsageCheck() {
+        super(new GraalVmCheckDefinition(
+                "GRAAL-SPEL-001",
+                "Programmatic SpEL expression parsing relies on reflection with no AOT visibility",
+                GraalVmCategory.REFLECTION,
+                "MEDIUM",
+                "Detects calls to ExpressionParser.parseExpression / parseRaw (SpEL programmatic API); runtime-parsed expressions use reflection to access object properties that is not visible to native-image, and the SpEL bytecode compiler is unsupported in native images.",
+                "Replace programmatic SpEL with direct Java code or annotation-driven evaluation (@PreAuthorize, @Value, @Cacheable) that Spring AOT processes statically. If programmatic SpEL is required, register all reflectively accessed types under reflection in reachability-metadata.json.",
+                "https://docs.spring.io/spring-framework/reference/core/aot.html"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a SpEL expression is parsed at run time") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        String name = target.getName();
+                        if (!"parseExpression".equals(name) && !"parseRaw".equals(name)) {
+                            return false;
+                        }
+                        return target.getOwner().isAssignableTo("org.springframework.expression.ExpressionParser");
+                    }
+                })
+                .as("Classes should not parse SpEL expressions at run time without reflection metadata");
+    }
+}
+
+/**
+ * Flags {@code MethodHandles.Lookup} lookup methods ({@code findVirtual}, {@code findStatic},
+ * {@code findConstructor}, {@code unreflect*}, etc.). Non-constant method handles require reflection
+ * metadata for the target members that is not visible to the existing REFLECT checks.
+ */
+final class MethodHandleUsageCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> LOOKUP_METHODS = Set.of(
+            "findVirtual",
+            "findStatic",
+            "findConstructor",
+            "findSpecial",
+            "findGetter",
+            "findSetter",
+            "findStaticGetter",
+            "findStaticSetter",
+            "unreflect",
+            "unreflectConstructor",
+            "unreflectGetter",
+            "unreflectSetter",
+            "unreflectSpecial",
+            "unreflectVarHandle",
+            "findVarHandle",
+            "findStaticVarHandle");
+
+    MethodHandleUsageCheck() {
+        super(new GraalVmCheckDefinition(
+                "GRAAL-MH-001",
+                "Non-constant MethodHandle lookups may need reflection metadata",
+                GraalVmCategory.REFLECTION,
+                "MEDIUM",
+                "Detects calls to MethodHandles.Lookup.findVirtual/findStatic/findConstructor/unreflect* and related lookup methods; non-constant method handles require reflection metadata for the target members that is not visible to the existing REFLECT checks.",
+                "Register the target members under reflection in reachability-metadata.json so native-image retains the necessary member descriptors. For compile-time-constant handles, native-image may fold the lookup automatically.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/Reflection/"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a MethodHandle lookup is performed") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        return LOOKUP_METHODS.contains(target.getName())
+                                && "java.lang.invoke.MethodHandles$Lookup"
+                                        .equals(target.getOwner().getName());
+                    }
+                })
+                .as("Classes should not perform MethodHandle lookups without reflection metadata");
+    }
+}
+
+/**
+ * Flags calls to {@code Security.addProvider} / {@code insertProviderAt} and application classes
+ * that extend {@code java.security.Provider}. Custom or third-party providers rely on
+ * reflection-based service registration that is invisible to native-image.
+ */
+final class SecurityProviderCheck extends AbstractArchUnitGraalVmCheck {
+
+    SecurityProviderCheck() {
+        super(new GraalVmCheckDefinition(
+                "GRAAL-SEC-001",
+                "Custom security providers may not initialize correctly in native images",
+                GraalVmCategory.SECURITY_PROVIDERS,
+                "MEDIUM",
+                "Detects calls to Security.addProvider / Security.insertProviderAt and application classes that extend java.security.Provider; custom or third-party providers (e.g. BouncyCastle) typically rely on reflection-based service registration that is invisible to native-image.",
+                "Register the provider and all its service implementations under reflection in reachability-metadata.json. Many providers (BouncyCastle, Conscrypt) publish a native-image integration guide or companion module.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a custom security provider is registered") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        String name = target.getName();
+                        return ("addProvider".equals(name) || "insertProviderAt".equals(name))
+                                && "java.security.Security"
+                                        .equals(target.getOwner().getName());
+                    }
+                })
+                .orShould()
+                .beAssignableTo("java.security.Provider")
+                .as("Classes should not use custom security providers without native-image reflection configuration");
+    }
+}
+
+/**
+ * Flags JMX usage: {@code ManagementFactory.getPlatformMBeanServer} and
+ * {@code MBeanServer.registerMBean}. JMX is disabled by default in native images and requires
+ * {@code --enable-monitoring=jmxserver} plus additional metadata.
+ */
+final class JmxUsageCheck extends AbstractArchUnitGraalVmCheck {
+
+    JmxUsageCheck() {
+        super(
+                new GraalVmCheckDefinition(
+                        "GRAAL-JMX-001",
+                        "JMX usage requires --enable-monitoring in the native image",
+                        GraalVmCategory.JMX,
+                        "LOW",
+                        "Detects calls to ManagementFactory.getPlatformMBeanServer and MBeanServer.registerMBean; JMX is disabled by default in native images and requires --enable-monitoring=jmxserver plus MBean reflection metadata.",
+                        "Add --enable-monitoring=jmxserver to the native-image build arguments and register all MBean interfaces and implementations under reflection in reachability-metadata.json.",
+                        "https://www.graalvm.org/latest/reference-manual/native-image/guides/build-and-run-native-executable-with-jmx/"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(
+                        new DescribedPredicate<JavaMethodCall>("JMX server is obtained or an MBean is registered") {
+                            @Override
+                            public boolean test(JavaMethodCall call) {
+                                MethodCallTarget target = call.getTarget();
+                                String name = target.getName();
+                                if ("getPlatformMBeanServer".equals(name)
+                                        && "java.lang.management.ManagementFactory"
+                                                .equals(target.getOwner().getName())) {
+                                    return true;
+                                }
+                                return "registerMBean".equals(name)
+                                        && target.getOwner().isAssignableTo("javax.management.MBeanServer");
+                            }
+                        })
+                .as("Classes should not use JMX without native-image monitoring configuration");
+    }
+}
+
+/**
+ * Flags application classes that depend on {@link java.lang.foreign.Linker} to build native
+ * downcall handles or upcall stubs. Foreign Function &amp; Memory down/upcalls reach native symbols
+ * that are invisible to the closed-world analysis and must be described under {@code foreign} in
+ * {@code reachability-metadata.json}. The check matches the {@code Linker} type by name, so it
+ * works even when BootUI itself runs on a JDK without the Foreign Function API.
+ */
+final class ForeignFunctionUsageCheck extends AbstractArchUnitGraalVmCheck {
+
+    ForeignFunctionUsageCheck() {
+        super(new GraalVmCheckDefinition(
+                "GRAAL-FFM-001",
+                "Foreign Function downcalls/upcalls may need foreign metadata in native images",
+                GraalVmCategory.NATIVE_ACCESS,
+                "LOW",
+                "Detects application classes that depend on java.lang.foreign.Linker to create native downcall handles or upcall stubs; Foreign Function & Memory down/upcalls reach native symbols that must be registered under foreign in reachability-metadata.json and are otherwise unreachable in a native image. Pure heap/off-heap MemorySegment or Arena usage that never touches Linker does not require this metadata and is not flagged.",
+                "Register the native down/upcall descriptors under foreign in reachability-metadata.json, or confine native interop behind a boundary that can be described for the native image.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
+    }
+
+    /**
+     * Matches the {@code java.lang.foreign.Linker} interface (and its nested types) by fully
+     * qualified name. Extracted so the matching logic can be unit-tested on a JDK that predates the
+     * Foreign Function &amp; Memory API.
+     */
+    static boolean isForeignLinkerClass(String name) {
+        return "java.lang.foreign.Linker".equals(name) || name.startsWith("java.lang.foreign.Linker$");
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .dependOnClassesThat(new DescribedPredicate<JavaClass>("the Foreign Function Linker") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        return isForeignLinkerClass(javaClass.getName());
+                    }
+                })
+                .as("Classes should not use the Foreign Function Linker without native-image foreign metadata");
     }
 }

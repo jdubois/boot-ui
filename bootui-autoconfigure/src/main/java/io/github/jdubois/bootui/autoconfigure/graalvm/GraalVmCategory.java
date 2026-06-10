@@ -14,7 +14,9 @@ enum GraalVmCategory {
     NATIVE_ACCESS("Native access"),
     CLASS_GENERATION("Class generation"),
     CLASSPATH_SCANNING("Classpath scanning"),
-    SPRING_AOT("Spring AOT");
+    SPRING_AOT("Spring AOT"),
+    SECURITY_PROVIDERS("Security providers"),
+    JMX("JMX");
 
     private final String label;
 

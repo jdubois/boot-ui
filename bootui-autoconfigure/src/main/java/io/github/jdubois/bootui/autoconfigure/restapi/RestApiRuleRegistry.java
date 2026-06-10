@@ -18,10 +18,14 @@ final class RestApiRuleRegistry {
             new PathVariablesAreBoundRule(),
             new NoRequestBodyOnBodylessMethodsRule(),
             new MutatingItemMethodsTargetResourceRule(),
+            new DuplicatePathVariableTokenRule(),
+            new CatchAllPatternRule(),
+            new DeepResourceNestingRule(),
             // Naming & resource design
             new ResourcePathsAreNounsRule(),
             new CollectionsUsePluralNounsRule(),
             new PathSegmentsAreKebabCaseRule(),
+            new FormatSuffixInPathRule(),
             // Status codes & responses
             new CreationReturns201Rule(),
             new VoidDeleteReturns204Rule(),
@@ -35,11 +39,12 @@ final class RestApiRuleRegistry {
             new RequestBodyIsValidatedRule(),
             new NoMassAssignmentViaEntitiesRule(),
             new OptionalPrimitiveRequestParamRule(),
+            new UnboundedMapRequestParamRule(),
             // DTO & payload contracts
             new NoEntitiesInResponsesRule(),
             new NoUntypedResponseBodiesRule(),
-            new WrapTopLevelCollectionsRule(),
             new DtosAreImmutableRule(),
+            new LegacyDateInDtoRule(),
             // Pagination & collections
             new CollectionReadsArePaginatedRule(),
             new ReturnPagedTypeRule(),
@@ -49,11 +54,14 @@ final class RestApiRuleRegistry {
             new NoWildcardMediaTypesRule(),
             new PatchUsesPatchMediaTypeRule(),
             new ResponseProducingEndpointsDeclareProducesRule(),
+            new MixedVersioningStrategiesRule(),
             // Error handling & documentation
             new CentralizedExceptionHandlingRule(),
             new NoBroadThrowsOnHandlersRule(),
             new PreferProblemDetailRule(),
             new ExceptionHandlersSetErrorStatusRule(),
+            new BroadExceptionHandlerRule(),
+            new ResponseStatusOnExceptionRule(),
             new EndpointsAreDocumentedRule(),
             new ControllersAreTaggedRule());
 
