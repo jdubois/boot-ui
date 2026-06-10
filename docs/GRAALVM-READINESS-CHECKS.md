@@ -37,7 +37,7 @@ In addition to the checks, the scan does two things:
   that BootUI did not generate.
 - **Generates a tailored `Dockerfile-native`** for the host application — a multi-stage build that detects the project's
   build system (Maven or Gradle, with or without the wrapper) and compiles a GraalVM native image with the matching
-  command (`./mvnw`/`mvn -Pnative -DskipTests clean package`, or `./gradlew`/`gradle nativeCompile`), then packages the
+  command (`./mvnw`/`mvn -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the
   resulting executable (named after the resolved `artifactId`) into a minimal Debian runtime image with a non-root user
   and an HTTP liveness healthcheck (it probes the web server for any response, so it does not require Actuator). When
   the project carries no wrapper, the build stage installs a known, pinned

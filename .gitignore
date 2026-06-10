@@ -42,3 +42,5 @@ dist/
 # Local env
 .env
 *.env.local
+/bootui-sample-app/Dockerfile-native
+/bootui-sample-app/src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-sample-app/reachability-metadata.json

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiActivationCondition;
+import org.springframework.aot.AotDetector;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.context.metrics.buffering.BufferingApplicationStartup;
@@ -24,6 +25,16 @@ import org.springframework.core.metrics.ApplicationStartup;
  * configured a {@code BufferingApplicationStartup}. Can be disabled with
  * {@code bootui.startup.enabled=false}. Buffer size is configurable via
  * {@code bootui.startup.capacity} (default 4096).</p>
+ *
+ * <p>In an AOT-optimized image (for example a GraalVM native image) the buffer
+ * is also installed when BootUI is <em>inactive</em> at runtime. AOT freezes
+ * bean conditions at build time: if AOT processing ran with BootUI active,
+ * Spring Boot baked in its {@code StartupEndpoint}, which has a hard dependency
+ * on a {@code BufferingApplicationStartup} bean. BootUI is the only thing that
+ * contributes that bean, so without this the host application would fail to
+ * start with {@code APPLICATION FAILED TO START}. Installing the buffer keeps
+ * such an image bootable; it remains an in-memory buffer and exposes nothing on
+ * its own.</p>
  */
 public class BootUiStartupEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
@@ -43,8 +54,7 @@ public class BootUiStartupEnvironmentPostProcessor implements EnvironmentPostPro
         if (!environment.getProperty("bootui.startup.enabled", Boolean.class, true)) {
             return;
         }
-        if (!BootUiActivationCondition.resolve(environment, application.getClassLoader())
-                .enabled()) {
+        if (!shouldInstall(environment, application)) {
             return;
         }
         ApplicationStartup current = application.getApplicationStartup();
@@ -58,6 +68,19 @@ public class BootUiStartupEnvironmentPostProcessor implements EnvironmentPostPro
         BufferingApplicationStartup buffering = new BufferingApplicationStartup(capacity);
         application.setApplicationStartup(buffering);
         application.addInitializers(new BufferingApplicationStartupRegistrar(buffering));
+    }
+
+    /**
+     * Whether the {@link BufferingApplicationStartup} should be installed. True when BootUI is going to
+     * activate, or when running AOT-generated artifacts (so a {@code StartupEndpoint} that AOT may have
+     * baked in does not leave the host application unable to start; see the class javadoc).
+     */
+    private static boolean shouldInstall(ConfigurableEnvironment environment, SpringApplication application) {
+        if (BootUiActivationCondition.resolve(environment, application.getClassLoader())
+                .enabled()) {
+            return true;
+        }
+        return AotDetector.useGeneratedArtifacts();
     }
 
     /**
