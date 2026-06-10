@@ -78,23 +78,10 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-
-        <!--
-            CRaC (Coordinated Restore at Checkpoint) adapter. Required on the
-            classpath for spring.context.checkpoint=onRefresh to work on a
-            CRaC-enabled JVM. See the "Run it with CRaC" section in README.md
-            and Dockerfile-crac. The version is managed by the Spring Boot BOM.
-        -->
-        <dependency>
-            <groupId>org.crac</groupId>
-            <artifactId>crac</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
@@ -122,7 +109,6 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -287,6 +273,21 @@
                     </plugin>
                 </plugins>
             </build>
+        </profile>
+        <profile>
+            <id>crac</id>
+            <dependencies>
+                <!--
+                    CRaC (Coordinated Restore at Checkpoint) adapter. Required on the
+                    classpath for spring.context.checkpoint=onRefresh to work on a
+                    CRaC-enabled JVM. See the "Run it with CRaC" section in README.md
+                    and Dockerfile-crac. The version is managed by the Spring Boot BOM.
+                -->
+                <dependency>
+                    <groupId>org.crac</groupId>
+                    <artifactId>crac</artifactId>
+                </dependency>
+            </dependencies>
         </profile>
     </profiles>
 </project>
