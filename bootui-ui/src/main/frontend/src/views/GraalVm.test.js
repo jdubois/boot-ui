@@ -17,7 +17,7 @@ function finding(id, name, severity, occurrenceCount = 1, status = 'REVIEW') {
   }
 }
 
-function graalvmReport(findings, {includeDependencies = true, dependencies = []} = {}) {
+function graalvmReport(findings, {includeDependencies = true, dependencies = [], installable = true} = {}) {
   return {
     localOnly: true,
     disclaimer: 'GraalVM disclaimer.',
@@ -46,7 +46,11 @@ function graalvmReport(findings, {includeDependencies = true, dependencies = []}
     dependenciesWithoutMetadata: dependencies.filter((dep) => !dep.shipsMetadata).length,
     dependencies,
     warnings: [],
-    metadata: {reflectionEntries: 2, serializationEntries: 1, resourceEntries: 3}
+    metadata: {reflectionEntries: 2, serializationEntries: 1, resourceEntries: 3},
+    installable,
+    installPath: installable
+      ? 'src/main/resources/META-INF/native-image/com.example/demo/reachability-metadata.json'
+      : 'The application is not running from an exploded build (for example a packaged jar).'
   }
 }
 
@@ -137,5 +141,47 @@ describe('GraalVm', () => {
 
     expect(wrapper.text()).toContain('Scan warnings.')
     expect(wrapper.text()).toContain('Dependency metadata survey could not be completed.')
+  })
+
+  it('installs the metadata into the source tree and reports the written path', async () => {
+    const report = graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)])
+    const fetchMock = vi.fn((url) => {
+      if (String(url).includes('api/graalvm/install')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              installed: true,
+              status: 'WRITTEN',
+              message: 'Wrote the reachability metadata scaffold to src/main/resources/META-INF/...',
+              path: 'src/main/resources/META-INF/...'
+            }),
+            {status: 200}
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify(report), {status: 200}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(GraalVm)
+    await flushPromises()
+
+    const installButton = wrapper.findAll('button').find((button) => button.text().includes('Install into source tree'))
+    expect(installButton).toBeDefined()
+    await installButton.trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('api/graalvm/install', {method: 'POST'})
+    expect(wrapper.text()).toContain('Wrote the reachability metadata scaffold')
+  })
+
+  it('hides the install button when the app is not running from source', async () => {
+    const wrapper = await mountWithReport(
+      graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)], {installable: false})
+    )
+
+    const installButton = wrapper.findAll('button').find((button) => button.text().includes('Install into source tree'))
+    expect(installButton).toBeUndefined()
+    expect(wrapper.text()).toContain('Direct install unavailable')
   })
 })

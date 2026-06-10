@@ -319,7 +319,13 @@ serialization, build-time-initialization side effects, and native access. With t
 default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
 `META-INF/native-image/`. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
 (modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
-standard configuration resource globs. The checks and generated metadata are heuristic review aids that complement, but
+standard configuration resource globs. When BootUI detects the application is running from an exploded build (for
+example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers an **Install into source
+tree** action that writes the same scaffold directly to
+`src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json` (resolving coordinates from
+`build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated` namespace). The install is
+fail-closed: it is confined under `src/main/resources` and never overwrites a `reachability-metadata.json` that BootUI
+did not generate. The checks and generated metadata are heuristic review aids that complement, but
 do not replace, the GraalVM tracing agent and an actual native build. See
 [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one inspects.
 

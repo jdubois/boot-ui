@@ -34,5 +34,11 @@ test.describe('GraalVM view', () => {
 
     // The readiness-concerns section renders once the scan completes.
     await expect(page.getByText('Readiness concerns')).toBeVisible()
+
+    // The sample app runs from an exploded build (spring-boot:run), so the panel offers to install
+    // the generated scaffold into the source tree and surfaces the resolved target path. The button
+    // is intentionally not clicked here to avoid writing a metadata file into the working tree.
+    await expect(page.getByRole('button', {name: 'Install into source tree'})).toBeVisible()
+    await expect(page.getByText('Detected source tree:')).toBeVisible()
   })
 })

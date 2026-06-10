@@ -14,6 +14,8 @@ const report = ref(null)
 const error = ref(null)
 const actionMessage = ref(null)
 const loading = ref(false)
+const installing = ref(false)
+const installResult = ref(null)
 const includeDependencies = ref(true)
 
 const severityClasses = {
@@ -45,6 +47,19 @@ const canDownloadMetadata = computed(
       report.value?.metadata?.serializationEntries > 0 ||
       report.value?.metadata?.resourceEntries > 0)
 )
+
+const installResultClass = computed(() => {
+  switch (installResult.value?.status) {
+    case 'WRITTEN':
+      return 'alert-success'
+    case 'EXISTS':
+      return 'alert-warning'
+    case 'ERROR':
+      return 'alert-danger'
+    default:
+      return 'alert-info'
+  }
+})
 
 const emptyFindingsTitle = computed(() => {
   if (!hasScanData.value) return 'Run readiness checks to see native-image concerns'
@@ -103,8 +118,28 @@ async function runScan() {
   }
 }
 
+async function installMetadata() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  installing.value = true
+  try {
+    const res = await apiFetch('api/graalvm/install', {method: 'POST'})
+    installResult.value = await res.json()
+  } catch (e) {
+    installResult.value = {
+      installed: false,
+      status: 'ERROR',
+      message: describeLoadError(e, 'Unable to install reachability metadata'),
+      path: null
+    }
+  } finally {
+    installing.value = false
+  }
+}
+
 function showReadOnlyMessage() {
-  actionMessage.value = readOnlyReason.value
   setTimeout(() => {
     actionMessage.value = null
   }, 6000)
@@ -237,14 +272,27 @@ onMounted(loadReport)
           <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
               <span class="fw-semibold">reachability-metadata.json</span>
-              <a
-                v-if="canDownloadMetadata"
-                class="btn btn-outline-primary btn-sm"
-                download="reachability-metadata.json"
-                href="api/graalvm/metadata"
-              >
-                <i class="bi bi-download me-1"></i>Download scaffold
-              </a>
+              <div class="d-flex gap-2">
+                <a
+                  v-if="canDownloadMetadata"
+                  class="btn btn-outline-primary btn-sm"
+                  download="reachability-metadata.json"
+                  href="api/graalvm/metadata"
+                >
+                  <i class="bi bi-download me-1"></i>Download scaffold
+                </a>
+                <SpinnerButton
+                  v-if="canDownloadMetadata && report.installable"
+                  :loading="installing"
+                  :disabled="installing || readOnly"
+                  :title="report.installPath"
+                  class="btn btn-primary btn-sm"
+                  type="button"
+                  label="Install into source tree"
+                  loading-label="Installing..."
+                  @click="installMetadata"
+                />
+              </div>
             </div>
             <div class="card-body">
               <div v-if="!hasScanData" class="text-muted">
@@ -256,6 +304,16 @@ onMounted(loadReport)
                   then place it under
                   <code>src/main/resources/META-INF/native-image/&lt;groupId&gt;/&lt;artifactId&gt;/</code>.
                 </p>
+                <div v-if="installResult" :class="installResultClass" class="alert py-2 small mb-2">
+                  {{ installResult.message }}
+                </div>
+                <div v-else-if="report.installable && report.installPath" class="small text-muted mb-2">
+                  Detected source tree: install writes to <code>{{ report.installPath }}</code
+                  >.
+                </div>
+                <div v-else-if="!report.installable && report.installPath" class="small text-muted mb-2">
+                  Direct install unavailable: {{ report.installPath }}
+                </div>
                 <ul class="list-unstyled mb-0 small">
                   <li>
                     <strong>{{ report.metadata.reflectionEntries }}</strong> reflection entries

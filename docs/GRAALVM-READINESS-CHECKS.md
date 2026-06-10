@@ -29,6 +29,12 @@ In addition to the checks, the scan does two things:
   metadata, or the tracing agent.
 - **Builds a `reachability-metadata.json` scaffold** from the application's own classes — reflection and serialization
   candidates plus the standard externalized-configuration resource globs — which you can download from the panel.
+- **Installs the scaffold into the source tree** when the application is detectably running from an exploded build (for
+  example `mvn spring-boot:run` or an IDE) rather than a packaged jar. The **Install into source tree** action writes the
+  scaffold to `src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json` (coordinates
+  resolved from `build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated` namespace). The
+  write is confined under `src/main/resources` and refuses to overwrite a `reachability-metadata.json` that BootUI did
+  not generate.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when ArchUnit is on the classpath and a base
