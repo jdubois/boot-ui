@@ -36,13 +36,13 @@ test.describe('GraalVM view', () => {
     await expect(page.getByText('Readiness concerns')).toBeVisible()
 
     // The metadata, Dockerfile and combined artifacts live in a three-drawer accordion. The combined
-    // "Both files" drawer is open by default and offers a single action that writes both artifacts into
+    // "All files" drawer is open by default and offers a single action that writes both artifacts into
     // the source tree. Drawers are located by their header button so the shared "Write into project" label
     // and the filenames referenced in the combined summary don't make the lookups ambiguous. None of the
     // write buttons are clicked here, to avoid writing files into the working tree.
     const bothDrawer = page
       .locator('.accordion-item')
-      .filter({has: page.getByRole('button', {name: 'Both files', exact: true})})
+      .filter({has: page.getByRole('button', {name: 'All files', exact: true})})
     await expect(bothDrawer.getByText("writes both directly into the project's source tree")).toBeVisible()
     await expect(bothDrawer.getByRole('button', {name: 'Write into project'})).toBeVisible()
 

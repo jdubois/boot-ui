@@ -277,7 +277,7 @@ describe('GraalVm', () => {
   it('opens the combined drawer by default and summarises the one-step write', async () => {
     const wrapper = await mountWithReport(graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)]))
 
-    const bothCard = cardByTitle(wrapper, 'Both files')
+    const bothCard = cardByTitle(wrapper, 'All files')
     expect(bothCard).toBeDefined()
     expect(bothCard.find('.accordion-collapse').classes()).toContain('show')
     expect(wrapper.text()).toContain("writes both directly into the project's source tree")
@@ -309,7 +309,7 @@ describe('GraalVm', () => {
     const wrapper = mount(GraalVm)
     await flushPromises()
 
-    const bothCard = cardByTitle(wrapper, 'Both files')
+    const bothCard = cardByTitle(wrapper, 'All files')
     const writeButton = bothCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(writeButton).toBeDefined()
     await writeButton.trigger('click')
@@ -326,7 +326,7 @@ describe('GraalVm', () => {
       graalvmReport([finding('GRAAL-REFLECT-001', 'Concern', 'MEDIUM', 1)], {installable: false})
     )
 
-    const bothCard = cardByTitle(wrapper, 'Both files')
+    const bothCard = cardByTitle(wrapper, 'All files')
     const writeButton = bothCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(writeButton).toBeUndefined()
     expect(bothCard.text()).toContain('Direct write unavailable')

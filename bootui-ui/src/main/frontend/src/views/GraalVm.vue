@@ -339,7 +339,7 @@ onMounted(loadReport)
                   type="button"
                   @click="toggleArtifact('both')"
                 >
-                  <span class="fw-semibold">Both files</span>
+                  <span class="fw-semibold">All files</span>
                 </button>
               </h2>
               <div :class="['accordion-collapse collapse', {show: openArtifact === 'both'}]">

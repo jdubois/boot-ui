@@ -333,7 +333,7 @@ named after the resolved `artifactId` — into a minimal Debian runtime image (i
 release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
 same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
 generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
-top drawer is a **Both files** action that generates and writes both artifacts into the project's source tree in a
+top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a
 single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. The checks
 and generated
 metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native

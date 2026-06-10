@@ -45,7 +45,7 @@ In addition to the checks, the scan does two things:
   to the project root. That write is fail-closed and refuses to overwrite a `Dockerfile-native` that BootUI did not
   generate.
 - **Writes both artifacts in one step.** The scaffold and the `Dockerfile-native` are offered in a three-drawer
-  accordion whose default, top **Both files** drawer generates and writes both files into the source tree in a single
+  accordion whose default, top **All files** drawer generates and writes both files into the source tree in a single
   action — under the same exploded-build constraint and the same fail-closed guards — and reports each file's outcome
   individually.
 
