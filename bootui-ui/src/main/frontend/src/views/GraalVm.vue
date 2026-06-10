@@ -140,6 +140,7 @@ async function installMetadata() {
 }
 
 function showReadOnlyMessage() {
+  actionMessage.value = readOnlyReason.value
   setTimeout(() => {
     actionMessage.value = null
   }, 6000)

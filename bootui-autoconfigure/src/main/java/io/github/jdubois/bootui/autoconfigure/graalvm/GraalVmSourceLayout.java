@@ -56,7 +56,8 @@ final class GraalVmSourceLayout {
         } catch (RuntimeException ex) {
             return Resolution.unavailable("The application source layout could not be determined.");
         }
-        return resolve(projectRoot, codeSource.orElse(null), coordinates == null ? Optional.empty() : coordinates);
+        Optional<Coordinates> safeCoordinates = coordinates == null ? Optional.empty() : coordinates;
+        return resolve(projectRoot, codeSource.orElse(null), safeCoordinates);
     }
 
     /**
