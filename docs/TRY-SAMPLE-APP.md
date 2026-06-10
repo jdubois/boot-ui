@@ -29,6 +29,6 @@ In Docker-free mode most panels work normally (Configuration, Database, Spring D
 the Chat and AI Usage panels report that AI is unavailable, and Dev Services lists no containers.
 
 Want the full experience with PostgreSQL, Redis, and Ollama (a Docker-compatible engine is required)? Run the sample app
-with the `docker` profile instead — see the [sample app README](../bootui-sample-app/README.md#run-it-with-docker) for
+with the `docker` profile instead — see the [sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md#run-it-with-docker) for
 details. Note that releases published before the Docker-free default also start those Docker services under the `dev`
 profile, so building one of those older tags requires a Docker engine.
