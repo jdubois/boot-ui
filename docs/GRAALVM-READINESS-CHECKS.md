@@ -39,7 +39,8 @@ In addition to the checks, the scan does two things:
   build system (Maven or Gradle, with or without the wrapper) and compiles a GraalVM native image with the matching
   command (`./mvnw`/`mvn -Pnative -DskipTests clean package`, or `./gradlew`/`gradle nativeCompile`), then packages the
   resulting executable (named after the resolved `artifactId`) into a minimal Debian runtime image with a non-root user
-  and an Actuator health check. When the project carries no wrapper, the build stage installs a known, pinned
+  and an HTTP liveness healthcheck (it probes the web server for any response, so it does not require Actuator). When
+  the project carries no wrapper, the build stage installs a known, pinned
   Maven/Gradle release (declared as a constant in the generator and exposed as a Docker `ARG`) so the image is
   self-contained. You can download it, or — under the same exploded-build constraint as the scaffold install — write it
   to the project root. That write is fail-closed and refuses to overwrite a `Dockerfile-native` that BootUI did not

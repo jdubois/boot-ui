@@ -136,6 +136,11 @@ final class GraalVmDockerfileGenerator {
                 # It assumes a single-module Spring Boot application built with %2$s.
                 #
                 # Requires GraalVM 25+ for Spring Boot 4 (GraalVM 25 = JDK 25).
+                #
+                # Build and run (publish the port with -p so the app is reachable from the host;
+                # EXPOSE alone does not publish it):
+                #   docker build -f Dockerfile-native -t %1$s .
+                #   docker run --rm -p 8080:8080 %1$s
 
                 # Build stage with GraalVM 25 (includes the native-image toolchain, JDK 25)
                 FROM ghcr.io/graalvm/graalvm-community:25 AS build
@@ -180,9 +185,11 @@ final class GraalVmDockerfileGenerator {
 
                 EXPOSE 8080
 
-                # Health check using Spring Boot Actuator
+                # Liveness check: succeeds once the embedded web server accepts connections and returns
+                # any HTTP response. It does not require Spring Boot Actuator to be on the classpath, so it
+                # stays green even when the management endpoints are not web-exposed.
                 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \\
-                    CMD curl -f http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1
+                    CMD curl -s -o /dev/null http://localhost:${SERVER_PORT:-8080}/ || exit 1
 
                 # Run the native application
                 ENTRYPOINT ["./native-app"]

@@ -25,6 +25,24 @@ class GraalVmDockerfileGeneratorTests {
     }
 
     @Test
+    void documentsHowToBuildAndRunWithPublishedPort() {
+        String dockerfile = generator.generate("my-service");
+
+        // The header reminds the reader to publish the port (a common gotcha: EXPOSE alone does not).
+        assertThat(dockerfile).contains("docker build -f Dockerfile-native -t my-service .");
+        assertThat(dockerfile).contains("docker run --rm -p 8080:8080 my-service");
+    }
+
+    @Test
+    void healthcheckDoesNotDependOnActuator() {
+        String dockerfile = generator.generate("my-service");
+
+        // A liveness probe that succeeds on any HTTP response, so it stays green without Actuator.
+        assertThat(dockerfile).contains("curl -s -o /dev/null http://localhost:${SERVER_PORT:-8080}/ || exit 1");
+        assertThat(dockerfile).doesNotContain("/actuator/health");
+    }
+
+    @Test
     void fallsBackToAppWhenArtifactIsMissing() {
         assertThat(generator.generate(null)).contains("target/app");
         assertThat(generator.generate("  ")).contains("target/app");
