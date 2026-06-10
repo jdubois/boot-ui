@@ -9,8 +9,10 @@ name: Native image
 
 on:
   schedule:
-    # Every day at 06:00 UTC.
-    - cron: '0 6 * * *'
+    # Every day at 06:17 UTC. Deliberately off the top of the hour: GitHub
+    # delays and, under sufficiently high load, drops scheduled events during
+    # the peak window at the start of each hour, so a ':00' cron is unreliable.
+    - cron: '17 6 * * *'
   workflow_dispatch:
 
 concurrency:
