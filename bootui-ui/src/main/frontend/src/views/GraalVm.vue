@@ -22,6 +22,9 @@ const installingBoth = ref(false)
 const bothInstallResult = ref(null)
 const includeDependencies = ref(false)
 const openArtifact = ref('both')
+const scanProgress = ref(null)
+const cancellingScan = ref(false)
+let progressTimer = null
 
 const severityClasses = {
   CRITICAL: 'text-bg-danger',
@@ -43,6 +46,13 @@ const visibleFindings = computed(() => [...(report.value?.findings || [])])
 const dependenciesWithMetadata = computed(() => {
   const total = report.value?.dependenciesAnalyzed || 0
   return total - (report.value?.dependenciesWithoutMetadata || 0)
+})
+
+const progressPercent = computed(() => {
+  const total = scanProgress.value?.dependenciesTotal || 0
+  const current = scanProgress.value?.dependenciesScanned || 0
+  if (!scanProgress.value?.running || total <= 0) return 0
+  return Math.min(100, Math.max(2, Math.round((current / total) * 100)))
 })
 
 const canDownloadMetadata = computed(
@@ -97,6 +107,18 @@ function occurrenceCountLabel(count) {
   return `${count} ${pluralize(count, 'occurrence')} found`
 }
 
+function dependencyBadgeLabel(dep) {
+  if (dep.shipsMetadata || dep.repositoryMetadata) return 'covered'
+  if (dep.repositoryMetadataVersion) return 'partial'
+  return 'none'
+}
+
+function dependencyBadgeClass(dep) {
+  if (dep.shipsMetadata || dep.repositoryMetadata) return 'text-bg-success'
+  if (dep.repositoryMetadataVersion) return 'text-bg-warning'
+  return 'text-bg-secondary'
+}
+
 function scanTime() {
   if (!report.value?.scan?.scannedAt) return ''
   return formatClockTime(report.value.scan.scannedAt)
@@ -113,12 +135,51 @@ async function loadReport() {
   }
 }
 
+async function cancelScan() {
+  cancellingScan.value = true
+  try {
+    const res = await apiFetch('api/graalvm/scan/cancel', {method: 'POST'})
+    if (res.ok) scanProgress.value = await res.json()
+  } catch {
+    // The in-flight scan request will still finish and report any outcome.
+  }
+}
+
+async function pollScanProgress() {
+  try {
+    const res = await apiFetch('api/graalvm/scan/progress')
+    if (res.ok) scanProgress.value = await res.json()
+  } catch {
+    // Progress is best-effort; the main scan request reports any real failure.
+  }
+}
+
+function startProgressPolling() {
+  stopProgressPolling()
+  scanProgress.value = {
+    running: true,
+    phase: 'starting',
+    message: 'Starting GraalVM readiness scan.',
+    dependenciesScanned: 0,
+    dependenciesTotal: 0
+  }
+  progressTimer = setInterval(pollScanProgress, 500)
+}
+
+function stopProgressPolling() {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
 async function runScan() {
   if (readOnly.value) {
     showReadOnlyMessage()
     return
   }
   loading.value = true
+  startProgressPolling()
   try {
     const res = await apiFetch(`api/graalvm/scan?includeDependencies=${includeDependencies.value}`, {method: 'POST'})
     if (!res.ok) throw new Error('HTTP ' + res.status)
@@ -128,6 +189,9 @@ async function runScan() {
     error.value = describeLoadError(e, 'Unable to run GraalVM readiness checks')
   } finally {
     loading.value = false
+    cancellingScan.value = false
+    stopProgressPolling()
+    scanProgress.value = null
   }
 }
 
@@ -241,6 +305,38 @@ onMounted(loadReport)
       </template>
     </PanelHeader>
     <div v-if="actionMessage" class="alert alert-warning">{{ actionMessage }}</div>
+    <div v-if="loading && scanProgress" class="alert alert-primary">
+      <div class="d-flex justify-content-between align-items-center gap-3">
+        <div>
+          <strong>{{ scanProgress.message || 'Running GraalVM readiness scan.' }}</strong>
+          <div v-if="scanProgress.dependenciesTotal > 0" class="small">
+            {{ scanProgress.dependenciesScanned }} of {{ scanProgress.dependenciesTotal }} dependency lookups checked
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button
+            v-if="scanProgress.phase && scanProgress.phase.startsWith('dependencies')"
+            :disabled="cancellingScan"
+            class="btn btn-sm btn-outline-primary"
+            type="button"
+            @click="cancelScan"
+          >
+            {{ cancellingScan ? 'Cancelling…' : 'Abort dependency check' }}
+          </button>
+          <span class="badge text-bg-light text-dark">{{ scanProgress.phase }}</span>
+        </div>
+      </div>
+      <div v-if="scanProgress.dependenciesTotal > 0" class="progress mt-2" style="height: 0.5rem">
+        <div
+          class="progress-bar progress-bar-striped progress-bar-animated"
+          role="progressbar"
+          :style="{width: progressPercent + '%'}"
+          :aria-valuenow="progressPercent"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        ></div>
+      </div>
+    </div>
 
     <template v-if="report">
       <div class="alert alert-info">
@@ -530,11 +626,11 @@ onMounted(loadReport)
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
           <span class="fw-semibold">Dependency reachability metadata</span>
           <span class="text-muted small">
-            {{ dependenciesWithMetadata }} of {{ report.dependenciesAnalyzed }} dependencies ship metadata
+            {{ dependenciesWithMetadata }} of {{ report.dependenciesAnalyzed }} dependencies ship bundled metadata
           </span>
         </div>
         <div v-if="!report.dependencies || report.dependencies.length === 0" class="card-body text-muted">
-          No third-party dependencies with native-image metadata were detected on the classpath.
+          No third-party dependency JARs were detected on the classpath.
         </div>
         <div v-else class="list-group list-group-flush">
           <div
@@ -542,12 +638,37 @@ onMounted(loadReport)
             :key="dep.name"
             class="list-group-item d-flex align-items-start gap-2"
           >
-            <span :class="dep.shipsMetadata ? 'text-bg-success' : 'text-bg-secondary'" class="badge mt-1">
-              {{ dep.shipsMetadata ? 'metadata' : 'none' }}
+            <span
+              :class="dependencyBadgeClass(dep)"
+              class="badge mt-1"
+            >
+              {{ dependencyBadgeLabel(dep) }}
             </span>
             <div>
               <div class="font-monospace small">{{ dep.name }}</div>
+              <div v-if="dep.coordinates" class="small text-muted">{{ dep.coordinates }}</div>
               <div v-if="dep.note" class="small text-muted">{{ dep.note }}</div>
+              <div
+                v-if="!dep.repositoryMetadata && dep.repositoryMetadataVersion"
+                class="small text-warning-emphasis mt-1"
+              >
+                Repository metadata exists for a different version
+                <span v-if="dep.repositoryTestedVersions">({{ dep.repositoryTestedVersions }})</span>.
+              </div>
+              <div v-if="dep.repositoryUrl || dep.repositoryMetadataUrl" class="small mt-1 d-flex flex-wrap gap-2">
+                <a
+                  v-if="dep.repositoryUrl"
+                  :href="dep.repositoryUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >Repository entry</a>
+                <a
+                  v-if="dep.repositoryMetadataUrl"
+                  :href="dep.repositoryMetadataUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >Metadata file</a>
+              </div>
             </div>
           </div>
         </div>
