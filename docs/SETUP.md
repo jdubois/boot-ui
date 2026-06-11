@@ -235,7 +235,11 @@ Two things have to be in place:
    (`192.168.65.1`) is _not_ the route-table gateway, so BootUI resolves the `gateway.docker.internal` DNS name that
    Docker Desktop injects into every container. This relaxes only the source-address check; the `Host` allow-list
    (DNS-rebinding defense) and cross-site write (CSRF) protection stay in force, and sibling containers are **not**
-   trusted (their traffic carries their own IP, not the gateway).
+   trusted (their traffic carries their own IP, not the gateway). The lookup is resolved once and cached, and fails
+   closed: on Linux Docker Engine and bare metal `gateway.docker.internal` does not resolve, which simply means "no
+   extra gateway" (the route-table detection still applies). On Docker Desktop the Docker-Desktop branch therefore
+   relies on Docker's embedded DNS resolving `gateway.docker.internal`; if that name is unavailable (for example you
+   have disabled it), set `bootui.trusted-proxies=192.168.65.0/24` instead.
 
 ```bash
 docker run -p 8080:8080 \
