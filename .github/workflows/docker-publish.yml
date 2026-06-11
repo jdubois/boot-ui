@@ -1,0 +1,89 @@
+name: Publish Docker images
+
+# Builds the three sample-app container images from the root Dockerfiles and
+# publishes them to Docker Hub:
+#
+#   Dockerfile         -> <user>/bootui-sample-app          (JVM image)
+#   Dockerfile-crac    -> <user>/bootui-sample-app-crac     (CRaC image)
+#   Dockerfile-native  -> <user>/bootui-sample-app-native   (GraalVM native image)
+#
+# Each Dockerfile copies the whole multi-module reactor and builds the sample app
+# with `-pl bootui-sample-app -am`, so the build context is the repository root.
+#
+# The images are published once a day from the main branch (scheduled events run
+# against the default branch) and can also be built on demand from the Actions tab.
+#
+# Required repository secrets:
+#   DOCKERHUB_USERNAME  Docker Hub account/namespace the images are pushed to.
+#   DOCKERHUB_TOKEN     Docker Hub access token (Account Settings > Security) with
+#                       Read & Write scope; do not use the account password.
+
+on:
+  schedule:
+    # Every day at 07:17 UTC (after the native-image and Docker-config jobs).
+    # Deliberately off the top of the hour: GitHub delays and, under sufficiently
+    # high load, drops scheduled events during the peak window at the start of each
+    # hour, so a ':00' cron is unreliable.
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build and publish ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    # The native build dominates the runtime; allow generous headroom.
+    timeout-minutes: 90
+    # Only publish from the canonical repository: forks lack the Docker Hub secrets.
+    if: github.repository == 'jdubois/boot-ui'
+    strategy:
+      # Publish every image that can build, even if one variant fails.
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: Dockerfile
+            image: bootui-sample-app
+          - dockerfile: Dockerfile-crac
+            image: bootui-sample-app-crac
+          - dockerfile: Dockerfile-native
+            image: bootui-sample-app-native
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract image metadata (tags and labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest
+            type=schedule,pattern={{date 'YYYYMMDD'}}
+            type=sha,format=short
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Per-image GitHub Actions layer cache so each daily run reuses what it can.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
