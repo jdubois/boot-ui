@@ -131,6 +131,59 @@ class ContainerGatewayDetectorTests {
                 .isFalse();
     }
 
+    @Test
+    void resolvesDockerDesktopGatewayIpv4() {
+        ContainerGatewayDetector detector = new ContainerGatewayDetector(
+                missing(), List.of(), missing(), host -> new InetAddress[] {InetAddress.getByName("192.168.65.1")});
+
+        assertThat(detector.dockerDesktopGateways())
+                .extracting(InetAddress::getHostAddress)
+                .containsExactly("192.168.65.1");
+    }
+
+    @Test
+    void resolvesDockerDesktopGatewayOnGatewayHostNameOnly() {
+        ContainerGatewayDetector detector = new ContainerGatewayDetector(missing(), List.of(), missing(), host -> {
+            if ("gateway.docker.internal".equals(host)) {
+                return new InetAddress[] {InetAddress.getByName("192.168.65.1")};
+            }
+            throw new java.net.UnknownHostException(host);
+        });
+
+        assertThat(detector.dockerDesktopGateways())
+                .extracting(InetAddress::getHostAddress)
+                .containsExactly("192.168.65.1");
+    }
+
+    @Test
+    void keepsBothIpv4AndIpv6DockerDesktopGateways() {
+        ContainerGatewayDetector detector = new ContainerGatewayDetector(missing(), List.of(), missing(), host -> {
+            return new InetAddress[] {InetAddress.getByName("fdc4:f303:9324::1"), InetAddress.getByName("192.168.65.1")
+            };
+        });
+
+        assertThat(detector.dockerDesktopGateways())
+                .extracting(InetAddress::getHostAddress)
+                .contains("192.168.65.1");
+    }
+
+    @Test
+    void returnsEmptyWhenDockerDesktopGatewayDoesNotResolve() {
+        ContainerGatewayDetector detector = new ContainerGatewayDetector(missing(), List.of(), missing(), host -> {
+            throw new java.net.UnknownHostException(host);
+        });
+
+        assertThat(detector.dockerDesktopGateways()).isEmpty();
+    }
+
+    @Test
+    void ignoresLoopbackDockerDesktopGatewayResolution() {
+        ContainerGatewayDetector detector = new ContainerGatewayDetector(
+                missing(), List.of(), missing(), host -> new InetAddress[] {InetAddress.getByName("127.0.0.1")});
+
+        assertThat(detector.dockerDesktopGateways()).isEmpty();
+    }
+
     private Path missing() {
         return tempDir.resolve("does-not-exist-" + System.nanoTime());
     }

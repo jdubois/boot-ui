@@ -228,10 +228,14 @@ Two things have to be in place:
    profiles (not `spring.profiles.default`), so set one explicitly — `SPRING_PROFILES_ACTIVE=dev` or `BOOTUI_ENABLED=ON`.
    Without this you get a `404` on `/bootui`, not a rejection.
 2. **Trust the container gateway.** The simplest opt-in is `bootui.trust-container-gateway=AUTO`: while running inside a
-   container BootUI auto-detects that single gateway address (from `/proc/net/route`) and trusts just that one `/32` as
-   loopback-equivalent — no need to know the gateway IP or subnet, on any Docker flavor. This relaxes only the
-   source-address check; the `Host` allow-list (DNS-rebinding defense) and cross-site write (CSRF) protection stay in
-   force, and sibling containers are **not** trusted (their traffic carries their own IP, not the gateway).
+   container BootUI auto-detects the gateway address(es) that published-port traffic arrives from and trusts just those
+   `/32` (or `/128`) hosts as loopback-equivalent — no need to know the gateway IP or subnet, on any Docker flavor.
+   Detection covers both runtimes: on **Linux Docker Engine** it reads the bridge default gateway from
+   `/proc/net/route` (the SNAT source, e.g. `172.17.0.1`); on **Docker Desktop** (macOS/Windows) the SNAT source
+   (`192.168.65.1`) is _not_ the route-table gateway, so BootUI resolves the `gateway.docker.internal` DNS name that
+   Docker Desktop injects into every container. This relaxes only the source-address check; the `Host` allow-list
+   (DNS-rebinding defense) and cross-site write (CSRF) protection stay in force, and sibling containers are **not**
+   trusted (their traffic carries their own IP, not the gateway).
 
 ```bash
 docker run -p 8080:8080 \

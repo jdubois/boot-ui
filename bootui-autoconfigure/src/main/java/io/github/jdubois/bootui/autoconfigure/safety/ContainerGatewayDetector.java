@@ -6,27 +6,42 @@ import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Detects whether the JVM is running inside a container and, if so, what the container's default
- * gateway address is.
+ * Detects whether the JVM is running inside a container and, if so, which non-loopback address(es)
+ * published-port traffic arrives from, so they can be trusted as loopback-equivalent.
  *
  * <p>When a BootUI application runs in a container with a published port (for example
- * {@code docker run -p 8080:8080 …}), host&#8594;container traffic is SNAT'd to the container's
- * default gateway (172.17.0.1 on a Linux Docker Engine bridge, 192.168.65.1 on Docker Desktop), so
- * it arrives at the application from that single non-loopback address. {@link LocalhostOnlyFilter}
- * uses this detector to optionally trust that one address as loopback-equivalent without requiring a
- * broad {@code bootui.trusted-proxies} CIDR.</p>
+ * {@code docker run -p 8080:8080 …}), host&#8594;container traffic is SNAT'd to a single non-loopback
+ * address. There are two distinct cases:</p>
+ * <ul>
+ *   <li><strong>Linux Docker Engine</strong> — the SNAT source is the container's default gateway on
+ *       the bridge network (for example {@code 172.17.0.1}), which is recorded in
+ *       {@code /proc/net/route}. See {@link #defaultGateway()}.</li>
+ *   <li><strong>Docker Desktop (macOS/Windows)</strong> — the SNAT source is the Docker Desktop host
+ *       gateway ({@code 192.168.65.1}), which is <em>not</em> the container's route-table gateway
+ *       (that is still the bridge, for example {@code 172.17.0.1}). It is instead published to the
+ *       container as the DNS name {@code gateway.docker.internal}. See
+ *       {@link #dockerDesktopGateways()}.</li>
+ * </ul>
  *
- * <p>All filesystem access is guarded: every method fails closed (reports "not a container" / "no
- * gateway") rather than throwing when the relevant files are missing, unreadable, or malformed —
- * which is also exactly what happens on non-Linux hosts that have no {@code /proc} filesystem.</p>
+ * <p>{@link LocalhostOnlyFilter} uses this detector to optionally trust those addresses without
+ * requiring a broad {@code bootui.trusted-proxies} CIDR.</p>
  *
- * <p>This class has no Spring dependency. A package-private constructor accepting explicit paths is
- * provided so tests can point it at temporary fixtures.</p>
+ * <p>All detection is guarded: every method fails closed (reports "not a container" / "no gateway")
+ * rather than throwing when the relevant files are missing, unreadable, or malformed, or when the
+ * Docker Desktop DNS name does not resolve — which is also exactly what happens on non-Linux hosts
+ * that have no {@code /proc} filesystem and on plain Linux Docker Engine where
+ * {@code gateway.docker.internal} is not defined.</p>
+ *
+ * <p>This class has no Spring dependency. Package-private constructors accepting explicit paths (and
+ * a {@link HostResolver}) are provided so tests can point it at temporary fixtures and a fake
+ * resolver.</p>
  */
 class ContainerGatewayDetector {
 
@@ -39,17 +54,30 @@ class ContainerGatewayDetector {
 
     private static final String DEFAULT_ROUTE_DESTINATION = "00000000";
 
+    /**
+     * DNS name that Docker Desktop injects into every container; its IPv4 address is the SNAT source
+     * of published-port traffic ({@code 192.168.65.1}).
+     */
+    private static final String DOCKER_DESKTOP_GATEWAY_HOST = "gateway.docker.internal";
+
+    /** Seam for resolving a host name to its addresses, so tests can avoid real DNS. */
+    @FunctionalInterface
+    interface HostResolver {
+        InetAddress[] resolve(String host) throws UnknownHostException;
+    }
+
     private final Path routeFile;
     private final List<Path> containerMarkerFiles;
     private final Path cgroupFile;
+    private final HostResolver hostResolver;
 
-    /** Production constructor wired against the real Linux {@code /proc} paths. */
+    /** Production constructor wired against the real Linux {@code /proc} paths and system resolver. */
     ContainerGatewayDetector() {
-        this(DEFAULT_ROUTE_FILE, DEFAULT_CONTAINER_MARKERS, DEFAULT_CGROUP_FILE);
+        this(DEFAULT_ROUTE_FILE, DEFAULT_CONTAINER_MARKERS, DEFAULT_CGROUP_FILE, InetAddress::getAllByName);
     }
 
     /**
-     * Test constructor accepting explicit paths.
+     * Test constructor accepting explicit paths and the real system resolver.
      *
      * @param routeFile the {@code /proc/net/route} equivalent to parse for the default gateway
      * @param containerMarkerFiles files whose mere existence indicates a container (for example
@@ -57,9 +85,23 @@ class ContainerGatewayDetector {
      * @param cgroupFile the {@code /proc/1/cgroup} equivalent inspected for container runtime markers
      */
     ContainerGatewayDetector(Path routeFile, List<Path> containerMarkerFiles, Path cgroupFile) {
+        this(routeFile, containerMarkerFiles, cgroupFile, InetAddress::getAllByName);
+    }
+
+    /**
+     * Test constructor accepting explicit paths and an injectable {@link HostResolver}.
+     *
+     * @param routeFile the {@code /proc/net/route} equivalent to parse for the default gateway
+     * @param containerMarkerFiles files whose mere existence indicates a container
+     * @param cgroupFile the {@code /proc/1/cgroup} equivalent inspected for container runtime markers
+     * @param hostResolver resolver used for {@link #dockerDesktopGateways()} (defaults to DNS)
+     */
+    ContainerGatewayDetector(
+            Path routeFile, List<Path> containerMarkerFiles, Path cgroupFile, HostResolver hostResolver) {
         this.routeFile = routeFile;
         this.containerMarkerFiles = containerMarkerFiles;
         this.cgroupFile = cgroupFile;
+        this.hostResolver = hostResolver;
     }
 
     /**
@@ -110,6 +152,36 @@ class ContainerGatewayDetector {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Resolves the Docker Desktop host gateway, published in every Docker Desktop container as the
+     * DNS name {@code gateway.docker.internal}. On Docker Desktop (macOS/Windows) this resolves to
+     * {@code 192.168.65.1} (and, on dual-stack setups, an additional IPv6 address), which is the
+     * SNAT source of published-port traffic — and which is <em>not</em> the container's route-table
+     * default gateway ({@code 172.17.0.1} on the docker0 bridge) returned by {@link #defaultGateway()}.
+     *
+     * @return every non-loopback address {@code gateway.docker.internal} resolves to, or an empty set
+     *     on hosts where the name does not resolve (native Linux Docker Engine, or no container at
+     *     all). Never throws.
+     */
+    Set<InetAddress> dockerDesktopGateways() {
+        InetAddress[] resolved;
+        try {
+            resolved = hostResolver.resolve(DOCKER_DESKTOP_GATEWAY_HOST);
+        } catch (UnknownHostException | RuntimeException e) {
+            return Set.of();
+        }
+        if (resolved == null) {
+            return Set.of();
+        }
+        Set<InetAddress> gateways = new LinkedHashSet<>();
+        for (InetAddress address : resolved) {
+            if (address != null && !address.isLoopbackAddress() && !address.isAnyLocalAddress()) {
+                gateways.add(address);
+            }
+        }
+        return Set.copyOf(gateways);
     }
 
     private boolean cgroupIndicatesContainer() {
