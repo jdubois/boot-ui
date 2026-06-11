@@ -2,8 +2,14 @@
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into
 # the build stage and the sample app is built together with the modules it
-# depends on (`-pl bootui-sample-app -am`). For a native image, see
-# Dockerfile-native.
+# depends on (`-pl bootui-sample-app -am`).
+#
+# For a native image, see Dockerfile-native
+# For a JVM image using CRaC, see Dockerfile-crac
+#
+# Build and run:
+#   docker build -t bootui-sample-app .
+#   docker run --rm -p 8080:8080 -e SPRING_PROFILES_ACTIVE=dev -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
 
 # Build stage
 FROM eclipse-temurin:25-jdk-noble AS build

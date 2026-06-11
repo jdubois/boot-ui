@@ -18,6 +18,7 @@
 #
 # Build and run (CRIU needs extra privileges; the named volume keeps the checkpoint
 # between restarts, and -p publishes the port so the app is reachable from the host):
+#
 #   docker build -f Dockerfile-crac -t bootui-sample-app-crac .
 #   docker run --rm -p 8080:8080 \
 #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
