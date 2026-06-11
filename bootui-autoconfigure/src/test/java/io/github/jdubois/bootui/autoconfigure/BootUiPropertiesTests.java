@@ -54,6 +54,12 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultTrustContainerGatewayIsOff() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getTrustContainerGateway()).isEqualTo(BootUiProperties.Mode.OFF);
+    }
+
+    @Test
     void defaultMaskSecretsIsTrue() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.isMaskSecrets()).isTrue();
@@ -205,6 +211,16 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getTrustedProxies()).containsExactly("172.16.0.0/12", "192.168.0.0/16");
+    }
+
+    @Test
+    void bindsTrustContainerGatewayOn() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.trust-container-gateway", "ON");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getTrustContainerGateway()).isEqualTo(BootUiProperties.Mode.ON);
     }
 
     @Test

@@ -3,7 +3,11 @@ package io.github.jdubois.bootui.autoconfigure.safety;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties.Mode;
 import jakarta.servlet.FilterChain;
+import java.net.InetAddress;
+import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -336,5 +340,182 @@ class LocalhostOnlyFilterTests {
         request.setRequestURI(uri);
         request.setRemoteAddr(remoteAddr);
         return request;
+    }
+
+    // -------------------------------------------------------------------------
+    // bootui.trust-container-gateway
+    // -------------------------------------------------------------------------
+
+    private static final String GATEWAY = "192.168.65.1";
+
+    private LocalhostOnlyFilter filterWithGateway(boolean inContainer, String gateway) {
+        return new LocalhostOnlyFilter(properties, new FakeGatewayDetector(inContainer, gateway));
+    }
+
+    @Test
+    void autoTrustsContainerGatewayWhenInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void autoDoesNotTrustContainerGatewayWhenNotInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(false, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void onTrustsDetectedGatewayEvenWhenNotInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.ON);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(false, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void offNeverTrustsContainerGateway() throws Exception {
+        properties.setTrustContainerGateway(Mode.OFF);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void doesNotTrustNonGatewaySourceWhenInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "192.168.65.99");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void stillRejectsDisallowedHostFromTrustedGateway() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "attacker.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Host");
+    }
+
+    @Test
+    void stillRejectsCrossSiteWriteFromTrustedGateway() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/bootui/api/config");
+        request.setRequestURI("/bootui/api/config");
+        request.setRemoteAddr(GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        request.addHeader("Origin", "http://evil.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("cross-site");
+    }
+
+    @Test
+    void autoTrustsDockerDesktopGatewayResolvedViaDnsNotInRouteTable() throws Exception {
+        // Docker Desktop: the route-table default gateway is the docker0 bridge (172.17.0.1), but
+        // published-port traffic is SNAT'd from gateway.docker.internal (192.168.65.1), which is
+        // discovered via DNS rather than /proc/net/route. AUTO must trust that DNS-resolved address.
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter =
+                new LocalhostOnlyFilter(properties, new FakeGatewayDetector(true, "172.17.0.1", GATEWAY));
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void alsoTrustsRouteTableGatewayAlongsideDockerDesktopGateway() throws Exception {
+        // Both detected gateways are trusted: the bridge gateway (Linux Docker Engine SNAT source)
+        // and the Docker Desktop gateway. A request from the route-table gateway is still accepted.
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter =
+                new LocalhostOnlyFilter(properties, new FakeGatewayDetector(true, "172.17.0.1", GATEWAY));
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "172.17.0.1");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    /** Fake detector that returns a fixed container status and gateways without touching the filesystem or DNS. */
+    private static final class FakeGatewayDetector extends ContainerGatewayDetector {
+
+        private final boolean inContainer;
+        private final InetAddress routeGateway;
+        private final Set<InetAddress> dockerDesktopGateways;
+
+        private FakeGatewayDetector(boolean inContainer, String gateway) {
+            this(inContainer, gateway, (String) null);
+        }
+
+        private FakeGatewayDetector(boolean inContainer, String routeGateway, String dockerDesktopGateway) {
+            try {
+                this.inContainer = inContainer;
+                this.routeGateway = routeGateway == null ? null : InetAddress.getByName(routeGateway);
+                this.dockerDesktopGateways =
+                        dockerDesktopGateway == null ? Set.of() : Set.of(InetAddress.getByName(dockerDesktopGateway));
+            } catch (Exception e) {
+                throw new IllegalArgumentException(e);
+            }
+        }
+
+        @Override
+        boolean isInContainer() {
+            return inContainer;
+        }
+
+        @Override
+        Optional<InetAddress> defaultGateway() {
+            return Optional.ofNullable(routeGateway);
+        }
+
+        @Override
+        Set<InetAddress> dockerDesktopGateways() {
+            return dockerDesktopGateways;
+        }
     }
 }

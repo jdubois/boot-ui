@@ -9,7 +9,8 @@
 # The sample app runs with its default "dev" profile, which uses an in-memory H2
 # database (and an in-memory cache) instead of PostgreSQL/Redis, so the checkpoint
 # is taken with no open network sockets and restores cleanly out of the box. See
-# the README for the (more involved) external-services variant.
+# the README for the (more involved) external-services variant. For a faster
+# startup the sample database migrations are disabled by default (see below).
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into the
 # build stage and the sample app is built together with the modules it depends on
@@ -18,12 +19,26 @@
 #
 # Build and run (CRIU needs extra privileges; the named volume keeps the checkpoint
 # between restarts, and -p publishes the port so the app is reachable from the host):
+#
 #   docker build -f Dockerfile-crac -t bootui-sample-app-crac .
 #   docker run --rm -p 8080:8080 \
 #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
+#   # then open http://localhost:8080/bootui
 #
 # Or use docker-compose-crac.yml (docker compose -f docker-compose-crac.yml up --build).
+#
+# Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
+# The sample app can apply two pending Flyway migrations and two Liquibase change sets on startup
+# so those panels have data to show. They are off by default for a faster boot; turn them back on
+# with Spring Boot's environment variables on the run that takes the checkpoint (they are frozen
+# into it):
+#   docker run --rm -p 8080:8080 \
+#     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+#     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
+#     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
 
 # Build stage (a plain JDK is enough; CRaC only matters at runtime).
 FROM eclipse-temurin:21-jdk-noble AS build
@@ -56,6 +71,21 @@ ENV APP_JAR=/app/app.jar
 # disabled in the container. CRaC freezes this into the checkpoint at first start,
 # so it must be set before the checkpoint is taken - hence baking it in here.
 ENV SPRING_PROFILES_ACTIVE=dev
+
+# Disable the sample Flyway/Liquibase migrations by default for a faster startup; the checkpoint is
+# taken with them off. Re-enable them with -e SPRING_FLYWAY_ENABLED=true -e
+# SPRING_LIQUIBASE_ENABLED=true on the run that takes the checkpoint to populate the BootUI
+# Flyway/Liquibase panels.
+ENV SPRING_FLYWAY_ENABLED=false
+ENV SPRING_LIQUIBASE_ENABLED=false
+
+# JVM tuning flags, applied by checkpoint-and-run.sh when the checkpoint is created (the first start)
+# and frozen into the CRaC image - a restore replays that JVM, so heap/GC flags cannot be changed on
+# a restore-only start. Mirrors the JVM image (Dockerfile) minus -XX:+UseCompactObjectHeaders, which
+# was introduced in JDK 24 and is unsupported here: BellSoft ships CRaC-enabled Liberica only for the
+# LTS releases (17 and 21), so this image stays on JDK 21. Override (and regenerate the checkpoint)
+# with -e JAVA_OPTS="...".
+ENV JAVA_OPTS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
 
 # Copy the repackaged, runnable Spring Boot jar (the glob skips the thin
 # *.jar.original) and the checkpoint/restore entrypoint.

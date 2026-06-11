@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.safety;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties.Mode;
 import io.github.jdubois.bootui.autoconfigure.web.AbstractBootUiFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -22,11 +24,14 @@ import org.slf4j.LoggerFactory;
  * <p>The filter enforces three independent defenses and is bypassed entirely only when
  * {@code bootui.allow-non-localhost=true}:</p>
  * <ol>
- *   <li><strong>Trusted source</strong> — the remote address must be a loopback address, or fall
- *       within a range configured via {@code bootui.trusted-proxies} (CIDR notation). The latter is
- *       an opt-in narrow relaxation for local Docker-bridge callers: it widens only this source
- *       check and leaves the Host allow-list and cross-site write protection below fully in force,
- *       unlike the all-or-nothing {@code bootui.allow-non-localhost}.</li>
+ *   <li><strong>Trusted source</strong> — the remote address must be a loopback address, fall
+ *       within a range configured via {@code bootui.trusted-proxies} (CIDR notation), or equal an
+ *       auto-detected container gateway when {@code bootui.trust-container-gateway} permits it (see
+ *       {@link ContainerGatewayDetector} — this covers both the Linux Docker Engine bridge gateway
+ *       and the Docker Desktop {@code gateway.docker.internal} address). Each of these is an opt-in
+ *       narrow relaxation for local Docker callers: it widens only this source check and leaves the
+ *       Host allow-list and cross-site write protection below fully in force, unlike the
+ *       all-or-nothing {@code bootui.allow-non-localhost}.</li>
  *   <li><strong>Host allow-list (DNS-rebinding defense)</strong> — when a {@code Host} header is
  *       present it must resolve to a known loopback name or a configured
  *       {@code bootui.allowed-hosts} entry. A browser victim of a DNS-rebinding attack always sends
@@ -54,8 +59,21 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
     private volatile String[] parsedFrom;
     private volatile List<CidrRange> trustedRanges = List.of();
 
+    private final ContainerGatewayDetector gatewayDetector;
+
+    private final Object gatewayLock = new Object();
+    private volatile boolean gatewayResolved = false;
+    private volatile boolean inContainer = false;
+    private volatile Set<InetAddress> containerGateways = Set.of();
+    private volatile boolean loggedTrustedGateway = false;
+
     public LocalhostOnlyFilter(BootUiProperties properties) {
+        this(properties, new ContainerGatewayDetector());
+    }
+
+    LocalhostOnlyFilter(BootUiProperties properties, ContainerGatewayDetector gatewayDetector) {
         super(properties);
+        this.gatewayDetector = gatewayDetector;
     }
 
     @Override
@@ -77,7 +95,8 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
             reject(
                     response,
                     "BootUI is restricted to loopback requests. Set bootui.allow-non-localhost=true to override, "
-                            + "or add a trusted source range to bootui.trusted-proxies.",
+                            + "add a trusted source range to bootui.trusted-proxies, or (when running in a container) "
+                            + "set bootui.trust-container-gateway=AUTO to trust the auto-detected container gateway.",
                     "non-loopback request from {} to {}",
                     remote,
                     request.getRequestURI());
@@ -202,7 +221,75 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
                 return true;
             }
         }
-        return false;
+        return isTrustedContainerGateway(address);
+    }
+
+    /**
+     * Returns {@code true} when {@code address} equals one of the auto-detected container gateways
+     * and {@code bootui.trust-container-gateway} permits trusting it. This relaxes only the
+     * source-address check by a single {@code /32} (or {@code /128}); the Host allow-list and
+     * cross-site write defenses still apply. The mode is read per request (so tests can flip it),
+     * while the underlying container detection and gateway lookup are resolved once and cached.
+     *
+     * <p>Two gateways may be trusted, covering both container runtimes (see
+     * {@link ContainerGatewayDetector}): the route-table default gateway (the SNAT source on Linux
+     * Docker Engine) and the Docker Desktop host gateway resolved from {@code gateway.docker.internal}
+     * (the SNAT source on Docker Desktop, which is absent from the route table).</p>
+     *
+     * <ul>
+     *   <li>{@code OFF} (default) — never trust a gateway.</li>
+     *   <li>{@code AUTO} — trust them only when container heuristics indicate we are running inside a
+     *       container.</li>
+     *   <li>{@code ON} — trust them whenever at least one gateway was detected, even if the container
+     *       heuristics were inconclusive.</li>
+     * </ul>
+     */
+    private boolean isTrustedContainerGateway(InetAddress address) {
+        Mode mode = properties.getTrustContainerGateway();
+        if (mode == Mode.OFF) {
+            return false;
+        }
+        resolveGatewayOnce();
+        Set<InetAddress> gateways = containerGateways;
+        if (gateways.isEmpty()) {
+            return false;
+        }
+        if (mode == Mode.AUTO && !inContainer) {
+            return false;
+        }
+        if (!gateways.contains(address)) {
+            return false;
+        }
+        if (!loggedTrustedGateway) {
+            loggedTrustedGateway = true;
+            log.warn(
+                    "BootUI trusting auto-detected container gateway {} (/32) for loopback-equivalent access.",
+                    address.getHostAddress());
+        }
+        return true;
+    }
+
+    /**
+     * Resolves and caches the container detection result and trusted gateways exactly once. Mirrors
+     * the lazy, double-checked caching used by {@link #trustedRanges()} so the lookups happen on the
+     * first relevant request rather than per request. The trusted set is the union of the route-table
+     * default gateway and any Docker Desktop gateway resolved from {@code gateway.docker.internal}.
+     */
+    private void resolveGatewayOnce() {
+        if (gatewayResolved) {
+            return;
+        }
+        synchronized (gatewayLock) {
+            if (gatewayResolved) {
+                return;
+            }
+            inContainer = gatewayDetector.isInContainer();
+            Set<InetAddress> gateways = new LinkedHashSet<>();
+            gatewayDetector.defaultGateway().ifPresent(gateways::add);
+            gateways.addAll(gatewayDetector.dockerDesktopGateways());
+            containerGateways = Set.copyOf(gateways);
+            gatewayResolved = true;
+        }
     }
 
     /**

@@ -2,8 +2,30 @@
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into
 # the build stage and the sample app is built together with the modules it
-# depends on (`-pl bootui-sample-app -am`). For a native image, see
-# Dockerfile-native.
+# depends on (`-pl bootui-sample-app -am`).
+#
+# For a GraalVM native image, see Dockerfile-native.
+# For a JVM image using CRaC, see Dockerfile-crac.
+#
+# The image runs with the "dev" Spring profile active by default (SPRING_PROFILES_ACTIVE=dev,
+# baked in below), so it starts Docker-free on an in-memory H2 database with BootUI enabled.
+#
+# For a faster startup, the sample database migrations are disabled by default
+# (SPRING_FLYWAY_ENABLED=false / SPRING_LIQUIBASE_ENABLED=false, baked in below).
+#
+# Build and run:
+#   docker build -t bootui-sample-app .
+#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
+#   # then open http://localhost:8080/bootui
+#
+# Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
+# The sample app can apply two pending Flyway migrations and two Liquibase change sets on startup
+# so those panels have data to show. They are off by default for a faster boot; turn them back on
+# at runtime with Spring Boot's environment variables:
+#   docker run --rm -p 8080:8080 \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+#     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
+#     bootui-sample-app
 
 # Build stage
 FROM eclipse-temurin:25-jdk-noble AS build
@@ -35,11 +57,32 @@ RUN chown -R springboot:springboot /app
 
 USER springboot
 
+# Run with the "dev" profile *active* (not merely spring.profiles.default=dev): BootUI's activation
+# checks Environment.getActiveProfiles(), which excludes spring.profiles.default, and the repackaged
+# jar has devtools stripped. Without an active profile BootUI would stay disabled in the container.
+# Override at runtime with -e SPRING_PROFILES_ACTIVE=... when you want a different profile.
+ENV SPRING_PROFILES_ACTIVE=dev
+
+# Disable the sample Flyway/Liquibase migrations by default for a faster startup. Re-enable them at
+# runtime with -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true to populate the
+# BootUI Flyway/Liquibase panels.
+ENV SPRING_FLYWAY_ENABLED=false
+ENV SPRING_LIQUIBASE_ENABLED=false
+
+# JVM tuning flags for a small, predictable container footprint. Heap, metaspace, code cache, direct
+# memory and thread stacks are bounded explicitly (instead of -XX:MaxRAMPercentage); G1 with string
+# deduplication and compact object headers (promoted to a product feature in JDK 25) keeps the
+# footprint down, and the JVM fails fast with a heap dump on OutOfMemoryError. Override the whole set
+# at runtime with -e JAVA_OPTS="...".
+ENV JAVA_OPTS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
+
 EXPOSE 8080
 
 # Health check using Spring Boot Actuator
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1
 
-# Run with container-aware JVM flags
-ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
+# Launch with the JVM tuning flags above. `sh -c ... exec java` keeps java as PID 1 so it still
+# receives SIGTERM from `docker stop` for Spring Boot's graceful shutdown, while letting the shell
+# word-split $JAVA_OPTS.
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

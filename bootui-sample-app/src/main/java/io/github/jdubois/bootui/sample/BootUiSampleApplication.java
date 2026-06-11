@@ -14,9 +14,11 @@ import liquibase.integration.spring.SpringLiquibase;
 import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -71,6 +73,7 @@ public class BootUiSampleApplication {
     }
 
     @Bean
+    @ConditionalOnProperty(prefix = "spring.flyway", name = "enabled", matchIfMissing = true)
     FlywayMigrationStrategy sampleFlywayStartupStrategy() {
         return flyway -> {
             // BootUI should demonstrate pending migrations, so the sample applies
@@ -80,24 +83,38 @@ public class BootUiSampleApplication {
 
     @Bean
     ApplicationRunner sampleMigrationDemoInitializer(
-            Flyway flyway, DataSource dataSource, ResourceLoader resourceLoader) {
+            ObjectProvider<Flyway> flywayProvider,
+            ObjectProvider<SpringLiquibase> liquibaseProvider,
+            DataSource dataSource,
+            ResourceLoader resourceLoader) {
         return args -> {
-            Flyway.configure()
-                    .configuration(flyway.getConfiguration())
-                    .target(FLYWAY_STARTUP_TARGET)
-                    .load()
-                    .migrate();
+            // The sample migrations are disabled by default in the Docker images for a faster
+            // startup (and can be toggled with SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED),
+            // so this demo wiring must tolerate either tool being absent rather than fail to start.
+            // Gating on bean presence (rather than reading the property at runtime) keeps the
+            // behaviour consistent for the native image, where the toggle is baked in at build time.
+            Flyway flyway = flywayProvider.getIfAvailable();
+            if (flyway != null) {
+                Flyway.configure()
+                        .configuration(flyway.getConfiguration())
+                        .target(FLYWAY_STARTUP_TARGET)
+                        .load()
+                        .migrate();
+            }
 
-            SpringLiquibase baseLiquibase = new SpringLiquibase();
-            baseLiquibase.setDataSource(dataSource);
-            baseLiquibase.setResourceLoader(resourceLoader);
-            baseLiquibase.setChangeLog(LIQUIBASE_BASE_CHANGELOG);
-            baseLiquibase.setShouldRun(true);
-            baseLiquibase.afterPropertiesSet();
+            if (liquibaseProvider.getIfAvailable() != null) {
+                SpringLiquibase baseLiquibase = new SpringLiquibase();
+                baseLiquibase.setDataSource(dataSource);
+                baseLiquibase.setResourceLoader(resourceLoader);
+                baseLiquibase.setChangeLog(LIQUIBASE_BASE_CHANGELOG);
+                baseLiquibase.setShouldRun(true);
+                baseLiquibase.afterPropertiesSet();
+            }
         };
     }
 
     @Bean
+    @ConditionalOnProperty(prefix = "spring.liquibase", name = "enabled", matchIfMissing = true)
     SpringLiquibase liquibase(DataSource dataSource) {
         SpringLiquibase liquibase = new SpringLiquibase();
         liquibase.setDataSource(dataSource);
