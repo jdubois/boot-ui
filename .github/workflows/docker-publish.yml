@@ -13,41 +13,55 @@ name: Publish Docker images
 # The images are published once a day from the main branch (scheduled events run
 # against the default branch) and can also be built on demand from the Actions tab.
 #
-# Multi-arch is produced by building each image once per platform on a *native*
-# runner (amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm) and then merging the
-# per-platform digests into a single manifest list. Native runners (rather than
-# QEMU emulation) are required because GraalVM cannot cross-compile a native image,
-# emulated native-image / Maven builds would not fit the time budget, and `load:
-# true` (used by the smoke test below) only works with a single-platform image.
+# The workflow runs in strictly ordered phases, and publishing is all-or-nothing:
+# nothing reaches Docker Hub unless every image on every platform builds and passes
+# its smoke test.
 #
-# Each platform image is verified before it is published: the build step builds and
-# loads the image into the runner's Docker daemon (push: false, load: true) instead
-# of pushing, a smoke test starts the container and checks that the base Spring Boot
-# app is up (GET /actuator/health), that BootUI's back end is active (GET
-# /bootui/api/panels) and that the BootUI front end is served (GET /bootui/), and
-# only then is the verified image pushed by digest. Running on native runners means
-# each architecture is smoke-tested on its own hardware. For the CRaC image the
-# smoke test additionally stops the container and starts it again from the persisted
-# checkpoint, verifying that the restore serves BootUI and comes up at least twice as
-# fast as the initial boot-and-checkpoint start. A variant whose smoke test fails is
-# not published, but (with fail-fast: false) the other variants and platforms still
-# build, verify and publish independently. The `merge` job then assembles the tagged
-# multi-arch manifest list from the per-platform digests that passed verification.
+#   1. docker-config - validate the sample app's full Docker stack (the "docker"
+#      Spring profile: PostgreSQL, Redis and Ollama from
+#      bootui-sample-app/compose.yaml). Runs the full Maven test suite and then the
+#      Playwright end-to-end suite against a sample app booted with the "docker"
+#      profile, catching regressions in compose.yaml, the Redis-backed cache and the
+#      Ollama / Spring AI wiring that the Docker-free build.yml does not exercise. The
+#      job itself needs no Docker Hub secrets.
 #
-# After publishing, the `prune` job deletes dated/SHA tags older than one week from
-# each repository (the rolling `latest` tag is always kept) so old daily images do
-# not accumulate, since Docker Hub has no built-in retention policy.
+#   2. build - build and smoke-test every image on every platform (a matrix of 3
+#      images x 2 platforms = 6 jobs). Each job builds its single-platform image and
+#      loads it into the runner's local Docker daemon (push: false, load: true) -
+#      nothing is pushed - then smoke-tests it: the base Spring Boot app must be up
+#      (GET /actuator/health), BootUI's back end must be active (GET
+#      /bootui/api/panels) and the BootUI front end must be served (GET /bootui/). The
+#      CRaC image additionally stops the container and starts it again from the
+#      persisted checkpoint, verifying that the restore serves BootUI and comes up at
+#      least twice as fast as the initial boot-and-checkpoint start. Each job also
+#      writes a per-image, per-platform GitHub Actions layer cache (mode=max) that the
+#      publish phase reuses.
 #
-# Before any image is built or published, the `docker-config` job validates the sample
-# app's full Docker stack (the "docker" Spring profile: PostgreSQL, Redis and Ollama
-# from bootui-sample-app/compose.yaml). It runs the full Maven test suite and then
-# the Playwright end-to-end suite against a sample app booted with the "docker"
-# profile, catching regressions in compose.yaml, the Redis-backed cache and the
-# Ollama / Spring AI wiring that the Docker-free build.yml does not exercise. Both the
-# per-arch `build` jobs (which push by digest) and the `merge` publish job wait for it
-# via `needs`, so nothing - not even an untagged by-digest manifest - reaches the
-# registry unless this validation passes; a regression here blocks all publishing. The
-# job itself needs no Docker Hub secrets.
+#   3. publish - build and push every verified image by digest (the same 3 x 2
+#      matrix). Each job reassembles its image from the layer cache written in phase 2
+#      (so the expensive native-image compilation is not repeated) and pushes it to
+#      Docker Hub by digest only (no tags). This whole phase is skipped unless every
+#      build job in phase 2 succeeded, so a single failed build or smoke test means no
+#      image - not even an untagged by-digest manifest - is published.
+#
+#   4. merge - assemble the tagged multi-arch manifest list for each image (a matrix
+#      of 3 images) from the per-platform digests pushed in phase 3, applying the
+#      rolling `latest`, dated and short-SHA tags. Runs only if every publish job
+#      succeeded.
+#
+#   5. prune - delete dated/SHA tags older than one week from each repository (the
+#      rolling `latest` tag is always kept) so old daily images do not accumulate,
+#      since Docker Hub has no built-in retention policy. Runs only after a successful
+#      publish, so old tags are pruned only once fresh images have actually replaced
+#      them.
+#
+# Multi-arch is produced by building each image once per platform on a *native* runner
+# (amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm) rather than under QEMU emulation:
+# GraalVM cannot cross-compile a native image, emulated native-image / Maven builds
+# would not fit the time budget, and `load: true` (used by the smoke test) only works
+# with a single-platform image. Running on native runners also means each architecture
+# is smoke-tested on its own hardware. The publish phase runs on the matching native
+# runner too, so a cache miss is rebuilt natively rather than under emulation.
 #
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  Docker Hub account/namespace the images are pushed to.
@@ -72,24 +86,93 @@ permissions:
   contents: read
 
 jobs:
+  docker-config:
+    name: Validate the Docker-based configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: |
+            bootui-ui/src/main/frontend/package-lock.json
+            bootui-sample-app/e2e/package-lock.json
+
+      - name: Build all modules and run the full test suite
+        run: ./mvnw -B -ntp clean install
+
+      - name: Install Playwright dependencies
+        working-directory: bootui-sample-app/e2e
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright browsers
+        working-directory: bootui-sample-app/e2e
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Pre-pull the Docker Compose images
+        run: docker compose -f bootui-sample-app/compose.yaml pull
+
+      - name: Run the end-to-end suite against the Docker profile
+        working-directory: bootui-sample-app/e2e
+        env:
+          # Boot the sample app with the full Docker stack instead of the Docker-free default.
+          BOOTUI_SAMPLE_PROFILES: docker
+          # Allow extra time for Docker Compose to start and for Ollama to pull the chat model.
+          BOOTUI_WEBSERVER_TIMEOUT: '600000'
+        run: npm test
+
+      - name: Print Docker Compose logs on failure
+        if: failure()
+        run: docker compose -f bootui-sample-app/compose.yaml logs --no-color
+
+      - name: Tear down any leftover Docker Compose services
+        if: always()
+        run: docker compose -f bootui-sample-app/compose.yaml down --volumes --remove-orphans
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-docker
+          path: |
+            bootui-sample-app/e2e/playwright-report/
+            bootui-sample-app/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
   build:
-    name: Build and verify ${{ matrix.image }} (${{ matrix.platform }})
+    name: Build and smoke-test ${{ matrix.image }} (${{ matrix.platform }})
     # Build each platform on a native runner: arm64 on GitHub's hosted arm64
     # runners, everything else (amd64) on the standard x86_64 runners.
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    # Wait for the Docker-profile validation before building: this job pushes each
-    # image by digest, so gating it here guarantees that nothing - not even an
-    # untagged by-digest manifest - reaches the registry unless docker-config passes.
+    # Wait for the Docker-profile validation before building anything: a regression
+    # there blocks every image. Nothing in this phase is pushed, so this is purely
+    # build + smoke test.
     needs: docker-config
-    # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are stored as environment secrets,
-    # so the job must opt in to that environment to read them.
+    # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are stored as environment secrets, so the
+    # job must opt in to that environment to read them (the login here only raises the
+    # anonymous base-image pull-rate limit; nothing is pushed in this phase).
     environment: docker-hub
     # The native build dominates the runtime; allow generous headroom.
     timeout-minutes: 90
-    # Only publish from the canonical repository: forks lack the Docker Hub secrets.
+    # Only build from the canonical repository: forks lack the Docker Hub secrets.
     if: github.repository == 'jdubois/boot-ui'
     strategy:
-      # Publish every image/platform that can build and verify, even if one fails.
+      # Build and smoke-test every image/platform even if one fails, so a single run
+      # surfaces every broken variant. Publishing is gated on all of them passing
+      # (see the publish job), so fail-fast: false never causes a partial publish.
       fail-fast: false
       matrix:
         image:
@@ -141,26 +224,27 @@ jobs:
         with:
           images: ${{ env.REGISTRY_IMAGE }}
 
-      - name: Build and load image for smoke test (no push yet)
+      - name: Build and load image for smoke test (no push)
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
           # Build and load into the runner's local Docker daemon so the image can be
-          # smoke-tested before it is published. load: true needs a single-platform
-          # image, which is exactly what one matrix platform produces. The local
-          # smoke tag is never pushed - the verified image is pushed by digest below.
+          # smoke-tested without publishing anything. load: true needs a single-platform
+          # image, which is exactly what one matrix platform produces. The local smoke
+          # tag is never pushed - the publish phase pushes the verified image by digest.
           push: false
           load: true
           tags: ${{ env.REGISTRY_IMAGE }}:smoke-${{ env.PLATFORM_PAIR }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Per-image, per-platform GitHub Actions layer cache so each daily run
-          # reuses what it can without the two platforms clobbering each other.
+          # Per-image, per-platform GitHub Actions layer cache. mode=max exports every
+          # layer so the publish phase can reassemble and push this image from cache
+          # without repeating the (expensive, native) build.
           cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
 
-      - name: Smoke-test the image before publishing
+      - name: Smoke-test the image
         env:
           IMAGE_REF: ${{ env.REGISTRY_IMAGE }}:smoke-${{ env.PLATFORM_PAIR }}
           RUN_ARGS: ${{ matrix.run_args }}
@@ -283,6 +367,70 @@ jobs:
           docker logs bootui-smoke || true
           docker logs bootui-smoke-restore || true
 
+      - name: Tear down the smoke-test container
+        if: always()
+        run: |
+          docker rm -f bootui-smoke || true
+          docker rm -f bootui-smoke-restore || true
+          docker volume rm -f bootui-smoke-crac-checkpoint || true
+
+  publish:
+    name: Publish ${{ matrix.image }} (${{ matrix.platform }}) by digest
+    # Push on the matching native runner so a cache miss is rebuilt natively (GraalVM
+    # cannot cross-compile) rather than under emulation.
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    # All-or-nothing publish: this phase runs only if every build-and-smoke-test job
+    # succeeded (the default needs gating, with no status function in the if). A single
+    # failed build or smoke test in phase 2 therefore means nothing is pushed at all -
+    # not even an untagged by-digest manifest.
+    needs: [build, docker-config]
+    environment: docker-hub
+    # Reassembles from the phase-2 layer cache and pushes; the generous headroom only
+    # matters in the rare event of a full cache miss that has to rebuild natively.
+    timeout-minutes: 90
+    if: github.repository == 'jdubois/boot-ui'
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - bootui-sample-app
+          - bootui-sample-app-crac
+          - bootui-sample-app-native
+        platform:
+          - linux/amd64
+          - linux/arm64
+        include:
+          - image: bootui-sample-app
+            dockerfile: Dockerfile
+          - image: bootui-sample-app-crac
+            dockerfile: Dockerfile-crac
+          - image: bootui-sample-app-native
+            dockerfile: Dockerfile-native
+    steps:
+      - name: Prepare
+        run: |
+          platform='${{ matrix.platform }}'
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          echo "REGISTRY_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract image labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+
       - name: Build and push the verified image by digest
         id: build
         uses: docker/build-push-action@v7
@@ -291,10 +439,9 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Reuses the layers cached by the build-and-load step above (same builder),
-          # so this only assembles and pushes. Push the per-platform image by digest
-          # only (no tags): the merge job assembles the tagged manifest list from
-          # these digests.
+          # Reuses the layers cached by phase 2 (same image/platform scope), so this
+          # only assembles and pushes. Push the per-platform image by digest only (no
+          # tags): the merge job assembles the tagged manifest list from these digests.
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
 
@@ -312,22 +459,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Tear down the smoke-test container
-        if: always()
-        run: |
-          docker rm -f bootui-smoke || true
-          docker rm -f bootui-smoke-restore || true
-          docker volume rm -f bootui-smoke-crac-checkpoint || true
-
   merge:
     name: Merge ${{ matrix.image }} manifests
     runs-on: ubuntu-latest
-    needs: [build, docker-config]
-    # Merge each image independently: if one image (or one of its platforms) failed
-    # to build or verify, still publish the others. Skip only on cancellation and on
-    # forks - and never publish unless the docker-config validation succeeded, so the
-    # full Docker-profile test suite must pass before any image is published.
-    if: ${{ !cancelled() && needs.docker-config.result == 'success' && github.repository == 'jdubois/boot-ui' }}
+    # Tag and publish only once every per-platform image has been pushed by digest, so
+    # the rolling tags are applied atomically across all images (all-or-nothing).
+    needs: publish
+    if: github.repository == 'jdubois/boot-ui'
     environment: docker-hub
     timeout-minutes: 15
     strategy:
@@ -384,10 +522,11 @@ jobs:
   prune:
     name: Prune tags older than one week
     runs-on: ubuntu-latest
+    # Prune only after a successful publish, so old daily images are removed only once
+    # fresh ones have replaced them - never pruning a repository down to a stale
+    # `latest` because today's build failed.
     needs: merge
-    # Run after publishing even if one image build failed: retention is independent
-    # of today's build. Skip only on cancellation and on forks (which lack secrets).
-    if: ${{ !cancelled() && github.repository == 'jdubois/boot-ui' }}
+    if: github.repository == 'jdubois/boot-ui'
     environment: docker-hub
     timeout-minutes: 10
     env:
@@ -432,69 +571,3 @@ jobs:
             done
             echo "::endgroup::"
           done
-
-  docker-config:
-    name: Validate the Docker-based configuration
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24.16.0'
-          cache: npm
-          cache-dependency-path: |
-            bootui-ui/src/main/frontend/package-lock.json
-            bootui-sample-app/e2e/package-lock.json
-
-      - name: Build all modules and run the full test suite
-        run: ./mvnw -B -ntp clean install
-
-      - name: Install Playwright dependencies
-        working-directory: bootui-sample-app/e2e
-        run: npm ci --ignore-scripts
-
-      - name: Install Playwright browsers
-        working-directory: bootui-sample-app/e2e
-        run: ./node_modules/.bin/playwright install --with-deps chromium
-
-      - name: Pre-pull the Docker Compose images
-        run: docker compose -f bootui-sample-app/compose.yaml pull
-
-      - name: Run the end-to-end suite against the Docker profile
-        working-directory: bootui-sample-app/e2e
-        env:
-          # Boot the sample app with the full Docker stack instead of the Docker-free default.
-          BOOTUI_SAMPLE_PROFILES: docker
-          # Allow extra time for Docker Compose to start and for Ollama to pull the chat model.
-          BOOTUI_WEBSERVER_TIMEOUT: '600000'
-        run: npm test
-
-      - name: Print Docker Compose logs on failure
-        if: failure()
-        run: docker compose -f bootui-sample-app/compose.yaml logs --no-color
-
-      - name: Tear down any leftover Docker Compose services
-        if: always()
-        run: docker compose -f bootui-sample-app/compose.yaml down --volumes --remove-orphans
-
-      - name: Upload Playwright report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-report-docker
-          path: |
-            bootui-sample-app/e2e/playwright-report/
-            bootui-sample-app/e2e/test-results/
-          if-no-files-found: ignore
-          retention-days: 7
