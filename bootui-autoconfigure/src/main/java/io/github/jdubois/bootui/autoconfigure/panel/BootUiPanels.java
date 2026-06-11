@@ -55,6 +55,7 @@ public final class BootUiPanels {
     public static final String CLAUDE_CODE = "claude-code";
     public static final String GITHUB = "github";
     public static final String SPRING = "spring";
+    public static final String CRAC = "crac";
 
     private static final List<Panel> PANELS = List.of(
             new Panel(OVERVIEW, "Overview", false, "/overview"),
@@ -98,7 +99,8 @@ public final class BootUiPanels {
             new Panel(LIQUIBASE, "Liquibase", true, "/liquibase"),
             new Panel(GITHUB, "GitHub", true, "/github"),
             new Panel(REST_API, "REST API", true, "/rest-api"),
-            new Panel(SPRING, "Spring", true, "/spring"));
+            new Panel(SPRING, "Spring", true, "/spring"),
+            new Panel(CRAC, "CRaC", true, "/crac"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

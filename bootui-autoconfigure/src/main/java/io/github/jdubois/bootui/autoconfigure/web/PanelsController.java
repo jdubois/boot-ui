@@ -20,6 +20,7 @@ import org.springframework.boot.micrometer.metrics.actuate.endpoint.MetricsEndpo
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.NativeDetector;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.PropertySource;
@@ -81,13 +82,15 @@ public class PanelsController {
         return switch (id) {
             case BootUiPanels.OVERVIEW,
                     BootUiPanels.LIVE_MEMORY,
-                    BootUiPanels.JVM_TUNING,
                     BootUiPanels.MEMORY,
                     BootUiPanels.CONFIG,
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,
                     BootUiPanels.VULNERABILITIES -> available();
+            case BootUiPanels.JVM_TUNING ->
+                availability(
+                        !nativeImageDetected(), "JVM Tuning is not applicable when running as a GraalVM native image");
             case BootUiPanels.HEALTH ->
                 availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");
             case BootUiPanels.HTTP_SESSIONS -> availability(httpSessionsAvailable(), httpSessionsUnavailableReason());
@@ -146,6 +149,7 @@ public class PanelsController {
             case BootUiPanels.ARCHITECTURE -> availability(architectureAvailable(), architectureUnavailableReason());
             case BootUiPanels.REST_API -> availability(restApiAvailable(), restApiUnavailableReason());
             case BootUiPanels.GRAALVM -> availability(graalvmAvailable(), graalvmUnavailableReason());
+            case BootUiPanels.CRAC -> availability(cracAvailable(), cracUnavailableReason());
             case BootUiPanels.THREADS ->
                 availability(
                         java.lang.management.ManagementFactory.getThreadMXBean() != null,
@@ -324,11 +328,15 @@ public class PanelsController {
     }
 
     private boolean architectureAvailable() {
-        return classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
+        return !nativeImageDetected()
+                && classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
                 && AutoConfigurationPackages.has(applicationContext);
     }
 
     private String architectureUnavailableReason() {
+        if (nativeImageDetected()) {
+            return "Architecture advisor is not applicable when running as a GraalVM native image";
+        }
         if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
             return "ArchUnit is not on the classpath";
         }
@@ -336,11 +344,15 @@ public class PanelsController {
     }
 
     private boolean restApiAvailable() {
-        return classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
+        return !nativeImageDetected()
+                && classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
                 && AutoConfigurationPackages.has(applicationContext);
     }
 
     private String restApiUnavailableReason() {
+        if (nativeImageDetected()) {
+            return "REST API advisor is not applicable when running as a GraalVM native image";
+        }
         if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
             return "ArchUnit is not on the classpath";
         }
@@ -348,15 +360,27 @@ public class PanelsController {
     }
 
     private boolean graalvmAvailable() {
-        return classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
+        return !nativeImageDetected()
+                && classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
                 && AutoConfigurationPackages.has(applicationContext);
     }
 
     private String graalvmUnavailableReason() {
+        if (nativeImageDetected()) {
+            return "GraalVM readiness advisor is not applicable when already running as a native image";
+        }
         if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
             return "ArchUnit is not on the classpath";
         }
         return "No application base package was detected";
+    }
+
+    private boolean cracAvailable() {
+        return !nativeImageDetected();
+    }
+
+    private String cracUnavailableReason() {
+        return "CRaC is not applicable when running as a GraalVM native image";
     }
 
     private String aiUnavailableReason() {
@@ -380,6 +404,10 @@ public class PanelsController {
         }
         return settings.getSessionSourceName() + " session directory not found at "
                 + AgentSessionStore.resolveDir(settings);
+    }
+
+    boolean nativeImageDetected() {
+        return NativeDetector.inNativeImage();
     }
 
     private record Availability(boolean available, String unavailableReason) {}

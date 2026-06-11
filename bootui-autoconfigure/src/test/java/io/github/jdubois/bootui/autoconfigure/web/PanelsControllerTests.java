@@ -62,7 +62,8 @@ class PanelsControllerTests {
             BootUiPanels.LIQUIBASE,
             BootUiPanels.GITHUB,
             BootUiPanels.REST_API,
-            BootUiPanels.SPRING);
+            BootUiPanels.SPRING,
+            BootUiPanels.CRAC);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {
@@ -285,6 +286,46 @@ class PanelsControllerTests {
                     .filteredOn(PanelDto::readOnly)
                     .extracting(PanelDto::readOnlyReason)
                     .containsOnly("BootUI is read-only via bootui.read-only=true");
+        }
+    }
+
+    @Test
+    void panelsMarksNativeImagePanelsUnavailableWhenRunningInNativeImage() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties()) {
+                        @Override
+                        boolean nativeImageDetected() {
+                            return true;
+                        }
+                    };
+            MockMvc mvc = standaloneSetup(controller).build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.JVM_TUNING) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.JVM_TUNING) + ".unavailableReason")
+                            .value("JVM Tuning is not applicable when running as a GraalVM native image"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.GRAALVM) + ".available")
+                            .value(false))
+                    .andExpect(
+                            jsonPath(panelPath(BootUiPanels.GRAALVM) + ".unavailableReason")
+                                    .value(
+                                            "GraalVM readiness advisor is not applicable when already running as a native image"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.ARCHITECTURE) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.ARCHITECTURE) + ".unavailableReason")
+                            .value("Architecture advisor is not applicable when running as a GraalVM native image"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_API) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.REST_API) + ".unavailableReason")
+                            .value("REST API advisor is not applicable when running as a GraalVM native image"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.CRAC) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.CRAC) + ".unavailableReason")
+                            .value("CRaC is not applicable when running as a GraalVM native image"));
         }
     }
 

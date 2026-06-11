@@ -109,6 +109,10 @@ rule is registered with a stable identifier, category, severity, and recommendat
 violating rules, sorted by severity and violation count. See
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
 
+> **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
+> `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
+> application is detected to be running as a native image.
+
 ![BootUI Architecture panel](./images/bootui-architecture.png)
 
 ### REST API
@@ -129,6 +133,10 @@ identifier, category, severity, recommendation, and a learn-more link, and the r
 rules, sorted by severity and finding count. The heuristics complement — rather than replace — an API design review or
 contract testing. See [REST-API-CHECKS.md](REST-API-CHECKS.md) for the full catalogue of rules and what
 each one inspects.
+
+> **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
+> `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
+> application is detected to be running as a native image.
 
 ![BootUI REST API panel](./images/bootui-rest-api.png)
 
@@ -207,45 +215,6 @@ ordered by severity first, with dependencies and advisories alphabetized within 
 
 ![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.png)
 
-### GraalVM
-
-The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
-readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs a
-curated set of heuristic checks for constructs that native-image cannot resolve at build time — reflection, dynamic
-class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles, service loading,
-serialization, build-time-initialization side effects, and native access. With the _Include dependencies_ toggle on (it is
-on by default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
-`META-INF/native-image/`, and — for libraries that do not — looks up Oracle's
-[GraalVM reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) to show whether the
-detected dependency version is `covered`, only `partial` (the repository has metadata for a different version), or has
-`none`, with links to the matching repository entry and metadata file. That repository lookup is the panel's only
-outbound network call; it is user-initiated, time-bounded, and can be disabled with
-`bootui.graalvm.repository-lookup-enabled=false`. Long dependency lookups report progress and can be aborted from the
-panel. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
-(modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
-standard configuration resource globs. When BootUI detects the application is running from an exploded build (for
-example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers a **Write into project**
-action that writes the same scaffold directly to
-`src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json` (resolving coordinates from
-`build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated` namespace). The install is
-fail-closed: it is confined under `src/main/resources` and never overwrites a `reachability-metadata.json` that BootUI
-did not generate. Alongside the metadata scaffold the panel also generates a tailored, multi-stage
-**`Dockerfile-native`** that builds a GraalVM native image of the host application. It detects the project's build
-system — Maven or Gradle, with or without the wrapper — and uses the matching native build command (`./mvnw`/`mvn
--Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the resulting executable —
-named after the resolved `artifactId` — into a minimal Debian runtime image (installing a known, pinned Maven/Gradle
-release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
-same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
-generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
-top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a
-single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. The checks
-and generated
-metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native
-build. See [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one
-inspects.
-
-![BootUI GraalVM panel](./images/bootui-graalvm.png)
-
 ## Runtime
 
 ### Health
@@ -305,6 +274,9 @@ memory limit when an operator resizes the pod. A Spring Boot Actuator probes tog
 probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
 non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
 
+> **Not available in GraalVM native images.** JVM heap, GC, and flag tuning does not apply to a native executable;
+> the panel is automatically hidden when the application is detected to be running as a native image.
+
 ![BootUI JVM Tuning panel](./images/bootui-jvm-tuning.png)
 
 ### Heap Dump
@@ -347,6 +319,79 @@ installs a `BufferingApplicationStartup` by default so the panel has data withou
 unavailable, the panel shows an empty state instead of failing.
 
 ![BootUI Startup Timeline panel](./images/bootui-startup-timeline.png)
+
+### GraalVM
+
+The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
+readiness. On demand it imports the application's own classes (bounded to the detected base package(s)) and runs a
+curated set of heuristic checks for constructs that native-image cannot resolve at build time — reflection, dynamic
+class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles, service loading,
+serialization, build-time-initialization side effects, and native access. With the _Include dependencies_ toggle on (it is
+on by default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
+`META-INF/native-image/`, and — for libraries that do not — looks up Oracle's
+[GraalVM reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) to show whether the
+detected dependency version is `covered`, only `partial` (the repository has metadata for a different version), or has
+`none`, with links to the matching repository entry and metadata file. That repository lookup is the panel's only
+outbound network call; it is user-initiated, time-bounded, and can be disabled with
+`bootui.graalvm.repository-lookup-enabled=false`. Long dependency lookups report progress and can be aborted from the
+panel. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
+(modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
+standard configuration resource globs. When BootUI detects the application is running from an exploded build (for
+example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers a **Write into project**
+action that writes the same scaffold directly to
+`src/main/resources/META-INF/native-image/<groupId>/<artifactId>/reachability-metadata.json` (resolving coordinates from
+`build-info.properties` or the project `pom.xml`, falling back to a `bootui-generated` namespace). The install is
+fail-closed: it is confined under `src/main/resources` and never overwrites a `reachability-metadata.json` that BootUI
+did not generate. Alongside the metadata scaffold the panel also generates a tailored, multi-stage
+**`Dockerfile-native`** that builds a GraalVM native image of the host application. It detects the project's build
+system — Maven or Gradle, with or without the wrapper — and uses the matching native build command (`./mvnw`/`mvn
+-Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the resulting executable —
+named after the resolved `artifactId` — into a minimal Debian runtime image (installing a known, pinned Maven/Gradle
+release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
+same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
+generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
+top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a
+single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. The checks
+and generated
+metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native
+build. See [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one
+inspects.
+
+> **Not available when already running as a GraalVM native image.** The readiness advisor scans compiled `.class` files
+> to help you *prepare* an application for native-image compilation; once the application is already running as a native
+> executable the advisor has no purpose, and the panel is automatically hidden.
+
+![BootUI GraalVM panel](./images/bootui-graalvm.png)
+
+### CRaC
+
+The CRaC panel reviews the host application's [Coordinated Restore at Checkpoint](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html)
+readiness, combining live runtime status with a heuristic readiness advisor. The runtime-status card (always read-only)
+reports whether the `org.crac` API is on the classpath, whether the running JVM is a CRaC-capable JDK (such as Azul Zulu
+CRaC or BellSoft Liberica, detected via the real CRaC implementation rather than the no-op shim), whether
+`spring.context.checkpoint=onRefresh` is set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read
+from the same `RuntimeMXBean` input arguments the JVM Tuning panel uses). On demand the readiness advisor imports the
+application's own classes (bounded to the detected base package(s)) and runs a curated set of `CRaC-*` checks for
+constructs that complicate checkpoint/restore — open resources held outside Spring/CRaC lifecycle, unmanaged threads,
+captured timestamps, static random seeds, eagerly captured secrets, network listeners, and missing `org.crac.Resource`
+registrations. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run
+on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
+each one inspects.
+
+The panel also generates ready-to-use container assets for the host application: a multi-stage `Dockerfile-crac` that
+builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it
+relies on (it takes a checkpoint on the first start via `spring.context.checkpoint=onRefresh` and restores it on later
+starts). The build command is tailored to the detected build system (Maven or Gradle, with or without the wrapper). Each
+file can be downloaded, and — when the application is running from an exploded build (for example `mvn spring-boot:run`
+or an IDE) rather than a packaged jar — written directly into the project root. Writes are fail-closed and never
+overwrite a file BootUI did not generate. This shares the same source-tree writer the GraalVM panel uses for its
+`Dockerfile-native`.
+
+> **Not available in GraalVM native images.** CRaC (Coordinated Restore at Checkpoint) is a JVM-only feature and is
+> mutually exclusive with native executables; the panel is automatically hidden when the application is detected to be
+> running as a native image.
+
+![BootUI CRaC panel](./images/bootui-crac.png)
 
 ## Configuration
 

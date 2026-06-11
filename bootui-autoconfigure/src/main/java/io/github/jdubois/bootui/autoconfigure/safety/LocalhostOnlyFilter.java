@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -20,7 +22,11 @@ import org.slf4j.LoggerFactory;
  * <p>The filter enforces three independent defenses and is bypassed entirely only when
  * {@code bootui.allow-non-localhost=true}:</p>
  * <ol>
- *   <li><strong>Loopback source</strong> — the remote address must be a loopback address.</li>
+ *   <li><strong>Trusted source</strong> — the remote address must be a loopback address, or fall
+ *       within a range configured via {@code bootui.trusted-proxies} (CIDR notation). The latter is
+ *       an opt-in narrow relaxation for local Docker-bridge callers: it widens only this source
+ *       check and leaves the Host allow-list and cross-site write protection below fully in force,
+ *       unlike the all-or-nothing {@code bootui.allow-non-localhost}.</li>
  *   <li><strong>Host allow-list (DNS-rebinding defense)</strong> — when a {@code Host} header is
  *       present it must resolve to a known loopback name or a configured
  *       {@code bootui.allowed-hosts} entry. A browser victim of a DNS-rebinding attack always sends
@@ -45,6 +51,9 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
 
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
+    private volatile String[] parsedFrom;
+    private volatile List<CidrRange> trustedRanges = List.of();
+
     public LocalhostOnlyFilter(BootUiProperties properties) {
         super(properties);
     }
@@ -64,10 +73,11 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
         }
 
         String remote = request.getRemoteAddr();
-        if (!isLoopback(remote)) {
+        if (!isTrustedSource(remote)) {
             reject(
                     response,
-                    "BootUI is restricted to loopback requests. Set bootui.allow-non-localhost=true to override.",
+                    "BootUI is restricted to loopback requests. Set bootui.allow-non-localhost=true to override, "
+                            + "or add a trusted source range to bootui.trusted-proxies.",
                     "non-loopback request from {} to {}",
                     remote,
                     request.getRequestURI());
@@ -174,16 +184,51 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
         return host.isEmpty() ? null : host;
     }
 
-    private boolean isLoopback(String remoteAddr) {
+    private boolean isTrustedSource(String remoteAddr) {
         if (remoteAddr == null || remoteAddr.isBlank()) {
             return false;
         }
+        InetAddress address;
         try {
-            InetAddress address = InetAddress.getByName(remoteAddr);
-            return address.isLoopbackAddress();
+            address = InetAddress.getByName(remoteAddr);
         } catch (UnknownHostException e) {
             return false;
         }
+        if (address.isLoopbackAddress()) {
+            return true;
+        }
+        for (CidrRange range : trustedRanges()) {
+            if (range.contains(address)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the configured {@code bootui.trusted-proxies} ranges, parsing (and caching) them only
+     * when the configured array changes. Malformed entries are logged once and skipped.
+     */
+    private List<CidrRange> trustedRanges() {
+        String[] configured = properties.getTrustedProxies();
+        if (configured == parsedFrom) {
+            return trustedRanges;
+        }
+        List<CidrRange> parsed = new ArrayList<>();
+        if (configured != null) {
+            for (String entry : configured) {
+                CidrRange range = CidrRange.parse(entry);
+                if (range != null) {
+                    parsed.add(range);
+                } else if (entry != null && !entry.isBlank()) {
+                    log.warn("BootUI ignoring malformed bootui.trusted-proxies entry '{}'", entry);
+                }
+            }
+        }
+        List<CidrRange> immutable = List.copyOf(parsed);
+        trustedRanges = immutable;
+        parsedFrom = configured;
+        return immutable;
     }
 
     private void reject(HttpServletResponse response, String message, String logFormat, Object... logArgs)

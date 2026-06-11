@@ -48,6 +48,12 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void defaultTrustedProxiesIsEmpty() {
+        BootUiProperties props = new BootUiProperties();
+        assertThat(props.getTrustedProxies()).isEmpty();
+    }
+
+    @Test
     void defaultMaskSecretsIsTrue() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.isMaskSecrets()).isTrue();
@@ -189,6 +195,16 @@ class BootUiPropertiesTests {
         BootUiProperties props = bind(env);
 
         assertThat(props.getEnabled()).isEqualTo(BootUiProperties.Mode.ON);
+    }
+
+    @Test
+    void bindsTrustedProxies() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("bootui.trusted-proxies", "172.16.0.0/12,192.168.0.0/16");
+
+        BootUiProperties props = bind(env);
+
+        assertThat(props.getTrustedProxies()).containsExactly("172.16.0.0/12", "192.168.0.0/16");
     }
 
     @Test

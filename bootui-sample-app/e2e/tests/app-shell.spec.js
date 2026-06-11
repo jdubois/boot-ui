@@ -14,6 +14,7 @@ const allPanelLinks = [
   {id: 'memory', title: 'Memory', heading: /^Memory/},
   {id: 'startup', title: 'Startup Timeline', heading: /Startup timeline/},
   {id: 'graalvm', title: 'GraalVM', heading: /^GraalVM/},
+  {id: 'crac', title: 'CRaC', heading: /^CRaC/},
   {id: 'config', title: 'Configuration', heading: /^Configuration/},
   {id: 'profile-diff', title: 'Profile Diff', heading: /Profile Diff/},
   {id: 'loggers', title: 'Loggers', heading: /^Loggers/},
@@ -99,8 +100,8 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Advisors', count: 9},
-      {title: 'Runtime', count: 8},
+      {title: 'Advisors', count: 8},
+      {title: 'Runtime', count: 10},
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 4},
       {title: 'Security', count: 2},
@@ -123,8 +124,7 @@ test.describe('BootUI app shell', () => {
       'Memory',
       'Security',
       'Pentesting',
-      'Vulnerabilities',
-      'GraalVM'
+      'Vulnerabilities'
     ])
 
     await page.getByRole('button', {name: /Database\s+4/}).click()

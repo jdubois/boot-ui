@@ -5,6 +5,9 @@
 # depends on (`-pl bootui-sample-app -am`).
 #
 # Requires GraalVM 25+ for Spring Boot 4 (GraalVM 25 = JDK 25).
+# Build and run:
+#   docker build -f Dockerfile-native -t bootui-sample-app-native .
+#   docker run --rm -p 8080:8080 bootui-sample-app-native
 
 # Build stage with GraalVM 25 (includes the native-image toolchain, JDK 25)
 FROM ghcr.io/graalvm/graalvm-community:25 AS build

@@ -254,6 +254,83 @@ class LocalhostOnlyFilterTests {
         assertThat(response.getStatus()).isEqualTo(200);
     }
 
+    @Test
+    void allowsTrustedSourceRangeWithAcceptableHost() throws Exception {
+        properties.setTrustedProxies(new String[] {"172.16.0.0/12"});
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "172.17.0.1");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void rejectsTrustedSourceRangeWithDisallowedHost() throws Exception {
+        properties.setTrustedProxies(new String[] {"172.16.0.0/12"});
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "172.17.0.1");
+        request.addHeader("Host", "attacker.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Host");
+    }
+
+    @Test
+    void rejectsCrossSiteWriteFromTrustedSourceRange() throws Exception {
+        properties.setTrustedProxies(new String[] {"172.16.0.0/12"});
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/bootui/api/config");
+        request.setRequestURI("/bootui/api/config");
+        request.setRemoteAddr("172.17.0.1");
+        request.addHeader("Host", "localhost:8080");
+        request.addHeader("Origin", "http://evil.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("cross-site");
+    }
+
+    @Test
+    void rejectsSourceOutsideTrustedRange() throws Exception {
+        properties.setTrustedProxies(new String[] {"172.16.0.0/12"});
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "10.0.0.5");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void allowsTrustedIpv6SourceRange() throws Exception {
+        properties.setTrustedProxies(new String[] {"fd00::/8"});
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "fd00::1234");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void ignoresMalformedTrustedProxyEntries() throws Exception {
+        properties.setTrustedProxies(new String[] {"not-a-cidr", "172.16.0.0/12", "  "});
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "172.17.0.1");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
     private MockHttpServletRequest bootUiRequest(String uri, String remoteAddr) {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", uri);
         request.setRequestURI(uri);

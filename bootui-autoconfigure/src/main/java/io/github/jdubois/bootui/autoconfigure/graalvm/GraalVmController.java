@@ -2,31 +2,23 @@ package io.github.jdubois.bootui.autoconfigure.graalvm;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Coordinates;
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.InstallOutcome;
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Resolution;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectBuildSystem;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.InstallOutcome;
+import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Resolution;
 import io.github.jdubois.bootui.core.dto.GraalVmDockerfileDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
 import io.github.jdubois.bootui.core.dto.GraalVmScanProgressDto;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.security.CodeSource;
-import java.security.ProtectionDomain;
 import java.time.Clock;
-import java.util.Map;
-import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -68,7 +60,7 @@ public class GraalVmController {
                                 properties.getGraalvm().getMaxRepositoryLookups()),
                         Clock.systemUTC()),
                 new GraalVmMetadataGenerator(),
-                defaultSourceLayout(applicationContext));
+                new GraalVmSourceLayout(ProjectSourceTree.forApplication(applicationContext)));
     }
 
     GraalVmController(
@@ -153,7 +145,7 @@ public class GraalVmController {
     /** Generates the Dockerfile-native tailored to the host application's artifact and build system. */
     private String generateDockerfile() {
         return dockerfileGenerator.generate(
-                sourceLayout.artifactName(), GraalVmDockerfileGenerator.detect(sourceLayout.projectRoot()));
+                sourceLayout.artifactName(), ProjectBuildSystem.detect(sourceLayout.projectRoot()));
     }
 
     private ResponseEntity<GraalVmInstallResultDto> toResponse(InstallOutcome outcome) {
@@ -200,48 +192,5 @@ public class GraalVmController {
                         resolution.installable() ? resolution.displayPath() : resolution.reason(),
                         sourceLayout.metadataDirectory())
                 .withDockerfile(dockerfile);
-    }
-
-    private static GraalVmSourceLayout defaultSourceLayout(ApplicationContext applicationContext) {
-        return new GraalVmSourceLayout(
-                () -> Path.of(System.getProperty("user.dir", ".")),
-                () -> applicationCodeSource(applicationContext),
-                () -> coordinates(applicationContext));
-    }
-
-    private static Optional<URL> applicationCodeSource(ApplicationContext applicationContext) {
-        try {
-            Map<String, Object> beans = applicationContext.getBeansWithAnnotation(SpringBootApplication.class);
-            for (Object bean : beans.values()) {
-                Class<?> userClass = ClassUtils.getUserClass(bean.getClass());
-                ProtectionDomain protectionDomain = userClass.getProtectionDomain();
-                if (protectionDomain == null) {
-                    continue;
-                }
-                CodeSource codeSource = protectionDomain.getCodeSource();
-                if (codeSource != null && codeSource.getLocation() != null) {
-                    return Optional.of(codeSource.getLocation());
-                }
-            }
-        } catch (RuntimeException ex) {
-            return Optional.empty();
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<Coordinates> coordinates(ApplicationContext applicationContext) {
-        try {
-            BuildProperties buildProperties =
-                    applicationContext.getBeanProvider(BuildProperties.class).getIfAvailable();
-            if (buildProperties != null) {
-                Coordinates fromBuild = new Coordinates(buildProperties.getGroup(), buildProperties.getArtifact());
-                if (fromBuild.isValid()) {
-                    return Optional.of(fromBuild);
-                }
-            }
-        } catch (RuntimeException ex) {
-            // Fall through to pom parsing.
-        }
-        return GraalVmSourceLayout.coordinatesFromPom(Path.of(System.getProperty("user.dir", ".")));
     }
 }

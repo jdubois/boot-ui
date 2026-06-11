@@ -35,6 +35,15 @@ class BootUiIndexControllerTests {
         mvc.perform(get("/bootui")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/bootui/"));
     }
 
+    @Test
+    void rootPathRedirectIncludesServletContextPath() throws Exception {
+        MockMvc mvc = buildMvc(new BootUiProperties());
+
+        mvc.perform(get("/api/bootui").contextPath("/api"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/api/bootui/"));
+    }
+
     // ── /bootui/ → forward ────────────────────────────────────────────────────
 
     @Test

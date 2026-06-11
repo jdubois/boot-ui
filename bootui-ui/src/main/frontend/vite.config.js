@@ -2,10 +2,16 @@ import {defineConfig} from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 
 // Build the BootUI Vue app as a static SPA that lives under /bootui/.
-// All assets are emitted with a /bootui/ prefix so the bundled Spring Boot
-// classpath resource at META-INF/resources/bootui/index.html can serve them.
-export default defineConfig({
-  base: '/bootui/',
+//
+// The production build uses a relative base ('./') so the generated index.html
+// references its assets relatively (e.g. ./assets/index-*.js). Because the SPA
+// is always served from a URL ending in '/bootui/', those relative URLs resolve
+// correctly even when the host app sets a server.servlet.context-path (e.g.
+// /api/bootui/assets/...). An absolute '/bootui/' base would ignore the context
+// path and 404. The dev server keeps the '/bootui/' base so its /bootui/api
+// proxy below continues to match the SPA's relative API calls.
+export default defineConfig(({command}) => ({
+  base: command === 'build' ? './' : '/bootui/',
   server: {
     proxy: {
       '/bootui/api': {
@@ -34,4 +40,4 @@ export default defineConfig({
     reporters: process.env.CI ? ['default', 'junit'] : 'default',
     outputFile: {junit: './test-results/vitest-junit.xml'}
   }
-})
+}))

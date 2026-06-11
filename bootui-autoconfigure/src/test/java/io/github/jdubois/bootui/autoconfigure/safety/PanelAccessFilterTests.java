@@ -213,6 +213,7 @@ class PanelAccessFilterTests {
         requests.put("github", new ActionRequest("POST", "/bootui/api/github/refresh"));
         requests.put("rest-api", new ActionRequest("POST", "/bootui/api/rest-api/scan"));
         requests.put("spring", new ActionRequest("POST", "/bootui/api/spring/scan"));
+        requests.put("crac", new ActionRequest("POST", "/bootui/api/crac/scan"));
         return requests;
     }
 

@@ -19,6 +19,7 @@ const Pentesting = () => import('./views/Pentesting.vue')
 const Architecture = () => import('./views/Architecture.vue')
 const RestApi = () => import('./views/RestApi.vue')
 const GraalVm = () => import('./views/GraalVm.vue')
+const Crac = () => import('./views/Crac.vue')
 const LogTail = () => import('./views/LogTail.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
@@ -115,12 +116,6 @@ export const routes = [
     meta: {group: groups.advisors, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
-    path: '/graalvm',
-    name: 'graalvm',
-    component: GraalVm,
-    meta: {group: groups.advisors, icon: 'bi-rocket-takeoff', title: 'GraalVM'}
-  },
-  {
     path: '/health',
     name: 'health',
     component: Health,
@@ -167,6 +162,18 @@ export const routes = [
     name: 'startup',
     component: Startup,
     meta: {group: groups.runtime, icon: 'bi-bar-chart-steps', title: 'Startup Timeline'}
+  },
+  {
+    path: '/graalvm',
+    name: 'graalvm',
+    component: GraalVm,
+    meta: {group: groups.runtime, icon: 'bi-rocket-takeoff', title: 'GraalVM'}
+  },
+  {
+    path: '/crac',
+    name: 'crac',
+    component: Crac,
+    meta: {group: groups.runtime, icon: 'bi-camera', title: 'CRaC'}
   },
   {
     path: '/config',

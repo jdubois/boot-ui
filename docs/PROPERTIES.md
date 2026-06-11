@@ -25,6 +25,7 @@ Panel settings are consistent across the UI and API:
 | `bootui.api-path`                | `/bootui/api`                           | Internal API base path used by the UI and safety filters.                                                                       |
 | `bootui.allow-non-localhost`     | `false`                                 | Explicitly opt out of loopback-only protection. Keep this `false` unless the local network is trusted.                          |
 | `bootui.allowed-hosts`           | _(empty)_                               | Extra `Host` header values accepted by the loopback filter, in addition to the built-in loopback names (`localhost`, `127.0.0.1`, `::1`). Use this for custom local hostnames while keeping DNS-rebinding protection. |
+| `bootui.trusted-proxies`         | _(empty)_                               | Source IP ranges in CIDR notation (e.g. `172.16.0.0/12`) trusted in addition to loopback. A narrow opt-in for local Docker-bridge callers: it relaxes only the source-address check while keeping the `Host` allow-list (DNS-rebinding) and cross-site write (CSRF) protections in force. Prefer this over `bootui.allow-non-localhost`, and pair it with `bootui.allowed-hosts` for the hostname the browser uses. |
 | `bootui.mask-secrets`            | `true`                                  | Enables secret-like value masking helpers.                                                                                      |
 | `bootui.expose-values`           | `MASKED`                                | Configuration value exposure mode: `MASKED`, `METADATA_ONLY`, or `FULL`. `FULL` can disclose secrets.                           |
 | `bootui.show-banner`             | `true`                                  | Print the BootUI URL on application startup.                                                                                    |
@@ -57,6 +58,7 @@ Panel settings are consistent across the UI and API:
 | Runtime         | Threads                   | `threads`                   | `bootui.panels.threads.enabled`                   | `bootui.panels.threads.read-only`         |
 | Runtime         | Startup Timeline          | `startup`                   | `bootui.panels.startup.enabled`                   | Not applicable; view-only.                |
 | Runtime         | GraalVM                   | `graalvm`                   | `bootui.panels.graalvm.enabled`                   | `bootui.panels.graalvm.read-only`         |
+| Runtime         | CRaC                      | `crac`                      | `bootui.panels.crac.enabled`                      | `bootui.panels.crac.read-only`            |
 | Configuration   | Configuration             | `config`                    | `bootui.panels.config.enabled`                    | `bootui.panels.config.read-only`          |
 | Configuration   | Profile Diff              | `profile-diff`              | `bootui.panels.profile-diff.enabled`              | Not applicable; view-only.                |
 | Configuration   | Loggers                   | `loggers`                   | `bootui.panels.loggers.enabled`                   | `bootui.panels.loggers.read-only`         |
@@ -279,6 +281,13 @@ Panel settings are consistent across the UI and API:
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------ |
 | `bootui.panels.graalvm.enabled`   | `true`  | Show the GraalVM native-image readiness panel and its latest report.                 |
 | `bootui.panels.graalvm.read-only` | `false` | Disable the on-demand readiness scan action (the metadata download stays available). |
+
+### CRaC
+
+| Property                       | Default | Description                                                                                                    |
+| ------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.crac.enabled`   | `true`  | Show the CRaC (Coordinated Restore at Checkpoint) readiness panel and its latest report.                       |
+| `bootui.panels.crac.read-only` | `false` | Disable the on-demand readiness scan and the Dockerfile/entrypoint install actions (downloads stay available). |
 
 ### DevTools
 
