@@ -12,8 +12,12 @@ import java.util.Optional;
 import javax.sql.DataSource;
 import liquibase.integration.spring.SpringLiquibase;
 import org.flywaydb.core.Flyway;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -34,6 +38,8 @@ import org.springframework.web.bind.annotation.RestController;
 @EnableScheduling
 @EnableConfigurationProperties(BootUiSampleApplication.SampleSettings.class)
 public class BootUiSampleApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(BootUiSampleApplication.class);
 
     private static final String FLYWAY_STARTUP_TARGET = "2";
     private static final String LIQUIBASE_BASE_CHANGELOG = "classpath:db/changelog/db.changelog-base.xml";
@@ -57,6 +63,11 @@ public class BootUiSampleApplication {
         }
         Path moduleComposeFile = workingDirectory.resolve(Path.of("bootui-sample-app", "compose.yaml"));
         return Files.isRegularFile(moduleComposeFile) ? Optional.of(moduleComposeFile) : Optional.empty();
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    void logStartupTime(ApplicationReadyEvent event) {
+        log.info("Sample app started up in {} ms", event.getTimeTaken().toMillis());
     }
 
     @Bean
