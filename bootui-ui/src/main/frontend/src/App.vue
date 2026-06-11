@@ -811,8 +811,9 @@ function onGlobalKeydown(e) {
 .bootui-shell {
   color: var(--bootui-text);
   display: flex;
+  height: 100vh;
   isolation: isolate;
-  overflow-x: hidden;
+  overflow: hidden;
   position: relative;
 }
 
@@ -852,12 +853,11 @@ function onGlobalKeydown(e) {
   flex-direction: column;
   flex-shrink: 0;
   gap: 1.4rem;
-  min-height: 100vh;
+  height: 100vh;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1.25rem;
-  position: sticky;
-  top: 0;
   transition: width 220ms ease;
   width: 18rem;
 }
@@ -1191,7 +1191,9 @@ function onGlobalKeydown(e) {
   display: flex;
   flex: 1;
   flex-direction: column;
+  height: 100vh;
   min-width: 0;
+  overflow-y: auto;
 }
 
 .topbar {
@@ -1361,12 +1363,20 @@ function onGlobalKeydown(e) {
 @media (max-width: 575.98px) {
   .bootui-shell {
     flex-direction: column;
+    height: auto;
+    overflow: visible;
   }
 
   .bootui-sidebar {
-    min-height: auto;
+    height: auto;
+    overscroll-behavior: auto;
     position: relative;
     width: 100%;
+  }
+
+  .bootui-workspace {
+    height: auto;
+    overflow: visible;
   }
 
   .topbar {

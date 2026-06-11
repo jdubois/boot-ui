@@ -95,6 +95,48 @@ test.describe('BootUI app shell', () => {
     await expect(contributeLink.locator('.bi-github')).toBeVisible()
   })
 
+  test('main content scrolls while the sidebar stays fixed', async ({page}) => {
+    // A short viewport guarantees the main content overflows the window.
+    await page.setViewportSize({width: 1280, height: 400})
+    await page.goto('/bootui/')
+    await page.locator('main .page-panel h2').first().waitFor()
+
+    const layout = await page.evaluate(() => {
+      const shell = document.querySelector('.bootui-shell')
+      const workspace = document.querySelector('.bootui-workspace')
+      const sidebar = document.querySelector('aside.bootui-sidebar')
+      const doc = document.scrollingElement
+      return {
+        // The page itself must not scroll: scrolling lives inside the app, not the document.
+        documentScrollable: doc.scrollHeight > doc.clientHeight + 1,
+        shellOverflowY: getComputedStyle(shell).overflowY,
+        workspaceOverflowY: getComputedStyle(workspace).overflowY,
+        workspaceScrollable: workspace.scrollHeight > workspace.clientHeight,
+        sidebarOverflowY: getComputedStyle(sidebar).overflowY,
+        sidebarOverscroll: getComputedStyle(sidebar).overscrollBehaviorY
+      }
+    })
+
+    expect(layout.documentScrollable).toBe(false)
+    expect(layout.shellOverflowY).toBe('hidden')
+    expect(layout.workspaceOverflowY).toBe('auto')
+    expect(layout.workspaceScrollable).toBe(true)
+    // The sidebar is its own scroll region and never chains into the rest of the page.
+    expect(layout.sidebarOverflowY).toBe('auto')
+    expect(layout.sidebarOverscroll).toBe('contain')
+
+    // Scrolling the main content moves only the content, not the sidebar or the document.
+    const sidebar = page.locator('aside.bootui-sidebar')
+    const sidebarTopBefore = await sidebar.evaluate((el) => el.getBoundingClientRect().top)
+    const contentScrollTop = await page.locator('.bootui-workspace').evaluate((el) => {
+      el.scrollTop = el.scrollHeight
+      return el.scrollTop
+    })
+    expect(contentScrollTop).toBeGreaterThan(0)
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+    expect(await sidebar.evaluate((el) => el.getBoundingClientRect().top)).toBe(sidebarTopBefore)
+  })
+
   test('sidebar groups panels into collapsible sections', async ({page}) => {
     await mockPanelAvailability(page)
     await page.goto('/bootui/')
