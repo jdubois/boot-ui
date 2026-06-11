@@ -93,7 +93,8 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
             reject(
                     response,
                     "BootUI is restricted to loopback requests. Set bootui.allow-non-localhost=true to override, "
-                            + "or add a trusted source range to bootui.trusted-proxies.",
+                            + "add a trusted source range to bootui.trusted-proxies, or (when running in a container) "
+                            + "set bootui.trust-container-gateway=AUTO to trust the auto-detected container gateway /32.",
                     "non-loopback request from {} to {}",
                     remote,
                     request.getRequestURI());
