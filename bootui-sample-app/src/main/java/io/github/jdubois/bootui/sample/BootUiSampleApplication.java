@@ -14,9 +14,12 @@ import liquibase.integration.spring.SpringLiquibase;
 import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -71,6 +74,7 @@ public class BootUiSampleApplication {
     }
 
     @Bean
+    @ConditionalOnProperty(prefix = "spring.flyway", name = "enabled", matchIfMissing = true)
     FlywayMigrationStrategy sampleFlywayStartupStrategy() {
         return flyway -> {
             // BootUI should demonstrate pending migrations, so the sample applies
@@ -80,24 +84,36 @@ public class BootUiSampleApplication {
 
     @Bean
     ApplicationRunner sampleMigrationDemoInitializer(
-            Flyway flyway, DataSource dataSource, ResourceLoader resourceLoader) {
+            ObjectProvider<Flyway> flywayProvider,
+            DataSource dataSource,
+            ResourceLoader resourceLoader,
+            @Value("${spring.liquibase.enabled:true}") boolean liquibaseEnabled) {
         return args -> {
-            Flyway.configure()
-                    .configuration(flyway.getConfiguration())
-                    .target(FLYWAY_STARTUP_TARGET)
-                    .load()
-                    .migrate();
+            // Flyway/Liquibase can be turned off (e.g. SPRING_FLYWAY_ENABLED=false /
+            // SPRING_LIQUIBASE_ENABLED=false) for a faster Docker startup, so this demo
+            // wiring must tolerate either being absent rather than failing to start.
+            Flyway flyway = flywayProvider.getIfAvailable();
+            if (flyway != null) {
+                Flyway.configure()
+                        .configuration(flyway.getConfiguration())
+                        .target(FLYWAY_STARTUP_TARGET)
+                        .load()
+                        .migrate();
+            }
 
-            SpringLiquibase baseLiquibase = new SpringLiquibase();
-            baseLiquibase.setDataSource(dataSource);
-            baseLiquibase.setResourceLoader(resourceLoader);
-            baseLiquibase.setChangeLog(LIQUIBASE_BASE_CHANGELOG);
-            baseLiquibase.setShouldRun(true);
-            baseLiquibase.afterPropertiesSet();
+            if (liquibaseEnabled) {
+                SpringLiquibase baseLiquibase = new SpringLiquibase();
+                baseLiquibase.setDataSource(dataSource);
+                baseLiquibase.setResourceLoader(resourceLoader);
+                baseLiquibase.setChangeLog(LIQUIBASE_BASE_CHANGELOG);
+                baseLiquibase.setShouldRun(true);
+                baseLiquibase.afterPropertiesSet();
+            }
         };
     }
 
     @Bean
+    @ConditionalOnProperty(prefix = "spring.liquibase", name = "enabled", matchIfMissing = true)
     SpringLiquibase liquibase(DataSource dataSource) {
         SpringLiquibase liquibase = new SpringLiquibase();
         liquibase.setDataSource(dataSource);
