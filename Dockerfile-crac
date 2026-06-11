@@ -9,7 +9,8 @@
 # The sample app runs with its default "dev" profile, which uses an in-memory H2
 # database (and an in-memory cache) instead of PostgreSQL/Redis, so the checkpoint
 # is taken with no open network sockets and restores cleanly out of the box. See
-# the README for the (more involved) external-services variant.
+# the README for the (more involved) external-services variant. For a faster
+# startup the sample database migrations are disabled by default (see below).
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into the
 # build stage and the sample app is built together with the modules it depends on
@@ -28,13 +29,15 @@
 #
 # Or use docker-compose-crac.yml (docker compose -f docker-compose-crac.yml up --build).
 #
-# Faster startup - skip the sample database migrations:
-# The sample app applies two pending Flyway migrations and two Liquibase change sets on startup so
-# the BootUI Flyway/Liquibase panels have data to show. To skip them, disable both with Spring
-# Boot's environment variables on the run that takes the checkpoint (they are frozen into it):
+# Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
+# The sample app can apply two pending Flyway migrations and two Liquibase change sets on startup
+# so those panels have data to show. They are off by default for a faster boot; turn them back on
+# with Spring Boot's environment variables on the run that takes the checkpoint (they are frozen
+# into it):
 #   docker run --rm -p 8080:8080 \
 #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
-#     -e SPRING_FLYWAY_ENABLED=false -e SPRING_LIQUIBASE_ENABLED=false \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+#     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
 #     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
 
 # Build stage (a plain JDK is enough; CRaC only matters at runtime).
@@ -68,6 +71,13 @@ ENV APP_JAR=/app/app.jar
 # disabled in the container. CRaC freezes this into the checkpoint at first start,
 # so it must be set before the checkpoint is taken - hence baking it in here.
 ENV SPRING_PROFILES_ACTIVE=dev
+
+# Disable the sample Flyway/Liquibase migrations by default for a faster startup; the checkpoint is
+# taken with them off. Re-enable them with -e SPRING_FLYWAY_ENABLED=true -e
+# SPRING_LIQUIBASE_ENABLED=true on the run that takes the checkpoint to populate the BootUI
+# Flyway/Liquibase panels.
+ENV SPRING_FLYWAY_ENABLED=false
+ENV SPRING_LIQUIBASE_ENABLED=false
 
 # Copy the repackaged, runnable Spring Boot jar (the glob skips the thin
 # *.jar.original) and the checkpoint/restore entrypoint.

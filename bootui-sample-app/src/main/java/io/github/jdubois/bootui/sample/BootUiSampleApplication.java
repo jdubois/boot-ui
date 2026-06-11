@@ -15,7 +15,6 @@ import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -85,13 +84,15 @@ public class BootUiSampleApplication {
     @Bean
     ApplicationRunner sampleMigrationDemoInitializer(
             ObjectProvider<Flyway> flywayProvider,
+            ObjectProvider<SpringLiquibase> liquibaseProvider,
             DataSource dataSource,
-            ResourceLoader resourceLoader,
-            @Value("${spring.liquibase.enabled:true}") boolean liquibaseEnabled) {
+            ResourceLoader resourceLoader) {
         return args -> {
-            // Flyway/Liquibase can be turned off (e.g. SPRING_FLYWAY_ENABLED=false /
-            // SPRING_LIQUIBASE_ENABLED=false) for a faster Docker startup, so this demo
-            // wiring must tolerate either being absent rather than failing to start.
+            // The sample migrations are disabled by default in the Docker images for a faster
+            // startup (and can be toggled with SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED),
+            // so this demo wiring must tolerate either tool being absent rather than fail to start.
+            // Gating on bean presence (rather than reading the property at runtime) keeps the
+            // behaviour consistent for the native image, where the toggle is baked in at build time.
             Flyway flyway = flywayProvider.getIfAvailable();
             if (flyway != null) {
                 Flyway.configure()
@@ -101,7 +102,7 @@ public class BootUiSampleApplication {
                         .migrate();
             }
 
-            if (liquibaseEnabled) {
+            if (liquibaseProvider.getIfAvailable() != null) {
                 SpringLiquibase baseLiquibase = new SpringLiquibase();
                 baseLiquibase.setDataSource(dataSource);
                 baseLiquibase.setResourceLoader(resourceLoader);

@@ -232,6 +232,13 @@
                                         AOT, so the profile has to be active here at build time - it
                                         cannot be switched on with a runtime env var.
 
+                                        For a faster startup the sample Flyway/Liquibase demo
+                                        migrations are disabled here too (the JVM and CRaC images do
+                                        this with baked SPRING_FLYWAY_ENABLED/SPRING_LIQUIBASE_ENABLED
+                                        env vars; the native image must bake it in at build time).
+                                        Remove the two -Dspring.*.enabled=false flags below to keep
+                                        the migrations and populate the BootUI Flyway/Liquibase panels.
+
                                         BootUI is a development console that is disabled by default
                                         outside dev profiles, and spring-boot-devtools (which would
                                         otherwise activate it) is excluded from the native image.
@@ -241,7 +248,7 @@
                                     <profiles>
                                         <profile>dev</profile>
                                     </profiles>
-                                    <jvmArguments>-Dbootui.enabled=ON</jvmArguments>
+                                    <jvmArguments>-Dbootui.enabled=ON -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false</jvmArguments>
                                 </configuration>
                             </execution>
                         </executions>

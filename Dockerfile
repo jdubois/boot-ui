@@ -10,17 +10,21 @@
 # The image runs with the "dev" Spring profile active by default (SPRING_PROFILES_ACTIVE=dev,
 # baked in below), so it starts Docker-free on an in-memory H2 database with BootUI enabled.
 #
+# For a faster startup, the sample database migrations are disabled by default
+# (SPRING_FLYWAY_ENABLED=false / SPRING_LIQUIBASE_ENABLED=false, baked in below).
+#
 # Build and run:
 #   docker build -t bootui-sample-app .
 #   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
 #   # then open http://localhost:8080/bootui
 #
-# Faster startup - skip the sample database migrations:
-# The sample app applies two pending Flyway migrations and two Liquibase change sets on startup so
-# the BootUI Flyway/Liquibase panels have data to show. To skip them, disable both at runtime with
-# Spring Boot's environment variables:
+# Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
+# The sample app can apply two pending Flyway migrations and two Liquibase change sets on startup
+# so those panels have data to show. They are off by default for a faster boot; turn them back on
+# at runtime with Spring Boot's environment variables:
 #   docker run --rm -p 8080:8080 \
-#     -e SPRING_FLYWAY_ENABLED=false -e SPRING_LIQUIBASE_ENABLED=false \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+#     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
 #     bootui-sample-app
 
 # Build stage
@@ -58,6 +62,12 @@ USER springboot
 # jar has devtools stripped. Without an active profile BootUI would stay disabled in the container.
 # Override at runtime with -e SPRING_PROFILES_ACTIVE=... when you want a different profile.
 ENV SPRING_PROFILES_ACTIVE=dev
+
+# Disable the sample Flyway/Liquibase migrations by default for a faster startup. Re-enable them at
+# runtime with -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true to populate the
+# BootUI Flyway/Liquibase panels.
+ENV SPRING_FLYWAY_ENABLED=false
+ENV SPRING_LIQUIBASE_ENABLED=false
 
 EXPOSE 8080
 

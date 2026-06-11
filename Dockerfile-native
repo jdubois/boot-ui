@@ -13,18 +13,16 @@
 # profile's process-aot step in bootui-sample-app/pom.xml (not via a runtime env var). It starts
 # Docker-free on an in-memory H2 database with BootUI enabled.
 #
+# For a faster startup the sample database migrations are disabled by default, also at build time
+# (process-aot sets -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false in
+# bootui-sample-app/pom.xml). Unlike the JVM and CRaC images this cannot be toggled with a runtime
+# env var, because AOT freezes auto-configuration; to populate the BootUI Flyway/Liquibase panels,
+# rebuild the image with those two flags removed from the process-aot <jvmArguments>.
+#
 # Build and run:
 #   docker build -f Dockerfile-native -t bootui-sample-app-native .
 #   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-native
 #   # then open http://localhost:8080/bootui
-#
-# Faster startup - skip the sample database migrations:
-# The sample app applies two pending Flyway migrations and two Liquibase change sets on startup so
-# the BootUI Flyway/Liquibase panels have data to show. Because a native image freezes
-# auto-configuration during AOT, the SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED variables
-# have no effect at runtime; skip the migrations by disabling them for the AOT build instead, e.g.
-# add -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false to the process-aot step's
-# <jvmArguments> in bootui-sample-app/pom.xml before building the image.
 
 # Build stage with GraalVM 25 (includes the native-image toolchain, JDK 25)
 FROM ghcr.io/graalvm/graalvm-community:25 AS build
