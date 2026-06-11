@@ -28,6 +28,15 @@ public record GraalVmDependencyDto(
             boolean repositoryMetadata,
             String repositoryMetadataVersion,
             String repositoryTestedVersions) {
-        this(name, shipsMetadata, note, coordinates, repositoryMetadata, repositoryMetadataVersion, repositoryTestedVersions, null, null);
+        this(
+                name,
+                shipsMetadata,
+                note,
+                coordinates,
+                repositoryMetadata,
+                repositoryMetadataVersion,
+                repositoryTestedVersions,
+                null,
+                null);
     }
 }

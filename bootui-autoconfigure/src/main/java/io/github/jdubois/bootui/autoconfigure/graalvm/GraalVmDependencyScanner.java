@@ -63,6 +63,8 @@ final class GraalVmDependencyScanner {
     private final ReachabilityMetadataRepository repository;
     final AtomicReference<Progress> progress;
     final AtomicBoolean cancellationRequested;
+    private final boolean repositoryLookupEnabled;
+    private final int maxRepositoryLookups;
 
     GraalVmDependencyScanner() {
         this(() -> System.getProperty("java.class.path", ""));
@@ -70,6 +72,18 @@ final class GraalVmDependencyScanner {
 
     GraalVmDependencyScanner(Supplier<String> classPathSupplier) {
         this(classPathSupplier, new HttpReachabilityMetadataRepository());
+    }
+
+    /** Production constructor honoring the configured {@code bootui.graalvm.*} settings. */
+    GraalVmDependencyScanner(
+            boolean repositoryLookupEnabled, Duration repositoryLookupTimeout, int maxRepositoryLookups) {
+        this(
+                () -> System.getProperty("java.class.path", ""),
+                new HttpReachabilityMetadataRepository(repositoryLookupTimeout),
+                new AtomicReference<>(Progress.idle()),
+                new AtomicBoolean(false),
+                repositoryLookupEnabled,
+                maxRepositoryLookups);
     }
 
     GraalVmDependencyScanner(Supplier<String> classPathSupplier, ReachabilityMetadataRepository repository) {
@@ -81,10 +95,22 @@ final class GraalVmDependencyScanner {
             ReachabilityMetadataRepository repository,
             AtomicReference<Progress> progress,
             AtomicBoolean cancellationRequested) {
+        this(classPathSupplier, repository, progress, cancellationRequested, true, MAX_DEPENDENCIES);
+    }
+
+    GraalVmDependencyScanner(
+            Supplier<String> classPathSupplier,
+            ReachabilityMetadataRepository repository,
+            AtomicReference<Progress> progress,
+            AtomicBoolean cancellationRequested,
+            boolean repositoryLookupEnabled,
+            int maxRepositoryLookups) {
         this.classPathSupplier = classPathSupplier;
         this.repository = repository;
         this.progress = progress;
         this.cancellationRequested = cancellationRequested;
+        this.repositoryLookupEnabled = repositoryLookupEnabled;
+        this.maxRepositoryLookups = Math.max(0, maxRepositoryLookups);
     }
 
     void cancel() {
@@ -116,10 +142,18 @@ final class GraalVmDependencyScanner {
                 break;
             }
             inspected.add(inspect(file));
-            progress.set(new Progress(true, "dependencies.inspect", inspected.size(), 0,
+            progress.set(new Progress(
+                    true,
+                    "dependencies.inspect",
+                    inspected.size(),
+                    0,
                     "Inspecting classpath JARs (" + inspected.size() + " found)."));
         }
-        progress.set(new Progress(true, "dependencies.repository", inspected.size(), inspected.size(),
+        progress.set(new Progress(
+                true,
+                "dependencies.repository",
+                inspected.size(),
+                inspected.size(),
                 "Checking GraalVM reachability metadata repository coverage."));
         List<GraalVmDependencyDto> dependencies = applyRepositoryCoverage(inspected).stream()
                 .sorted(Comparator.comparing(GraalVmDependencyDto::name))
@@ -143,15 +177,24 @@ final class GraalVmDependencyScanner {
                 break;
             }
             index++;
-            progress.set(new Progress(true, "dependencies.repository", index, inspected.size(),
-                    "Checking reachability metadata repository coverage (" + index + " of "
-                            + inspected.size() + ")."));
+            progress.set(new Progress(
+                    true,
+                    "dependencies.repository",
+                    index,
+                    inspected.size(),
+                    "Checking reachability metadata repository coverage (" + index + " of " + inspected.size() + ")."));
             Optional<RepositoryCoverage> coverage = Optional.empty();
-            String repositoryNote = null;
+            String repositoryNote;
             Coordinates coordinates = dependency.coordinates();
-            if (coordinates != null && coordinates.isComplete()) {
+            if (!repositoryLookupEnabled) {
+                repositoryNote = "Oracle reachability metadata repository lookup is disabled.";
+            } else if (coordinates != null && coordinates.isComplete()) {
                 if (!cache.containsKey(coordinates)) {
-                    cache.put(coordinates, repository.coverage(coordinates));
+                    cache.put(
+                            coordinates,
+                            cache.size() >= maxRepositoryLookups
+                                    ? RepositoryCoverage.unavailable("repository lookup limit reached")
+                                    : repository.coverage(coordinates));
                 }
                 coverage = Optional.of(cache.get(coordinates));
                 repositoryNote = coverage.get().note(coordinates);
@@ -219,7 +262,6 @@ final class GraalVmDependencyScanner {
         }
     }
 
-
     private Optional<Coordinates> coordinatesFromMavenRepositoryPath(File jar) {
         try {
             String[] parts = jar.toPath().normalize().toString().split(Pattern.quote(File.separator));
@@ -239,7 +281,8 @@ final class GraalVmDependencyScanner {
             if (!fileName.equals(artifactId + "-" + version + ".jar")) {
                 return Optional.empty();
             }
-            String groupId = String.join(".", java.util.Arrays.copyOfRange(parts, repositoryIndex + 1, parts.length - 3));
+            String groupId =
+                    String.join(".", java.util.Arrays.copyOfRange(parts, repositoryIndex + 1, parts.length - 3));
             Coordinates coordinates = new Coordinates(trimToNull(groupId), artifactId, version);
             return coordinates.isComplete() ? Optional.of(coordinates) : Optional.empty();
         } catch (RuntimeException ex) {
@@ -248,7 +291,8 @@ final class GraalVmDependencyScanner {
     }
 
     private Optional<Coordinates> coordinatesFromJarName(String name) {
-        Matcher matcher = Pattern.compile("^(.+)-([0-9][A-Za-z0-9._+\\-]*)\\.jar$").matcher(name);
+        Matcher matcher =
+                Pattern.compile("^(.+)-([0-9][A-Za-z0-9._+\\-]*)\\.jar$").matcher(name);
         if (!matcher.matches()) {
             return Optional.empty();
         }
@@ -284,9 +328,12 @@ final class GraalVmDependencyScanner {
 
     record InspectedDependency(String name, boolean shipsMetadata, String note, Coordinates coordinates) {
         GraalVmDependencyDto toDto(Optional<RepositoryCoverage> coverage, String repositoryNote) {
-            boolean repositoryMetadata = coverage.map(RepositoryCoverage::covered).orElse(false);
-            String metadataVersion = coverage.map(RepositoryCoverage::metadataVersion).orElse(null);
-            String testedVersions = coverage.map(RepositoryCoverage::testedVersionsDisplay).orElse(null);
+            boolean repositoryMetadata =
+                    coverage.map(RepositoryCoverage::covered).orElse(false);
+            String metadataVersion =
+                    coverage.map(RepositoryCoverage::metadataVersion).orElse(null);
+            String testedVersions =
+                    coverage.map(RepositoryCoverage::testedVersionsDisplay).orElse(null);
             String repositoryUrl = coverage.filter(RepositoryCoverage::repositoryEntryExists)
                     .map(ignored -> repositoryUrl(coordinates))
                     .orElse(null);
@@ -353,8 +400,12 @@ final class GraalVmDependencyScanner {
             List<String> testedVersions,
             String lookupError) {
         RepositoryCoverage(boolean covered, String metadataVersion, List<String> testedVersions, String lookupError) {
-            this(covered, covered || metadataVersion != null || (testedVersions != null && !testedVersions.isEmpty()),
-                    metadataVersion, testedVersions, lookupError);
+            this(
+                    covered,
+                    covered || metadataVersion != null || (testedVersions != null && !testedVersions.isEmpty()),
+                    metadataVersion,
+                    testedVersions,
+                    lookupError);
         }
 
         static RepositoryCoverage unavailable(String reason) {
@@ -367,8 +418,8 @@ final class GraalVmDependencyScanner {
 
         String note(Coordinates coordinates) {
             if (covered) {
-                return "Oracle reachability metadata repository covers " + coordinates.version()
-                        + " with metadata " + metadataVersion + ".";
+                return "Oracle reachability metadata repository covers " + coordinates.version() + " with metadata "
+                        + metadataVersion + ".";
             }
             if (lookupError != null && !lookupError.isBlank()) {
                 return "Oracle reachability metadata repository lookup unavailable: " + lookupError + ".";
@@ -386,23 +437,37 @@ final class GraalVmDependencyScanner {
         private final HttpClient client;
         private final ObjectMapper objectMapper;
         private final String indexBaseUrl;
+        private final Duration requestTimeout;
 
         HttpReachabilityMetadataRepository() {
-            this(HttpClient.newBuilder().connectTimeout(REPOSITORY_LOOKUP_TIMEOUT).build(), new ObjectMapper(),
-                    REPOSITORY_RAW_BASE_URL);
+            this(REPOSITORY_LOOKUP_TIMEOUT);
+        }
+
+        HttpReachabilityMetadataRepository(Duration requestTimeout) {
+            this(
+                    HttpClient.newBuilder().connectTimeout(requestTimeout).build(),
+                    new ObjectMapper(),
+                    REPOSITORY_RAW_BASE_URL,
+                    requestTimeout);
         }
 
         HttpReachabilityMetadataRepository(HttpClient client, ObjectMapper objectMapper, String indexBaseUrl) {
+            this(client, objectMapper, indexBaseUrl, REPOSITORY_LOOKUP_TIMEOUT);
+        }
+
+        HttpReachabilityMetadataRepository(
+                HttpClient client, ObjectMapper objectMapper, String indexBaseUrl, Duration requestTimeout) {
             this.client = client;
             this.objectMapper = objectMapper;
             this.indexBaseUrl = indexBaseUrl;
+            this.requestTimeout = requestTimeout;
         }
 
         @Override
         public RepositoryCoverage coverage(Coordinates coordinates) {
             try {
                 HttpRequest request = HttpRequest.newBuilder(indexUri(coordinates))
-                        .timeout(REPOSITORY_LOOKUP_TIMEOUT)
+                        .timeout(requestTimeout)
                         .header("Accept", "application/json")
                         .header("User-Agent", "BootUI GraalVM readiness")
                         .GET()
@@ -446,8 +511,12 @@ final class GraalVmDependencyScanner {
                     return new RepositoryCoverage(true, metadataVersion, testedVersions, null);
                 }
             }
-            return new RepositoryCoverage(false, latestMetadataVersion != null || !latestTestedVersions.isEmpty(),
-                    latestMetadataVersion, latestTestedVersions, null);
+            return new RepositoryCoverage(
+                    false,
+                    latestMetadataVersion != null || !latestTestedVersions.isEmpty(),
+                    latestMetadataVersion,
+                    latestTestedVersions,
+                    null);
         }
 
         private String text(JsonNode node, String field) {
