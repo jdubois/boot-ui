@@ -32,6 +32,12 @@ FROM eclipse-temurin:25-jdk-noble AS build
 
 WORKDIR /app
 
+# Install curl so the Maven wrapper can download maven-wrapper.jar (this base image
+# ships without curl/wget, and the wrapper jar is not committed to the repository).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy the whole multi-module project (see .dockerignore for exclusions).
 COPY . .
 RUN chmod +x mvnw
