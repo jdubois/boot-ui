@@ -357,7 +357,10 @@ public final class ProjectSourceTree {
         }
 
         public static Resolution installable(Path targetFile, String displayPath) {
-            return new Resolution(true, targetFile, displayPath, null);
+            // Display paths are shown to users and asserted against literals, so normalize the
+            // platform file separator to '/' (relativize() yields '\' on Windows).
+            String normalized = displayPath == null ? null : displayPath.replace('\\', '/');
+            return new Resolution(true, targetFile, normalized, null);
         }
     }
 
