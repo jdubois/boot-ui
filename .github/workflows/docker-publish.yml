@@ -13,9 +13,11 @@ name: Publish Docker images
 # The images are published once a day from the main branch (scheduled events run
 # against the default branch) and can also be built on demand from the Actions tab.
 #
-# The workflow runs in strictly ordered phases, and publishing is all-or-nothing:
-# nothing reaches Docker Hub unless every image on every platform builds and passes
-# its smoke test.
+# The workflow runs in strictly ordered phases, and tagging is all-or-nothing: no
+# usable (tagged) image reaches Docker Hub unless every image on every platform builds
+# and passes its smoke test. Each verified image is pushed by digest only (untagged, and
+# therefore invisible until tagged); the rolling, dated and short-SHA tags are applied
+# later, in a single merge phase that runs only if every build succeeded.
 #
 #   1. docker-config - validate the sample app's full Docker stack (the "docker"
 #      Spring profile: PostgreSQL, Redis and Ollama from
@@ -25,34 +27,31 @@ name: Publish Docker images
 #      Ollama / Spring AI wiring that the Docker-free build.yml does not exercise. The
 #      job itself needs no Docker Hub secrets.
 #
-#   2. build - build and smoke-test every image on every platform (a matrix of 3
-#      images x 2 platforms = 6 jobs). Each job builds its single-platform image and
-#      loads it into the runner's local Docker daemon (push: false, load: true) -
-#      nothing is pushed - then smoke-tests it: the base Spring Boot app must be up
-#      (GET /actuator/health), BootUI's back end must be active (GET
-#      /bootui/api/panels) and the BootUI front end must be served (GET /bootui/). The
-#      CRaC image additionally stops the container and starts it again from the
-#      persisted checkpoint, verifying that the restore serves BootUI and comes up at
-#      least twice as fast as the initial boot-and-checkpoint start. Each job also
-#      writes a per-image, per-platform GitHub Actions layer cache (mode=max) that the
-#      publish phase reuses.
+#   2. build - build, smoke-test and publish every image on every platform (a matrix
+#      of 3 images x 2 platforms = 6 jobs). Each job builds its single-platform image
+#      once and loads it into the runner's local Docker daemon (load: true) to
+#      smoke-test it: the base Spring Boot app must be up (GET /actuator/health),
+#      BootUI's back end must be active (GET /bootui/api/panels) and the BootUI front
+#      end must be served (GET /bootui/). The CRaC image additionally stops the
+#      container and starts it again from the persisted checkpoint, verifying that the
+#      restore serves BootUI and comes up at least twice as fast as the initial
+#      boot-and-checkpoint start. Only once the smoke test passes does the job push that
+#      exact image to Docker Hub by digest (no tags): the push reuses the layers just
+#      built in this job's local Buildx cache (backed by a per-image, per-platform GitHub
+#      Actions layer cache), so it is a cache hit that only assembles and pushes - the
+#      tested image is published, never a rebuild of it, and the expensive native-image
+#      compilation is never repeated. A failed build or smoke test on any image/platform
+#      fails its job, so the merge phase below never runs and no tag is ever applied.
 #
-#   3. publish - build and push every verified image by digest (the same 3 x 2
-#      matrix). Each job reassembles its image from the layer cache written in phase 2
-#      (so the expensive native-image compilation is not repeated) and pushes it to
-#      Docker Hub by digest only (no tags). This whole phase is skipped unless every
-#      build job in phase 2 succeeded, so a single failed build or smoke test means no
-#      image - not even an untagged by-digest manifest - is published.
-#
-#   4. merge - assemble the tagged multi-arch manifest list for each image (a matrix
-#      of 3 images) from the per-platform digests pushed in phase 3, applying the
-#      rolling `latest`, dated and short-SHA tags. Runs only if every publish job
+#   3. merge - assemble the tagged multi-arch manifest list for each image (a matrix
+#      of 3 images) from the per-platform digests pushed in phase 2, applying the
+#      rolling `latest`, dated and short-SHA tags. Runs only if every build job
 #      succeeded.
 #
-#   5. prune - delete dated/SHA tags older than one week from each repository (the
+#   4. prune - delete dated/SHA tags older than one week from each repository (the
 #      rolling `latest` tag is always kept) so old daily images do not accumulate,
 #      since Docker Hub has no built-in retention policy. Runs only after a successful
-#      publish, so old tags are pruned only once fresh images have actually replaced
+#      merge, so old tags are pruned only once fresh images have actually replaced
 #      them.
 #
 # Multi-arch is produced by building each image once per platform on a *native* runner
@@ -60,8 +59,9 @@ name: Publish Docker images
 # GraalVM cannot cross-compile a native image, emulated native-image / Maven builds
 # would not fit the time budget, and `load: true` (used by the smoke test) only works
 # with a single-platform image. Running on native runners also means each architecture
-# is smoke-tested on its own hardware. The publish phase runs on the matching native
-# runner too, so a cache miss is rebuilt natively rather than under emulation.
+# is smoke-tested on its own hardware. Each image is built exactly once per platform, in
+# the same job that smoke-tests and then pushes it, so the native image is never compiled
+# a second time.
 #
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  Docker Hub account/namespace the images are pushed to.
@@ -153,17 +153,16 @@ jobs:
           retention-days: 7
 
   build:
-    name: Build and smoke-test ${{ matrix.image }} (${{ matrix.platform }})
+    name: Build, smoke-test and publish ${{ matrix.image }} (${{ matrix.platform }})
     # Build each platform on a native runner: arm64 on GitHub's hosted arm64
     # runners, everything else (amd64) on the standard x86_64 runners.
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     # Wait for the Docker-profile validation before building anything: a regression
-    # there blocks every image. Nothing in this phase is pushed, so this is purely
-    # build + smoke test.
+    # there blocks every image.
     needs: docker-config
     # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are stored as environment secrets, so the
-    # job must opt in to that environment to read them (the login here only raises the
-    # anonymous base-image pull-rate limit; nothing is pushed in this phase).
+    # job must opt in to that environment to read them: the login raises the anonymous
+    # base-image pull-rate limit, and the verified image is pushed by digest from here.
     environment: docker-hub
     # The native build dominates the runtime; allow generous headroom.
     timeout-minutes: 90
@@ -171,8 +170,8 @@ jobs:
     if: github.repository == 'jdubois/boot-ui'
     strategy:
       # Build and smoke-test every image/platform even if one fails, so a single run
-      # surfaces every broken variant. Publishing is gated on all of them passing
-      # (see the publish job), so fail-fast: false never causes a partial publish.
+      # surfaces every broken variant. Tagging is gated on all of them passing (see the
+      # merge job), so fail-fast: false never causes a partial tagged publish.
       fail-fast: false
       matrix:
         image:
@@ -200,7 +199,7 @@ jobs:
             run_args: ''
             health_timeout: '120'
     steps:
-      - name: Prepare
+      - name: Resolve image name and platform tag
         run: |
           platform='${{ matrix.platform }}'
           echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
@@ -224,7 +223,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY_IMAGE }}
 
-      - name: Build and load image for smoke test (no push)
+      - name: Build the image and load it for the smoke test
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -233,18 +232,19 @@ jobs:
           # Build and load into the runner's local Docker daemon so the image can be
           # smoke-tested without publishing anything. load: true needs a single-platform
           # image, which is exactly what one matrix platform produces. The local smoke
-          # tag is never pushed - the publish phase pushes the verified image by digest.
+          # tag is never pushed - the publish step below pushes the verified image by
+          # digest, reusing these very layers.
           push: false
           load: true
           tags: ${{ env.REGISTRY_IMAGE }}:smoke-${{ env.PLATFORM_PAIR }}
           labels: ${{ steps.meta.outputs.labels }}
           # Per-image, per-platform GitHub Actions layer cache. mode=max exports every
-          # layer so the publish phase can reassemble and push this image from cache
+          # layer so the publish step below can assemble and push this image from cache
           # without repeating the (expensive, native) build.
           cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
 
-      - name: Smoke-test the image
+      - name: Smoke-test the loaded image
         env:
           IMAGE_REF: ${{ env.REGISTRY_IMAGE }}:smoke-${{ env.PLATFORM_PAIR }}
           RUN_ARGS: ${{ matrix.run_args }}
@@ -361,6 +361,45 @@ jobs:
           fi
           echo "OK: CRaC restore (${second_start_seconds}s) is at least 2x faster than the initial start (${FIRST_START_SECONDS}s)."
 
+      - name: Push the smoke-tested image by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The smoke test above has passed (this step's default if: success() means it
+          # is skipped otherwise), so publish exactly what was tested. Every layer is
+          # already in this job's local Buildx cache - and in the GitHub Actions cache
+          # written by the build-and-load step above (same image/platform scope) - so
+          # this is a cache hit that only assembles and pushes: the (expensive, native)
+          # build is never repeated. Push the per-platform image by digest only (no
+          # tags); the merge job builds the tagged manifest list from these digests.
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+          # Do not attach SLSA provenance / SBOM attestations. They would be pushed as
+          # extra "unknown/unknown" manifests alongside each platform image, and once
+          # the merge job flattens the per-platform digests into one manifest list those
+          # attestation manifests clutter it (Docker Hub then renders the tag as having
+          # phantom extra platforms instead of a clean linux/amd64 + linux/arm64 pair).
+          provenance: false
+          sbom: false
+
+      - name: Save the pushed image's digest to a file
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest='${{ steps.build.outputs.digest }}'
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload the digest as an artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Print container logs on failure
         if: failure()
         run: |
@@ -374,97 +413,12 @@ jobs:
           docker rm -f bootui-smoke-restore || true
           docker volume rm -f bootui-smoke-crac-checkpoint || true
 
-  publish:
-    name: Publish ${{ matrix.image }} (${{ matrix.platform }}) by digest
-    # Push on the matching native runner so a cache miss is rebuilt natively (GraalVM
-    # cannot cross-compile) rather than under emulation.
-    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    # All-or-nothing publish: this phase runs only if every build-and-smoke-test job
-    # succeeded (the default needs gating, with no status function in the if). A single
-    # failed build or smoke test in phase 2 therefore means nothing is pushed at all -
-    # not even an untagged by-digest manifest.
-    needs: [build, docker-config]
-    environment: docker-hub
-    # Reassembles from the phase-2 layer cache and pushes; the generous headroom only
-    # matters in the rare event of a full cache miss that has to rebuild natively.
-    timeout-minutes: 90
-    if: github.repository == 'jdubois/boot-ui'
-    strategy:
-      fail-fast: false
-      matrix:
-        image:
-          - bootui-sample-app
-          - bootui-sample-app-crac
-          - bootui-sample-app-native
-        platform:
-          - linux/amd64
-          - linux/arm64
-        include:
-          - image: bootui-sample-app
-            dockerfile: Dockerfile
-          - image: bootui-sample-app-crac
-            dockerfile: Dockerfile-crac
-          - image: bootui-sample-app-native
-            dockerfile: Dockerfile-native
-    steps:
-      - name: Prepare
-        run: |
-          platform='${{ matrix.platform }}'
-          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
-          echo "REGISTRY_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}" >> "$GITHUB_ENV"
-
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract image labels
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY_IMAGE }}
-
-      - name: Build and push the verified image by digest
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Reuses the layers cached by phase 2 (same image/platform scope), so this
-          # only assembles and pushes. Push the per-platform image by digest only (no
-          # tags): the merge job assembles the tagged manifest list from these digests.
-          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
-
-      - name: Export digest
-        run: |
-          mkdir -p "${{ runner.temp }}/digests"
-          digest='${{ steps.build.outputs.digest }}'
-          touch "${{ runner.temp }}/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@v7
-        with:
-          name: digests-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
-          path: ${{ runner.temp }}/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
   merge:
     name: Merge ${{ matrix.image }} manifests
     runs-on: ubuntu-latest
     # Tag and publish only once every per-platform image has been pushed by digest, so
     # the rolling tags are applied atomically across all images (all-or-nothing).
-    needs: publish
+    needs: build
     if: github.repository == 'jdubois/boot-ui'
     environment: docker-hub
     timeout-minutes: 15
@@ -476,10 +430,10 @@ jobs:
           - bootui-sample-app-crac
           - bootui-sample-app-native
     steps:
-      - name: Prepare
+      - name: Resolve image name
         run: echo "REGISTRY_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}" >> "$GITHUB_ENV"
 
-      - name: Download digests
+      - name: Download the per-platform digests
         uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/digests
@@ -510,19 +464,19 @@ jobs:
             type=schedule,pattern={{date 'YYYYMMDD'}}
             type=sha,format=short
 
-      - name: Create manifest list and push
+      - name: Create and push the tagged manifest list
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
 
-      - name: Inspect image
+      - name: Inspect the published manifest list
         run: docker buildx imagetools inspect "${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}"
 
   prune:
     name: Prune tags older than one week
     runs-on: ubuntu-latest
-    # Prune only after a successful publish, so old daily images are removed only once
+    # Prune only after a successful merge, so old daily images are removed only once
     # fresh ones have replaced them - never pruning a repository down to a stale
     # `latest` because today's build failed.
     needs: merge
