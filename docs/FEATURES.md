@@ -214,7 +214,7 @@ readiness. On demand it imports the application's own classes (bounded to the de
 curated set of heuristic checks for constructs that native-image cannot resolve at build time — reflection, dynamic
 class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles, service loading,
 serialization, build-time-initialization side effects, and native access. With the _Include dependencies_ toggle on (it is
-off by default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
+on by default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
 `META-INF/native-image/`, and — for libraries that do not — looks up Oracle's
 [GraalVM reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) to show whether the
 detected dependency version is `covered`, only `partial` (the repository has metadata for a different version), or has
