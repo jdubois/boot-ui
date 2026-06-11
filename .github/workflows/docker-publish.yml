@@ -38,6 +38,14 @@ name: Publish Docker images
 # each repository (the rolling `latest` tag is always kept) so old daily images do
 # not accumulate, since Docker Hub has no built-in retention policy.
 #
+# Alongside building and publishing, the `docker-config` job validates the sample
+# app's full Docker stack (the "docker" Spring profile: PostgreSQL, Redis and Ollama
+# from bootui-sample-app/compose.yaml). It runs the full Maven test suite and then
+# the Playwright end-to-end suite against a sample app booted with the "docker"
+# profile, catching regressions in compose.yaml, the Redis-backed cache and the
+# Ollama / Spring AI wiring that the Docker-free build.yml does not exercise. It is
+# independent of the image build/publish jobs and needs no Docker Hub secrets.
+#
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  Docker Hub account/namespace the images are pushed to.
 #   DOCKERHUB_TOKEN     Docker Hub access token (Account Settings > Personal access
@@ -47,10 +55,9 @@ name: Publish Docker images
 
 on:
   schedule:
-    # Every day at 07:17 UTC (after the native-image and Docker-config jobs).
-    # Deliberately off the top of the hour: GitHub delays and, under sufficiently
-    # high load, drops scheduled events during the peak window at the start of each
-    # hour, so a ':00' cron is unreliable.
+    # Every day at 07:17 UTC. Deliberately off the top of the hour: GitHub delays
+    # and, under sufficiently high load, drops scheduled events during the peak
+    # window at the start of each hour, so a ':00' cron is unreliable.
     - cron: '17 7 * * *'
   workflow_dispatch:
 
@@ -416,3 +423,69 @@ jobs:
             done
             echo "::endgroup::"
           done
+
+  docker-config:
+    name: Validate the Docker-based configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: |
+            bootui-ui/src/main/frontend/package-lock.json
+            bootui-sample-app/e2e/package-lock.json
+
+      - name: Build all modules and run the full test suite
+        run: ./mvnw -B -ntp clean install
+
+      - name: Install Playwright dependencies
+        working-directory: bootui-sample-app/e2e
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright browsers
+        working-directory: bootui-sample-app/e2e
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Pre-pull the Docker Compose images
+        run: docker compose -f bootui-sample-app/compose.yaml pull
+
+      - name: Run the end-to-end suite against the Docker profile
+        working-directory: bootui-sample-app/e2e
+        env:
+          # Boot the sample app with the full Docker stack instead of the Docker-free default.
+          BOOTUI_SAMPLE_PROFILES: docker
+          # Allow extra time for Docker Compose to start and for Ollama to pull the chat model.
+          BOOTUI_WEBSERVER_TIMEOUT: '600000'
+        run: npm test
+
+      - name: Print Docker Compose logs on failure
+        if: failure()
+        run: docker compose -f bootui-sample-app/compose.yaml logs --no-color
+
+      - name: Tear down any leftover Docker Compose services
+        if: always()
+        run: docker compose -f bootui-sample-app/compose.yaml down --volumes --remove-orphans
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-docker
+          path: |
+            bootui-sample-app/e2e/playwright-report/
+            bootui-sample-app/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
