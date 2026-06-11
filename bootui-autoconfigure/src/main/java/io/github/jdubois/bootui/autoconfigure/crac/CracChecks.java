@@ -97,6 +97,64 @@ final class SocketConstructionCheck extends AbstractArchUnitCracCheck {
 }
 
 /**
+ * Flags direct construction or opening of file handles ({@code new FileInputStream}, {@code
+ * FileReader}, {@code RandomAccessFile}, {@code ZipFile}/{@code JarFile}, and the {@code Files} /
+ * {@code FileChannel} / {@code AsynchronousFileChannel} open factory methods). An open file holds an
+ * OS file descriptor that CRaC refuses to checkpoint, so it must be closed first — otherwise the
+ * checkpoint aborts with {@code CheckpointOpenFileException}.
+ */
+final class FileHandleCheck extends AbstractArchUnitCracCheck {
+
+    private static final Set<String> FILE_TYPES = Set.of(
+            "java.io.FileInputStream",
+            "java.io.FileOutputStream",
+            "java.io.RandomAccessFile",
+            "java.io.FileReader",
+            "java.io.FileWriter",
+            "java.util.zip.ZipFile",
+            "java.util.jar.JarFile");
+
+    private static final Set<String> FILES_FACTORIES =
+            Set.of("newInputStream", "newOutputStream", "newByteChannel", "newBufferedReader", "newBufferedWriter");
+
+    private static final Set<String> CHANNEL_OPENERS =
+            Set.of("java.nio.channels.FileChannel", "java.nio.channels.AsynchronousFileChannel");
+
+    FileHandleCheck() {
+        super(new CracCheckDefinition(
+                "CRAC-FILE-001",
+                "Direct file handles must be released at checkpoint",
+                CracCategory.RESOURCES,
+                "HIGH",
+                "Detects code that opens file handles directly (new FileInputStream/FileOutputStream/RandomAccessFile/FileReader/FileWriter/ZipFile/JarFile, or the Files.newInputStream/newOutputStream/newByteChannel and FileChannel/AsynchronousFileChannel.open factory methods). An open file holds an OS file descriptor that CRaC refuses to checkpoint, so it aborts with CheckpointOpenFileException.",
+                "Close the file before the checkpoint (try-with-resources for short-lived handles, or release it in an org.crac.Resource.beforeCheckpoint() callback and reopen it in afterRestore()), or let a managed component own it so the framework closes it around the checkpoint.",
+                "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html"));
+    }
+
+    @Override
+    ArchRule rule(CracContext context) {
+        return noClasses()
+                .should()
+                .callCodeUnitWhere(new DescribedPredicate<JavaCall<?>>("a file handle is opened") {
+                    @Override
+                    public boolean test(JavaCall<?> call) {
+                        CodeUnitCallTarget target = call.getTarget();
+                        String owner = target.getOwner().getName();
+                        String name = target.getName();
+                        if ("<init>".equals(name) && FILE_TYPES.contains(owner)) {
+                            return true;
+                        }
+                        if ("java.nio.file.Files".equals(owner) && FILES_FACTORIES.contains(name)) {
+                            return true;
+                        }
+                        return "open".equals(name) && CHANNEL_OPENERS.contains(owner);
+                    }
+                })
+                .as("Classes should not open files that survive a checkpoint");
+    }
+}
+
+/**
  * Flags threads, timers, and executor pools created directly rather than through a Spring-managed
  * lifecycle. CRaC pauses Spring {@code Lifecycle} beans before a checkpoint; threads started outside
  * that lifecycle keep running and are captured mid-flight, which often deadlocks or corrupts state
@@ -209,7 +267,7 @@ final class OpenResourceFieldCheck implements CracCheck {
             "Open resources held in fields must be released at checkpoint",
             CracCategory.RESOURCES,
             "HIGH",
-            "Detects fields whose type holds an OS resource (sockets, file streams, RandomAccessFile, NIO channels, JDBC Connection) on classes that do not implement org.crac.Resource or a Spring Lifecycle. CRaC cannot snapshot live file descriptors. Auto-configured pools (a HikariCP DataSource, a Redis client) are the common case and are covered separately by CRAC-POOL-001.",
+            "Detects fields whose type holds an OS resource (sockets, file streams, FileReader/Writer, RandomAccessFile, zip/jar files, NIO channels and selectors, file locks, WatchService, Process, JDBC Connection) on classes that do not implement org.crac.Resource or a Spring Lifecycle. CRaC cannot snapshot live file descriptors. Auto-configured pools (a HikariCP DataSource, a Redis client) are the common case and are covered separately by CRAC-POOL-001.",
             "Implement org.crac.Resource and close the resource in beforeCheckpoint(), re-opening it in afterRestore(); or hold the resource in a Spring Lifecycle/SmartLifecycle bean so the framework stops it before the checkpoint. For auto-configured connection pools, see CRAC-POOL-001.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
@@ -220,10 +278,21 @@ final class OpenResourceFieldCheck implements CracCheck {
             "java.net.MulticastSocket",
             "java.io.FileInputStream",
             "java.io.FileOutputStream",
+            "java.io.FileReader",
+            "java.io.FileWriter",
             "java.io.RandomAccessFile",
+            "java.util.zip.ZipFile",
             "java.nio.channels.FileChannel",
+            "java.nio.channels.AsynchronousFileChannel",
             "java.nio.channels.SocketChannel",
             "java.nio.channels.ServerSocketChannel",
+            "java.nio.channels.DatagramChannel",
+            "java.nio.channels.AsynchronousSocketChannel",
+            "java.nio.channels.AsynchronousServerSocketChannel",
+            "java.nio.channels.FileLock",
+            "java.nio.channels.Selector",
+            "java.nio.file.WatchService",
+            "java.lang.Process",
             "java.sql.Connection");
 
     private static final Set<String> MANAGED_TYPES = Set.of(
@@ -330,10 +399,12 @@ final class StaticRandomFieldCheck implements CracCheck {
 }
 
 /**
- * Flags static fields whose name suggests an eagerly captured secret (token, password, API key,
- * credential). A secret loaded into a static field at startup is baked into the checkpoint image and
- * shipped with every restored process, so rotation no longer takes effect and the snapshot leaks the
- * value.
+ * Flags static fields that eagerly capture a secret: either a field whose name suggests a secret
+ * (token, password, API key, credential) holding a {@code String}/{@code char[]}/{@code byte[]}, or a
+ * field whose type is cryptographic key material ({@code SecretKey}, {@code PrivateKey}, {@code
+ * KeyStore}, {@code KeyPair}) regardless of name. A secret loaded into a static field at startup is
+ * baked into the checkpoint image and shipped with every restored process, so rotation no longer
+ * takes effect and the snapshot leaks the value.
  */
 final class CapturedSecretFieldCheck implements CracCheck {
 
@@ -342,7 +413,7 @@ final class CapturedSecretFieldCheck implements CracCheck {
             "Secrets captured in static fields are frozen into the checkpoint",
             CracCategory.SECRETS,
             "HIGH",
-            "Detects static fields whose name looks like a secret (token, password, secret, api key, credential, private key) holding a String, char[], or byte[]. Such values are captured into the checkpoint image and survive in every restored process.",
+            "Detects static fields that capture a secret: a field whose name looks like a secret (token, password, secret, api key, credential, private key) holding a String, char[], or byte[], or a field holding cryptographic key material (SecretKey, PrivateKey, KeyStore, KeyPair) regardless of name. Such values are captured into the checkpoint image and survive in every restored process.",
             "Load secrets lazily at runtime (or refresh them in an org.crac.Resource.afterRestore() callback) instead of caching them in a static field, so a checkpoint never freezes a credential.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
@@ -350,6 +421,9 @@ final class CapturedSecretFieldCheck implements CracCheck {
             Pattern.compile(".*(secret|password|passwd|token|apikey|api_key|credential|privatekey|private_key).*");
 
     private static final Set<String> SECRET_TYPES = Set.of("java.lang.String", "char[]", "byte[]", "[C", "[B");
+
+    private static final Set<String> KEY_TYPES = Set.of(
+            "javax.crypto.SecretKey", "java.security.PrivateKey", "java.security.KeyStore", "java.security.KeyPair");
 
     @Override
     public CracCheckDefinition definition() {
@@ -363,11 +437,7 @@ final class CapturedSecretFieldCheck implements CracCheck {
             int count = 0;
             for (JavaClass javaClass : context.classes()) {
                 for (JavaField field : javaClass.getFields()) {
-                    if (field.getModifiers().contains(JavaModifier.STATIC)
-                            && SECRET_NAME
-                                    .matcher(field.getName().toLowerCase())
-                                    .matches()
-                            && SECRET_TYPES.contains(field.getRawType().getName())) {
+                    if (field.getModifiers().contains(JavaModifier.STATIC) && isCapturedSecret(field)) {
                         count++;
                         if (samples.size() < CracCheckSupport.maxSampleOccurrences()) {
                             samples.add(CracCheckSupport.detail(javaClass.getName() + "." + field.getName() + " : "
@@ -383,6 +453,22 @@ final class CapturedSecretFieldCheck implements CracCheck {
         } catch (RuntimeException | LinkageError ex) {
             return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
         }
+    }
+
+    private static boolean isCapturedSecret(JavaField field) {
+        JavaClass type = field.getRawType();
+        boolean secretByName =
+                SECRET_NAME.matcher(field.getName().toLowerCase()).matches() && SECRET_TYPES.contains(type.getName());
+        return secretByName || isKeyType(type);
+    }
+
+    private static boolean isKeyType(JavaClass type) {
+        for (String keyType : KEY_TYPES) {
+            if (type.isAssignableTo(keyType)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
@@ -432,10 +518,11 @@ final class ResourceRegistrationCheck implements CracCheck {
 }
 
 /**
- * Flags auto-configured connection pools (JDBC {@code DataSource}s, Redis connection factories) that
- * are live in the running context. Such pools hold OS sockets that CRaC refuses to checkpoint while
- * open: if a pooled connection is still established when {@code spring.context.checkpoint=onRefresh}
- * fires, CRaC aborts with a {@code CheckpointOpenSocketException}.
+ * Flags auto-configured connection pools and pooled clients (JDBC {@code DataSource}s, R2DBC/Redis/
+ * RabbitMQ/Kafka/Mongo/Cassandra/JMS connection factories and similar) that are live in the running
+ * context. Such pools hold OS sockets that CRaC refuses to checkpoint while open: if a pooled
+ * connection is still established when {@code spring.context.checkpoint=onRefresh} fires, CRaC aborts
+ * with a {@code CheckpointOpenSocketException}.
  *
  * <p>Unlike the other checks this one reads the live {@link CracRuntimeInventory} rather than the
  * imported application bytecode, because pools are contributed by Spring Boot auto-configuration and
@@ -448,7 +535,7 @@ final class ConnectionPoolCheck implements CracCheck {
             "Connection pools must hold no open connection at checkpoint",
             CracCategory.POOLS,
             "HIGH",
-            "Detects live connection pools (JDBC DataSource, Redis connection factory). A pooled connection that is still open when the checkpoint is taken holds an OS socket that CRaC refuses to snapshot, so the checkpoint aborts with CheckpointOpenSocketException. The backing service must also be reachable both when the checkpoint is taken and when it is restored.",
+            "Detects live connection pools and pooled clients (JDBC DataSource, plus R2DBC/Redis/RabbitMQ/Kafka/Mongo/Cassandra/JMS connection factories and similar). A pooled connection that is still open when the checkpoint is taken holds an OS socket that CRaC refuses to snapshot, so the checkpoint aborts with CheckpointOpenSocketException. The backing service must also be reachable both when the checkpoint is taken and when it is restored.",
             "Ensure no pooled connection is open at checkpoint time: let the pool drain to zero idle connections (for example spring.datasource.hikari.minimum-idle=0) or rely on Spring closing CRaC-aware pools before the checkpoint, and keep the database/cache reachable at both checkpoint and restore. Take the checkpoint after the context refreshes but before traffic opens a connection.",
             "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
 
@@ -475,5 +562,92 @@ final class ConnectionPoolCheck implements CracCheck {
         } catch (RuntimeException | LinkageError ex) {
             return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
         }
+    }
+}
+
+/**
+ * Flags live Spring {@code CacheManager} beans. Cache entries populated before the checkpoint survive
+ * into every restored process and may be stale (for example expired tokens or other time-sensitive
+ * data), because the checkpoint freezes the cache contents along with the rest of the heap.
+ *
+ * <p>Like {@link ConnectionPoolCheck} this reads the live {@link CracRuntimeInventory} rather than the
+ * imported bytecode, because cache managers are contributed by Spring's cache auto-configuration and
+ * never appear in the application's own base package.</p>
+ */
+final class CacheManagerCheck implements CracCheck {
+
+    private static final CracCheckDefinition DEFINITION = new CracCheckDefinition(
+            "CRAC-CACHE-001",
+            "In-memory caches may hold stale entries after restore",
+            CracCategory.CACHES,
+            "LOW",
+            "Detects live Spring CacheManager beans. Cache entries populated before the checkpoint are frozen into the image and survive into every restored process, where they may be stale (for example expired tokens or time-sensitive data).",
+            "Clear or refresh time-sensitive caches in an org.crac.Resource.afterRestore() callback, or use restore-aware expiry, so a restored process does not serve data captured at checkpoint time.",
+            "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html");
+
+    @Override
+    public CracCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public CracFindingDto evaluate(CracContext context) {
+        try {
+            List<String> cacheBeans = context.runtime().cacheManagerBeans();
+            if (cacheBeans.isEmpty()) {
+                return CracCheckSupport.ok(DEFINITION);
+            }
+            List<String> samples = new ArrayList<>();
+            for (String cacheBean : cacheBeans) {
+                if (samples.size() >= CracCheckSupport.maxSampleOccurrences()) {
+                    break;
+                }
+                samples.add(CracCheckSupport.detail(cacheBean));
+            }
+            return CracCheckSupport.review(DEFINITION, cacheBeans.size(), samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return CracCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+}
+
+/**
+ * Flags static initializers that read environment- or system-derived configuration ({@code
+ * System.getenv}, {@code System.getProperty}, {@code System.getProperties}). With {@code
+ * spring.context.checkpoint=onRefresh} the value is read once when the original JVM starts and frozen
+ * into the checkpoint image, so a restore-only start that changes the variable has no effect until a
+ * new checkpoint is taken.
+ */
+final class CapturedConfigurationCheck extends AbstractArchUnitCracCheck {
+
+    private static final Set<String> CONFIG_ACCESSORS = Set.of("getenv", "getProperty", "getProperties");
+
+    CapturedConfigurationCheck() {
+        super(new CracCheckDefinition(
+                "CRAC-CONFIG-001",
+                "Static initializer captures environment or system configuration",
+                CracCategory.CONFIG,
+                "MEDIUM",
+                "Detects static initializers that read environment variables or system properties (System.getenv/getProperty/getProperties). With spring.context.checkpoint=onRefresh the value is read once when the original JVM starts and frozen into the checkpoint image, so changing it for a restore-only start has no effect until a new checkpoint is taken.",
+                "Read environment- or property-derived configuration at runtime (or refresh it in an org.crac.Resource.afterRestore() callback) instead of caching it in a static field, so configuration changes take effect for a restored process.",
+                "https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html"));
+    }
+
+    @Override
+    ArchRule rule(CracContext context) {
+        return noClasses()
+                .should()
+                .callCodeUnitWhere(new DescribedPredicate<JavaCall<?>>("a static initializer captures configuration") {
+                    @Override
+                    public boolean test(JavaCall<?> call) {
+                        if (!(call.getOrigin() instanceof JavaStaticInitializer)) {
+                            return false;
+                        }
+                        CodeUnitCallTarget target = call.getTarget();
+                        return "java.lang.System".equals(target.getOwner().getName())
+                                && CONFIG_ACCESSORS.contains(target.getName());
+                    }
+                })
+                .as("Static initializers should not capture environment or system configuration before a checkpoint");
     }
 }

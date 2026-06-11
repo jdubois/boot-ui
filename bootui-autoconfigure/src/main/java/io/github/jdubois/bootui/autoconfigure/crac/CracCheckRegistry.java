@@ -11,10 +11,13 @@ final class CracCheckRegistry {
 
     private static final List<CracCheck> ACTIVE_CHECKS = List.of(
             new OpenResourceFieldCheck(),
+            new FileHandleCheck(),
             new SocketConstructionCheck(),
             new ConnectionPoolCheck(),
+            new CacheManagerCheck(),
             new UnmanagedThreadCheck(),
             new CapturedTimeCheck(),
+            new CapturedConfigurationCheck(),
             new StaticRandomFieldCheck(),
             new CapturedSecretFieldCheck(),
             new ResourceRegistrationCheck());

@@ -61,9 +61,11 @@ class CracReadinessScannerTests {
                 .extracting(CracFindingDto::id)
                 .contains(
                         "CRAC-RES-001",
+                        "CRAC-FILE-001",
                         "CRAC-NET-001",
                         "CRAC-THREAD-001",
                         "CRAC-TIME-001",
+                        "CRAC-CONFIG-001",
                         "CRAC-RANDOM-001",
                         "CRAC-SECRET-001",
                         "CRAC-LIFECYCLE-001");
@@ -124,6 +126,26 @@ class CracReadinessScannerTests {
         assertThat(pool.status()).isEqualTo("REVIEW");
         assertThat(pool.occurrenceCount()).isEqualTo(1);
         assertThat(pool.sampleOccurrences()).anyMatch(sample -> sample.contains("HikariDataSource"));
+    }
+
+    @Test
+    void scanFlagsCacheManagerWhenInventoryReportsOne() {
+        CracRuntimeInventory inventory = new CracRuntimeInventory(
+                List.of(),
+                List.of("cacheManager : org.springframework.cache.concurrent.ConcurrentMapCacheManager"),
+                null);
+        CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
+
+        CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
+
+        CracFindingDto cache = report.findings().stream()
+                .filter(finding -> "CRAC-CACHE-001".equals(finding.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(cache.severity()).isEqualTo("LOW");
+        assertThat(cache.status()).isEqualTo("REVIEW");
+        assertThat(cache.occurrenceCount()).isEqualTo(1);
+        assertThat(cache.sampleOccurrences()).anyMatch(sample -> sample.contains("ConcurrentMapCacheManager"));
     }
 
     private static int severityRank(String severity) {
