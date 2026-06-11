@@ -30,7 +30,11 @@ BootUI is a **local developer console**. By design it:
 - activates only on the `dev` / `local` profile, when DevTools is on the
   classpath, or when explicitly enabled with `bootui.enabled=ON`;
 - exposes its endpoints on the loopback interface only — non-loopback
-  requests are rejected unless `bootui.allow-non-localhost=true` is set;
+  requests are rejected unless `bootui.allow-non-localhost=true` is set, or the
+  source falls within a range configured in `bootui.trusted-proxies` (a narrow
+  opt-in for local Docker-bridge callers that still enforces the `Host`
+  allow-list and cross-site write protection, and should be scoped to trusted
+  local/dev networks);
 - masks values for property keys that look like secrets (`password`, `token`,
   `secret`, `key`, …) — controlled by `bootui.expose-values`, which defaults to
   `MASKED`.
@@ -74,7 +78,9 @@ disabled) will be closed as out-of-scope.
 In-scope security issues include:
 
 - A way to access BootUI endpoints from a non-loopback origin when
-  `bootui.allow-non-localhost=false`.
+  `bootui.allow-non-localhost=false` and `bootui.trusted-proxies` is empty.
+- A way to bypass the `Host` allow-list (DNS-rebinding) or cross-site write
+  (CSRF) protections for a caller trusted only via `bootui.trusted-proxies`.
 - A configuration that causes BootUI to activate when neither the `dev`
   profile is active, DevTools is present, nor `bootui.enabled=ON`.
 - Secret values leaked in API responses despite default masking.

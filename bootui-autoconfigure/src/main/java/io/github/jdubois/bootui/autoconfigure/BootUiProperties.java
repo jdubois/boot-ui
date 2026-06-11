@@ -39,6 +39,13 @@ public class BootUiProperties {
      */
     private String[] allowedHosts = {};
     /**
+     * Source IP ranges (CIDR notation, e.g. {@code 172.16.0.0/12}) that are trusted in addition to
+     * loopback by the safety filter. Lets local Docker-bridge callers reach BootUI without disabling
+     * the Host allow-list (DNS-rebinding defense) or the cross-site write protection (CSRF defense),
+     * unlike the all-or-nothing {@code bootui.allow-non-localhost}. Empty by default.
+     */
+    private String[] trustedProxies = {};
+    /**
      * Mask secret-like configuration values.
      */
     private boolean maskSecrets = true;
@@ -161,6 +168,14 @@ public class BootUiProperties {
 
     public void setAllowedHosts(String[] allowedHosts) {
         this.allowedHosts = allowedHosts;
+    }
+
+    public String[] getTrustedProxies() {
+        return trustedProxies;
+    }
+
+    public void setTrustedProxies(String[] trustedProxies) {
+        this.trustedProxies = trustedProxies;
     }
 
     public boolean isMaskSecrets() {

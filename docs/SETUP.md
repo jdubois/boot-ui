@@ -214,7 +214,7 @@ application's web-application type exactly as declared, set `bootui.force-web=fa
 | `/bootui` returns 404        | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`.                                                             |
 | BootUI is disabled in `prod` | This is intentional; only `bootui.enabled=ON` can force activation with a disabled profile.                                             |
 | Command-line app now stays up | Expected: BootUI starts a servlet server so the console is reachable. Set `bootui.force-web=false` to keep the app non-web.              |
-| Browser is rejected          | BootUI accepts loopback callers by default. Use `bootui.allow-non-localhost=true` only for a trusted local network.                     |
+| Browser is rejected          | BootUI accepts loopback callers by default. Running inside a local Docker container? The request arrives from the Docker bridge gateway (non-loopback), so add that subnet to `bootui.trusted-proxies` (e.g. `172.16.0.0/12`) and the hostname you browse with to `bootui.allowed-hosts` — this keeps the Host and CSRF protections. Use `bootui.allow-non-localhost=true` only as a blunt last resort on a trusted local network. |
 | Spring Security blocks UI    | BootUI auto-registers a `/bootui/**` permit-all chain when Spring Security is active; check for a custom higher-priority chain.         |
 | A panel is empty             | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable.         |
 | Startup Timeline is empty    | Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero, or provide your own `BufferingApplicationStartup`. |
