@@ -1,34 +1,52 @@
 # Try the sample app
 
-> **Security warning:** These convenience commands download a script from GitHub, clone this repository, build it, and
-> run a Spring Boot app on your machine. Review the script first and run it only in a trusted local development
-> environment.
+The quickest way to try BootUI is to run the published sample-app container image. No clone, no build, and no
+JDK required — only a Docker-compatible engine. The image is rebuilt and published daily from `main` to Docker Hub.
 
-Prerequisites: Git and Java 17 or later. The sample app's `dev` profile runs **Docker-free** (in-memory H2 database, a
-simple in-memory cache, and disabled Spring AI), so no Docker engine is required for current releases.
-
-macOS / Linux:
+Prerequisites: Docker (or any Docker-compatible engine).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jdubois/boot-ui/main/scripts/run-sample.sh | bash
+docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app
 ```
 
-Windows PowerShell:
+Then open <http://localhost:8080/bootui>.
 
-```powershell
-irm https://raw.githubusercontent.com/jdubois/boot-ui/main/scripts/run-sample.ps1 | iex
+The image runs the sample app's `dev` profile, so it starts **Docker-free** on an in-memory H2 database with a simple
+in-memory cache and disabled Spring AI. Most panels work normally (Configuration, Database, Spring Data, Flyway,
+Liquibase, Spring Cache); the Chat and AI Usage panels report that AI is unavailable, and Dev Services lists no
+containers. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets your host browser reach BootUI through Docker's bridge gateway
+while keeping it local-only (the port is published on your machine).
+
+The sample app can apply two pending Flyway migrations and two Liquibase change sets on startup so those panels have
+data to show. They are off by default for a faster boot; turn them on at runtime:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+  -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
+  jdubois/bootui-sample-app
 ```
 
-The scripts list `main` plus the five most recent release tags and ask which version to build and run; the most recent
-tag is selected by default (press Enter to accept, or set `BOOTUI_REF` to choose non-interactively). They clone into
-`./boot-ui` unless that directory already exists, build with `-DskipTests`, then start `bootui-sample-app` with the
-`dev` profile. Open <http://localhost:8080/bootui> after startup. If you already cloned the repository, run
-`./scripts/run-sample.sh` or `.\scripts\run-sample.ps1` from its root to reuse that checkout.
+## Other published images
 
-In Docker-free mode most panels work normally (Configuration, Database, Spring Data, Flyway, Liquibase, Spring Cache);
-the Chat and AI Usage panels report that AI is unavailable, and Dev Services lists no containers.
+Two more sample-app images are published alongside the JVM one, for when you want to explore faster startup options:
 
-Want the full experience with PostgreSQL, Redis, and Ollama (a Docker-compatible engine is required)? Run the sample app
-with the `docker` profile instead — see the [sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md#run-it-with-docker) for
-details. Note that releases published before the Docker-free default also start those Docker services under the `dev`
-profile, so building one of those older tags requires a Docker engine.
+- **CRaC (Coordinated Restore at Checkpoint):** [`jdubois/bootui-sample-app-crac`](https://hub.docker.com/r/jdubois/bootui-sample-app-crac).
+  Restores a warmed-up JVM image in a few tens of milliseconds. CRaC only works on a Linux host and needs CRIU
+  privileges, so it is easiest to run through
+  [`docker-compose-crac.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-crac.yml). See the
+  ["Run it with CRaC" section of the sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md#run-it-with-crac-fast-restore)
+  for details.
+- **GraalVM native image:** [`jdubois/bootui-sample-app-native`](https://hub.docker.com/r/jdubois/bootui-sample-app-native).
+  Starts in well under a second. The native image is built with the `docker` profile and expects PostgreSQL and Redis,
+  so it is easiest to run through
+  [`docker-compose-native.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-native.yml). See the
+  ["Run it as a GraalVM native image" section of the sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md#run-it-as-a-graalvm-native-image)
+  for details.
+
+## Want the full experience?
+
+For the full experience with PostgreSQL, Redis, and Ollama (a Docker-compatible engine is required), build and run the
+sample app with the `docker` profile — see the
+[sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md#run-it-with-docker) for
+details.

@@ -30,10 +30,10 @@ import org.springframework.web.client.RestClient;
  * replaces Redis, BootUI is active, and the AI chat endpoint reports that AI is
  * unavailable instead of attempting a network call.
  *
- * <p>This is the default "try me" path (the {@code scripts/run-sample.*} helpers and
- * the Playwright e2e suite run the {@code dev} profile), so it must keep starting
- * cleanly without any container engine. The full Docker experience lives in the
- * separate {@code docker} profile.
+ * <p>This is the default "try me" path (the published {@code jdubois/bootui-sample-app}
+ * Docker image and the Playwright e2e suite run the {@code dev} profile), so it must
+ * keep starting cleanly without any container engine. The full Docker experience lives in
+ * the separate {@code docker} profile.
  */
 @SpringBootTest(
         classes = BootUiSampleApplication.class,
