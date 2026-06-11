@@ -60,7 +60,102 @@ class GraalVmDependencyScannerTests {
         GraalVmDependencyDto dependency = onlyDependency(jar);
 
         assertThat(dependency.shipsMetadata()).isFalse();
-        assertThat(dependency.note()).contains("No bundled metadata");
+        assertThat(dependency.note()).contains("No bundled reachability metadata");
+    }
+
+
+    @Test
+    void repositoryMetadataCoverageIsReportedForMatchingTestedVersion(@TempDir Path dir) throws IOException {
+        Path jar = jar(
+                dir,
+                "postgresql-42.7.11.jar",
+                Map.of(
+                        "META-INF/maven/org.postgresql/postgresql/pom.properties",
+                        "groupId=org.postgresql\nartifactId=postgresql\nversion=42.7.11\n"));
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> new GraalVmDependencyScanner.RepositoryCoverage(
+                                true, "42.7.3", java.util.List.of("42.7.3", "42.7.11"), null))
+                .scan();
+
+        GraalVmDependencyDto dependency = survey.dependencies().get(0);
+        assertThat(dependency.shipsMetadata()).isFalse();
+        assertThat(dependency.repositoryMetadata()).isTrue();
+        assertThat(dependency.coordinates()).isEqualTo("org.postgresql:postgresql:42.7.11");
+        assertThat(dependency.repositoryMetadataVersion()).isEqualTo("42.7.3");
+        assertThat(dependency.repositoryUrl()).contains("metadata/org.postgresql/postgresql");
+        assertThat(dependency.repositoryMetadataUrl()).contains("42.7.3/reachability-metadata.json");
+        assertThat(dependency.note()).contains("repository covers 42.7.11");
+        assertThat(dependency.note()).doesNotContain("No bundled");
+    }
+
+    @Test
+    void repositoryMetadataLookupReportsUncoveredVersion(@TempDir Path dir) throws IOException {
+        Path jar = jar(
+                dir,
+                "h2-9.9.9.jar",
+                Map.of(
+                        "META-INF/maven/com.h2database/h2/pom.properties",
+                        "groupId=com.h2database\nartifactId=h2\nversion=9.9.9\n"));
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> new GraalVmDependencyScanner.RepositoryCoverage(
+                                false, "2.1.210", java.util.List.of("2.1.210", "2.4.240"), null))
+                .scan();
+
+        GraalVmDependencyDto dependency = survey.dependencies().get(0);
+        assertThat(dependency.repositoryMetadata()).isFalse();
+        assertThat(dependency.repositoryMetadataVersion()).isEqualTo("2.1.210");
+        assertThat(dependency.repositoryTestedVersions()).contains("2.4.240");
+        assertThat(dependency.repositoryUrl()).contains("metadata/com.h2database/h2");
+        assertThat(dependency.repositoryMetadataUrl()).isNull();
+        assertThat(dependency.note()).contains("metadata for this library, but not for 9.9.9");
+        assertThat(dependency.note()).doesNotContain("No bundled");
+        assertThat(dependency.note()).doesNotContain("Tested versions");
+    }
+
+
+    @Test
+    void mavenRepositoryPathProvidesCoordinatesWhenPomPropertiesAreMissing(@TempDir Path dir) throws IOException {
+        Path jar = jar(
+                dir.resolve("repository/org/postgresql/postgresql/42.7.11"),
+                "postgresql-42.7.11.jar",
+                Map.of("com/example/App.class", "data"));
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> new GraalVmDependencyScanner.RepositoryCoverage(
+                                true, "42.7.3", java.util.List.of("42.7.11"), null))
+                .scan();
+
+        GraalVmDependencyDto dependency = survey.dependencies().get(0);
+        assertThat(dependency.coordinates()).isEqualTo("org.postgresql:postgresql:42.7.11");
+        assertThat(dependency.repositoryMetadata()).isTrue();
+    }
+
+
+    @Test
+    void repositoryLinkIsHiddenWhenRepositoryHasNoEntry(@TempDir Path dir) throws IOException {
+        Path jar = jar(
+                dir,
+                "unknown-1.0.0.jar",
+                Map.of(
+                        "META-INF/maven/org.example/unknown/pom.properties",
+                        "groupId=org.example\nartifactId=unknown\nversion=1.0.0\n"));
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> new GraalVmDependencyScanner.RepositoryCoverage(
+                                false, false, null, java.util.List.of(), null))
+                .scan();
+
+        GraalVmDependencyDto dependency = survey.dependencies().get(0);
+        assertThat(dependency.repositoryMetadata()).isFalse();
+        assertThat(dependency.repositoryUrl()).isNull();
+        assertThat(dependency.repositoryMetadataUrl()).isNull();
+        assertThat(dependency.note()).contains("has no entry for this library");
     }
 
     @Test
@@ -91,6 +186,7 @@ class GraalVmDependencyScannerTests {
     }
 
     private static Path jar(Path dir, String name, Map<String, String> entries) throws IOException {
+        Files.createDirectories(dir);
         Path jar = dir.resolve(name);
         try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
             for (Map.Entry<String, String> entry : entries.entrySet()) {

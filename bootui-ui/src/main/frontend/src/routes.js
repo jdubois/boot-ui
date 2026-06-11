@@ -116,6 +116,12 @@ export const routes = [
     meta: {group: groups.advisors, icon: 'bi-bug', title: 'Vulnerabilities'}
   },
   {
+    path: '/graalvm',
+    name: 'graalvm',
+    component: GraalVm,
+    meta: {group: groups.advisors, icon: 'bi-rocket-takeoff', title: 'GraalVM'}
+  },
+  {
     path: '/health',
     name: 'health',
     component: Health,
@@ -162,12 +168,6 @@ export const routes = [
     name: 'startup',
     component: Startup,
     meta: {group: groups.runtime, icon: 'bi-bar-chart-steps', title: 'Startup Timeline'}
-  },
-  {
-    path: '/graalvm',
-    name: 'graalvm',
-    component: GraalVm,
-    meta: {group: groups.runtime, icon: 'bi-rocket-takeoff', title: 'GraalVM'}
   },
   {
     path: '/crac',

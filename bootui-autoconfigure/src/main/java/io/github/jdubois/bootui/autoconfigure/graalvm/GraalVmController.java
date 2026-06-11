@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.GraalVmDockerfileDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
+import io.github.jdubois.bootui.core.dto.GraalVmScanProgressDto;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -72,6 +73,17 @@ public class GraalVmController {
     @GetMapping
     public GraalVmReadinessReport graalvm() {
         return augment(lastResult.report());
+    }
+
+    @GetMapping("/scan/progress")
+    public GraalVmScanProgressDto progress() {
+        return scanner.progress();
+    }
+
+    @PostMapping("/scan/cancel")
+    public GraalVmScanProgressDto scanCancel() {
+        scanner.cancelDependencyScan();
+        return scanner.progress();
     }
 
     @PostMapping("/scan")
