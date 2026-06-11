@@ -2872,7 +2872,10 @@ try {
     await page.goto(`${baseUrl}/bootui/#/${route}`)
     await page.locator('main .page-panel h2').first().waitFor()
     await prepare(page)
-    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.evaluate(() => {
+      window.scrollTo(0, 0)
+      document.querySelector('.bootui-workspace')?.scrollTo(0, 0)
+    })
     await page.waitForTimeout(250)
     await page.screenshot({
       path: path.join(imagesDir, fileName),
