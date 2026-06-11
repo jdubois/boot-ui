@@ -109,6 +109,10 @@ rule is registered with a stable identifier, category, severity, and recommendat
 violating rules, sorted by severity and violation count. See
 [ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the full catalogue of rules and what each one inspects.
 
+> **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
+> `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
+> application is detected to be running as a native image.
+
 ![BootUI Architecture panel](./images/bootui-architecture.png)
 
 ### REST API
@@ -129,6 +133,10 @@ identifier, category, severity, recommendation, and a learn-more link, and the r
 rules, sorted by severity and finding count. The heuristics complement — rather than replace — an API design review or
 contract testing. See [REST-API-CHECKS.md](REST-API-CHECKS.md) for the full catalogue of rules and what
 each one inspects.
+
+> **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
+> `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
+> application is detected to be running as a native image.
 
 ![BootUI REST API panel](./images/bootui-rest-api.png)
 
@@ -266,6 +274,9 @@ memory limit when an operator resizes the pod. A Spring Boot Actuator probes tog
 probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
 non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
 
+> **Not available in GraalVM native images.** JVM heap, GC, and flag tuning does not apply to a native executable;
+> the panel is automatically hidden when the application is detected to be running as a native image.
+
 ![BootUI JVM Tuning panel](./images/bootui-jvm-tuning.png)
 
 ### Heap Dump
@@ -340,6 +351,10 @@ metadata are heuristic review aids that complement, but do not replace, the Graa
 build. See [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one
 inspects.
 
+> **Not available when already running as a GraalVM native image.** The readiness advisor scans compiled `.class` files
+> to help you *prepare* an application for native-image compilation; once the application is already running as a native
+> executable the advisor has no purpose, and the panel is automatically hidden.
+
 ![BootUI GraalVM panel](./images/bootui-graalvm.png)
 
 ### CRaC
@@ -365,6 +380,10 @@ file can be downloaded, and — when the application is running from an exploded
 or an IDE) rather than a packaged jar — written directly into the project root. Writes are fail-closed and never
 overwrite a file BootUI did not generate. This shares the same source-tree writer the GraalVM panel uses for its
 `Dockerfile-native`.
+
+> **Not available in GraalVM native images.** CRaC (Coordinated Restore at Checkpoint) is a JVM-only feature and is
+> mutually exclusive with native executables; the panel is automatically hidden when the application is detected to be
+> running as a native image.
 
 ![BootUI CRaC panel](./images/bootui-crac.png)
 
