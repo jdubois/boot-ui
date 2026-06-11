@@ -141,7 +141,7 @@ jobs:
 
           # 1. Base Spring Boot app is up: poll /actuator/health until it reports UP.
           echo "Waiting up to ${HEALTH_TIMEOUT}s for the app to report health UP..."
-          deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
+          deadline=$(( $(date +%s) + $HEALTH_TIMEOUT ))
           until status=$(curl -fsS "${base_url}/actuator/health" 2>/dev/null) && \
                 echo "$status" | grep -q '"status":"UP"'; do
             if [ "$(date +%s)" -ge "$deadline" ]; then
@@ -180,11 +180,12 @@ jobs:
         run: |
           set -euo pipefail
           # The build already tagged and loaded every tag locally, so just push them.
-          echo "$TAGS" | while IFS= read -r tag; do
+          # Iterate without a pipe so a failed docker push aborts the step (set -e).
+          while IFS= read -r tag; do
             [ -z "$tag" ] && continue
             echo "Pushing ${tag}"
             docker push "$tag"
-          done
+          done <<< "$TAGS"
 
       - name: Tear down the smoke-test container
         if: always()
