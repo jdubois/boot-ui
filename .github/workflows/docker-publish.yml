@@ -13,6 +13,14 @@ name: Publish Docker images
 # The images are published once a day from the main branch (scheduled events run
 # against the default branch) and can also be built on demand from the Actions tab.
 #
+# Each image is verified before it is published: the build step builds and loads the
+# image into the runner's Docker daemon (push: false, load: true) instead of pushing,
+# a smoke test starts the container and checks that the base Spring Boot app is up
+# (GET /actuator/health), that BootUI's back end is active (GET /bootui/api/panels)
+# and that the BootUI front end is served (GET /bootui/), and only then are the tags
+# pushed to Docker Hub. A variant whose smoke test fails is not published, but (with
+# fail-fast: false) the other variants still build, verify and publish independently.
+#
 # After publishing, the `prune` job deletes dated/SHA tags older than one week from
 # each repository (the rolling `latest` tag is always kept) so old daily images do
 # not accumulate, since Docker Hub has no built-in retention policy.
@@ -58,10 +66,20 @@ jobs:
         include:
           - dockerfile: Dockerfile
             image: bootui-sample-app
+            # Plain JVM image: no special privileges; ready within a few seconds.
+            run_args: ''
+            health_timeout: '120'
           - dockerfile: Dockerfile-crac
             image: bootui-sample-app-crac
+            # CRaC needs CRIU privileges and a checkpoint volume (see docker-compose-crac.yml).
+            # The first start takes the checkpoint and then restores, so allow extra time.
+            run_args: '--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN -v bootui-smoke-crac-checkpoint:/opt/crac/checkpoint'
+            health_timeout: '240'
           - dockerfile: Dockerfile-native
             image: bootui-sample-app-native
+            # GraalVM native image: no special privileges; starts in well under a second.
+            run_args: ''
+            health_timeout: '120'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -85,17 +103,94 @@ jobs:
             type=schedule,pattern={{date 'YYYYMMDD'}}
             type=sha,format=short
 
-      - name: Build and push image
+      - name: Build and load image (no push yet)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: true
+          # Build and load into the runner's local Docker daemon so the image can be
+          # smoke-tested before it is published. load: true needs a single-platform
+          # image, which is what these Dockerfiles produce.
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Per-image GitHub Actions layer cache so each daily run reuses what it can.
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Smoke-test the image before publishing
+        env:
+          IMAGE_REF: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
+          RUN_ARGS: ${{ matrix.run_args }}
+          HEALTH_TIMEOUT: ${{ matrix.health_timeout }}
+        run: |
+          set -euo pipefail
+
+          # Start the freshly built image. The port is published on loopback only, and
+          # BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO lets BootUI trust the Docker bridge
+          # gateway so probes from the runner over the published port are not rejected
+          # by LocalhostOnlyFilter (which otherwise fails closed for non-loopback callers).
+          docker run -d --name bootui-smoke \
+            -p 127.0.0.1:8080:8080 \
+            -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+            $RUN_ARGS \
+            "$IMAGE_REF"
+
+          base_url='http://127.0.0.1:8080'
+
+          # 1. Base Spring Boot app is up: poll /actuator/health until it reports UP.
+          echo "Waiting up to ${HEALTH_TIMEOUT}s for the app to report health UP..."
+          deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
+          until status=$(curl -fsS "${base_url}/actuator/health" 2>/dev/null) && \
+                echo "$status" | grep -q '"status":"UP"'; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "ERROR: app did not report health UP within ${HEALTH_TIMEOUT}s." >&2
+              exit 1
+            fi
+            # Fail fast if the container has already exited.
+            if [ "$(docker inspect -f '{{.State.Running}}' bootui-smoke 2>/dev/null)" != 'true' ]; then
+              echo "ERROR: container exited before becoming healthy." >&2
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "OK: base Spring Boot app is up (/actuator/health -> UP)."
+
+          # 2. BootUI back end is active: /bootui/api/panels must return HTTP 200. If
+          # BootUI were silently disabled (its fail-closed default) this would 404.
+          echo "Checking the BootUI API (/bootui/api/panels)..."
+          curl -fsS -o /dev/null "${base_url}/bootui/api/panels"
+          echo "OK: BootUI back end is active (/bootui/api/panels -> 200)."
+
+          # 3. BootUI front end is served: /bootui/ must return the Vue SPA shell (HTTP 200).
+          echo "Checking the BootUI front end (/bootui/)..."
+          curl -fsS -o /dev/null "${base_url}/bootui/"
+          echo "OK: BootUI front end is served (/bootui/ -> 200)."
+
+          echo "Smoke test passed for ${IMAGE_REF}."
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker logs bootui-smoke || true
+
+      - name: Push the verified image
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          # The build already tagged and loaded every tag locally, so just push them.
+          echo "$TAGS" | while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Pushing ${tag}"
+            docker push "$tag"
+          done
+
+      - name: Tear down the smoke-test container
+        if: always()
+        run: |
+          docker rm -f bootui-smoke || true
+          docker volume rm -f bootui-smoke-crac-checkpoint || true
 
   prune:
     name: Prune tags older than one week
