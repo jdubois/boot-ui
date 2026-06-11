@@ -60,9 +60,10 @@ reachable from inside containers through narrow, fail-closed opt-ins (`bootui.tr
   starts offline with no Docker engine. A new `docker` profile (`-Dspring-boot.run.profiles=docker`) restores the full
   Docker experience (PostgreSQL, Redis, Ollama, and the `qwen2.5:0.5b` chat model).
 - **"Try the sample app" now uses the published Docker image** — [`docs/TRY-SAMPLE-APP.md`](docs/TRY-SAMPLE-APP.md) runs
-  `jdubois/bootui-sample-app` (the JVM image), with the CRaC (`jdubois/bootui-sample-app-crac`) and GraalVM native
-  (`jdubois/bootui-sample-app-native`) images referenced for information. The `scripts/run-sample.sh` and
-  `scripts/run-sample.ps1` helper scripts, which cloned and built the repository locally, were removed.
+  `jdubois/bootui-sample-app` (the JVM image), with `docker run` command lines for the CRaC
+  (`jdubois/bootui-sample-app-crac`) and GraalVM native (`jdubois/bootui-sample-app-native`) images too. The
+  `scripts/run-sample.sh` and `scripts/run-sample.ps1` helper scripts, which cloned and built the repository locally,
+  were removed.
 - The sample app's three Dockerfiles (JVM, CRaC, and native) now default to the `dev` profile with Flyway/Liquibase
   disabled for fast startup, and the JVM and CRaC images set explicit JVM tuning flags.
 - Shared a single source-tree writer and build-system detection routine across the GraalVM and CRaC config generators.

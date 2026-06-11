@@ -30,12 +30,41 @@ docker run --rm -p 8080:8080 \
 
 ## Other sample-app images
 
-Two more flavors of the same sample app are published for experimentation:
+Two more flavors of the same sample app are published for experimentation. Like the JVM image above, both default to the
+Docker-free `dev` profile (in-memory H2) and accept `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` so the host browser can reach
+BootUI while the Host allow-list and CSRF defenses stay in force.
 
-| Image                              | Use it for                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jdubois/bootui-sample-app-crac`   | A JVM image using [CRaC](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html) (Coordinated Restore at Checkpoint) for near-instant restarts. CRaC requires a Linux host and elevated privileges — see [`docker-compose-crac.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-crac.yml) and the ["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md) section of the sample app README. |
-| `jdubois/bootui-sample-app-native` | A GraalVM native image that starts in well under a second. It is wired for the full PostgreSQL + Redis stack — see [`docker-compose-native.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-native.yml).                                                                                                                                                                                                                                                          |
+### GraalVM native image
+
+`jdubois/bootui-sample-app-native` is a [GraalVM](https://www.graalvm.org/) native image that starts in well under a
+second:
+
+```bash
+docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-native
+```
+
+To run the native image against the full PostgreSQL + Redis stack instead, use
+[`docker-compose-native.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-native.yml).
+
+### CRaC image
+
+`jdubois/bootui-sample-app-crac` is a JVM image using
+[CRaC](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html) (Coordinated Restore at
+Checkpoint) for near-instant restarts. It only works on a **Linux** host, needs elevated privileges for
+[CRIU](https://criu.org/), and uses a volume to store the checkpoint so it survives container restarts:
+
+```bash
+docker run --rm -p 8080:8080 \
+  --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
+  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+  -v bootui-sample-app-crac:/opt/crac/checkpoint \
+  jdubois/bootui-sample-app-crac
+```
+
+The first start boots once to write the checkpoint into the `bootui-sample-app-crac` volume; every later start restores
+the warmed-up JVM in tens of milliseconds. Delete the volume (`docker volume rm bootui-sample-app-crac`) to force a fresh
+checkpoint. See the ["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md)
+section of the sample app README for details.
 
 ## Want the full experience?
 
