@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.GraalVmDependencyDto;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.core.dto.GraalVmMetadataSummaryDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
+import io.github.jdubois.bootui.core.dto.GraalVmScanProgressDto;
 import io.github.jdubois.bootui.core.dto.GraalVmScanStatusDto;
 import io.github.jdubois.bootui.core.dto.GraalVmSeverityCountDto;
 import java.time.Clock;
@@ -12,6 +13,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
@@ -41,6 +43,8 @@ final class GraalVmReadinessScanner {
     private final GraalVmClassImporter importer;
     private final GraalVmDependencyScanner dependencyScanner;
     private final Clock clock;
+    private final AtomicReference<GraalVmDependencyScanner.Progress> dependencyProgress;
+    private final AtomicReference<GraalVmScanProgressDto> progress = new AtomicReference<>(idleProgress());
 
     GraalVmReadinessScanner(
             Supplier<List<String>> basePackagesSupplier,
@@ -51,6 +55,7 @@ final class GraalVmReadinessScanner {
         this.importer = importer;
         this.dependencyScanner = dependencyScanner;
         this.clock = clock;
+        this.dependencyProgress = dependencyScanner.progress;
     }
 
     GraalVmScanResult initialResult() {
@@ -70,7 +75,28 @@ final class GraalVmReadinessScanner {
         return new GraalVmScanResult(report, GraalVmMetadata.empty());
     }
 
+    void cancelDependencyScan() {
+        dependencyScanner.cancel();
+        progress.set(new GraalVmScanProgressDto(
+                true, "dependencies.cancel", "Cancelling dependency metadata lookup.", 0, 0));
+    }
+
+    GraalVmScanProgressDto progress() {
+        GraalVmScanProgressDto current = progress.get();
+        if (!current.running()) {
+            return current;
+        }
+        GraalVmDependencyScanner.Progress dependency = dependencyProgress.get();
+        if (dependency.running()) {
+            return new GraalVmScanProgressDto(
+                    true, dependency.phase(), dependency.message(), dependency.current(), dependency.total());
+        }
+        return current;
+    }
+
     GraalVmScanResult scan(boolean includeDependencies) {
+        dependencyProgress.set(GraalVmDependencyScanner.Progress.idle());
+        progress.set(new GraalVmScanProgressDto(true, "base-packages", "Detecting application base packages.", 0, 0));
         BasePackageDetection basePackages = detectBasePackages();
         DependencyScan dependencies = dependencies(includeDependencies);
         if (basePackages.packages().isEmpty()) {
@@ -86,9 +112,12 @@ final class GraalVmReadinessScanner {
                     dependencies.dependencies(),
                     warnings(basePackages, dependencies),
                     GraalVmMetadata.empty());
+            progress.set(idleProgress());
             return new GraalVmScanResult(report, GraalVmMetadata.empty());
         }
 
+        progress.set(new GraalVmScanProgressDto(
+                true, "classes", "Importing application classes for static analysis.", 0, 0));
         JavaClasses classes;
         try {
             classes = importer.importPackages(basePackages.packages());
@@ -109,6 +138,7 @@ final class GraalVmReadinessScanner {
                     dependencies.dependencies(),
                     warnings(basePackages, dependencies, warning),
                     GraalVmMetadata.empty());
+            progress.set(idleProgress());
             return new GraalVmScanResult(report, GraalVmMetadata.empty());
         }
 
@@ -125,9 +155,12 @@ final class GraalVmReadinessScanner {
                     dependencies.dependencies(),
                     warnings(basePackages, dependencies),
                     GraalVmMetadata.empty());
+            progress.set(idleProgress());
             return new GraalVmScanResult(report, GraalVmMetadata.empty());
         }
 
+        progress.set(
+                new GraalVmScanProgressDto(true, "checks", "Running curated native-image readiness checks.", 0, 0));
         GraalVmContext context = new GraalVmContext(classes, basePackages.packages());
         List<GraalVmFindingDto> results = GraalVmCheckRegistry.activeChecks().stream()
                 .map(check -> check.evaluate(context))
@@ -151,20 +184,32 @@ final class GraalVmReadinessScanner {
                 dependencies.dependencies(),
                 warnings(basePackages, dependencies),
                 metadata);
+        dependencyProgress.set(GraalVmDependencyScanner.Progress.idle());
+        progress.set(idleProgress());
         return new GraalVmScanResult(report, metadata);
+    }
+
+    private static GraalVmScanProgressDto idleProgress() {
+        return new GraalVmScanProgressDto(false, "idle", "No GraalVM readiness scan is running.", 0, 0);
     }
 
     private DependencyScan dependencies(boolean includeDependencies) {
         if (!includeDependencies) {
             return new DependencyScan(List.of(), List.of());
         }
+        progress.set(
+                new GraalVmScanProgressDto(true, "dependencies", "Inspecting dependency reachability metadata.", 0, 0));
         try {
             GraalVmDependencyScanner.DependencySurvey survey = dependencyScanner.scan();
-            List<String> warnings = survey.truncated()
-                    ? List.of("Dependency metadata survey stopped after the first "
-                            + GraalVmDependencyScanner.maxDependencies()
-                            + " classpath JARs; some dependencies were not inspected.")
-                    : List.of();
+            List<String> warnings = new java.util.ArrayList<>();
+            if (survey.truncated()) {
+                warnings.add("Dependency metadata survey stopped after the first "
+                        + GraalVmDependencyScanner.maxDependencies()
+                        + " classpath JARs; some dependencies were not inspected.");
+            }
+            if (survey.cancelled()) {
+                warnings.add("Dependency metadata repository lookup was cancelled; the dependency list is partial.");
+            }
             return new DependencyScan(survey.dependencies(), warnings);
         } catch (RuntimeException ex) {
             return new DependencyScan(

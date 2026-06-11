@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.graalvm;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectBuildSystem;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
@@ -9,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.GraalVmDockerfileDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
+import io.github.jdubois.bootui.core.dto.GraalVmScanProgressDto;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,12 +49,15 @@ public class GraalVmController {
     private volatile GraalVmScanResult lastResult;
 
     @Autowired
-    public GraalVmController(ApplicationContext applicationContext) {
+    public GraalVmController(ApplicationContext applicationContext, BootUiProperties properties) {
         this(
                 new GraalVmReadinessScanner(
                         () -> GraalVmPackages.detect(applicationContext),
                         new ClassFileGraalVmImporter(),
-                        new GraalVmDependencyScanner(),
+                        new GraalVmDependencyScanner(
+                                properties.getGraalvm().isRepositoryLookupEnabled(),
+                                properties.getGraalvm().getRepositoryLookupTimeout(),
+                                properties.getGraalvm().getMaxRepositoryLookups()),
                         Clock.systemUTC()),
                 new GraalVmMetadataGenerator(),
                 new GraalVmSourceLayout(ProjectSourceTree.forApplication(applicationContext)));
@@ -72,6 +77,17 @@ public class GraalVmController {
     @GetMapping
     public GraalVmReadinessReport graalvm() {
         return augment(lastResult.report());
+    }
+
+    @GetMapping("/scan/progress")
+    public GraalVmScanProgressDto progress() {
+        return scanner.progress();
+    }
+
+    @PostMapping("/scan/cancel")
+    public GraalVmScanProgressDto scanCancel() {
+        scanner.cancelDependencyScan();
+        return scanner.progress();
     }
 
     @PostMapping("/scan")

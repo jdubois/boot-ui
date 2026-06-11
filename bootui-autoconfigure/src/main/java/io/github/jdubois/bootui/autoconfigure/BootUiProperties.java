@@ -129,6 +129,10 @@ public class BootUiProperties {
      * Claude Code panel settings.
      */
     private ClaudeCode claudeCode = new ClaudeCode();
+    /**
+     * GraalVM readiness panel settings.
+     */
+    private Graalvm graalvm = new Graalvm();
 
     public Mode getEnabled() {
         return enabled;
@@ -371,6 +375,14 @@ public class BootUiProperties {
         this.claudeCode = claudeCode;
     }
 
+    public Graalvm getGraalvm() {
+        return graalvm;
+    }
+
+    public void setGraalvm(Graalvm graalvm) {
+        this.graalvm = graalvm == null ? new Graalvm() : graalvm;
+    }
+
     /**
      * Mode selector: AUTO (dev detection), ON (force enable), OFF (force disable).
      */
@@ -540,6 +552,51 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    public static class Graalvm {
+
+        /**
+         * Allow the GraalVM dependency survey to look up Oracle's GraalVM reachability metadata
+         * repository for per-version coverage of classpath dependencies. The lookup is the panel's
+         * only outbound network call and is performed only during a user-initiated dependency scan.
+         */
+        private boolean repositoryLookupEnabled = true;
+
+        /**
+         * Timeout applied to each reachability metadata repository request.
+         */
+        private Duration repositoryLookupTimeout = Duration.ofSeconds(2);
+
+        /**
+         * Maximum number of distinct dependency coordinates looked up against the reachability
+         * metadata repository in a single scan.
+         */
+        private int maxRepositoryLookups = 500;
+
+        public boolean isRepositoryLookupEnabled() {
+            return repositoryLookupEnabled;
+        }
+
+        public void setRepositoryLookupEnabled(boolean repositoryLookupEnabled) {
+            this.repositoryLookupEnabled = repositoryLookupEnabled;
+        }
+
+        public Duration getRepositoryLookupTimeout() {
+            return repositoryLookupTimeout;
+        }
+
+        public void setRepositoryLookupTimeout(Duration repositoryLookupTimeout) {
+            this.repositoryLookupTimeout = repositoryLookupTimeout;
+        }
+
+        public int getMaxRepositoryLookups() {
+            return maxRepositoryLookups;
+        }
+
+        public void setMaxRepositoryLookups(int maxRepositoryLookups) {
+            this.maxRepositoryLookups = maxRepositoryLookups;
         }
     }
 

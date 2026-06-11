@@ -136,14 +136,28 @@ describe('GraalVm', () => {
       graalvmReport([], {
         dependencies: [
           {name: 'org.example:with-metadata', shipsMetadata: true, note: ''},
-          {name: 'org.example:no-metadata', shipsMetadata: false, note: 'No native-image metadata'}
+          {
+            name: 'org.example:no-metadata',
+            shipsMetadata: false,
+            note: 'No native-image metadata',
+            repositoryMetadata: false,
+            repositoryMetadataVersion: '0.9.0',
+            repositoryTestedVersions: '0.9.0, 0.9.1',
+            repositoryUrl:
+              'https://github.com/oracle/graalvm-reachability-metadata/tree/master/metadata/org.example/no-metadata'
+          }
         ]
       })
     )
 
-    expect(wrapper.text()).toContain('1 of 2 dependencies ship metadata')
+    expect(wrapper.text()).toContain('1 of 2 dependencies ship bundled metadata')
     expect(wrapper.text()).toContain('org.example:with-metadata')
     expect(wrapper.text()).toContain('org.example:no-metadata')
+    expect(wrapper.text()).toContain('Repository entry')
+    expect(wrapper.text()).toContain('covered')
+    expect(wrapper.text()).toContain('partial')
+    expect(wrapper.text()).toContain('Repository metadata exists for a different version')
+    expect(wrapper.text()).not.toContain('Metadata file')
   })
 
   it('hides the dependency section when dependencies were not surveyed', async () => {

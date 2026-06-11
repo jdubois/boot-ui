@@ -327,8 +327,14 @@ readiness. On demand it imports the application's own classes (bounded to the de
 curated set of heuristic checks for constructs that native-image cannot resolve at build time — reflection, dynamic
 class loading, deep reflection, dynamic proxies, runtime resource loading, resource bundles, service loading,
 serialization, build-time-initialization side effects, and native access. With the _Include dependencies_ toggle on (it is
-off by default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
-`META-INF/native-image/`. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
+on by default), it also surveys the classpath to report which third-party libraries already ship reachability metadata under
+`META-INF/native-image/`, and — for libraries that do not — looks up Oracle's
+[GraalVM reachability metadata repository](https://github.com/oracle/graalvm-reachability-metadata) to show whether the
+detected dependency version is `covered`, only `partial` (the repository has metadata for a different version), or has
+`none`, with links to the matching repository entry and metadata file. That repository lookup is the panel's only
+outbound network call; it is user-initiated, time-bounded, and can be disabled with
+`bootui.graalvm.repository-lookup-enabled=false`. Long dependency lookups report progress and can be aborted from the
+panel. From the same scan the panel generates a downloadable `reachability-metadata.json` scaffold
 (modern unified schema, with `condition.typeReached` guards) seeded with reflection/serialization candidates and the
 standard configuration resource globs. When BootUI detects the application is running from an exploded build (for
 example `mvn spring-boot:run` or an IDE) rather than a packaged jar, the panel also offers a **Write into project**
