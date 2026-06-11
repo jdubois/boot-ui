@@ -22,9 +22,20 @@
 #   docker build -f Dockerfile-crac -t bootui-sample-app-crac .
 #   docker run --rm -p 8080:8080 \
 #     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
+#   # then open http://localhost:8080/bootui
 #
 # Or use docker-compose-crac.yml (docker compose -f docker-compose-crac.yml up --build).
+#
+# Faster startup - skip the sample database migrations:
+# The sample app applies two pending Flyway migrations and two Liquibase change sets on startup so
+# the BootUI Flyway/Liquibase panels have data to show. To skip them, disable both with Spring
+# Boot's environment variables on the run that takes the checkpoint (they are frozen into it):
+#   docker run --rm -p 8080:8080 \
+#     --cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN \
+#     -e SPRING_FLYWAY_ENABLED=false -e SPRING_LIQUIBASE_ENABLED=false \
+#     -v bootui-sample-app-crac:/opt/crac/checkpoint bootui-sample-app-crac
 
 # Build stage (a plain JDK is enough; CRaC only matters at runtime).
 FROM eclipse-temurin:21-jdk-noble AS build

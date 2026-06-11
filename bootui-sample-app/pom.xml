@@ -225,14 +225,22 @@
                                 </goals>
                                 <configuration>
                                     <!--
-                                        BootUI is a development console that is disabled by
-                                        default outside dev profiles, and spring-boot-devtools
-                                        (which would otherwise activate it) is excluded from the
-                                        native image. AOT freezes bean conditions at build time,
-                                        so BootUI must be explicitly enabled here for its panels
-                                        and the BootUI runtime hints to be included in the native
-                                        executable.
+                                        Activate the "dev" profile at AOT build time so the native
+                                        image runs Docker-free on the in-memory H2 datasource (the
+                                        same default profile used by `spring-boot:run` and the JVM /
+                                        CRaC images). A native image freezes bean conditions during
+                                        AOT, so the profile has to be active here at build time - it
+                                        cannot be switched on with a runtime env var.
+
+                                        BootUI is a development console that is disabled by default
+                                        outside dev profiles, and spring-boot-devtools (which would
+                                        otherwise activate it) is excluded from the native image.
+                                        Enabling it explicitly keeps its panels and runtime hints in
+                                        the executable even if the build-time profile changes.
                                     -->
+                                    <profiles>
+                                        <profile>dev</profile>
+                                    </profiles>
                                     <jvmArguments>-Dbootui.enabled=ON</jvmArguments>
                                 </configuration>
                             </execution>

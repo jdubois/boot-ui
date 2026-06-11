@@ -4,12 +4,24 @@
 # the build stage and the sample app is built together with the modules it
 # depends on (`-pl bootui-sample-app -am`).
 #
-# For a native image, see Dockerfile-native
-# For a JVM image using CRaC, see Dockerfile-crac
+# For a GraalVM native image, see Dockerfile-native.
+# For a JVM image using CRaC, see Dockerfile-crac.
+#
+# The image runs with the "dev" Spring profile active by default (SPRING_PROFILES_ACTIVE=dev,
+# baked in below), so it starts Docker-free on an in-memory H2 database with BootUI enabled.
 #
 # Build and run:
 #   docker build -t bootui-sample-app .
-#   docker run --rm -p 8080:8080 -e SPRING_PROFILES_ACTIVE=dev -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
+#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app
+#   # then open http://localhost:8080/bootui
+#
+# Faster startup - skip the sample database migrations:
+# The sample app applies two pending Flyway migrations and two Liquibase change sets on startup so
+# the BootUI Flyway/Liquibase panels have data to show. To skip them, disable both at runtime with
+# Spring Boot's environment variables:
+#   docker run --rm -p 8080:8080 \
+#     -e SPRING_FLYWAY_ENABLED=false -e SPRING_LIQUIBASE_ENABLED=false \
+#     bootui-sample-app
 
 # Build stage
 FROM eclipse-temurin:25-jdk-noble AS build
@@ -40,6 +52,12 @@ COPY --from=build /app/bootui-sample-app/target/bootui-sample-app-*.jar app.jar
 RUN chown -R springboot:springboot /app
 
 USER springboot
+
+# Run with the "dev" profile *active* (not merely spring.profiles.default=dev): BootUI's activation
+# checks Environment.getActiveProfiles(), which excludes spring.profiles.default, and the repackaged
+# jar has devtools stripped. Without an active profile BootUI would stay disabled in the container.
+# Override at runtime with -e SPRING_PROFILES_ACTIVE=... when you want a different profile.
+ENV SPRING_PROFILES_ACTIVE=dev
 
 EXPOSE 8080
 
