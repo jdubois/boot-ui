@@ -841,7 +841,6 @@ public class BootUiProperties {
         }
     }
 
-
     public static class HttpSessions {
 
         /**

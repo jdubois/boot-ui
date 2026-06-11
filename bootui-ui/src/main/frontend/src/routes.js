@@ -8,6 +8,7 @@ const Health = () => import('./views/Health.vue')
 const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
+const SqlTrace = () => import('./views/SqlTrace.vue')
 const Data = () => import('./views/Data.vue')
 const Hibernate = () => import('./views/Hibernate.vue')
 const Flyway = () => import('./views/Flyway.vue')
@@ -216,6 +217,12 @@ export const routes = [
     name: 'database-connection-pools',
     component: DatabaseConnectionPools,
     meta: {group: groups.database, icon: 'bi-hdd-network', title: 'Database Connection Pools'}
+  },
+  {
+    path: '/sql-trace',
+    name: 'sql-trace',
+    component: SqlTrace,
+    meta: {group: groups.database, icon: 'bi-stopwatch', title: 'SQL Trace'}
   },
   {
     path: '/data',

@@ -461,6 +461,22 @@ pools.
 
 ![BootUI Database Connection Pools panel](./images/bootui-database-connection-pools.png)
 
+### SQL Trace
+
+The SQL Trace panel shows the SQL statements your application recently executed, captured by a hand-written JDBC tracing
+proxy built on the JDK's own dynamic-proxy support — BootUI does **not** bundle a third-party database-proxy library to
+power this. When BootUI is active it transparently wraps each `DataSource` bean and intercepts statement execution on the
+resulting `Connection`/`Statement`/`PreparedStatement`/`CallableStatement` objects, recording the SQL text, statement
+type, operation kind (query/update/batch/other), wall-clock duration, affected-row counts, batch size, originating
+connection, and any failure. Executions are retained in a bounded in-memory ring buffer (most recent first) alongside
+aggregate stats (total/average/max time, slow-query and failure counts, and per-operation counters). A configurable
+slow-query threshold highlights expensive statements, and a local-only Clear action empties the buffer.
+
+The panel is read-mostly and privacy-conscious: parameter bindings are **not** captured by default, and even when
+capture is enabled they are suppressed under metadata-only value exposure and routed through the same masking rules as
+the rest of BootUI. It fails closed when no `DataSource` bean is present. Tracing, parameter capture, buffer size, the
+slow-query threshold, and SQL/parameter truncation limits are all configurable under `bootui.sql-trace.*`.
+
 ### Spring Data
 
 The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query

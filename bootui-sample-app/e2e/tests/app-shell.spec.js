@@ -22,6 +22,7 @@ const allPanelLinks = [
   {id: 'conditions', title: 'Conditions', heading: /Auto-configuration conditions/},
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
+  {id: 'sql-trace', title: 'SQL Trace', heading: /SQL Trace/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
   {id: 'hibernate', title: 'Hibernate', heading: /^Hibernate/},
   {id: 'flyway', title: 'Flyway', heading: /Flyway migrations/},
@@ -169,9 +170,10 @@ test.describe('BootUI app shell', () => {
       'Vulnerabilities'
     ])
 
-    await page.getByRole('button', {name: /Database\s+4/}).click()
+    await page.getByRole('button', {name: /Database\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
+      'SQL Trace',
       'Spring Data',
       'Flyway',
       'Liquibase'

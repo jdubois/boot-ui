@@ -53,7 +53,16 @@ class SqlTraceControllerTests {
     void reportsCapturedStatements() {
         SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, 10, 100, 2000, 200);
         recorder.record(
-                StatementType.PREPARED, Operation.QUERY, "select ?", List.of("'x'"), 150, true, null, null, 0, "conn-1");
+                StatementType.PREPARED,
+                Operation.QUERY,
+                "select ?",
+                List.of("'x'"),
+                150,
+                true,
+                null,
+                null,
+                0,
+                "conn-1");
         SqlTraceController controller = new SqlTraceController(
                 recorderProvider(recorder), dataSourceProvider(mock(DataSource.class)), exposure(ValueExposure.MASKED));
 
