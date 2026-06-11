@@ -18,7 +18,10 @@ name: Publish Docker images
 # a smoke test starts the container and checks that the base Spring Boot app is up
 # (GET /actuator/health), that BootUI's back end is active (GET /bootui/api/panels)
 # and that the BootUI front end is served (GET /bootui/), and only then are the tags
-# pushed to Docker Hub. A variant whose smoke test fails is not published, but (with
+# pushed to Docker Hub. For the CRaC image the smoke test additionally stops the
+# container and starts it again from the persisted checkpoint, verifying that the
+# restore serves BootUI and comes up faster than the initial boot-and-checkpoint
+# start. A variant whose smoke test fails is not published, but (with
 # fail-fast: false) the other variants still build, verify and publish independently.
 #
 # After publishing, the `prune` job deletes dated/SHA tags older than one week from
@@ -131,6 +134,7 @@ jobs:
           # BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO lets BootUI trust the Docker bridge
           # gateway so probes from the runner over the published port are not rejected
           # by LocalhostOnlyFilter (which otherwise fails closed for non-loopback callers).
+          started_at=$(date +%s)
           docker run -d --name bootui-smoke \
             -p 127.0.0.1:8080:8080 \
             -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
@@ -140,6 +144,8 @@ jobs:
           base_url='http://127.0.0.1:8080'
 
           # 1. Base Spring Boot app is up: poll /actuator/health until it reports UP.
+          # Poll once a second so the elapsed time is measured with usable resolution
+          # (the CRaC restart check below compares start durations).
           echo "Waiting up to ${HEALTH_TIMEOUT}s for the app to report health UP..."
           deadline=$(( $(date +%s) + $HEALTH_TIMEOUT ))
           until status=$(curl -fsS "${base_url}/actuator/health" 2>/dev/null) && \
@@ -153,9 +159,12 @@ jobs:
               echo "ERROR: container exited before becoming healthy." >&2
               exit 1
             fi
-            sleep 3
+            sleep 1
           done
-          echo "OK: base Spring Boot app is up (/actuator/health -> UP)."
+          first_start_seconds=$(( $(date +%s) - started_at ))
+          echo "OK: base Spring Boot app is up (/actuator/health -> UP) in ${first_start_seconds}s."
+          # Export for the CRaC restart-speed check (a no-op for the other variants).
+          echo "FIRST_START_SECONDS=${first_start_seconds}" >> "$GITHUB_ENV"
 
           # 2. BootUI back end is active: /bootui/api/panels must return HTTP 200. If
           # BootUI were silently disabled (its fail-closed default) this would 404.
@@ -170,9 +179,68 @@ jobs:
 
           echo "Smoke test passed for ${IMAGE_REF}."
 
+      - name: Verify the CRaC image restarts faster from its checkpoint
+        # CRaC only: the first start above booted the app, wrote the checkpoint, then
+        # restored it (and persisted the checkpoint in the named volume). Stop that
+        # container and start a fresh one from the same image and volume: with a
+        # checkpoint present, the entrypoint takes the restore-only path, which must
+        # come up - and do so faster than the initial boot-and-checkpoint start.
+        if: matrix.image == 'bootui-sample-app-crac'
+        env:
+          IMAGE_REF: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
+          RUN_ARGS: ${{ matrix.run_args }}
+          HEALTH_TIMEOUT: ${{ matrix.health_timeout }}
+        run: |
+          set -euo pipefail
+
+          # Stop and remove the first container but keep the checkpoint volume.
+          echo "Stopping the first CRaC container (keeping the checkpoint volume)..."
+          docker rm -f bootui-smoke
+
+          base_url='http://127.0.0.1:8080'
+
+          # Start again from the same image and checkpoint volume (restore-only path).
+          started_at=$(date +%s)
+          docker run -d --name bootui-smoke-restore \
+            -p 127.0.0.1:8080:8080 \
+            -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+            $RUN_ARGS \
+            "$IMAGE_REF"
+
+          echo "Waiting up to ${HEALTH_TIMEOUT}s for the restored app to report health UP..."
+          deadline=$(( $(date +%s) + $HEALTH_TIMEOUT ))
+          until status=$(curl -fsS "${base_url}/actuator/health" 2>/dev/null) && \
+                echo "$status" | grep -q '"status":"UP"'; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "ERROR: restored app did not report health UP within ${HEALTH_TIMEOUT}s." >&2
+              exit 1
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' bootui-smoke-restore 2>/dev/null)" != 'true' ]; then
+              echo "ERROR: restored container exited before becoming healthy." >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          second_start_seconds=$(( $(date +%s) - started_at ))
+          echo "OK: app restored and reported health UP in ${second_start_seconds}s (first start: ${FIRST_START_SECONDS}s)."
+
+          # The restored app must still serve BootUI (back end + front end).
+          curl -fsS -o /dev/null "${base_url}/bootui/api/panels"
+          curl -fsS -o /dev/null "${base_url}/bootui/"
+          echo "OK: BootUI back end and front end are served after the restore."
+
+          # The restore must be faster than the initial boot-and-checkpoint start.
+          if [ "$second_start_seconds" -ge "$FIRST_START_SECONDS" ]; then
+            echo "ERROR: the restored start (${second_start_seconds}s) was not faster than the first start (${FIRST_START_SECONDS}s)." >&2
+            exit 1
+          fi
+          echo "OK: CRaC restore (${second_start_seconds}s) is faster than the initial start (${FIRST_START_SECONDS}s)."
+
       - name: Print container logs on failure
         if: failure()
-        run: docker logs bootui-smoke || true
+        run: |
+          docker logs bootui-smoke || true
+          docker logs bootui-smoke-restore || true
 
       - name: Push the verified image
         env:
@@ -191,6 +259,7 @@ jobs:
         if: always()
         run: |
           docker rm -f bootui-smoke || true
+          docker rm -f bootui-smoke-restore || true
           docker volume rm -f bootui-smoke-crac-checkpoint || true
 
   prune:
