@@ -211,22 +211,32 @@ application's web-application type exactly as declared, set `bootui.force-web=fa
 
 BootUI works when your application runs inside a container, but its loopback-only safety filter needs a small opt-in
 first. When you publish a port (for example `docker run -p 8080:8080 …`) and browse to `http://localhost:8080/bootui`,
-the request reaches the application from the **Docker bridge gateway** (a non-loopback address such as `172.17.0.1`), so
-BootUI rejects it by default.
+the request reaches the application from the **Docker gateway** (a non-loopback address), so BootUI rejects it by
+default. The gateway address depends on the Docker flavor:
+
+- **Linux Docker Engine** uses the default bridge gateway, typically `172.17.0.1` (inside `172.16.0.0/12`).
+- **Docker Desktop** (macOS and Windows) routes published-port traffic through its gateway VM, so the request arrives
+  from `192.168.65.1` (inside `192.168.65.0/24`). This is the address you will see in a `LocalhostOnlyFilter` rejection
+  log line such as `BootUI rejected non-loopback request from 192.168.65.1 to /bootui/api/health`.
+
+Check your own setup with `docker network inspect bridge` (look at `IPAM.Config.Gateway`) or the source address in the
+BootUI rejection log line, and trust that range.
 
 Two things have to be in place:
 
 1. **Activate BootUI inside the container.** A repackaged jar strips DevTools, and activation checks the _active_
    profiles (not `spring.profiles.default`), so set one explicitly — `SPRING_PROFILES_ACTIVE=dev` or `BOOTUI_ENABLED=ON`.
    Without this you get a `404` on `/bootui`, not a rejection.
-2. **Trust the Docker bridge source range.** Add the bridge subnet to `bootui.trusted-proxies`. This relaxes only the
+2. **Trust the Docker gateway source range.** Add the gateway subnet to `bootui.trusted-proxies`. This relaxes only the
    source-address check; the `Host` allow-list (DNS-rebinding defense) and cross-site write (CSRF) protection stay in
    force — unlike the all-or-nothing `bootui.allow-non-localhost=true`. Pair it with `bootui.allowed-hosts` for the
    hostname the browser uses.
 
 ```properties
-# Trust the default Docker bridge subnet (172.17.x lives inside 172.16.0.0/12)
+# Linux Docker Engine: the default bridge gateway 172.17.x lives inside 172.16.0.0/12
 bootui.trusted-proxies=172.16.0.0/12
+# Docker Desktop (macOS/Windows): the gateway is 192.168.65.1, so trust 192.168.65.0/24 instead
+#bootui.trusted-proxies=192.168.65.0/24
 # Accept the hostname you browse with (localhost is already a built-in loopback name)
 bootui.allowed-hosts=localhost
 ```
@@ -239,6 +249,8 @@ docker run -p 8080:8080 \
   -e BOOTUI_TRUSTED_PROXIES=172.16.0.0/12 \
   your-image
 ```
+
+On Docker Desktop, use `-e BOOTUI_TRUSTED_PROXIES=192.168.65.0/24` instead.
 
 Then open <http://localhost:8080/bootui> from the host.
 
@@ -253,7 +265,7 @@ subnet over the broad `172.16.0.0/12`, and keep it limited to trusted local/dev 
 | `/bootui` returns 404        | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`.                                                             |
 | BootUI is disabled in `prod` | This is intentional; only `bootui.enabled=ON` can force activation with a disabled profile.                                             |
 | Command-line app now stays up | Expected: BootUI starts a servlet server so the console is reachable. Set `bootui.force-web=false` to keep the app non-web.              |
-| Browser is rejected          | BootUI accepts loopback callers by default. Running inside a local Docker container? The request arrives from the Docker bridge gateway (non-loopback), so add that subnet to `bootui.trusted-proxies` (e.g. `172.16.0.0/12`) and the hostname you browse with to `bootui.allowed-hosts` — this keeps the Host and CSRF protections. Use `bootui.allow-non-localhost=true` only as a blunt last resort on a trusted local network. |
+| Browser is rejected          | BootUI accepts loopback callers by default. Running inside a local Docker container? The request arrives from the Docker gateway (non-loopback) — `172.17.0.1` on Linux Docker Engine, `192.168.65.1` on Docker Desktop (macOS/Windows). Add that subnet to `bootui.trusted-proxies` (e.g. `172.16.0.0/12` or `192.168.65.0/24`) and the hostname you browse with to `bootui.allowed-hosts` — this keeps the Host and CSRF protections. Use `bootui.allow-non-localhost=true` only as a blunt last resort on a trusted local network. |
 | Spring Security blocks UI    | BootUI auto-registers a `/bootui/**` permit-all chain when Spring Security is active; check for a custom higher-priority chain.         |
 | A panel is empty             | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable.         |
 | Startup Timeline is empty    | Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero, or provide your own `BufferingApplicationStartup`. |
