@@ -84,6 +84,7 @@ public class PanelsController {
                     BootUiPanels.LIVE_MEMORY,
                     BootUiPanels.MEMORY,
                     BootUiPanels.CONFIG,
+                    BootUiPanels.EXCEPTIONS,
                     BootUiPanels.HTTP_PROBE,
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,

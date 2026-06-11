@@ -107,6 +107,10 @@ public class BootUiProperties {
      */
     private SecurityLogs securityLogs = new SecurityLogs();
     /**
+     * Exceptions panel settings.
+     */
+    private Exceptions exceptions = new Exceptions();
+    /**
      * Dependency inventory and vulnerability scanning settings.
      */
     private Vulnerabilities vulnerabilities = new Vulnerabilities();
@@ -324,6 +328,14 @@ public class BootUiProperties {
         this.securityLogs = securityLogs == null ? new SecurityLogs() : securityLogs;
     }
 
+    public Exceptions getExceptions() {
+        return exceptions;
+    }
+
+    public void setExceptions(Exceptions exceptions) {
+        this.exceptions = exceptions == null ? new Exceptions() : exceptions;
+    }
+
     public Vulnerabilities getVulnerabilities() {
         return vulnerabilities;
     }
@@ -518,6 +530,49 @@ public class BootUiProperties {
 
         public void setMaxLogs(int maxLogs) {
             this.maxLogs = maxLogs;
+        }
+    }
+
+    public static class Exceptions {
+
+        /**
+         * Maximum number of distinct exception groups retained by the Exceptions panel. When the
+         * limit is reached the group with the oldest most-recent occurrence is evicted.
+         */
+        private int maxGroups = 100;
+
+        /**
+         * Maximum number of recent occurrences retained per exception group.
+         */
+        private int maxOccurrencesPerGroup = 25;
+
+        /**
+         * Maximum number of stack-trace frames retained per exception (and per cause).
+         */
+        private int maxStackFrames = 50;
+
+        public int getMaxGroups() {
+            return maxGroups;
+        }
+
+        public void setMaxGroups(int maxGroups) {
+            this.maxGroups = maxGroups;
+        }
+
+        public int getMaxOccurrencesPerGroup() {
+            return maxOccurrencesPerGroup;
+        }
+
+        public void setMaxOccurrencesPerGroup(int maxOccurrencesPerGroup) {
+            this.maxOccurrencesPerGroup = maxOccurrencesPerGroup;
+        }
+
+        public int getMaxStackFrames() {
+            return maxStackFrames;
+        }
+
+        public void setMaxStackFrames(int maxStackFrames) {
+            this.maxStackFrames = maxStackFrames;
         }
     }
 

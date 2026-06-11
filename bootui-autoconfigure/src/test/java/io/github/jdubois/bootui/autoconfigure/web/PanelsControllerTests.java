@@ -50,6 +50,7 @@ class PanelsControllerTests {
             BootUiPanels.AI,
             BootUiPanels.TRACES,
             BootUiPanels.LOG_TAIL,
+            BootUiPanels.EXCEPTIONS,
             BootUiPanels.HTTP_EXCHANGES,
             BootUiPanels.HTTP_PROBE,
             BootUiPanels.ARCHITECTURE,

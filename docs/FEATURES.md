@@ -588,6 +588,33 @@ intended for quick local diagnosis without leaving the BootUI console.
 
 ![BootUI Log Tail panel](./images/bootui-log-tail.png)
 
+### Exceptions
+
+The Exceptions panel captures exceptions thrown by the running application and groups repeated failures into a single
+entry with an occurrence count, in the spirit of tools like Laravel Telescope. BootUI records exceptions from two
+complementary sources while it is active: a non-intrusive Spring MVC `HandlerExceptionResolver` that observes exceptions
+escaping web request handlers (capturing the request method, path, and handler), and a logback appender that picks up
+anything logged with a throwable from scheduled tasks, async work, or `log.error("…", ex)` calls. A failure that is both
+handled and logged is de-duplicated by throwable identity so it is counted only once.
+
+Exceptions are grouped by a stable fingerprint derived from the exception type and the top stack frames, so a recurring
+error collapses into one row showing its type, latest message, first/last seen times, originating location, and total
+count. Opening a group shows the representative stack trace with application frames highlighted, the full cause chain
+(`Caused by: …` with `… N more` common-frame folding), and the most recent occurrences with their thread, source, and
+request context. A live indicator streams new occurrences into the list over Server-Sent Events, and the list can be
+filtered by text, by capture source (web vs. logged), or to application-originated exceptions only.
+
+Exception messages follow the same exposure policy as the rest of BootUI: they are scrubbed of secret-like
+`key=value` assignments under the default `bootui.expose-values=MASKED`, omitted entirely under `METADATA_ONLY`, and shown
+verbatim only under `FULL`. Request paths are captured without their query string so query-string secrets are never
+surfaced, and stack frames carry only class/method/file/line information. The in-memory store is bounded by
+`bootui.exceptions.max-groups` (default 100, evicting the least-recently-seen group), `bootui.exceptions.max-occurrences-per-group`
+(default 25), and `bootui.exceptions.max-stack-frames` (default 50), and is reset on application restart or via the
+panel's clear action. The panel can be disabled with `bootui.panels.exceptions.enabled=false`, and clearing honors the
+panel's read-only setting.
+
+![BootUI Exceptions panel](./images/bootui-exceptions.png)
+
 ### HTTP Exchanges
 
 The HTTP Exchanges panel records recent inbound requests handled by the running application. It lists timestamp, method,

@@ -51,6 +51,7 @@ const panelOrder = [
   ['ai', 'AI Usage'],
   ['traces', 'Traces'],
   ['log-tail', 'Log Tail'],
+  ['exceptions', 'Exceptions'],
   ['http-exchanges', 'HTTP Exchanges'],
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
@@ -2396,6 +2397,153 @@ const copilotSessionDetail = {
   warnings: []
 }
 
+const exceptions = {
+  available: true,
+  unavailableReason: null,
+  maxGroups: 100,
+  totalExceptions: 11,
+  groups: [
+    {
+      id: 'a1b2c3d4e5f60718',
+      exceptionClassName: 'java.lang.IllegalStateException',
+      message: 'Unable to process order ORD-4815 (apiToken=******)',
+      count: 7,
+      firstSeen: nowMillis - 9 * 60 * 1000,
+      lastSeen: nowMillis - 18 * 1000,
+      location: 'io.github.jdubois.bootui.sample.OrderService.process(OrderService.java:64)',
+      applicationException: true,
+      lastThread: 'http-nio-8080-exec-6',
+      lastRequestMethod: 'POST',
+      lastRequestPath: '/api/sample/boom',
+      lastHandler: 'SampleController#boom()',
+      lastSource: 'web'
+    },
+    {
+      id: 'b2c3d4e5f6071829',
+      exceptionClassName: 'org.springframework.dao.DataIntegrityViolationException',
+      message: 'could not execute statement [Unique index or primary key violation: PUBLIC.ORDERS(REFERENCE)]',
+      count: 3,
+      firstSeen: nowMillis - 26 * 60 * 1000,
+      lastSeen: nowMillis - 4 * 60 * 1000,
+      location: 'io.github.jdubois.bootui.sample.ReportingJob.run(ReportingJob.java:58)',
+      applicationException: true,
+      lastThread: 'scheduling-1',
+      lastRequestMethod: null,
+      lastRequestPath: null,
+      lastHandler: null,
+      lastSource: 'log'
+    },
+    {
+      id: 'c3d4e5f607182930',
+      exceptionClassName: 'org.springframework.beans.TypeMismatchException',
+      message:
+        "Failed to convert value of type 'String' to required type 'int'; nested exception is NumberFormatException",
+      count: 1,
+      firstSeen: nowMillis - 12 * 60 * 1000,
+      lastSeen: nowMillis - 12 * 60 * 1000,
+      location:
+        'org.springframework.web.method.annotation.AbstractNamedValueMethodArgumentResolver.resolveArgument(AbstractNamedValueMethodArgumentResolver.java:120)',
+      applicationException: false,
+      lastThread: 'http-nio-8080-exec-2',
+      lastRequestMethod: 'GET',
+      lastRequestPath: '/api/sample/products',
+      lastHandler: 'ProductController#list()',
+      lastSource: 'web'
+    }
+  ]
+}
+
+const exceptionDetails = {
+  a1b2c3d4e5f60718: {
+    group: exceptions.groups[0],
+    frames: [
+      {
+        declaringClass: 'io.github.jdubois.bootui.sample.OrderService',
+        methodName: 'process',
+        fileName: 'OrderService.java',
+        lineNumber: 64,
+        applicationFrame: true
+      },
+      {
+        declaringClass: 'io.github.jdubois.bootui.sample.SampleController',
+        methodName: 'boom',
+        fileName: 'SampleController.java',
+        lineNumber: 142,
+        applicationFrame: true
+      },
+      {
+        declaringClass: 'jdk.internal.reflect.DirectMethodHandleAccessor',
+        methodName: 'invoke',
+        fileName: 'DirectMethodHandleAccessor.java',
+        lineNumber: 103,
+        applicationFrame: false
+      },
+      {
+        declaringClass: 'org.springframework.web.method.support.InvocableHandlerMethod',
+        methodName: 'invokeForRequest',
+        fileName: 'InvocableHandlerMethod.java',
+        lineNumber: 255,
+        applicationFrame: false
+      }
+    ],
+    causes: [
+      {
+        exceptionClassName: 'java.lang.NumberFormatException',
+        message: 'For input string: "twelve"',
+        frames: [
+          {
+            declaringClass: 'java.lang.Integer',
+            methodName: 'parseInt',
+            fileName: 'Integer.java',
+            lineNumber: 668,
+            applicationFrame: false
+          },
+          {
+            declaringClass: 'io.github.jdubois.bootui.sample.OrderService',
+            methodName: 'process',
+            fileName: 'OrderService.java',
+            lineNumber: 61,
+            applicationFrame: true
+          }
+        ],
+        commonFrames: 12
+      }
+    ],
+    occurrences: [
+      {
+        timestamp: nowMillis - 18 * 1000,
+        thread: 'http-nio-8080-exec-6',
+        requestMethod: 'POST',
+        requestPath: '/api/sample/boom',
+        handler: 'SampleController#boom()',
+        source: 'web'
+      },
+      {
+        timestamp: nowMillis - 95 * 1000,
+        thread: 'http-nio-8080-exec-3',
+        requestMethod: 'POST',
+        requestPath: '/api/sample/boom',
+        handler: 'SampleController#boom()',
+        source: 'web'
+      },
+      {
+        timestamp: nowMillis - 220 * 1000,
+        thread: 'http-nio-8080-exec-1',
+        requestMethod: 'POST',
+        requestPath: '/api/sample/boom',
+        handler: 'SampleController#boom()',
+        source: 'web'
+      }
+    ]
+  }
+}
+
+function exceptionDetail(id) {
+  if (exceptionDetails[id]) return exceptionDetails[id]
+  const group = exceptions.groups.find((g) => g.id === id) || null
+  return {group, frames: [], causes: [], occurrences: []}
+}
+
 const screenshots = [
   [
     'overview',
@@ -2486,6 +2634,16 @@ const screenshots = [
   ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
+  [
+    'exceptions',
+    'Exceptions',
+    'bootui-exceptions.png',
+    async (page) => {
+      await page.getByText('IllegalStateException').first().waitFor()
+      await page.getByRole('button', {name: 'Open'}).first().click()
+      await page.getByText('Caused by: java.lang.NumberFormatException').waitFor()
+    }
+  ],
   [
     'http-exchanges',
     'HTTP Exchanges',
@@ -2959,6 +3117,10 @@ async function handleApiRoute(route) {
   if (endpoint === 'threads/download') return fulfillJson(route, {status: 'OK'})
   if (endpoint === 'traces') return fulfillJson(route, traceReport)
   if (endpoint === `traces/${traceId}`) return fulfillJson(route, traceDetail)
+  if (endpoint === 'exceptions') return fulfillJson(route, exceptions)
+  if (endpoint === 'exceptions/stream') return // leave the SSE connection open; the snapshot drives the screenshot
+  if (endpoint.startsWith('exceptions/'))
+    return fulfillJson(route, exceptionDetail(endpoint.slice('exceptions/'.length)))
   if (endpoint === 'ai/overview') return fulfillJson(route, aiOverview)
   if (endpoint === 'ai/tokens') return fulfillJson(route, aiTokens)
   if (endpoint === `ai/chats/${aiSpanId}`) return fulfillJson(route, aiDetail)
