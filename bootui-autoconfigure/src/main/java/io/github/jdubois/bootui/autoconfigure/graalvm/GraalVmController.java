@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.graalvm;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.Coordinates;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmSourceLayout.InstallOutcome;
@@ -56,12 +57,15 @@ public class GraalVmController {
     private volatile GraalVmScanResult lastResult;
 
     @Autowired
-    public GraalVmController(ApplicationContext applicationContext) {
+    public GraalVmController(ApplicationContext applicationContext, BootUiProperties properties) {
         this(
                 new GraalVmReadinessScanner(
                         () -> GraalVmPackages.detect(applicationContext),
                         new ClassFileGraalVmImporter(),
-                        new GraalVmDependencyScanner(),
+                        new GraalVmDependencyScanner(
+                                properties.getGraalvm().isRepositoryLookupEnabled(),
+                                properties.getGraalvm().getRepositoryLookupTimeout(),
+                                properties.getGraalvm().getMaxRepositoryLookups()),
                         Clock.systemUTC()),
                 new GraalVmMetadataGenerator(),
                 defaultSourceLayout(applicationContext));

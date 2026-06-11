@@ -63,7 +63,6 @@ class GraalVmDependencyScannerTests {
         assertThat(dependency.note()).contains("No bundled reachability metadata");
     }
 
-
     @Test
     void repositoryMetadataCoverageIsReportedForMatchingTestedVersion(@TempDir Path dir) throws IOException {
         Path jar = jar(
@@ -116,7 +115,6 @@ class GraalVmDependencyScannerTests {
         assertThat(dependency.note()).doesNotContain("Tested versions");
     }
 
-
     @Test
     void mavenRepositoryPathProvidesCoordinatesWhenPomPropertiesAreMissing(@TempDir Path dir) throws IOException {
         Path jar = jar(
@@ -134,7 +132,6 @@ class GraalVmDependencyScannerTests {
         assertThat(dependency.coordinates()).isEqualTo("org.postgresql:postgresql:42.7.11");
         assertThat(dependency.repositoryMetadata()).isTrue();
     }
-
 
     @Test
     void repositoryLinkIsHiddenWhenRepositoryHasNoEntry(@TempDir Path dir) throws IOException {
@@ -156,6 +153,71 @@ class GraalVmDependencyScannerTests {
         assertThat(dependency.repositoryUrl()).isNull();
         assertThat(dependency.repositoryMetadataUrl()).isNull();
         assertThat(dependency.note()).contains("has no entry for this library");
+    }
+
+    @Test
+    void repositoryLookupIsSkippedWhenDisabled(@TempDir Path dir) throws IOException {
+        Path jar = jar(
+                dir,
+                "postgresql-42.7.11.jar",
+                Map.of(
+                        "META-INF/maven/org.postgresql/postgresql/pom.properties",
+                        "groupId=org.postgresql\nartifactId=postgresql\nversion=42.7.11\n"));
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        jar::toString,
+                        coordinates -> {
+                            throw new AssertionError("repository lookup must not run when disabled");
+                        },
+                        new java.util.concurrent.atomic.AtomicReference<>(GraalVmDependencyScanner.Progress.idle()),
+                        new java.util.concurrent.atomic.AtomicBoolean(false),
+                        false,
+                        GraalVmDependencyScanner.maxDependencies())
+                .scan();
+
+        GraalVmDependencyDto dependency = survey.dependencies().get(0);
+        assertThat(dependency.repositoryMetadata()).isFalse();
+        assertThat(dependency.repositoryUrl()).isNull();
+        assertThat(dependency.repositoryMetadataUrl()).isNull();
+        assertThat(dependency.note()).contains("repository lookup is disabled");
+    }
+
+    @Test
+    void repositoryLookupStopsAfterTheConfiguredLimit(@TempDir Path dir) throws IOException {
+        Path covered = jar(
+                dir,
+                "postgresql-42.7.11.jar",
+                Map.of(
+                        "META-INF/maven/org.postgresql/postgresql/pom.properties",
+                        "groupId=org.postgresql\nartifactId=postgresql\nversion=42.7.11\n"));
+        Path second = jar(
+                dir,
+                "h2-2.2.224.jar",
+                Map.of(
+                        "META-INF/maven/com.h2database/h2/pom.properties",
+                        "groupId=com.h2database\nartifactId=h2\nversion=2.2.224\n"));
+        String classPath = covered + File.pathSeparator + second;
+        java.util.concurrent.atomic.AtomicInteger lookups = new java.util.concurrent.atomic.AtomicInteger();
+
+        DependencySurvey survey = new GraalVmDependencyScanner(
+                        () -> classPath,
+                        coordinates -> {
+                            lookups.incrementAndGet();
+                            return new GraalVmDependencyScanner.RepositoryCoverage(
+                                    true, coordinates.version(), java.util.List.of(coordinates.version()), null);
+                        },
+                        new java.util.concurrent.atomic.AtomicReference<>(GraalVmDependencyScanner.Progress.idle()),
+                        new java.util.concurrent.atomic.AtomicBoolean(false),
+                        true,
+                        1)
+                .scan();
+
+        assertThat(lookups.get()).isEqualTo(1);
+        assertThat(survey.dependencies()).hasSize(2);
+        assertThat(survey.dependencies().stream()
+                        .filter(GraalVmDependencyDto::repositoryMetadata)
+                        .count())
+                .isEqualTo(1);
     }
 
     @Test

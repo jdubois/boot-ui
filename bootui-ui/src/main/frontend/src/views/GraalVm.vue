@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -271,6 +271,7 @@ function toggleArtifact(name) {
 }
 
 onMounted(loadReport)
+onBeforeUnmount(stopProgressPolling)
 </script>
 
 <template>
@@ -638,10 +639,7 @@ onMounted(loadReport)
             :key="dep.name"
             class="list-group-item d-flex align-items-start gap-2"
           >
-            <span
-              :class="dependencyBadgeClass(dep)"
-              class="badge mt-1"
-            >
+            <span :class="dependencyBadgeClass(dep)" class="badge mt-1">
               {{ dependencyBadgeLabel(dep) }}
             </span>
             <div>
@@ -656,18 +654,16 @@ onMounted(loadReport)
                 <span v-if="dep.repositoryTestedVersions">({{ dep.repositoryTestedVersions }})</span>.
               </div>
               <div v-if="dep.repositoryUrl || dep.repositoryMetadataUrl" class="small mt-1 d-flex flex-wrap gap-2">
-                <a
-                  v-if="dep.repositoryUrl"
-                  :href="dep.repositoryUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >Repository entry</a>
+                <a v-if="dep.repositoryUrl" :href="dep.repositoryUrl" target="_blank" rel="noopener noreferrer"
+                  >Repository entry</a
+                >
                 <a
                   v-if="dep.repositoryMetadataUrl"
                   :href="dep.repositoryMetadataUrl"
                   target="_blank"
                   rel="noopener noreferrer"
-                >Metadata file</a>
+                  >Metadata file</a
+                >
               </div>
             </div>
           </div>

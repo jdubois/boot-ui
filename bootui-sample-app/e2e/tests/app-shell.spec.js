@@ -99,8 +99,8 @@ test.describe('BootUI app shell', () => {
     await page.goto('/bootui/')
 
     const groups = [
-      {title: 'Advisors', count: 8},
-      {title: 'Runtime', count: 9},
+      {title: 'Advisors', count: 9},
+      {title: 'Runtime', count: 8},
       {title: 'Configuration', count: 6},
       {title: 'Database', count: 4},
       {title: 'Security', count: 2},
@@ -123,7 +123,8 @@ test.describe('BootUI app shell', () => {
       'Memory',
       'Security',
       'Pentesting',
-      'Vulnerabilities'
+      'Vulnerabilities',
+      'GraalVM'
     ])
 
     await page.getByRole('button', {name: /Database\s+4/}).click()
