@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- **`bootui.trusted-proxies`** — an opt-in list of source IP ranges (CIDR notation, e.g. `172.16.0.0/12`) trusted in
+  addition to loopback by the safety filter. Lets local Docker-bridge callers reach BootUI without the blunt
+  `bootui.allow-non-localhost=true`: it relaxes only the source-address check and keeps the `Host` allow-list
+  (DNS-rebinding) and cross-site write (CSRF) protections in force. Pair it with `bootui.allowed-hosts` for the hostname
+  the browser uses.
+
 ### Changed
 
 - **`bootui-sample-app` now runs Docker-free by default** — the `dev` Spring profile (the default via
