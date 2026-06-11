@@ -48,12 +48,13 @@ final class CidrRange {
                 return null;
             }
         }
+        addressPart = addressPart.trim();
         if (!isNumericIpLiteral(addressPart)) {
             return null;
         }
         byte[] address;
         try {
-            address = InetAddress.getByName(addressPart.trim()).getAddress();
+            address = InetAddress.getByName(addressPart).getAddress();
         } catch (UnknownHostException e) {
             return null;
         }
@@ -108,7 +109,7 @@ final class CidrRange {
      */
     private static boolean isNumericIpLiteral(String value) {
         String host = value.trim();
-        if (host.startsWith("[") && host.endsWith("]")) {
+        if (host.length() > 2 && host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
         }
         if (host.isEmpty()) {
