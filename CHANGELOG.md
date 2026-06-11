@@ -7,22 +7,72 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [1.3.0] - 2026-06-11
+
+Feature release headlined by two new GraalVM/CRaC capabilities — a new **CRaC (Coordinated Restore at Checkpoint)
+readiness panel** and **GraalVM reachability-metadata** support (repository lookup plus an install-into-source-tree
+action) — alongside an upgrade to **Spring Boot 4.1.0** and a second wave of advisor improvements (Memory, REST API,
+GraalVM) authored with Anthropic's new **Claude Fable 5** model, on top of the 1.2.0 hardening pass. It also makes BootUI
+reachable from inside containers through narrow, fail-closed opt-ins (`bootui.trusted-proxies` and
+`bootui.trust-container-gateway`), runs the sample app Docker-free by default, and adds a cross-platform CI build matrix.
+
 ### Added
 
+- **CRaC readiness panel** — a new Runtime panel that reviews the host application's
+  [Coordinated Restore at Checkpoint](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html)
+  readiness. It reports whether the `org.crac` API is on the classpath, whether the running JVM is a CRaC-capable JDK
+  (detected via the real CRaC implementation rather than the no-op shim), whether `spring.context.checkpoint=onRefresh`
+  is set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments. It scans the host application's own
+  classes against a curated set of `CRaC-*` checks (including the `CRAC-POOL-001` connection-pool readiness check) for
+  constructs that complicate checkpoint/restore, and generates ready-to-use container assets — a multi-stage
+  `Dockerfile-crac` plus a `checkpoint-and-run.sh` entrypoint. The full catalogue lives in
+  [`docs/CRAC-READINESS-CHECKS.md`](docs/CRAC-READINESS-CHECKS.md) (#322).
+- **GraalVM reachability-metadata lookup** — the GraalVM panel queries the reachability-metadata repository for the
+  host's dependencies and adds an _install into source tree_ action that writes the metadata into the project; the
+  "Include dependencies" toggle now defaults to on (#324, #331).
+- A second wave of advisor rules on top of the 1.2.0 hardening pass: **7 new GraalVM checks** (plus the new
+  `GRAAL-FFM-001` Foreign Function & Memory check, replacing the AWT check), **7 new Memory rules**, and **9 new REST API
+  rules**, all catalogued in the refreshed `docs/*-CHECKS.md`. This wave of advisor work was authored with Anthropic's
+  new Claude Fable 5 model.
 - **`bootui.trusted-proxies`** — an opt-in list of source IP ranges (CIDR notation, e.g. `172.16.0.0/12`) trusted in
   addition to loopback by the safety filter. Lets local Docker-bridge callers reach BootUI without the blunt
   `bootui.allow-non-localhost=true`: it relaxes only the source-address check and keeps the `Host` allow-list
   (DNS-rebinding) and cross-site write (CSRF) protections in force. Pair it with `bootui.allowed-hosts` for the hostname
   the browser uses.
+- **`bootui.trust-container-gateway`** (`OFF` / `AUTO` / `ON`, default `OFF`) — a one-flag opt-in to trust the
+  auto-detected container gateway as a single `/32`, so BootUI can be reached inside a container with a published port
+  without knowing the subnet or setting a broad `bootui.trusted-proxies` CIDR. Detection covers both the Linux Docker
+  Engine bridge gateway (from `/proc/net/route`) and the Docker Desktop gateway (via the `gateway.docker.internal` DNS
+  name). Like `bootui.trusted-proxies`, it relaxes only the source-address check and keeps the `Host` allow-list and
+  CSRF protections in force.
+- **Cross-platform CI** — a build workflow matrix that runs the full build on Linux, Windows, and macOS.
+- A "Docker container access" section in [`docs/SETUP.md`](docs/SETUP.md) covering the trusted-proxies and
+  container-gateway options.
 
 ### Changed
 
+- **Upgraded to Spring Boot 4.1.0** (from 4.0.x), including aligning the Hibernate advisor end-to-end tests with
+  Hibernate 7.4 collection-fetch behavior (#326).
+- Marked the **JVM Tuning, GraalVM, Architecture, REST API, and CRaC** panels unavailable in GraalVM native images,
+  where their underlying JVM/bytecode analysis cannot run. The startup-timeline buffer is now installed for AOT images
+  even when BootUI is inactive, so timeline data is captured if BootUI is later enabled.
 - **`bootui-sample-app` now runs Docker-free by default** — the `dev` Spring profile (the default via
   `spring.profiles.default=dev`) swaps the Docker Compose PostgreSQL, Redis, and Ollama services for an in-memory H2
   database, a simple in-memory cache, and disabled Spring AI, so a bare `spring-boot:run` (and the Playwright e2e suite)
   starts offline with no Docker engine. A new `docker` profile (`-Dspring-boot.run.profiles=docker`) restores the full
   Docker experience (PostgreSQL, Redis, Ollama, and the `qwen2.5:0.5b` chat model). The `run-sample` helper scripts no
   longer require Docker and run the Docker-free `dev` profile.
+- The sample app's three Dockerfiles (JVM, CRaC, and native) now default to the `dev` profile with Flyway/Liquibase
+  disabled for fast startup, and the JVM and CRaC images set explicit JVM tuning flags.
+- Shared a single source-tree writer and build-system detection routine across the GraalVM and CRaC config generators.
+
+### Fixed
+
+- BootUI now loads correctly when the host application sets a non-root `server.servlet.context-path` (#332).
+- Fixed the generated `Dockerfile-native` Maven build for plain Spring Boot applications (#325).
+- Normalized install display paths to forward slashes on Windows so the setup snippets render correctly.
+- Removed the ArchUnit gate from CRaC availability — only running in a native image disables the panel.
+- Fixed broken documentation links and aligned the VuePress navbar logo with the sidebar toggle.
 
 ## [1.2.0] - 2026-06-09
 
@@ -464,7 +514,8 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/jdubois/boot-ui/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/jdubois/boot-ui/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/jdubois/boot-ui/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/jdubois/boot-ui/compare/v0.5.1...v1.0.0
