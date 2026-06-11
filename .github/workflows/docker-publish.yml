@@ -20,8 +20,8 @@ name: Publish Docker images
 # and that the BootUI front end is served (GET /bootui/), and only then are the tags
 # pushed to Docker Hub. For the CRaC image the smoke test additionally stops the
 # container and starts it again from the persisted checkpoint, verifying that the
-# restore serves BootUI and comes up faster than the initial boot-and-checkpoint
-# start. A variant whose smoke test fails is not published, but (with
+# restore serves BootUI and comes up at least twice as fast as the initial
+# boot-and-checkpoint start. A variant whose smoke test fails is not published, but (with
 # fail-fast: false) the other variants still build, verify and publish independently.
 #
 # After publishing, the `prune` job deletes dated/SHA tags older than one week from
@@ -179,12 +179,13 @@ jobs:
 
           echo "Smoke test passed for ${IMAGE_REF}."
 
-      - name: Verify the CRaC image restarts faster from its checkpoint
+      - name: Verify the CRaC image restarts at least 2x faster from its checkpoint
         # CRaC only: the first start above booted the app, wrote the checkpoint, then
         # restored it (and persisted the checkpoint in the named volume). Stop that
         # container and start a fresh one from the same image and volume: with a
         # checkpoint present, the entrypoint takes the restore-only path, which must
-        # come up - and do so faster than the initial boot-and-checkpoint start.
+        # come up - and do so at least twice as fast as the initial
+        # boot-and-checkpoint start.
         if: matrix.image == 'bootui-sample-app-crac'
         env:
           IMAGE_REF: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
@@ -229,12 +230,14 @@ jobs:
           curl -fsS -o /dev/null "${base_url}/bootui/"
           echo "OK: BootUI back end and front end are served after the restore."
 
-          # The restore must be faster than the initial boot-and-checkpoint start.
-          if [ "$second_start_seconds" -ge "$FIRST_START_SECONDS" ]; then
-            echo "ERROR: the restored start (${second_start_seconds}s) was not faster than the first start (${FIRST_START_SECONDS}s)." >&2
+          # The restore must be at least twice as fast as the initial
+          # boot-and-checkpoint start (i.e. take at most half as long). Compare with
+          # multiplication to avoid integer-division rounding.
+          if [ "$(( second_start_seconds * 2 ))" -gt "$FIRST_START_SECONDS" ]; then
+            echo "ERROR: the restored start (${second_start_seconds}s) was not at least 2x faster than the first start (${FIRST_START_SECONDS}s)." >&2
             exit 1
           fi
-          echo "OK: CRaC restore (${second_start_seconds}s) is faster than the initial start (${FIRST_START_SECONDS}s)."
+          echo "OK: CRaC restore (${second_start_seconds}s) is at least 2x faster than the initial start (${FIRST_START_SECONDS}s)."
 
       - name: Print container logs on failure
         if: failure()
