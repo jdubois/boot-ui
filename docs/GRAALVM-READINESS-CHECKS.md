@@ -38,8 +38,11 @@ In addition to the checks, the scan does two things:
 - **Generates a tailored `Dockerfile-native`** for the host application — a multi-stage build that detects the project's
   build system (Maven or Gradle, with or without the wrapper) and compiles a GraalVM native image with the matching
   command (`./mvnw`/`mvn -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the
-  resulting executable (named after the resolved `artifactId`) into a minimal Debian runtime image with a non-root user
-  and an HTTP liveness healthcheck (it probes the web server for any response, so it does not require Actuator). When
+  resulting executable (named after the resolved `artifactId`) into a minimal, distroless runtime image
+  (`gcr.io/distroless/base-debian12:nonroot`). That base runs as a non-root user and ships glibc but no shell, package
+  manager, curl, perl or tar, so the runtime's OS-package CVE surface stays near zero; the native image is built *mostly
+  static* (only glibc is linked dynamically) so it needs no extra libraries. Because distroless has no shell or curl
+  there is no Docker `HEALTHCHECK` - probe `/actuator/health` (or the web root) from your orchestrator instead. When
   the project carries no wrapper, the build stage installs a known, pinned
   Maven/Gradle release (declared as a constant in the generator and exposed as a Docker `ARG`) so the image is
   self-contained. You can download it, or — under the same exploded-build constraint as the scaffold install — write it

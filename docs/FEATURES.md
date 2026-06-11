@@ -346,8 +346,10 @@ did not generate. Alongside the metadata scaffold the panel also generates a tai
 **`Dockerfile-native`** that builds a GraalVM native image of the host application. It detects the project's build
 system — Maven or Gradle, with or without the wrapper — and uses the matching native build command (`./mvnw`/`mvn
 -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the resulting executable —
-named after the resolved `artifactId` — into a minimal Debian runtime image (installing a known, pinned Maven/Gradle
-release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
+named after the resolved `artifactId` — into a minimal, distroless runtime image (`gcr.io/distroless/base-debian12:nonroot`,
+which runs as a non-root user and carries no shell/curl/perl/tar, keeping the OS-package CVE surface near zero; the binary
+is built *mostly static* so it needs only glibc, and the build stage installs a known, pinned Maven/Gradle
+release when the project has no wrapper). It can be downloaded, or written directly to the project root under the
 same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
 generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
 top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a

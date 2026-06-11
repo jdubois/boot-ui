@@ -33,6 +33,13 @@ WORKDIR /app
 COPY . .
 RUN chmod +x mvnw
 
+# Build a "mostly static" native image: statically link everything (including zlib) except glibc,
+# so the runtime image only needs a glibc base and no extra shared libraries. The native-image tool
+# honors this via the NATIVE_IMAGE_OPTIONS environment variable, so it needs no pom changes and does
+# not affect a local, host `-Pnative` build. The GraalVM build image already ships the static zlib
+# (libz.a) this requires.
+ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC"
+
 # Build the native executable for the sample app and its reactor dependencies.
 # The `native` profile (declared in bootui-sample-app/pom.xml) runs Spring
 # Boot's process-aot goal, downloads GraalVM reachability metadata and then
@@ -49,29 +56,24 @@ RUN if [ -f bootui-sample-app/target/bootui-sample-app ]; then \
       else echo "ERROR: Native executable not found"; ls -laR bootui-sample-app/target | head -40; exit 1; fi; \
     fi
 
-# Runtime stage with Debian slim (includes glibc + zlib needed by the binary)
-FROM debian:12-slim
-
-# Install curl for healthchecks
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
-    rm -rf /var/lib/apt/lists/*
-
-# Create a non-root user
-RUN useradd -m -u 1001 springboot
+# Runtime stage: Google "distroless" base. It ships glibc (and the dynamic loader) but no shell,
+# package manager, curl, perl or tar - which removes the bulk of the OS-package CVEs that a full
+# Debian base otherwise carries (those are unfixed upstream and cannot be patched away). The native
+# binary above is built "mostly static", so glibc is the only shared library it needs and this base
+# provides it. The :nonroot tag runs as an unprivileged user (uid 65532).
+FROM gcr.io/distroless/base-debian12:nonroot
 
 WORKDIR /app
 
 # Copy the native executable from the build stage
-COPY --from=build --chown=springboot:springboot /app/native-app native-app
+COPY --from=build --chown=nonroot:nonroot /app/native-app native-app
 
-USER springboot
+USER nonroot
 
 EXPOSE 8080
 
-# Health check using Spring Boot Actuator
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1
+# No Docker HEALTHCHECK: the distroless base has no shell or curl to run a probe. Probe the web
+# server (or /actuator/health) from your orchestrator's liveness/readiness checks instead.
 
 # Run the native application
 ENTRYPOINT ["./native-app"]

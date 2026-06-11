@@ -96,6 +96,13 @@ final class GraalVmDockerfileGenerator {
 
                 %3$s
 
+                # Build a "mostly static" native image: statically link everything (including zlib)
+                # except glibc, so the runtime image only needs a glibc base and no extra shared
+                # libraries. The native-image tool honors this via the NATIVE_IMAGE_OPTIONS environment
+                # variable, so it needs no build-file changes and leaves a local, host native build
+                # untouched.
+                ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC"
+
                 # Build the native executable. This runs Spring Boot's AOT processing, downloads the
                 # GraalVM reachability metadata and then compiles the native image.
                 RUN %4$s
@@ -109,31 +116,25 @@ final class GraalVmDockerfileGenerator {
                       else echo "ERROR: Native executable not found"; ls -laR %5$s | head -40; exit 1; fi; \\
                     fi
 
-                # Runtime stage with Debian slim (includes glibc + zlib needed by the binary)
-                FROM debian:12-slim
-
-                # Install curl for healthchecks
-                RUN apt-get update && \\
-                    apt-get install -y --no-install-recommends curl && \\
-                    rm -rf /var/lib/apt/lists/*
-
-                # Create a non-root user
-                RUN useradd -m -u 1001 springboot
+                # Runtime stage: Google "distroless" base. It ships glibc (and the dynamic loader) but
+                # no shell, package manager, curl, perl or tar - which removes the bulk of the
+                # OS-package CVEs a full Debian base otherwise carries. The binary above is built
+                # "mostly static", so glibc is the only shared library it needs and this base provides
+                # it. The :nonroot tag runs as an unprivileged user (uid 65532).
+                FROM gcr.io/distroless/base-debian12:nonroot
 
                 WORKDIR /app
 
                 # Copy the native executable from the build stage
-                COPY --from=build --chown=springboot:springboot /app/native-app native-app
+                COPY --from=build --chown=nonroot:nonroot /app/native-app native-app
 
-                USER springboot
+                USER nonroot
 
                 EXPOSE 8080
 
-                # Liveness check: succeeds once the embedded web server accepts connections and returns
-                # any HTTP response. It does not require Spring Boot Actuator to be on the classpath, so it
-                # stays green even when the management endpoints are not web-exposed.
-                HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \\
-                    CMD curl -s -o /dev/null http://localhost:${SERVER_PORT:-8080}/ || exit 1
+                # No Docker HEALTHCHECK: the distroless base has no shell or curl to run a probe. Probe
+                # the web server (or /actuator/health) from your orchestrator's liveness/readiness
+                # checks instead.
 
                 # Run the native application
                 ENTRYPOINT ["./native-app"]
