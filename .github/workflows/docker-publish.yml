@@ -329,7 +329,12 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ matrix.image }}-*
+          # Anchor on the '-linux-' platform segment so the base image does not also
+          # match the longer image names: 'bootui-sample-app' is a prefix of
+          # 'bootui-sample-app-crac' / 'bootui-sample-app-native', so a plain
+          # 'digests-bootui-sample-app-*' would pull in those variants' digests and
+          # then fail with "not found" (they live in different repositories).
+          pattern: digests-${{ matrix.image }}-linux-*
           merge-multiple: true
 
       - name: Log in to Docker Hub
