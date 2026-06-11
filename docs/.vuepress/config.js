@@ -40,7 +40,7 @@ export default defineUserConfig({
     contributors: false,
     logo: null,
     navbar: [
-      {text: 'Try sample app', link: toDocLink('TRY-SAMPLE-APP.md')},
+      {text: 'Try it', link: toDocLink('TRY-SAMPLE-APP.md')},
       {text: 'Setup', link: toDocLink('SETUP.md')},
       {text: 'Features', link: toDocLink('FEATURES.md')},
       {text: 'Properties', link: toDocLink('PROPERTIES.md')},
