@@ -230,9 +230,9 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
      * cached.
      *
      * <ul>
-     *   <li>{@code OFF} — never trust the gateway.</li>
-     *   <li>{@code AUTO} (default) — trust it only when container heuristics indicate we are running
-     *       inside a container.</li>
+     *   <li>{@code OFF} (default) — never trust the gateway.</li>
+     *   <li>{@code AUTO} — trust it only when container heuristics indicate we are running inside a
+     *       container.</li>
      *   <li>{@code ON} — trust it whenever a default gateway was detected, even if the container
      *       heuristics were inconclusive.</li>
      * </ul>

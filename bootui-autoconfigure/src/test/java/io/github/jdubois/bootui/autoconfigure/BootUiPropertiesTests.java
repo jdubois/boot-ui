@@ -54,9 +54,9 @@ class BootUiPropertiesTests {
     }
 
     @Test
-    void defaultTrustContainerGatewayIsAuto() {
+    void defaultTrustContainerGatewayIsOff() {
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getTrustContainerGateway()).isEqualTo(BootUiProperties.Mode.AUTO);
+        assertThat(props.getTrustContainerGateway()).isEqualTo(BootUiProperties.Mode.OFF);
     }
 
     @Test
@@ -214,13 +214,13 @@ class BootUiPropertiesTests {
     }
 
     @Test
-    void bindsTrustContainerGatewayOff() {
+    void bindsTrustContainerGatewayOn() {
         MockEnvironment env = new MockEnvironment();
-        env.setProperty("bootui.trust-container-gateway", "OFF");
+        env.setProperty("bootui.trust-container-gateway", "ON");
 
         BootUiProperties props = bind(env);
 
-        assertThat(props.getTrustContainerGateway()).isEqualTo(BootUiProperties.Mode.OFF);
+        assertThat(props.getTrustContainerGateway()).isEqualTo(BootUiProperties.Mode.ON);
     }
 
     @Test

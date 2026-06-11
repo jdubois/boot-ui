@@ -21,8 +21,8 @@
     {
       "name": "bootui.trust-container-gateway",
       "type": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mode",
-      "description": "Trust the auto-detected container default gateway as a single /32 so BootUI works out of the box inside a container with a published port (host->container traffic is SNAT'd to the gateway) without a broad bootui.trusted-proxies CIDR. AUTO trusts it only when running inside a container; ON trusts a detected gateway even if container heuristics are inconclusive; OFF never trusts it. Relaxes only the source-address check; the Host allow-list and cross-site write protections stay in force.",
-      "defaultValue": "AUTO"
+      "description": "Trust the auto-detected container default gateway as a single /32 so BootUI can be reached inside a container with a published port (host->container traffic is SNAT'd to the gateway) without a broad bootui.trusted-proxies CIDR. Defaults to OFF (fail closed); AUTO and ON are explicit opt-ins. OFF never trusts it; AUTO trusts it only when running inside a container; ON trusts a detected gateway even if container heuristics are inconclusive. Relaxes only the source-address check; the Host allow-list and cross-site write protections stay in force.",
+      "defaultValue": "OFF"
     }
   ]
 }
