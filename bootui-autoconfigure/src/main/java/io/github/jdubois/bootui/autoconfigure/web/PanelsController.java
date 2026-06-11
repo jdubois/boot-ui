@@ -376,19 +376,11 @@ public class PanelsController {
     }
 
     private boolean cracAvailable() {
-        return !nativeImageDetected()
-                && classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")
-                && AutoConfigurationPackages.has(applicationContext);
+        return !nativeImageDetected();
     }
 
     private String cracUnavailableReason() {
-        if (nativeImageDetected()) {
-            return "CRaC is not applicable when running as a GraalVM native image";
-        }
-        if (!classPresent("com.tngtech.archunit.core.importer.ClassFileImporter")) {
-            return "ArchUnit is not on the classpath";
-        }
-        return "No application base package was detected";
+        return "CRaC is not applicable when running as a GraalVM native image";
     }
 
     private String aiUnavailableReason() {
