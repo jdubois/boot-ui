@@ -203,10 +203,10 @@ public final class SqlTraceRecorder {
         if (value == null) {
             return null;
         }
-        String trimmed = value.strip();
-        if (trimmed.length() <= max) {
-            return trimmed;
+        String stripped = value.strip();
+        if (stripped.length() <= max) {
+            return stripped;
         }
-        return trimmed.substring(0, max) + "…";
+        return stripped.substring(0, max) + "…";
     }
 }

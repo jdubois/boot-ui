@@ -327,7 +327,7 @@ final class SqlTracingProxies {
                 return "<bytes:" + bytes.length + ">";
             }
             if (value instanceof String text) {
-                return recorder.truncateParameter("'" + text + "'");
+                return recorder.truncateParameter("'" + text.replace("'", "''") + "'");
             }
             return recorder.truncateParameter(String.valueOf(value));
         }
