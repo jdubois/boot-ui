@@ -96,7 +96,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
                     response,
                     "BootUI is restricted to loopback requests. Set bootui.allow-non-localhost=true to override, "
                             + "add a trusted source range to bootui.trusted-proxies, or (when running in a container) "
-                            + "set bootui.trust-container-gateway=AUTO to trust the auto-detected container gateway /32.",
+                            + "set bootui.trust-container-gateway=AUTO to trust the auto-detected container gateway.",
                     "non-loopback request from {} to {}",
                     remote,
                     request.getRequestURI());
@@ -262,7 +262,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
         }
         if (!loggedTrustedGateway) {
             loggedTrustedGateway = true;
-            log.info(
+            log.warn(
                     "BootUI trusting auto-detected container gateway {} (/32) for loopback-equivalent access.",
                     address.getHostAddress());
         }
