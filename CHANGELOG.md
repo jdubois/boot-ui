@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Changed
+
+- **"Try the sample app" now uses the published Docker image** — [`docs/TRY-SAMPLE-APP.md`](docs/TRY-SAMPLE-APP.md) runs
+  `jdubois/bootui-sample-app` (the JVM image), with the CRaC (`jdubois/bootui-sample-app-crac`) and GraalVM native
+  (`jdubois/bootui-sample-app-native`) images referenced for information. The `scripts/run-sample.sh` and
+  `scripts/run-sample.ps1` helper scripts, which cloned and built the repository locally, were removed.
+
 ## [1.3.0] - 2026-06-11
 
 Feature release headlined by two new GraalVM/CRaC capabilities — a new **CRaC (Coordinated Restore at Checkpoint)

@@ -41,8 +41,8 @@ download is needed:
 it applies whenever no other profile is active (a bare run, the Playwright e2e suite, etc.); pass
 `-Dspring-boot.run.profiles=dev` explicitly for the same result. Most panels work normally, including Configuration,
 Database, Spring Data, Flyway, Liquibase, and Spring Cache. The Chat and AI Usage panels report that AI is unavailable,
-and Dev Services lists no containers. The [`run-sample`](../docs/TRY-SAMPLE-APP.md) helper scripts run this Docker-free
-`dev` profile.
+and Dev Services lists no containers. The published [`jdubois/bootui-sample-app`](../docs/TRY-SAMPLE-APP.md) Docker image
+runs this same Docker-free `dev` profile.
 
 ## Run it with Docker
 
