@@ -38,6 +38,9 @@ jobs:
   publish:
     name: Build and publish ${{ matrix.image }}
     runs-on: ubuntu-latest
+    # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are stored as environment secrets,
+    # so the job must opt in to that environment to read them.
+    environment: docker-hub
     # The native build dominates the runtime; allow generous headroom.
     timeout-minutes: 90
     # Only publish from the canonical repository: forks lack the Docker Hub secrets.
