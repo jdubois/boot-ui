@@ -17,6 +17,9 @@ import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -117,6 +120,7 @@ import org.springframework.core.env.Environment;
     ClaudeCodeController.class,
     GraalVmController.class,
     CracController.class,
+    SqlTraceController.class,
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
@@ -147,6 +151,7 @@ public class BootUiAutoConfiguration {
             GitHubController.class.getName(),
             GraalVmController.class.getName(),
             CracController.class.getName(),
+            SqlTraceController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
             HttpExchangesController.class.getName(),
@@ -303,6 +308,25 @@ public class BootUiAutoConfiguration {
     @Bean
     public BootUiSelfDataFilter bootUiSelfDataFilter(BootUiProperties properties) {
         return new BootUiSelfDataFilter(properties);
+    }
+
+    @Bean
+    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties) {
+        BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
+        boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
+        return new SqlTraceRecorder(
+                enabled,
+                sqlTrace.isCaptureParameters(),
+                sqlTrace.getMaxEntries(),
+                sqlTrace.getSlowQueryThresholdMillis(),
+                sqlTrace.getMaxSqlLength(),
+                sqlTrace.getMaxParameterLength());
+    }
+
+    @Bean
+    static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
+            org.springframework.beans.factory.ObjectProvider<SqlTraceRecorder> recorderProvider) {
+        return new SqlTraceDataSourceBeanPostProcessor(recorderProvider);
     }
 
     @Bean
