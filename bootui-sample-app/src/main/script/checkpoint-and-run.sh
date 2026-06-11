@@ -20,6 +20,11 @@ set -eu
 CRAC_CHECKPOINT_DIR="${CRAC_CHECKPOINT_DIR:-/opt/crac/checkpoint}"
 APP_JAR="${APP_JAR:-/app/app.jar}"
 
+# JVM tuning flags (see Dockerfile-crac). Applied only when the checkpoint is created below; a
+# restore (-XX:CRaCRestoreFrom) replays the checkpointed JVM, so heap/GC flags cannot be re-specified
+# there. Empty by default so the script also works when run outside the image.
+JAVA_OPTS="${JAVA_OPTS:-}"
+
 # Run with the "dev" profile *active* so BootUI turns on (its activation condition
 # inspects the active profiles, not spring.profiles.default) and the app uses the
 # in-memory H2 database / cache. CRaC reads this when the checkpoint is taken (the
@@ -41,7 +46,7 @@ echo "[crac] No checkpoint found; starting the app to create one (spring.context
 # here is expected. Inspect the directory rather than the exit code to decide
 # whether the checkpoint succeeded.
 set +e
-java -XX:CRaCCheckpointTo="$CRAC_CHECKPOINT_DIR" \
+java $JAVA_OPTS -XX:CRaCCheckpointTo="$CRAC_CHECKPOINT_DIR" \
   -Dspring.context.checkpoint=onRefresh \
   -jar "$APP_JAR"
 checkpoint_status=$?

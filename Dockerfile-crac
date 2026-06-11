@@ -79,6 +79,14 @@ ENV SPRING_PROFILES_ACTIVE=dev
 ENV SPRING_FLYWAY_ENABLED=false
 ENV SPRING_LIQUIBASE_ENABLED=false
 
+# JVM tuning flags, applied by checkpoint-and-run.sh when the checkpoint is created (the first start)
+# and frozen into the CRaC image - a restore replays that JVM, so heap/GC flags cannot be changed on
+# a restore-only start. Mirrors the JVM image (Dockerfile) minus -XX:+UseCompactObjectHeaders, which
+# was introduced in JDK 24 and is unsupported here: BellSoft ships CRaC-enabled Liberica only for the
+# LTS releases (17 and 21), so this image stays on JDK 21. Override (and regenerate the checkpoint)
+# with -e JAVA_OPTS="...".
+ENV JAVA_OPTS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
+
 # Copy the repackaged, runnable Spring Boot jar (the glob skips the thin
 # *.jar.original) and the checkpoint/restore entrypoint.
 COPY --from=build /app/bootui-sample-app/target/bootui-sample-app-*.jar ${APP_JAR}

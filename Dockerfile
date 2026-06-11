@@ -69,11 +69,20 @@ ENV SPRING_PROFILES_ACTIVE=dev
 ENV SPRING_FLYWAY_ENABLED=false
 ENV SPRING_LIQUIBASE_ENABLED=false
 
+# JVM tuning flags for a small, predictable container footprint. Heap, metaspace, code cache, direct
+# memory and thread stacks are bounded explicitly (instead of -XX:MaxRAMPercentage); G1 with string
+# deduplication and compact object headers (promoted to a product feature in JDK 25) keeps the
+# footprint down, and the JVM fails fast with a heap dump on OutOfMemoryError. Override the whole set
+# at runtime with -e JAVA_OPTS="...".
+ENV JAVA_OPTS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
+
 EXPOSE 8080
 
 # Health check using Spring Boot Actuator
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1
 
-# Run with container-aware JVM flags
-ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
+# Launch with the JVM tuning flags above. `sh -c ... exec java` keeps java as PID 1 so it still
+# receives SIGTERM from `docker stop` for Spring Boot's graceful shutdown, while letting the shell
+# word-split $JAVA_OPTS.
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
