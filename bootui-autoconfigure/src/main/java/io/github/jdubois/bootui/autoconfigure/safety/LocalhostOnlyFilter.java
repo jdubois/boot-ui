@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.safety;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties.Mode;
 import io.github.jdubois.bootui.autoconfigure.web.AbstractBootUiFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -22,11 +23,13 @@ import org.slf4j.LoggerFactory;
  * <p>The filter enforces three independent defenses and is bypassed entirely only when
  * {@code bootui.allow-non-localhost=true}:</p>
  * <ol>
- *   <li><strong>Trusted source</strong> — the remote address must be a loopback address, or fall
- *       within a range configured via {@code bootui.trusted-proxies} (CIDR notation). The latter is
- *       an opt-in narrow relaxation for local Docker-bridge callers: it widens only this source
- *       check and leaves the Host allow-list and cross-site write protection below fully in force,
- *       unlike the all-or-nothing {@code bootui.allow-non-localhost}.</li>
+ *   <li><strong>Trusted source</strong> — the remote address must be a loopback address, fall
+ *       within a range configured via {@code bootui.trusted-proxies} (CIDR notation), or equal the
+ *       auto-detected container default gateway when {@code bootui.trust-container-gateway} permits
+ *       it (see {@link ContainerGatewayDetector}). Each of these is an opt-in narrow relaxation for
+ *       local Docker-bridge callers: it widens only this source check and leaves the Host allow-list
+ *       and cross-site write protection below fully in force, unlike the all-or-nothing
+ *       {@code bootui.allow-non-localhost}.</li>
  *   <li><strong>Host allow-list (DNS-rebinding defense)</strong> — when a {@code Host} header is
  *       present it must resolve to a known loopback name or a configured
  *       {@code bootui.allowed-hosts} entry. A browser victim of a DNS-rebinding attack always sends
@@ -54,8 +57,21 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
     private volatile String[] parsedFrom;
     private volatile List<CidrRange> trustedRanges = List.of();
 
+    private final ContainerGatewayDetector gatewayDetector;
+
+    private final Object gatewayLock = new Object();
+    private volatile boolean gatewayResolved = false;
+    private volatile boolean inContainer = false;
+    private volatile InetAddress containerGateway;
+    private volatile boolean loggedTrustedGateway = false;
+
     public LocalhostOnlyFilter(BootUiProperties properties) {
+        this(properties, new ContainerGatewayDetector());
+    }
+
+    LocalhostOnlyFilter(BootUiProperties properties, ContainerGatewayDetector gatewayDetector) {
         super(properties);
+        this.gatewayDetector = gatewayDetector;
     }
 
     @Override
@@ -202,7 +218,67 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
                 return true;
             }
         }
-        return false;
+        return isTrustedContainerGateway(address);
+    }
+
+    /**
+     * Returns {@code true} when {@code address} equals the auto-detected container default gateway
+     * and {@code bootui.trust-container-gateway} permits trusting it. This relaxes only the
+     * source-address check by a single {@code /32}; the Host allow-list and cross-site write
+     * defenses still apply. The mode is read per request (so tests can flip it), while the
+     * underlying container detection and gateway lookup are resolved from the filesystem once and
+     * cached.
+     *
+     * <ul>
+     *   <li>{@code OFF} — never trust the gateway.</li>
+     *   <li>{@code AUTO} (default) — trust it only when container heuristics indicate we are running
+     *       inside a container.</li>
+     *   <li>{@code ON} — trust it whenever a default gateway was detected, even if the container
+     *       heuristics were inconclusive.</li>
+     * </ul>
+     */
+    private boolean isTrustedContainerGateway(InetAddress address) {
+        Mode mode = properties.getTrustContainerGateway();
+        if (mode == Mode.OFF) {
+            return false;
+        }
+        resolveGatewayOnce();
+        InetAddress gateway = containerGateway;
+        if (gateway == null) {
+            return false;
+        }
+        if (mode == Mode.AUTO && !inContainer) {
+            return false;
+        }
+        if (!gateway.equals(address)) {
+            return false;
+        }
+        if (!loggedTrustedGateway) {
+            loggedTrustedGateway = true;
+            log.info(
+                    "BootUI trusting auto-detected container gateway {} (/32) for loopback-equivalent access.",
+                    gateway.getHostAddress());
+        }
+        return true;
+    }
+
+    /**
+     * Resolves and caches the container detection result and default gateway exactly once. Mirrors
+     * the lazy, double-checked caching used by {@link #trustedRanges()} so the filesystem reads
+     * happen on the first relevant request rather than per request.
+     */
+    private void resolveGatewayOnce() {
+        if (gatewayResolved) {
+            return;
+        }
+        synchronized (gatewayLock) {
+            if (gatewayResolved) {
+                return;
+            }
+            inContainer = gatewayDetector.isInContainer();
+            containerGateway = gatewayDetector.defaultGateway().orElse(null);
+            gatewayResolved = true;
+        }
     }
 
     /**

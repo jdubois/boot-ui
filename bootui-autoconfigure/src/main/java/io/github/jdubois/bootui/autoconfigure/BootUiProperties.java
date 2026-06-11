@@ -46,6 +46,16 @@ public class BootUiProperties {
      */
     private String[] trustedProxies = {};
     /**
+     * Whether to trust the auto-detected container default gateway as a single {@code /32}, so BootUI
+     * works out of the box inside a container with a published port (where host&#8594;container traffic
+     * is SNAT'd to the gateway) without configuring a broad {@code bootui.trusted-proxies} CIDR.
+     * {@code AUTO} (default) trusts it only when running inside a container; {@code ON} trusts a
+     * detected gateway even if container heuristics are inconclusive; {@code OFF} never trusts it.
+     * Like {@code bootui.trusted-proxies} this relaxes only the source-address check — the Host
+     * allow-list (DNS-rebinding defense) and cross-site write protection (CSRF defense) stay in force.
+     */
+    private Mode trustContainerGateway = Mode.AUTO;
+    /**
      * Mask secret-like configuration values.
      */
     private boolean maskSecrets = true;
@@ -180,6 +190,14 @@ public class BootUiProperties {
 
     public void setTrustedProxies(String[] trustedProxies) {
         this.trustedProxies = trustedProxies;
+    }
+
+    public Mode getTrustContainerGateway() {
+        return trustContainerGateway;
+    }
+
+    public void setTrustContainerGateway(Mode trustContainerGateway) {
+        this.trustContainerGateway = trustContainerGateway;
     }
 
     public boolean isMaskSecrets() {

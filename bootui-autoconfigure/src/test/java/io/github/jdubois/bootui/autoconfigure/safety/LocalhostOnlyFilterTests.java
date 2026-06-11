@@ -3,7 +3,10 @@ package io.github.jdubois.bootui.autoconfigure.safety;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties.Mode;
 import jakarta.servlet.FilterChain;
+import java.net.InetAddress;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -336,5 +339,137 @@ class LocalhostOnlyFilterTests {
         request.setRequestURI(uri);
         request.setRemoteAddr(remoteAddr);
         return request;
+    }
+
+    // -------------------------------------------------------------------------
+    // bootui.trust-container-gateway
+    // -------------------------------------------------------------------------
+
+    private static final String GATEWAY = "192.168.65.1";
+
+    private LocalhostOnlyFilter filterWithGateway(boolean inContainer, String gateway) {
+        return new LocalhostOnlyFilter(properties, new FakeGatewayDetector(inContainer, gateway));
+    }
+
+    @Test
+    void autoTrustsContainerGatewayWhenInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void autoDoesNotTrustContainerGatewayWhenNotInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(false, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void onTrustsDetectedGatewayEvenWhenNotInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.ON);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(false, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void offNeverTrustsContainerGateway() throws Exception {
+        properties.setTrustContainerGateway(Mode.OFF);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void doesNotTrustNonGatewaySourceWhenInContainer() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", "192.168.65.99");
+        request.addHeader("Host", "localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void stillRejectsDisallowedHostFromTrustedGateway() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = bootUiRequest("/bootui/api/overview", GATEWAY);
+        request.addHeader("Host", "attacker.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Host");
+    }
+
+    @Test
+    void stillRejectsCrossSiteWriteFromTrustedGateway() throws Exception {
+        properties.setTrustContainerGateway(Mode.AUTO);
+        LocalhostOnlyFilter gatewayFilter = filterWithGateway(true, GATEWAY);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/bootui/api/config");
+        request.setRequestURI("/bootui/api/config");
+        request.setRemoteAddr(GATEWAY);
+        request.addHeader("Host", "localhost:8080");
+        request.addHeader("Origin", "http://evil.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        gatewayFilter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("cross-site");
+    }
+
+    /** Fake detector that returns a fixed container status and gateway without touching the filesystem. */
+    private static final class FakeGatewayDetector extends ContainerGatewayDetector {
+
+        private final boolean inContainer;
+        private final InetAddress gateway;
+
+        private FakeGatewayDetector(boolean inContainer, String gateway) {
+            try {
+                this.inContainer = inContainer;
+                this.gateway = gateway == null ? null : InetAddress.getByName(gateway);
+            } catch (Exception e) {
+                throw new IllegalArgumentException(e);
+            }
+        }
+
+        @Override
+        boolean isInContainer() {
+            return inContainer;
+        }
+
+        @Override
+        Optional<InetAddress> defaultGateway() {
+            return Optional.ofNullable(gateway);
+        }
     }
 }
