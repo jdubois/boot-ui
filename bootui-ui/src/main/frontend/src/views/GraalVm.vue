@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {apiFetch} from '../api.js'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -271,6 +271,7 @@ function toggleArtifact(name) {
 }
 
 onMounted(loadReport)
+onBeforeUnmount(stopProgressPolling)
 </script>
 
 <template>
