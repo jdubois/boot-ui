@@ -38,13 +38,16 @@ name: Publish Docker images
 # each repository (the rolling `latest` tag is always kept) so old daily images do
 # not accumulate, since Docker Hub has no built-in retention policy.
 #
-# Alongside building and publishing, the `docker-config` job validates the sample
+# Before any image is built or published, the `docker-config` job validates the sample
 # app's full Docker stack (the "docker" Spring profile: PostgreSQL, Redis and Ollama
 # from bootui-sample-app/compose.yaml). It runs the full Maven test suite and then
 # the Playwright end-to-end suite against a sample app booted with the "docker"
 # profile, catching regressions in compose.yaml, the Redis-backed cache and the
-# Ollama / Spring AI wiring that the Docker-free build.yml does not exercise. It is
-# independent of the image build/publish jobs and needs no Docker Hub secrets.
+# Ollama / Spring AI wiring that the Docker-free build.yml does not exercise. Both the
+# per-arch `build` jobs (which push by digest) and the `merge` publish job wait for it
+# via `needs`, so nothing - not even an untagged by-digest manifest - reaches the
+# registry unless this validation passes; a regression here blocks all publishing. The
+# job itself needs no Docker Hub secrets.
 #
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  Docker Hub account/namespace the images are pushed to.
@@ -74,6 +77,10 @@ jobs:
     # Build each platform on a native runner: arm64 on GitHub's hosted arm64
     # runners, everything else (amd64) on the standard x86_64 runners.
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    # Wait for the Docker-profile validation before building: this job pushes each
+    # image by digest, so gating it here guarantees that nothing - not even an
+    # untagged by-digest manifest - reaches the registry unless docker-config passes.
+    needs: docker-config
     # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are stored as environment secrets,
     # so the job must opt in to that environment to read them.
     environment: docker-hub
@@ -315,10 +322,12 @@ jobs:
   merge:
     name: Merge ${{ matrix.image }} manifests
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, docker-config]
     # Merge each image independently: if one image (or one of its platforms) failed
-    # to build or verify, still publish the others. Skip only on cancellation and on forks.
-    if: ${{ !cancelled() && github.repository == 'jdubois/boot-ui' }}
+    # to build or verify, still publish the others. Skip only on cancellation and on
+    # forks - and never publish unless the docker-config validation succeeded, so the
+    # full Docker-profile test suite must pass before any image is published.
+    if: ${{ !cancelled() && needs.docker-config.result == 'success' && github.repository == 'jdubois/boot-ui' }}
     environment: docker-hub
     timeout-minutes: 15
     strategy:
