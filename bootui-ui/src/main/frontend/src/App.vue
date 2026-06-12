@@ -10,6 +10,7 @@ import {
   THEME_STORAGE_KEY
 } from './utils/theme.js'
 import {describeLoadError} from './utils/loadError.js'
+import {recordRecentPanel} from './utils/recentPanels.js'
 import CommandPalette from './views/components/CommandPalette.vue'
 
 const router = useRouter()
@@ -18,17 +19,19 @@ const overview = ref(null)
 const panels = ref(null)
 const shellError = ref(null)
 const savedCollapsed = localStorage.getItem('bootui.sidebar.collapsed')
-const isMediumScreen = typeof window !== 'undefined' && window.innerWidth <= 991.98
-const sidebarCollapsed = ref(savedCollapsed !== null ? savedCollapsed === 'true' : isMediumScreen)
+const sidebarCollapsed = ref(savedCollapsed === 'true')
 
-if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-  window.matchMedia('(max-width: 991.98px)').addEventListener('change', (e) => {
-    if (e.matches) {
-      sidebarCollapsed.value = true
-    } else if (localStorage.getItem('bootui.sidebar.collapsed') === 'false') {
-      sidebarCollapsed.value = false
-    }
-  })
+const NARROW_QUERY = '(max-width: 991.98px)'
+const narrowMediaQuery =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null
+const isNarrow = ref(narrowMediaQuery?.matches === true)
+const mobileNavOpen = ref(false)
+
+function onNarrowChange(e) {
+  isNarrow.value = e.matches === true
+  if (!isNarrow.value) {
+    mobileNavOpen.value = false
+  }
 }
 
 const commandPaletteOpen = ref(false)
@@ -52,10 +55,35 @@ function openCommandPalette() {
 
 watch(sidebarCollapsed, (v) => localStorage.setItem('bootui.sidebar.collapsed', v))
 
+watch(
+  () => route.name,
+  (name) => {
+    if (name) recordRecentPanel(name)
+    mobileNavOpen.value = false
+  },
+  {immediate: true}
+)
+
 watch(resolvedTheme, syncTheme, {immediate: true})
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+function onSidebarToggle() {
+  if (isNarrow.value) {
+    mobileNavOpen.value = false
+  } else {
+    toggleSidebar()
+  }
+}
+
+function openMobileNav() {
+  mobileNavOpen.value = true
+}
+
+function closeMobileNav() {
+  mobileNavOpen.value = false
 }
 
 function syncTheme(theme) {
@@ -298,6 +326,52 @@ function toggleGroup(groupKey, event) {
   }
 }
 
+const collapsedRail = computed(() => !isNarrow.value && sidebarCollapsed.value)
+const railFlyout = ref(null)
+let flyoutCloseTimer = null
+
+function clearFlyoutTimer() {
+  if (flyoutCloseTimer) {
+    clearTimeout(flyoutCloseTimer)
+    flyoutCloseTimer = null
+  }
+}
+
+function openRailFlyout(section, event) {
+  if (!collapsedRail.value || !section.collapsible) return
+  clearFlyoutTimer()
+  const rect = event.currentTarget.getBoundingClientRect()
+  const estimatedHeight = 52 + section.routes.length * 40
+  const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight
+  const top = Math.max(8, Math.min(rect.top, viewportHeight - estimatedHeight - 8))
+  railFlyout.value = {section, top, left: rect.right + 10}
+}
+
+function scheduleRailFlyoutClose() {
+  clearFlyoutTimer()
+  flyoutCloseTimer = setTimeout(() => {
+    railFlyout.value = null
+  }, 140)
+}
+
+function cancelRailFlyoutClose() {
+  clearFlyoutTimer()
+}
+
+function closeRailFlyout() {
+  clearFlyoutTimer()
+  railFlyout.value = null
+}
+
+function onFlyoutLinkClick(navigate, event) {
+  navigate(event)
+  closeRailFlyout()
+}
+
+watch(collapsedRail, (value) => {
+  if (!value) closeRailFlyout()
+})
+
 watch(
   activeNavigationGroupKey,
   (groupKey) => {
@@ -324,11 +398,14 @@ onMounted(() => {
   loadShellData()
   window.addEventListener('keydown', onGlobalKeydown)
   themeMediaQuery?.addEventListener?.('change', onSystemThemeChange)
+  narrowMediaQuery?.addEventListener?.('change', onNarrowChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
   themeMediaQuery?.removeEventListener?.('change', onSystemThemeChange)
+  narrowMediaQuery?.removeEventListener?.('change', onNarrowChange)
+  clearFlyoutTimer()
 })
 
 function onGlobalKeydown(e) {
@@ -348,7 +425,16 @@ function onGlobalKeydown(e) {
     <div class="ambient-orb ambient-orb-one"></div>
     <div class="ambient-orb ambient-orb-two"></div>
 
-    <aside :class="{'bootui-sidebar--collapsed': sidebarCollapsed}" class="bootui-sidebar">
+    <div v-if="isNarrow && mobileNavOpen" class="bootui-nav-backdrop" @click="closeMobileNav"></div>
+
+    <aside
+      :class="{
+        'bootui-sidebar--collapsed': collapsedRail,
+        'bootui-sidebar--drawer': isNarrow,
+        'bootui-sidebar--open': isNarrow && mobileNavOpen
+      }"
+      class="bootui-sidebar"
+    >
       <div class="brand-area">
         <router-link class="brand-card text-decoration-none" to="/overview">
           <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
@@ -359,10 +445,13 @@ function onGlobalKeydown(e) {
         </router-link>
         <button
           class="sidebar-toggle"
-          :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-          @click="toggleSidebar"
+          :title="isNarrow ? 'Close menu' : sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          @click="onSidebarToggle"
         >
-          <i :class="sidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left'" class="bi"></i>
+          <i
+            :class="isNarrow ? 'bi-x-lg' : sidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left'"
+            class="bi"
+          ></i>
         </button>
       </div>
 
@@ -390,6 +479,10 @@ function onGlobalKeydown(e) {
             class="bootui-nav-group__toggle"
             type="button"
             @click="toggleGroup(section.key, $event)"
+            @mouseenter="openRailFlyout(section, $event)"
+            @mouseleave="scheduleRailFlyoutClose"
+            @focusin="openRailFlyout(section, $event)"
+            @focusout="scheduleRailFlyoutClose"
           >
             <span class="bootui-nav-group__label">
               <i :class="['bi', section.icon]"></i>
@@ -456,12 +549,56 @@ function onGlobalKeydown(e) {
       </div>
     </aside>
 
+    <transition name="flyout-fade">
+      <div
+        v-if="railFlyout"
+        class="bootui-nav-flyout"
+        :style="{top: railFlyout.top + 'px', left: railFlyout.left + 'px'}"
+        role="group"
+        :aria-label="`${railFlyout.section.title} panels`"
+        @mouseenter="cancelRailFlyoutClose"
+        @mouseleave="scheduleRailFlyoutClose"
+      >
+        <div class="bootui-nav-flyout__title">
+          <i :class="['bi', railFlyout.section.icon]"></i>
+          <span>{{ railFlyout.section.title }}</span>
+        </div>
+        <router-link v-for="r in railFlyout.section.routes" :key="r.name" v-slot="{href, navigate}" :to="r.path" custom>
+          <a
+            :aria-current="route.name === r.name ? 'page' : undefined"
+            :aria-label="routeAvailabilityLabel(r)"
+            :class="{
+              active: route.name === r.name,
+              'bootui-nav-link--unavailable': routeUnavailable(r)
+            }"
+            :href="href"
+            :title="routeAvailabilityLabel(r)"
+            class="nav-link bootui-nav-link bootui-nav-flyout__link"
+            @click="onFlyoutLinkClick(navigate, $event)"
+          >
+            <i :class="['bi', r.meta.icon]"></i>
+            <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+            <i
+              v-if="routeStatusIcon(r)"
+              :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
+              aria-hidden="true"
+            ></i>
+          </a>
+        </router-link>
+      </div>
+    </transition>
+
     <div class="bootui-workspace">
       <header class="topbar">
-        <div>
-          <div class="eyebrow">Inspecting</div>
-          <h1 class="topbar-title">{{ applicationTitle }}</h1>
-          <p class="topbar-subtitle mb-0">{{ runtimeSummary }}</p>
+        <div class="topbar-lead">
+          <button class="nav-hamburger" type="button" aria-label="Open navigation menu" @click="openMobileNav">
+            <i class="bi bi-list"></i>
+          </button>
+          <div class="topbar-heading">
+            <div class="eyebrow">Inspecting</div>
+            <h1 class="topbar-title">{{ applicationTitle }}</h1>
+            <p class="topbar-subtitle mb-0">{{ runtimeSummary }}</p>
+          </div>
         </div>
         <div class="topbar-actions">
           <button class="cp-trigger" title="Open command palette (⌘K)" @click="openCommandPalette">
@@ -862,6 +999,87 @@ function onGlobalKeydown(e) {
   width: 18rem;
 }
 
+.bootui-sidebar--drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1045;
+  height: 100vh;
+  width: min(20rem, 86vw);
+  transform: translateX(-100%);
+  transition:
+    transform 240ms ease,
+    box-shadow 240ms ease;
+}
+
+.bootui-sidebar--drawer.bootui-sidebar--open {
+  transform: translateX(0);
+  box-shadow: 1rem 0 3rem rgba(15, 23, 42, 0.35);
+}
+
+.bootui-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1044;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(2px);
+  animation: fade-in 160ms ease both;
+}
+
+.bootui-nav-flyout {
+  position: fixed;
+  z-index: 1046;
+  width: 14rem;
+  max-height: calc(100vh - 1rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem;
+  background: var(--bootui-surface-solid);
+  border: 1px solid var(--bootui-border);
+  border-radius: 1rem;
+  box-shadow: var(--bootui-shadow-md);
+}
+
+.bootui-nav-flyout__title {
+  align-items: center;
+  color: var(--bootui-nav-group-color);
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 0.5rem;
+  letter-spacing: 0.06em;
+  padding: 0.35rem 0.6rem 0.5rem;
+  text-transform: uppercase;
+}
+
+.bootui-nav-flyout__link {
+  border-radius: 0.7rem;
+}
+
+.flyout-fade-enter-active,
+.flyout-fade-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.flyout-fade-enter-from,
+.flyout-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-0.4rem);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .bootui-sidebar--collapsed {
   gap: 1rem;
   padding: 1rem 0.75rem;
@@ -938,9 +1156,7 @@ function onGlobalKeydown(e) {
 }
 
 .bootui-sidebar--collapsed .bootui-nav-section:not(.bootui-nav-section--overview) .bootui-nav-group__items {
-  border-left: 0;
-  margin-left: 0;
-  padding-left: 0;
+  display: none;
 }
 
 .bootui-sidebar--collapsed .bootui-nav-link {
@@ -1204,6 +1420,37 @@ function onGlobalKeydown(e) {
   padding: 1.5rem 2rem 1rem;
 }
 
+.topbar-lead {
+  align-items: center;
+  display: flex;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.topbar-heading {
+  min-width: 0;
+}
+
+.nav-hamburger {
+  align-items: center;
+  background: var(--bootui-surface);
+  border: 1px solid var(--bootui-border);
+  border-radius: 0.75rem;
+  color: var(--bootui-text);
+  cursor: pointer;
+  display: none;
+  flex-shrink: 0;
+  font-size: 1.2rem;
+  height: 2.6rem;
+  justify-content: center;
+  transition: background 150ms ease;
+  width: 2.6rem;
+}
+
+.nav-hamburger:hover {
+  background: var(--bootui-nav-hover-bg);
+}
+
 .topbar-title {
   font-size: clamp(1.45rem, 2vw, 2.1rem);
   font-weight: 800;
@@ -1360,32 +1607,35 @@ function onGlobalKeydown(e) {
   }
 }
 
-@media (max-width: 575.98px) {
-  .bootui-shell {
-    flex-direction: column;
-    height: auto;
-    overflow: visible;
+@media (max-width: 991.98px) {
+  .nav-hamburger {
+    display: inline-flex;
   }
 
-  .bootui-sidebar {
-    height: auto;
-    overscroll-behavior: auto;
-    position: relative;
-    width: 100%;
-  }
-
-  .bootui-workspace {
-    height: auto;
-    overflow: visible;
+  .cp-trigger-label,
+  .cp-trigger-hint,
+  .theme-toggle__label {
+    display: none;
   }
 
   .topbar {
-    align-items: flex-start;
-    flex-direction: column;
+    padding: 1.1rem 1.25rem 0.85rem;
   }
 
   .content-stage,
-  .topbar,
+  .bootui-footer {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .topbar {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .content-stage,
   .bootui-footer {
     padding-left: 1rem;
     padding-right: 1rem;
@@ -1433,13 +1683,5 @@ function onGlobalKeydown(e) {
   border-radius: 0.3rem;
   font-size: 0.7rem;
   padding: 0.1rem 0.35rem;
-}
-
-@media (max-width: 576px) {
-  .cp-trigger-label,
-  .cp-trigger-hint,
-  .theme-toggle__label {
-    display: none;
-  }
 }
 </style>

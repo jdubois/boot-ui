@@ -25,6 +25,17 @@ export function formatNumber(n) {
   return Number(n).toLocaleString()
 }
 
+export function formatBytes(bytes) {
+  if (bytes == null || bytes === '') return '—'
+  const n = Number(bytes)
+  if (Number.isNaN(n) || n < 0) return '—'
+  if (n < 1024) return `${Math.round(n)} B`
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  if (n < 1024 ** 4) return `${(n / 1024 ** 3).toFixed(2)} GB`
+  return `${(n / 1024 ** 4).toFixed(2)} TB`
+}
+
 export function shortName(name) {
   if (!name) return '—'
   const i = name.lastIndexOf('.')
