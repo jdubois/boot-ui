@@ -289,6 +289,11 @@
           <p>Calls the same secured endpoint with <code>developer/developer</code> to produce a forbidden response.</p>
           <small>Inspect: Spring Security, Security Logs, Pentesting</small>
         </article>
+        <article class="test-action">
+          <button class="button" id="exception-button" type="button">Trigger an exception</button>
+          <p>Calls <code>GET /api/sample/boom</code>, which throws on purpose to record a server-side failure.</p>
+          <small>Inspect: Exceptions, Log Tail, Traces</small>
+        </article>
       </div>
       <div class="form-row">
         <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
@@ -330,6 +335,7 @@
   const publicApiButton = document.getElementById('public-api-button')
   const secureAdminButton = document.getElementById('secure-admin-button')
   const secureUserButton = document.getElementById('secure-user-button')
+  const exceptionButton = document.getElementById('exception-button')
   const sessionDataButton = document.getElementById('session-data-button')
   const sessionDataStatus = document.getElementById('session-data-status')
   const sampleActionStatus = document.getElementById('sample-action-status')
@@ -506,6 +512,20 @@
       showSampleResult(
         `Developer access returned HTTP ${response.status}`,
         `${text}\n\nThis forbidden response is useful in Spring Security, Security Logs, and Pentesting.`
+      )
+    })
+  )
+
+  exceptionButton.addEventListener('click', () =>
+    runSampleAction(exceptionButton, 'Triggering a sample exception...', async () => {
+      const response = await fetch('/api/sample/boom', {
+        headers: {Accept: 'application/json'}
+      })
+      await response.text()
+      showSampleResult(
+        `Triggered a sample exception (HTTP ${response.status})`,
+        'The server threw an IllegalStateException on purpose.\n\n' +
+          'Open BootUI Exceptions to inspect the captured stack trace and masked details.'
       )
     })
   )
