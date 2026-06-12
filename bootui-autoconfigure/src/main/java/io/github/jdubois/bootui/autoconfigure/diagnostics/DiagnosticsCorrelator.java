@@ -173,9 +173,14 @@ public final class DiagnosticsCorrelator {
             }
         }
 
-        // 6. Security events have no trace context: match an HTTP request by principal + time.
+        // 6. Security events have no trace context: match an HTTP request by principal + time, then
+        // fall back to the nearest contemporaneous HTTP request (covers anonymous / failed-auth /
+        // 401 / 403 events, which carry no principal that lines up with the recorded exchange).
         for (SecuritySignal security : inputs.security()) {
             Activity match = matchByPrincipal(anchored, security);
+            if (match == null) {
+                match = matchHttpByTime(anchored, security);
+            }
             if (match != null) {
                 match.add(securityEntry(security), "SECURITY");
             } else {
@@ -341,6 +346,38 @@ public final class DiagnosticsCorrelator {
         for (Activity activity : activities) {
             if (activity.principal == null || !activity.principal.equals(security.principal())) {
                 continue;
+            }
+            long delta = Math.abs(activity.anchorTimestamp() - security.timestamp());
+            if (delta <= CORRELATION_WINDOW_MS && delta < bestDelta) {
+                best = activity;
+                bestDelta = delta;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Fallback for security events whose principal does not line up with any recorded request
+     * (failed logins, anonymous access-denied, 401/403 — the security-relevant cases, which usually
+     * leave no authenticated principal on the HTTP exchange): attach the event to the nearest
+     * HTTP-anchored request within the correlation window. Activities whose principal is known and
+     * differs from the event's principal are skipped so an event is never linked to a request that
+     * is provably a different user's.
+     */
+    private static Activity matchHttpByTime(List<Activity> activities, SecuritySignal security) {
+        if (security.timestamp() <= 0L) {
+            return null;
+        }
+        Activity best = null;
+        long bestDelta = Long.MAX_VALUE;
+        for (Activity activity : activities) {
+            if (activity.method == null && activity.path == null) {
+                continue; // not an HTTP request anchor
+            }
+            if (hasText(security.principal())
+                    && activity.principal != null
+                    && !activity.principal.equals(security.principal())) {
+                continue; // provably a different authenticated user
             }
             long delta = Math.abs(activity.anchorTimestamp() - security.timestamp());
             if (delta <= CORRELATION_WINDOW_MS && delta < bestDelta) {

@@ -84,6 +84,54 @@ class DiagnosticsCorrelatorTests {
     }
 
     @Test
+    void linksAnonymousSecurityEventToContemporaneousRequestByTime() {
+        Inputs inputs = inputs(
+                List.of(new HttpSignal(10_000L, null, "GET", "/admin", 403, 4L, null)),
+                List.of(),
+                List.of(),
+                List.of(new SecuritySignal(10_050L, "anonymousUser", "AUTHORIZATION_DENIED")));
+
+        DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
+
+        assertThat(report.requests()).hasSize(1);
+        DiagnosticsRequestDto request = report.requests().get(0);
+        assertThat(request.path()).isEqualTo("/admin");
+        assertThat(request.securityCount()).isEqualTo(1);
+        assertThat(request.timeline()).extracting(e -> e.kind()).contains("HTTP", "SECURITY");
+        assertThat(report.unattributed().securityCount()).isZero();
+    }
+
+    @Test
+    void doesNotLinkSecurityEventToADifferentAuthenticatedUsersRequest() {
+        Inputs inputs = inputs(
+                List.of(new HttpSignal(20_000L, null, "GET", "/account", 200, 6L, "alice")),
+                List.of(),
+                List.of(),
+                List.of(new SecuritySignal(20_050L, "bob", "AUTHENTICATION_FAILURE")));
+
+        DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
+
+        // The event is not linked to alice's request, which then carries no diagnostic signal and is
+        // demoted, so the event surfaces as unattributed rather than mis-attributed.
+        assertThat(report.requests()).noneMatch(request -> request.securityCount() > 0);
+        assertThat(report.unattributed().securityCount()).isEqualTo(1);
+    }
+
+    @Test
+    void leavesSecurityEventUnattributedWhenNoRequestIsWithinTheWindow() {
+        Inputs inputs = inputs(
+                List.of(new HttpSignal(30_000L, null, "GET", "/admin", 403, 4L, null)),
+                List.of(),
+                List.of(),
+                List.of(new SecuritySignal(40_000L, "anonymousUser", "AUTHORIZATION_DENIED")));
+
+        DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
+
+        assertThat(report.requests()).noneMatch(request -> request.securityCount() > 0);
+        assertThat(report.unattributed().securityCount()).isEqualTo(1);
+    }
+
+    @Test
     void filtersRequestsByQuery() {
         Inputs inputs = inputs(
                 List.of(
