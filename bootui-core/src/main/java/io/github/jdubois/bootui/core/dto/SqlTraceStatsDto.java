@@ -9,10 +9,13 @@ package io.github.jdubois.bootui.core.dto;
  * @param avgDurationMillis mean execution time
  * @param slowQueries executions over the slow-query threshold
  * @param failedQueries executions that threw
- * @param selectCount {@code QUERY} executions
+ * @param batchExecutions executions that ran as a JDBC batch
+ * @param selectCount {@code SELECT} executions
+ * @param insertCount {@code INSERT} executions
  * @param updateCount {@code UPDATE} executions
- * @param batchCount {@code BATCH} executions
- * @param otherCount executions of any other kind
+ * @param deleteCount {@code DELETE} executions
+ * @param otherCount executions of any other category (including DDL)
+ * @param evicted executions dropped from the buffer because it reached capacity
  */
 public record SqlTraceStatsDto(
         long totalQueries,
@@ -21,12 +24,15 @@ public record SqlTraceStatsDto(
         double avgDurationMillis,
         long slowQueries,
         long failedQueries,
+        long batchExecutions,
         long selectCount,
+        long insertCount,
         long updateCount,
-        long batchCount,
-        long otherCount) {
+        long deleteCount,
+        long otherCount,
+        long evicted) {
 
     public static SqlTraceStatsDto empty() {
-        return new SqlTraceStatsDto(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new SqlTraceStatsDto(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 }

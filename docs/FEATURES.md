@@ -467,15 +467,24 @@ The SQL Trace panel shows the SQL statements your application recently executed,
 proxy built on the JDK's own dynamic-proxy support — BootUI does **not** bundle a third-party database-proxy library to
 power this. When BootUI is active it transparently wraps each `DataSource` bean and intercepts statement execution on the
 resulting `Connection`/`Statement`/`PreparedStatement`/`CallableStatement` objects, recording the SQL text, statement
-type, operation kind (query/update/batch/other), wall-clock duration, affected-row counts, batch size, originating
-connection, and any failure. Executions are retained in a bounded in-memory ring buffer (most recent first) alongside
-aggregate stats (total/average/max time, slow-query and failure counts, and per-operation counters). A configurable
-slow-query threshold highlights expensive statements, and a local-only Clear action empties the buffer.
+type, SQL category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duration, affected-row counts, batch
+size, originating connection, executing thread, and any failure. Spring's delegating/routing `DataSource` wrappers are
+skipped so executions are not double-counted, and wrapping **fails open**: if a `DataSource` cannot be proxied it is left
+untouched so application database access is never compromised.
+
+Executions are retained in a bounded in-memory ring buffer (most recent first) alongside aggregate stats (total/average/
+max time, slow-query and failure counts, per-category counters, and evictions). The panel also groups identical
+statements into a "Most frequent statements" table and flags repeated `SELECT`s that look like an **N+1 access pattern**
+(the repeat count is configurable via `bootui.sql-trace.n-plus-one-threshold`). Each execution row expands to reveal the
+full statement, bound parameters, statement type, connection id, executing thread, and error. A configurable slow-query
+threshold highlights expensive statements, and local-only **Pause/Resume** and **Clear** actions let you stop recording
+without unwrapping the data source or empty the buffer.
 
 The panel is read-mostly and privacy-conscious: parameter bindings are **not** captured by default, and even when
 capture is enabled they are suppressed under metadata-only value exposure and routed through the same masking rules as
-the rest of BootUI. It fails closed when no `DataSource` bean is present. Tracing, parameter capture, buffer size, the
-slow-query threshold, and SQL/parameter truncation limits are all configurable under `bootui.sql-trace.*`.
+the rest of BootUI; an inline warning reminds you when captured parameters are being shown in clear text. It fails closed
+when no `DataSource` bean is wrapped. Tracing, the initial recording state, parameter capture, buffer size, the
+slow-query and N+1 thresholds, and SQL/parameter truncation limits are all configurable under `bootui.sql-trace.*`.
 
 ### Spring Data
 

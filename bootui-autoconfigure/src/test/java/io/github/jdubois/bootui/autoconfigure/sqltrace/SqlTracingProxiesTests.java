@@ -6,7 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.CapturedStatement;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Operation;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -24,11 +24,11 @@ import org.junit.jupiter.api.Test;
 class SqlTracingProxiesTests {
 
     private SqlTraceRecorder recorder() {
-        return new SqlTraceRecorder(true, true, 100, 100, 2000, 200);
+        return new SqlTraceRecorder(true, true, true, 100, 100, 2000, 200, 5);
     }
 
     @Test
-    void capturesPreparedQueryWithParametersAndConnectionId() throws Exception {
+    void capturesPreparedQueryWithParametersThreadAndConnectionId() throws Exception {
         SqlTraceRecorder recorder = recorder();
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
@@ -50,14 +50,15 @@ class SqlTracingProxiesTests {
         CapturedStatement entry = recorder.recent().get(0);
         assertThat(entry.sql()).isEqualTo(sql);
         assertThat(entry.statementType()).isEqualTo(StatementType.PREPARED);
-        assertThat(entry.operation()).isEqualTo(Operation.QUERY);
+        assertThat(entry.category()).isEqualTo(Category.SELECT);
         assertThat(entry.success()).isTrue();
         assertThat(entry.connectionId()).startsWith("conn-");
+        assertThat(entry.thread()).isEqualTo(Thread.currentThread().getName());
         assertThat(entry.parameters()).containsExactly("42");
     }
 
     @Test
-    void capturesUpdateCountAndOperation() throws Exception {
+    void capturesUpdateCountAndCategory() throws Exception {
         SqlTraceRecorder recorder = recorder();
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
@@ -72,7 +73,7 @@ class SqlTracingProxiesTests {
         assertThat(p.executeUpdate()).isEqualTo(3);
 
         CapturedStatement entry = recorder.recent().get(0);
-        assertThat(entry.operation()).isEqualTo(Operation.UPDATE);
+        assertThat(entry.category()).isEqualTo(Category.UPDATE);
         assertThat(entry.affectedRows()).isEqualTo(3L);
         assertThat(entry.parameters()).containsExactly("'alice'");
     }
@@ -86,24 +87,26 @@ class SqlTracingProxiesTests {
         ResultSet rs = mock(ResultSet.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.createStatement()).thenReturn(stmt);
-        when(stmt.execute("SELECT 1")).thenReturn(true);
+        when(stmt.execute("/* hint */ SELECT 1")).thenReturn(true);
         when(stmt.executeQuery("SELECT 1")).thenReturn(rs);
+        when(stmt.executeUpdate("delete from account")).thenReturn(2);
 
         DataSource traced = SqlTracingProxies.wrap(ds, recorder);
         Statement s = traced.getConnection().createStatement();
         s.executeQuery("SELECT 1");
-        s.execute("SELECT 1");
+        s.execute("/* hint */ SELECT 1");
+        s.executeUpdate("delete from account");
 
         assertThat(recorder.recent())
                 .extracting(CapturedStatement::statementType)
                 .containsOnly(StatementType.STATEMENT);
         assertThat(recorder.recent())
-                .extracting(CapturedStatement::operation)
-                .containsExactly(Operation.QUERY, Operation.QUERY);
+                .extracting(CapturedStatement::category)
+                .containsExactly(Category.DELETE, Category.SELECT, Category.SELECT);
     }
 
     @Test
-    void capturesBatchSizeAndSummedRows() throws Exception {
+    void capturesBatchSizeCategoryAndSummedRows() throws Exception {
         SqlTraceRecorder recorder = recorder();
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
@@ -121,7 +124,7 @@ class SqlTracingProxiesTests {
         p.executeBatch();
 
         CapturedStatement entry = recorder.recent().get(0);
-        assertThat(entry.operation()).isEqualTo(Operation.BATCH);
+        assertThat(entry.category()).isEqualTo(Category.INSERT);
         assertThat(entry.batchSize()).isEqualTo(2);
         assertThat(entry.affectedRows()).isEqualTo(3L);
     }

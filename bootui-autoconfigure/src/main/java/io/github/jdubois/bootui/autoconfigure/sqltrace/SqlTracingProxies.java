@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Operation;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
@@ -251,7 +251,7 @@ final class SqlTracingProxies {
             String sql = preparedSql != null
                     ? preparedSql
                     : (args != null && args.length > 0 && args[0] instanceof String s ? s : null);
-            Operation operation = classifyOperation(name, sql);
+            Category category = classify(name, sql);
             long start = System.nanoTime();
             boolean success = true;
             String error = null;
@@ -271,7 +271,7 @@ final class SqlTracingProxies {
             } finally {
                 recorder.record(
                         statementType,
-                        operation,
+                        category,
                         sql,
                         preparedSql != null ? orderedParameters() : List.of(),
                         millis(start),
@@ -279,13 +279,15 @@ final class SqlTracingProxies {
                         error,
                         affected,
                         0,
-                        connectionId);
+                        connectionId,
+                        Thread.currentThread().getName());
             }
         }
 
         private Object timeBatch(Method method, Object[] args) throws Throwable {
             String sql = preparedSql != null ? preparedSql : String.join(";\n", batchSqls);
             int batchSize = preparedSql != null ? batchParameterSets.size() : batchSqls.size();
+            Category category = classify(null, preparedSql != null ? preparedSql : firstBatchSql());
             long start = System.nanoTime();
             boolean success = true;
             String error = null;
@@ -301,7 +303,7 @@ final class SqlTracingProxies {
             } finally {
                 recorder.record(
                         statementType,
-                        Operation.BATCH,
+                        category,
                         sql,
                         List.of(),
                         millis(start),
@@ -309,10 +311,15 @@ final class SqlTracingProxies {
                         error,
                         affected,
                         batchSize,
-                        connectionId);
+                        connectionId,
+                        Thread.currentThread().getName());
                 batchParameterSets.clear();
                 batchSqls.clear();
             }
+        }
+
+        private String firstBatchSql() {
+            return batchSqls.isEmpty() ? null : batchSqls.get(0);
         }
 
         private List<String> orderedParameters() {
@@ -337,28 +344,56 @@ final class SqlTracingProxies {
         }
     }
 
-    private static Operation classifyOperation(String methodName, String sql) {
-        if ("executeQuery".equals(methodName)) {
-            return Operation.QUERY;
+    /**
+     * Classifies an execution into a {@link Category}. {@code executeQuery} always reads, so an
+     * unrecognised keyword still maps to {@code SELECT}; other methods fall back to {@code OTHER}.
+     */
+    private static Category classify(String methodName, String sql) {
+        Category byKeyword = categoryOf(sql);
+        if ("executeQuery".equals(methodName) && byKeyword == Category.OTHER) {
+            return Category.SELECT;
         }
-        if ("executeUpdate".equals(methodName) || "executeLargeUpdate".equals(methodName)) {
-            return Operation.UPDATE;
-        }
-        // Plain execute(...) is ambiguous, classify by the leading SQL keyword.
+        return byKeyword;
+    }
+
+    /** Derives a {@link Category} from the leading SQL keyword, skipping comments and leading parens. */
+    private static Category categoryOf(String sql) {
+        return switch (firstKeyword(sql)) {
+            case "SELECT", "WITH", "SHOW", "VALUES", "TABLE" -> Category.SELECT;
+            case "INSERT" -> Category.INSERT;
+            case "UPDATE", "MERGE", "UPSERT" -> Category.UPDATE;
+            case "DELETE" -> Category.DELETE;
+            case "CREATE", "ALTER", "DROP", "TRUNCATE", "COMMENT", "RENAME", "GRANT", "REVOKE" -> Category.DDL;
+            default -> Category.OTHER;
+        };
+    }
+
+    private static String firstKeyword(String sql) {
         if (sql == null) {
-            return Operation.OTHER;
+            return "";
         }
-        String keyword = sql.stripLeading().toLowerCase(Locale.ROOT);
-        if (keyword.startsWith("select") || keyword.startsWith("with") || keyword.startsWith("show")) {
-            return Operation.QUERY;
+        int i = 0;
+        int length = sql.length();
+        // Skip leading whitespace, line comments, block comments, and opening parens.
+        while (i < length) {
+            char c = sql.charAt(i);
+            if (Character.isWhitespace(c) || c == '(') {
+                i++;
+            } else if (c == '-' && i + 1 < length && sql.charAt(i + 1) == '-') {
+                int newline = sql.indexOf('\n', i);
+                i = newline < 0 ? length : newline + 1;
+            } else if (c == '/' && i + 1 < length && sql.charAt(i + 1) == '*') {
+                int end = sql.indexOf("*/", i + 2);
+                i = end < 0 ? length : end + 2;
+            } else {
+                break;
+            }
         }
-        if (keyword.startsWith("insert")
-                || keyword.startsWith("update")
-                || keyword.startsWith("delete")
-                || keyword.startsWith("merge")) {
-            return Operation.UPDATE;
+        int start = i;
+        while (i < length && Character.isLetter(sql.charAt(i))) {
+            i++;
         }
-        return Operation.OTHER;
+        return sql.substring(start, i).toUpperCase(Locale.ROOT);
     }
 
     private static Long sumBatchResult(Object result) {

@@ -316,11 +316,13 @@ public class BootUiAutoConfiguration {
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
         return new SqlTraceRecorder(
                 enabled,
+                sqlTrace.isRecording(),
                 sqlTrace.isCaptureParameters(),
                 sqlTrace.getMaxEntries(),
                 sqlTrace.getSlowQueryThresholdMillis(),
                 sqlTrace.getMaxSqlLength(),
-                sqlTrace.getMaxParameterLength());
+                sqlTrace.getMaxParameterLength(),
+                sqlTrace.getNPlusOneThreshold());
     }
 
     @Bean

@@ -765,6 +765,13 @@ public class BootUiProperties {
         private boolean enabled = true;
 
         /**
+         * Whether new executions are recorded into the in-memory buffer. Recording can be
+         * paused and resumed at runtime from the panel without unwrapping {@code DataSource}
+         * beans; this sets the initial state.
+         */
+        private boolean recording = true;
+
+        /**
          * Whether bound statement parameters are captured alongside the SQL text. Off by
          * default because parameter values may contain sensitive data; metadata-only value
          * exposure additionally suppresses parameters even when this is enabled.
@@ -792,12 +799,26 @@ public class BootUiProperties {
          */
         private int maxParameterLength = 200;
 
+        /**
+         * Number of times an identical {@code SELECT} must repeat within the buffer before it
+         * is flagged as a likely N+1 access pattern. Minimum {@code 2}.
+         */
+        private int nPlusOneThreshold = 5;
+
         public boolean isEnabled() {
             return enabled;
         }
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public boolean isRecording() {
+            return recording;
+        }
+
+        public void setRecording(boolean recording) {
+            this.recording = recording;
         }
 
         public boolean isCaptureParameters() {
@@ -838,6 +859,14 @@ public class BootUiProperties {
 
         public void setMaxParameterLength(int maxParameterLength) {
             this.maxParameterLength = maxParameterLength;
+        }
+
+        public int getNPlusOneThreshold() {
+            return nPlusOneThreshold;
+        }
+
+        public void setNPlusOneThreshold(int nPlusOneThreshold) {
+            this.nPlusOneThreshold = nPlusOneThreshold;
         }
     }
 
