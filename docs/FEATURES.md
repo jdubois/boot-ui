@@ -688,7 +688,11 @@ as `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `securit
 delegates to the same controller the browser UI uses, so secret masking and the per-panel `bootui.panels.*` enable and
 read-only toggles apply identically; a tool is advertised only when its backing panel is enabled, and action tools are
 refused when the backing panel is read-only. Connection details (the JSON-RPC endpoint at `/bootui/api/mcp`, transport,
-protocol revision, and the `bootui.mcp.max-results` cap) are shown so the server can be wired into an agent.
+protocol revision, and the `bootui.mcp.max-results` cap) are shown so the server can be wired into an agent, alongside a
+ready-to-use, copyable MCP client configuration JSON (the `servers` block a GitHub Copilot or Claude Code `mcp.json`
+expects) pointing at this running app.
+
+![BootUI MCP Server panel](./images/bootui-mcp-server.png)
 
 ### DevTools
 
@@ -782,7 +786,9 @@ absent) are simply not advertised. The server inherits BootUI's full safety mode
 
 - It is only ever live while BootUI is active, so it is never reachable in production.
 - The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host` allow-list, cross-site write protection), so it
-  is local-only like the rest of BootUI.
+  is local-only like the rest of BootUI. It is exempt from BootUI's SPA CSRF token (which only browsers can present) so
+  non-browser MCP clients connect with a plain HTTP config and no credentials, while `LocalhostOnlyFilter`'s cross-site
+  defenses still block browser-driven writes.
 - Read tools require the backing panel to be enabled; action (`*_scan`) tools are additionally refused when the panel is
   read-only or `bootui.read-only=true`, returning a clear tool error instead of running.
 - Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are

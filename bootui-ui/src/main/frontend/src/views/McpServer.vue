@@ -4,6 +4,7 @@ import {computed, ref} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -17,10 +18,29 @@ const status = ref(null)
 const toggling = ref(false)
 const lastFetched = ref(null)
 const {message: banner, flash, clear} = useFlashMessage(8000)
+const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
 const enabled = computed(() => status.value?.enabled === true)
 const actionTools = computed(() => (status.value?.tools ?? []).filter((tool) => tool.action))
 const readTools = computed(() => (status.value?.tools ?? []).filter((tool) => !tool.action))
+
+const endpointUrl = computed(() => {
+  const path = status.value?.endpoint ?? '/bootui/api/mcp'
+  const origin = typeof window !== 'undefined' && window.location ? window.location.origin : ''
+  return origin + path
+})
+
+const mcpConfigJson = computed(() => {
+  const config = {
+    servers: {
+      [status.value?.serverName || 'bootui']: {
+        type: status.value?.transport || 'http',
+        url: endpointUrl.value
+      }
+    }
+  }
+  return JSON.stringify(config, null, 2)
+})
 
 async function fetchStatus() {
   try {
@@ -159,9 +179,9 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus)
             <div class="card-body p-4">
               <h3 class="h6 fw-bold mb-3"><i class="bi bi-hdd-network me-2"></i>Connection</h3>
               <dl class="row small mb-0">
-                <dt class="col-5 text-muted fw-normal">Endpoint</dt>
-                <dd class="col-7">
-                  <code>{{ status.endpoint }}</code>
+                <dt class="col-5 text-muted fw-normal">URL</dt>
+                <dd class="col-7 text-break">
+                  <code>{{ endpointUrl }}</code>
                 </dd>
                 <dt class="col-5 text-muted fw-normal">Transport</dt>
                 <dd class="col-7">{{ status.transport }}</dd>
@@ -180,6 +200,30 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus)
               </dl>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Client configuration -->
+      <div class="card mb-4">
+        <div class="card-body p-4">
+          <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+            <h3 class="h6 fw-bold mb-0"><i class="bi bi-filetype-json me-2"></i>Client configuration</h3>
+            <button
+              type="button"
+              class="btn btn-sm"
+              :class="copiedKey === 'mcp-config' ? 'btn-success' : 'btn-outline-secondary'"
+              :title="copiedKey === 'mcp-config' ? 'Copied!' : 'Copy configuration'"
+              @click="copyToClipboard(mcpConfigJson, 'mcp-config')"
+            >
+              <i :class="['bi', copiedKey === 'mcp-config' ? 'bi-check-lg' : 'bi-clipboard', 'me-1']"></i>
+              {{ copiedKey === 'mcp-config' ? 'Copied!' : 'Copy' }}
+            </button>
+          </div>
+          <p class="text-muted small mb-2">
+            Paste this into your AI agent's MCP configuration (for example a GitHub Copilot or Claude Code
+            <code>mcp.json</code>) to connect it to this running app.
+          </p>
+          <pre class="config-block bg-light border rounded p-3 mb-0 small"><code>{{ mcpConfigJson }}</code></pre>
         </div>
       </div>
 
@@ -257,5 +301,10 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus)
   cursor: pointer;
   height: 1.75rem;
   width: 3.25rem;
+}
+
+.config-block {
+  overflow-x: auto;
+  white-space: pre;
 }
 </style>

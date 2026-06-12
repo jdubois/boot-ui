@@ -76,6 +76,8 @@ describe('McpServer', () => {
     expect(wrapper.text()).toContain('What this server does')
     expect(wrapper.text()).toContain('architecture_scan')
     expect(wrapper.text()).toContain('get_overview')
+    expect(wrapper.text()).toContain('URL')
+    expect(wrapper.text()).toContain('/bootui/api/mcp')
     expect(wrapper.get('#mcp-enabled-toggle').element.checked).toBe(false)
   })
 
@@ -100,6 +102,30 @@ describe('McpServer', () => {
       expect.objectContaining({method: 'POST', body: JSON.stringify({enabled: true})})
     )
     expect(wrapper.get('#mcp-enabled-toggle').element.checked).toBe(true)
+  })
+
+  it('renders a copyable MCP client configuration', async () => {
+    const writeText = vi.fn().mockResolvedValue()
+    vi.stubGlobal('navigator', {clipboard: {writeText}})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus())))
+
+    wrapper = mount(McpServer)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Client configuration')
+    const block = wrapper.get('.config-block').text()
+    expect(block).toContain('"servers"')
+    expect(block).toContain('"bootui"')
+    expect(block).toContain('"type": "http"')
+    expect(block).toContain('/bootui/api/mcp')
+
+    const copyButton = wrapper.findAll('button').find((b) => b.text().includes('Copy'))
+    await copyButton.trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText.mock.calls[0][0]).toContain('"servers"')
+    expect(writeText.mock.calls[0][0]).toContain('/bootui/api/mcp')
   })
 
   it('does not toggle and warns when the panel is read-only', async () => {

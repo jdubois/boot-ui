@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -51,6 +52,19 @@ class BootUiSpringSecurityAutoConfigurationTests {
         ResponseEntity<String> protectedRoute =
                 client().get().uri("/protected").retrieve().toEntity(String.class);
         assertThat(protectedRoute.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void permitsMcpJsonRpcPostWithoutCsrfToken() {
+        // Non-browser MCP clients (e.g. VS Code) cannot present the SPA CSRF token; a 403 here would
+        // make them fall back to an OAuth flow ("Dynamic Client Registration not supported").
+        ResponseEntity<String> mcp = client().post()
+                .uri("/bootui/api/mcp")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}")
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(mcp.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test

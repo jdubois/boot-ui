@@ -56,6 +56,7 @@ const panelOrder = [
   ['http-probe', 'HTTP Probe'],
   ['architecture', 'Architecture'],
   ['rest-api', 'REST API'],
+  ['mcp-server', 'MCP Server'],
   ['devtools', 'DevTools'],
   ['dev-services', 'Dev Services'],
   ['copilot', 'Copilot'],
@@ -819,6 +820,122 @@ const devTools = {
   restartAvailable: true,
   restartPending: false,
   restartUnavailableReason: 'Spring Boot DevTools restart is initialized.'
+}
+
+const mcpTool = (name, description, panel, action) => ({
+  name,
+  description,
+  panel,
+  action,
+  panelEnabled: true,
+  panelReadOnly: false
+})
+
+const mcpServerTools = [
+  mcpTool(
+    'architecture_scan',
+    'Run the Architecture advisor and return layering/dependency findings to fix.',
+    'architecture',
+    true
+  ),
+  mcpTool(
+    'spring_scan',
+    'Run the Spring advisor and return Spring configuration/bean findings to fix.',
+    'spring',
+    true
+  ),
+  mcpTool(
+    'hibernate_scan',
+    'Run the Hibernate advisor and return JPA/Hibernate mapping and query findings.',
+    'hibernate',
+    true
+  ),
+  mcpTool(
+    'memory_scan',
+    'Run the Memory advisor (triggers a class histogram) and return memory findings.',
+    'memory',
+    true
+  ),
+  mcpTool(
+    'security_scan',
+    'Run the Security advisor and return application security findings to fix.',
+    'security',
+    true
+  ),
+  mcpTool('pentest_scan', 'Run the Pentesting advisor and return probing-based security findings.', 'pentesting', true),
+  mcpTool(
+    'rest_api_scan',
+    'Run the REST API advisor and return REST controller/design findings to fix.',
+    'rest-api',
+    true
+  ),
+  mcpTool(
+    'graalvm_scan',
+    'Run the GraalVM readiness advisor and return native-image readiness findings.',
+    'graalvm',
+    true
+  ),
+  mcpTool(
+    'crac_scan',
+    'Run the CRaC readiness advisor and return checkpoint/restore readiness findings.',
+    'crac',
+    true
+  ),
+  mcpTool(
+    'get_exceptions',
+    'List recent unhandled exceptions captured at runtime (most recent first).',
+    'exceptions',
+    false
+  ),
+  mcpTool(
+    'get_security_logs',
+    'List recent security audit events (authentication, authorization, etc.).',
+    'security-logs',
+    false
+  ),
+  mcpTool(
+    'get_sql_traces',
+    'Return recently recorded SQL statements and timings from the SQL Trace recorder.',
+    'sql-trace',
+    false
+  ),
+  mcpTool('get_traces', 'Return recent distributed/local traces captured by BootUI.', 'traces', false),
+  mcpTool('get_log_tail', 'Return the most recent buffered application log lines.', 'log-tail', false),
+  mcpTool(
+    'get_http_exchanges',
+    'List recent HTTP request/response exchanges handled by the application.',
+    'http-exchanges',
+    false
+  ),
+  mcpTool(
+    'get_overview',
+    'Return the application overview: name, versions, profiles, and BootUI status.',
+    'overview',
+    false
+  ),
+  mcpTool('get_health', 'Return the aggregated application health tree (Actuator health).', 'health', false),
+  mcpTool('get_config', 'Return effective configuration properties (secret values masked).', 'config', false),
+  mcpTool('get_beans', 'List Spring beans. Optional query filters by bean name or type.', 'beans', false),
+  mcpTool(
+    'get_mappings',
+    'List request mappings (URL patterns to handlers). Optional query filters them.',
+    'mappings',
+    false
+  )
+]
+
+const mcpServer = {
+  enabled: true,
+  configuredMode: 'ON',
+  overridden: false,
+  serverName: 'bootui',
+  serverVersion: '0.5.0',
+  transport: 'http',
+  endpoint: '/bootui/api/mcp',
+  protocolVersion: '2025-06-18',
+  maxResults: 200,
+  toolCount: mcpServerTools.length,
+  tools: mcpServerTools
 }
 
 const devServices = {
@@ -2671,6 +2788,7 @@ const screenshots = [
   ['rest-api', 'REST API', 'bootui-rest-api.png', waitForText("Don't expose JPA entities in responses")],
   ['spring', 'Spring', 'bootui-spring.png', waitForText('Prefer RestClient over RestTemplate')],
   ['memory', 'Memory', 'bootui-memory.png', waitForText('Old generation is near its maximum')],
+  ['mcp-server', 'MCP Server', 'bootui-mcp-server.png', waitForText('Client configuration')],
   ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
   ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
   [
@@ -3183,6 +3301,7 @@ async function handleApiRoute(route) {
       events: claudeCodeSessionDetail.recentEvents
     })
   if (endpoint === 'devtools') return fulfillJson(route, devTools)
+  if (endpoint === 'mcp-server' || endpoint === 'mcp-server/toggle') return fulfillJson(route, mcpServer)
   if (endpoint === 'dev-services') return fulfillJson(route, devServices)
   if (endpoint === 'dev-services/compose:redis/logs') {
     return fulfillJson(route, {
