@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.sample;
+package io.github.jdubois.bootui.sample.config;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 

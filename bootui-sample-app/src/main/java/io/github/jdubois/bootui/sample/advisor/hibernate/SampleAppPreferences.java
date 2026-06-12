@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.sample;
+package io.github.jdubois.bootui.sample.advisor.hibernate;
 
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;

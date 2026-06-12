@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.sample;
+package io.github.jdubois.bootui.sample.catalog;
 
 import jakarta.persistence.*;
 

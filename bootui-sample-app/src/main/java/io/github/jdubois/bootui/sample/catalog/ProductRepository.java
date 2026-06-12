@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.sample;
+package io.github.jdubois.bootui.sample.catalog;
 
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;

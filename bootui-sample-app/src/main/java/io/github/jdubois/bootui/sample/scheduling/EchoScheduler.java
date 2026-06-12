@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.sample;
+package io.github.jdubois.bootui.sample.scheduling;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
