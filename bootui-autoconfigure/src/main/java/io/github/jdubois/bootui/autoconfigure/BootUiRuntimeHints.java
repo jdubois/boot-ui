@@ -66,6 +66,15 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
     private static final String MODULITH_APPLICATION_MODULE_IDENTIFIERS =
             "org.springframework.modulith.core.ApplicationModuleIdentifiers";
 
+    /**
+     * Web MVC actuator mapping-condition description types whose array forms Jackson reflectively
+     * instantiates while serializing the raw descriptor returned by {@code MappingsController#mappings()}.
+     */
+    private static final String[] MAPPINGS_EXPRESSION_DESCRIPTIONS = {
+        "org.springframework.boot.webmvc.actuate.web.mappings.RequestMappingConditionsDescription$MediaTypeExpressionDescription",
+        "org.springframework.boot.webmvc.actuate.web.mappings.RequestMappingConditionsDescription$NameValueExpressionDescription"
+    };
+
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
         hints.resources()
@@ -93,6 +102,25 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         hints.reflection()
                 .registerTypeIfPresent(
                         classLoader, MODULITH_APPLICATION_MODULE_IDENTIFIERS, MemberCategory.INVOKE_PUBLIC_METHODS);
+
+        // Mappings panel: the /bootui/api/mappings compatibility endpoint serializes Actuator's raw
+        // ApplicationMappingsDescriptor. While introspecting the nested media-type / name-value
+        // expression descriptions, Jackson reflectively instantiates their array types; GraalVM
+        // requires those array types to be registered or the endpoint fails at runtime with a
+        // MissingReflectionRegistrationError. registerTypeIfPresent keeps this harmless when the
+        // Web MVC actuator mappings support is absent (e.g. a WebFlux-only application).
+        for (String descriptionType : MAPPINGS_EXPRESSION_DESCRIPTIONS) {
+            registerTypeAndArrayIfPresent(hints, classLoader, descriptionType);
+        }
+    }
+
+    private void registerTypeAndArrayIfPresent(RuntimeHints hints, ClassLoader classLoader, String className) {
+        if (!ClassUtils.isPresent(className, classLoader)) {
+            return;
+        }
+        Class<?> type = ClassUtils.resolveClassName(className, classLoader);
+        hints.reflection().registerType(type, MemberCategory.INVOKE_PUBLIC_METHODS);
+        hints.reflection().registerType(Array.newInstance(type, 0).getClass());
     }
 
     private void registerDtoBindingHints(RuntimeHints hints, ClassLoader classLoader) {
