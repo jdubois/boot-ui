@@ -20,7 +20,7 @@ it force-disables itself in `prod` / `production`.
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>1.3.0</version>
+  <version>1.4.0</version>
 </dependency>
 ```
 
@@ -28,12 +28,12 @@ it force-disables itself in `prod` / `production`.
 
 ```groovy
 // Groovy DSL (build.gradle)
-runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.3.0'
+runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.4.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:1.3.0")
+runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:1.4.0")
 ```
 
 :::
@@ -100,7 +100,7 @@ Spring Boot profile:
       <dependency>
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-spring-boot-starter</artifactId>
-        <version>1.3.0</version>
+        <version>1.4.0</version>
       </dependency>
     </dependencies>
     <build>
@@ -129,7 +129,7 @@ sets the `dev` Spring Boot profile on `bootRun`:
 // Groovy DSL (build.gradle)
 if (project.hasProperty('dev')) {
     dependencies {
-        runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.3.0'
+        runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.4.0'
     }
     tasks.named('bootRun') {
         systemProperty 'spring.profiles.active', 'dev'
@@ -141,7 +141,7 @@ if (project.hasProperty('dev')) {
 // Kotlin DSL (build.gradle.kts)
 if (project.hasProperty("dev")) {
     dependencies {
-        "runtimeOnly"("com.julien-dubois.bootui:bootui-spring-boot-starter:1.3.0")
+        "runtimeOnly"("com.julien-dubois.bootui:bootui-spring-boot-starter:1.4.0")
     }
     tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
         systemProperty("spring.profiles.active", "dev")
