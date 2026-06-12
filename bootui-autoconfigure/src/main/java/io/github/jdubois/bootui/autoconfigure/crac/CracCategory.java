@@ -8,8 +8,10 @@ enum CracCategory {
     RESOURCES("Open I/O resources"),
     NETWORK("Network connections"),
     POOLS("Connection pools"),
+    CACHES("Caches"),
     THREADS("Threads & schedulers"),
     TIME("Captured time"),
+    CONFIG("Captured configuration"),
     RANDOMNESS("Randomness"),
     SECRETS("Captured secrets"),
     LIFECYCLE("CRaC lifecycle");
