@@ -189,6 +189,17 @@ public class BootUiSampleApplication {
                     "attributes",
                     List.of("sampleMessage", "sampleCount", "sampleClickCount", "sampleGeneratedAt", "apiToken"));
         }
+
+        @GetMapping("/boom")
+        public String boom() {
+            try {
+                Integer.parseInt("not-a-number");
+                return "unreachable";
+            } catch (NumberFormatException cause) {
+                throw new IllegalStateException(
+                        "Sample failure for the BootUI Exceptions panel demo (apiToken=sample-secret-token)", cause);
+            }
+        }
     }
 
     @Service

@@ -1310,6 +1310,7 @@ Top-level navigation:
 - Diagnostics:
   - Traces.
   - Log Tail.
+  - Exceptions.
   - HTTP Exchanges.
   - HTTP Probe.
 - Developer tools:

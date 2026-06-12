@@ -21,6 +21,7 @@ const RestApi = () => import('./views/RestApi.vue')
 const GraalVm = () => import('./views/GraalVm.vue')
 const Crac = () => import('./views/Crac.vue')
 const LogTail = () => import('./views/LogTail.vue')
+const Exceptions = () => import('./views/Exceptions.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
@@ -276,6 +277,12 @@ export const routes = [
     name: 'log-tail',
     component: LogTail,
     meta: {group: groups.diagnostics, icon: 'bi-terminal', title: 'Log Tail'}
+  },
+  {
+    path: '/exceptions',
+    name: 'exceptions',
+    component: Exceptions,
+    meta: {group: groups.diagnostics, icon: 'bi-exclamation-octagon', title: 'Exceptions'}
   },
   {
     path: '/http-exchanges',

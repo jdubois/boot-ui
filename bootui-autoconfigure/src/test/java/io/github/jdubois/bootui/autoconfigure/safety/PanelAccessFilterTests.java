@@ -203,6 +203,7 @@ class PanelAccessFilterTests {
         requests.put("hibernate", new ActionRequest("POST", "/bootui/api/hibernate/scan"));
         requests.put("spring-cache", new ActionRequest("POST", "/bootui/api/spring-cache/clear"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
+        requests.put("exceptions", new ActionRequest("DELETE", "/bootui/api/exceptions"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/http-probe"));
         requests.put("architecture", new ActionRequest("POST", "/bootui/api/architecture/scan"));
         requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/vulnerabilities/scan"));

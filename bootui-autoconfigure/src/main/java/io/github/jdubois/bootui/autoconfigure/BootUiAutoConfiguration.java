@@ -4,6 +4,10 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
+import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionHandlerResolver;
+import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
+import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
@@ -30,6 +34,7 @@ import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchange
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -99,6 +104,8 @@ import org.springframework.core.env.Environment;
     ArchitectureController.class,
     RestApiController.class,
     LogTailController.class,
+    ExceptionsController.class,
+    BootUiAutoConfiguration.ExceptionsConfiguration.class,
     HttpExchangesController.class,
     ProfileDiffController.class,
     SpringSecurityController.class,
@@ -170,6 +177,7 @@ public class BootUiAutoConfiguration {
             SpringSecurityController.class.getName(),
             StartupController.class.getName(),
             TracesController.class.getName(),
+            ExceptionsController.class.getName(),
             ThreadDumpController.class.getName(),
             MemoryController.class.getName(),
             DismissedRulesController.class.getName());
@@ -238,6 +246,41 @@ public class BootUiAutoConfiguration {
         @ConditionalOnMissingBean(AuditEventRepository.class)
         AuditEventRepository bootUiAuditEventRepository() {
             return new InMemoryAuditEventRepository();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "bootui.panels.exceptions", name = "enabled", matchIfMissing = true)
+    static class ExceptionsConfiguration {
+
+        @Bean
+        ExceptionStore bootUiExceptionStore(BootUiProperties properties, ApplicationContext applicationContext) {
+            BootUiProperties.Exceptions config = properties.getExceptions();
+            ExceptionStore store = new ExceptionStore(
+                    config.getMaxGroups(), config.getMaxOccurrencesPerGroup(), config.getMaxStackFrames());
+            try {
+                if (AutoConfigurationPackages.has(applicationContext)) {
+                    store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));
+                }
+            } catch (RuntimeException ex) {
+                log.debug("BootUI could not resolve application base packages for exception capture", ex);
+            }
+            return store;
+        }
+
+        @Bean
+        BootUiExceptionHandlerResolver bootUiExceptionHandlerResolver(ExceptionStore store) {
+            return new BootUiExceptionHandlerResolver(store);
+        }
+
+        @Configuration(proxyBeanMethods = false)
+        @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
+        static class LogbackExceptionCaptureConfiguration {
+
+            @Bean
+            BootUiExceptionLogAppender bootUiExceptionLogAppender(ExceptionStore store) {
+                return BootUiExceptionLogAppender.install(store);
+            }
         }
     }
 
