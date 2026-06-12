@@ -215,6 +215,7 @@ class PanelAccessFilterTests {
         requests.put("rest-api", new ActionRequest("POST", "/bootui/api/rest-api/scan"));
         requests.put("spring", new ActionRequest("POST", "/bootui/api/spring/scan"));
         requests.put("crac", new ActionRequest("POST", "/bootui/api/crac/scan"));
+        requests.put("sql-trace", new ActionRequest("POST", "/bootui/api/sql-trace/clear"));
         return requests;
     }
 

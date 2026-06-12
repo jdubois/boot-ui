@@ -1,0 +1,58 @@
+package io.github.jdubois.bootui.autoconfigure.sqltrace;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.Test;
+import org.springframework.aot.hint.RuntimeHints;
+import org.springframework.aot.hint.predicate.RuntimeHintsPredicates;
+
+/**
+ * Verifies that every JDK proxy {@link SqlTracingProxies} creates at runtime is registered as
+ * native-image proxy metadata, so SQL tracing works in a GraalVM native image instead of failing.
+ */
+class SqlTraceRuntimeHintsTests {
+
+    private final RuntimeHints hints = new RuntimeHints();
+
+    SqlTraceRuntimeHintsTests() {
+        new SqlTraceRuntimeHints().registerHints(hints, getClass().getClassLoader());
+    }
+
+    @Test
+    void registersDataSourceProxyWithMarkerAndAutoCloseable() {
+        assertThat(RuntimeHintsPredicates.proxies()
+                        .forInterfaces(DataSource.class, AutoCloseable.class, SqlTracedDataSource.class))
+                .accepts(hints);
+    }
+
+    @Test
+    void registersConnectionAndStatementProxies() {
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(Connection.class))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(Statement.class))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(PreparedStatement.class))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(CallableStatement.class))
+                .accepts(hints);
+    }
+
+    @Test
+    void registrationsMatchTheInterfaceSetsUsedAtRuntime() {
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.DATA_SOURCE_INTERFACES))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.CONNECTION_INTERFACES))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.STATEMENT_INTERFACES))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.PREPARED_STATEMENT_INTERFACES))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.CALLABLE_STATEMENT_INTERFACES))
+                .accepts(hints);
+    }
+}
