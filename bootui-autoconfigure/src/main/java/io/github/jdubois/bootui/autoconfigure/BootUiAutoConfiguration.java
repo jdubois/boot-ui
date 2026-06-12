@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionHandlerResolver;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
+import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsDashboardController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
@@ -129,6 +130,7 @@ import org.springframework.core.env.Environment;
     GraalVmController.class,
     CracController.class,
     SqlTraceController.class,
+    DiagnosticsDashboardController.class,
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
@@ -160,6 +162,7 @@ public class BootUiAutoConfiguration {
             GraalVmController.class.getName(),
             CracController.class.getName(),
             SqlTraceController.class.getName(),
+            DiagnosticsDashboardController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
             HttpExchangesController.class.getName(),
