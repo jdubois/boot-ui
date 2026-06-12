@@ -49,6 +49,8 @@ public class BootUiSpringSecurityAutoConfiguration {
             throws Exception {
         String[] bootUiPatterns = bootUiSecurityPatterns(properties);
         String otlpPattern = childSecurityPattern(properties.getApiPath(), "otlp");
+        String mcpPattern = childSecurityEndpoint(properties.getApiPath(), "mcp");
+        String mcpDescendantsPattern = childSecurityPattern(properties.getApiPath(), "mcp");
         log.warn(
                 "BootUI detected Spring Security and is permitting unauthenticated access to {}; "
                         + "BootUI's localhost-only filter still rejects non-loopback callers unless "
@@ -56,7 +58,11 @@ public class BootUiSpringSecurityAutoConfiguration {
                 String.join(", ", bootUiPatterns));
         return http.securityMatcher(bootUiPatterns)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-                .csrf(csrf -> csrf.spa().ignoringRequestMatchers(otlpPattern))
+                // OTLP ingest and the MCP JSON-RPC endpoint are called by non-browser programmatic
+                // clients (OpenTelemetry exporters, local AI agents) that cannot present BootUI's SPA
+                // CSRF token, so they are exempted here. They remain protected from cross-site writes by
+                // LocalhostOnlyFilter's loopback, Host allow-list, and Origin/Sec-Fetch-Site checks.
+                .csrf(csrf -> csrf.spa().ignoringRequestMatchers(otlpPattern, mcpPattern, mcpDescendantsPattern))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .build();
     }
@@ -73,7 +79,11 @@ public class BootUiSpringSecurityAutoConfiguration {
     }
 
     private static String childSecurityPattern(String basePath, String childPath) {
-        return withoutTrailingSlash(basePath) + "/" + childPath + "/**";
+        return childSecurityEndpoint(basePath, childPath) + "/**";
+    }
+
+    private static String childSecurityEndpoint(String basePath, String childPath) {
+        return withoutTrailingSlash(basePath) + "/" + childPath;
     }
 
     private static String withoutTrailingSlash(String path) {

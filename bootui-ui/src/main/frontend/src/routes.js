@@ -42,6 +42,7 @@ const DevTools = () => import('./views/DevTools.vue')
 const Traces = () => import('./views/Traces.vue')
 const Ai = () => import('./views/Ai.vue')
 const Copilot = () => import('./views/Copilot.vue')
+const McpServer = () => import('./views/McpServer.vue')
 
 export const groups = {
   overview: 'overview',
@@ -302,6 +303,12 @@ export const routes = [
     name: 'http-probe',
     component: HttpProbe,
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe'}
+  },
+  {
+    path: '/mcp-server',
+    name: 'mcp-server',
+    component: McpServer,
+    meta: {group: groups.developerTools, icon: 'bi-plug', title: 'MCP Server'}
   },
   {
     path: '/devtools',

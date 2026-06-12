@@ -58,6 +58,7 @@ public final class BootUiPanels {
     public static final String SPRING = "spring";
     public static final String CRAC = "crac";
     public static final String SQL_TRACE = "sql-trace";
+    public static final String MCP_SERVER = "mcp-server";
 
     private static final List<Panel> PANELS = List.of(
             new Panel(OVERVIEW, "Overview", false, "/overview"),
@@ -104,7 +105,8 @@ public final class BootUiPanels {
             new Panel(REST_API, "REST API", true, "/rest-api"),
             new Panel(SPRING, "Spring", true, "/spring"),
             new Panel(CRAC, "CRaC", true, "/crac"),
-            new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"));
+            new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"),
+            new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

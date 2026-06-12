@@ -10,6 +10,11 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
+import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
+import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
@@ -31,6 +36,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aot.AotDetector;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
@@ -60,6 +66,7 @@ import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Main BootUI auto-configuration entry point.
@@ -111,6 +118,8 @@ import org.springframework.core.env.Environment;
     LogTailController.class,
     ExceptionsController.class,
     BootUiAutoConfiguration.ExceptionsConfiguration.class,
+    BootUiAutoConfiguration.McpConfiguration.class,
+    McpServerController.class,
     HttpExchangesController.class,
     ProfileDiffController.class,
     SpringSecurityController.class,
@@ -187,6 +196,7 @@ public class BootUiAutoConfiguration {
             ExceptionsController.class.getName(),
             ThreadDumpController.class.getName(),
             MemoryController.class.getName(),
+            McpServerController.class.getName(),
             DismissedRulesController.class.getName());
 
     private static final Set<String> LAZY_BEAN_NAMES =
@@ -288,6 +298,86 @@ public class BootUiAutoConfiguration {
             BootUiExceptionLogAppender bootUiExceptionLogAppender(ExceptionStore store) {
                 return BootUiExceptionLogAppender.install(store);
             }
+        }
+    }
+
+    /**
+     * Registers the local-only MCP server beans. The beans are always registered while BootUI is
+     * active, but the server only serves requests while {@link McpServerState} is enabled. The live
+     * state is initialized from {@code bootui.mcp.enabled} (fail closed: {@code OFF}/{@code AUTO}
+     * start disabled) and can be toggled at runtime from the MCP Server panel. BootUI's activation
+     * condition keeps it confined to dev contexts, and the endpoint lives under {@code /bootui/api}
+     * so it inherits the loopback/Host/cross-site safety filters. Tools are thin adapters over the
+     * existing BootUI controllers, so masking and per-panel toggles still apply.
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class McpConfiguration {
+
+        @Bean
+        McpServerState bootUiMcpServerState(BootUiProperties properties) {
+            return new McpServerState(properties.getMcp().getEnabled());
+        }
+
+        @Bean
+        @Lazy
+        BootUiMcpTools bootUiMcpTools(
+                ObjectProvider<OverviewController> overview,
+                ObjectProvider<HealthController> health,
+                ObjectProvider<ConfigController> config,
+                ObjectProvider<BeansController> beans,
+                ObjectProvider<MappingsController> mappings,
+                ObjectProvider<ExceptionsController> exceptions,
+                ObjectProvider<SecurityLogsController> securityLogs,
+                ObjectProvider<SqlTraceController> sqlTrace,
+                ObjectProvider<TracesController> traces,
+                ObjectProvider<LogTailController> logTail,
+                ObjectProvider<HttpExchangesController> httpExchanges,
+                ObjectProvider<ArchitectureController> architecture,
+                ObjectProvider<SpringController> spring,
+                ObjectProvider<HibernateController> hibernate,
+                ObjectProvider<MemoryController> memory,
+                ObjectProvider<SecurityController> security,
+                ObjectProvider<PentestingController> pentesting,
+                ObjectProvider<RestApiController> restApi,
+                ObjectProvider<GraalVmController> graalvm,
+                ObjectProvider<CracController> crac,
+                BootUiProperties properties) {
+            return new BootUiMcpTools(
+                    overview,
+                    health,
+                    config,
+                    beans,
+                    mappings,
+                    exceptions,
+                    securityLogs,
+                    sqlTrace,
+                    traces,
+                    logTail,
+                    httpExchanges,
+                    architecture,
+                    spring,
+                    hibernate,
+                    memory,
+                    security,
+                    pentesting,
+                    restApi,
+                    graalvm,
+                    crac,
+                    Math.max(1, properties.getMcp().getMaxResults()));
+        }
+
+        @Bean
+        @Lazy
+        BootUiMcpService bootUiMcpService(
+                BootUiMcpTools tools, BootUiProperties properties, ObjectProvider<ObjectMapper> objectMapper) {
+            String version = BootUiAutoConfiguration.class.getPackage().getImplementationVersion();
+            return new BootUiMcpService(tools, properties, objectMapper.getIfAvailable(ObjectMapper::new), version);
+        }
+
+        @Bean
+        @Lazy
+        BootUiMcpController bootUiMcpController(BootUiMcpService service, BootUiMcpTools tools, McpServerState state) {
+            return new BootUiMcpController(service, tools, state);
         }
     }
 

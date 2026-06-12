@@ -154,6 +154,10 @@ public class BootUiProperties {
      * GraalVM readiness panel settings.
      */
     private Graalvm graalvm = new Graalvm();
+    /**
+     * Local MCP (Model Context Protocol) server settings.
+     */
+    private Mcp mcp = new Mcp();
 
     public Mode getEnabled() {
         return enabled;
@@ -426,6 +430,14 @@ public class BootUiProperties {
 
     public void setGraalvm(Graalvm graalvm) {
         this.graalvm = graalvm == null ? new Graalvm() : graalvm;
+    }
+
+    public Mcp getMcp() {
+        return mcp;
+    }
+
+    public void setMcp(Mcp mcp) {
+        this.mcp = mcp == null ? new Mcp() : mcp;
     }
 
     /**
@@ -1345,6 +1357,51 @@ public class BootUiProperties {
         @Override
         public boolean isProjectSessionDirectoryLayout() {
             return true;
+        }
+    }
+
+    /**
+     * Settings for the local, opt-in MCP (Model Context Protocol) server that exposes BootUI
+     * advisors and diagnostics as tools to local AI agents.
+     *
+     * <p>Disabled by default ({@link Mode#OFF}). This property sets the <em>initial</em> state of the
+     * server; {@code bootui.mcp.enabled=ON} starts it enabled and exposes the JSON-RPC endpoint at
+     * {@code /bootui/api/mcp}. The MCP Server panel can toggle the server on or off at runtime
+     * (overriding this value) via {@code POST /bootui/api/mcp-server/toggle}. Even when enabled, the
+     * endpoint stays behind the same loopback / Host allow-list / cross-site write defenses as the
+     * rest of the BootUI API, and every tool honors the per-panel {@code bootui.panels.*} enable and
+     * read-only toggles.
+     */
+    public static class Mcp {
+
+        /**
+         * Initial state of the local MCP server. {@link Mode#OFF} by default (fail closed);
+         * {@link Mode#ON} starts the server enabled. {@link Mode#AUTO} is treated the same as
+         * {@link Mode#OFF} so the server is never silently exposed. The MCP Server panel can override
+         * this at runtime.
+         */
+        private Mode enabled = Mode.OFF;
+
+        /**
+         * Maximum number of items returned by paginated read tools (config, beans, mappings,
+         * security logs, traces, HTTP exchanges) in a single call.
+         */
+        private int maxResults = 200;
+
+        public Mode getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(Mode enabled) {
+            this.enabled = enabled == null ? Mode.OFF : enabled;
+        }
+
+        public int getMaxResults() {
+            return maxResults;
+        }
+
+        public void setMaxResults(int maxResults) {
+            this.maxResults = maxResults;
         }
     }
 }
