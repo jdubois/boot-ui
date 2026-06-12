@@ -47,18 +47,21 @@ public class DiagnosticsDashboardController {
     private final ObjectProvider<SqlTraceRecorder> sqlTraceRecorder;
     private final ObjectProvider<ExceptionStore> exceptionStore;
     private final ObjectProvider<TelemetryStore> telemetryStore;
+    private final ObjectProvider<SecurityAuditTraceStore> securityAuditTraceStore;
 
     public DiagnosticsDashboardController(
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
             ObjectProvider<ExceptionStore> exceptionStore,
-            ObjectProvider<TelemetryStore> telemetryStore) {
+            ObjectProvider<TelemetryStore> telemetryStore,
+            ObjectProvider<SecurityAuditTraceStore> securityAuditTraceStore) {
         this.httpExchanges = httpExchanges;
         this.securityLogs = securityLogs;
         this.sqlTraceRecorder = sqlTraceRecorder;
         this.exceptionStore = exceptionStore;
         this.telemetryStore = telemetryStore;
+        this.securityAuditTraceStore = securityAuditTraceStore;
     }
 
     @GetMapping
@@ -166,10 +169,21 @@ public class DiagnosticsDashboardController {
         if (report == null || !report.auditEventsPresent()) {
             return List.of();
         }
+        SecurityAuditTraceStore traceStore = securityAuditTraceStore.getIfAvailable();
         List<DiagnosticsCorrelator.SecuritySignal> signals = new ArrayList<>();
         for (SecurityLogEventDto event : report.events()) {
+            SecurityAuditTraceStore.Captured captured =
+                    traceStore == null ? null : traceStore.lookup(event.timestamp(), event.type(), event.principal());
+            String traceId = captured == null ? null : captured.traceId();
+            String requestMethod = captured == null ? null : captured.requestMethod();
+            String requestPath = captured == null ? null : captured.requestPath();
             signals.add(new DiagnosticsCorrelator.SecuritySignal(
-                    parseTimestamp(event.timestamp()), event.principal(), event.type()));
+                    parseTimestamp(event.timestamp()),
+                    traceId,
+                    event.principal(),
+                    event.type(),
+                    requestMethod,
+                    requestPath));
         }
         return signals;
     }

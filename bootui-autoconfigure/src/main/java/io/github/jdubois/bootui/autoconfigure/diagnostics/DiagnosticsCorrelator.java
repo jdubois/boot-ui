@@ -63,7 +63,8 @@ public final class DiagnosticsCorrelator {
             String requestPath,
             boolean applicationException) {}
 
-    public record SecuritySignal(long timestamp, String principal, String type) {}
+    public record SecuritySignal(
+            long timestamp, String traceId, String principal, String type, String requestMethod, String requestPath) {}
 
     public record SpanSignal(String traceId, String rootName, long startMs, long endMs, boolean error) {}
 
@@ -164,7 +165,9 @@ public final class DiagnosticsCorrelator {
         // 5. Exceptions without a trace: try to match an HTTP-anchored request by path, else defer.
         List<ExceptionSignal> threadExceptions = new ArrayList<>();
         for (ExceptionSignal ex : looseExceptions) {
-            Activity match = hasText(ex.requestPath()) ? matchByPath(anchored, ex) : null;
+            Activity match = hasText(ex.requestPath())
+                    ? matchByPath(anchored, ex.requestMethod(), ex.requestPath(), ex.timestamp())
+                    : null;
             if (match != null) {
                 match.add(exceptionEntry(ex), "EXCEPTION");
                 match.addThread(ex.thread());
@@ -173,13 +176,27 @@ public final class DiagnosticsCorrelator {
             }
         }
 
-        // 6. Security events have no trace context: match an HTTP request by principal + time, then
-        // fall back to the nearest contemporaneous HTTP request (covers anonymous / failed-auth /
-        // 401 / 403 events, which carry no principal that lines up with the recorded exchange).
+        // 6. Security events: link to the request (and trace) that produced them using a ladder of
+        // increasingly heuristic strategies. When tracing is active and the audit event captured a
+        // trace id (see SecurityAuditTraceListener), join the trace activity directly; otherwise match
+        // the originating HTTP request by path, by principal, or by nearest time. A final fallback
+        // groups the event under its trace even when only a span (no HTTP exchange) is known.
         for (SecuritySignal security : inputs.security()) {
-            Activity match = matchByPrincipal(anchored, security);
+            if (hasText(security.traceId())) {
+                tracingActive = true;
+            }
+            Activity match = matchSecurityByTrace(byTrace, security, true);
+            if (match == null && hasText(security.requestPath())) {
+                match = matchByPath(anchored, security.requestMethod(), security.requestPath(), security.timestamp());
+            }
+            if (match == null) {
+                match = matchByPrincipal(anchored, security);
+            }
             if (match == null) {
                 match = matchHttpByTime(anchored, security);
+            }
+            if (match == null) {
+                match = matchSecurityByTrace(byTrace, security, false);
             }
             if (match != null) {
                 match.add(securityEntry(security), "SECURITY");
@@ -318,23 +335,45 @@ public final class DiagnosticsCorrelator {
         }
     }
 
-    private static Activity matchByPath(List<Activity> activities, ExceptionSignal ex) {
+    private static Activity matchByPath(
+            List<Activity> activities, String requestMethod, String requestPath, long timestamp) {
         Activity best = null;
         long bestDelta = Long.MAX_VALUE;
         for (Activity activity : activities) {
-            if (activity.path == null || !activity.path.equals(ex.requestPath())) {
+            if (activity.path == null || !activity.path.equals(requestPath)) {
                 continue;
             }
-            if (hasText(ex.requestMethod()) && activity.method != null && !activity.method.equals(ex.requestMethod())) {
+            if (hasText(requestMethod) && activity.method != null && !activity.method.equals(requestMethod)) {
                 continue;
             }
-            long delta = Math.abs(activity.anchorTimestamp() - ex.timestamp());
+            long delta = Math.abs(activity.anchorTimestamp() - timestamp);
             if (delta <= CORRELATION_WINDOW_MS && delta < bestDelta) {
                 best = activity;
                 bestDelta = delta;
             }
         }
         return best;
+    }
+
+    /**
+     * Joins a security event to the activity for its captured {@code traceId}. When {@code
+     * requireHttpAnchor} is set, only an HTTP-anchored activity (a recorded request) qualifies — this
+     * is the strong, distributed-tracing join. Without that requirement it also accepts a span-only
+     * activity, used as a last resort so the event is still grouped under its trace.
+     */
+    private static Activity matchSecurityByTrace(
+            Map<String, Activity> byTrace, SecuritySignal security, boolean requireHttpAnchor) {
+        if (!hasText(security.traceId())) {
+            return null;
+        }
+        Activity activity = byTrace.get(security.traceId());
+        if (activity == null) {
+            return null;
+        }
+        if (requireHttpAnchor && !activity.isHttpAnchored()) {
+            return null;
+        }
+        return activity;
     }
 
     private static Activity matchByPrincipal(List<Activity> activities, SecuritySignal security) {
@@ -548,6 +587,10 @@ public final class DiagnosticsCorrelator {
 
         int diagnosticCount() {
             return sqlCount + exceptionCount + securityCount + logCount;
+        }
+
+        boolean isHttpAnchored() {
+            return method != null || path != null;
         }
 
         long anchorTimestamp() {

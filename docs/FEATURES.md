@@ -603,10 +603,12 @@ questions like "which HTTP request triggered this SQL query?", "what caused this
 this security event?". It does not capture anything of its own: it reads bounded, already-masked snapshots from the
 existing panels (reusing their controllers so value-exposure and masking rules are preserved) and joins them with a
 correlation engine. Correlation is strongest when distributed tracing is active, where signals are grouped by their
-shared trace id; without tracing it falls back to HTTP-request anchoring — exceptions by request path, and security
-events (failed logins, access-denied, 401/403) by principal or, when no principal lines up, the nearest contemporaneous
-request — and then thread plus time-window heuristics, and the panel makes that confidence explicit with a per-request
-badge (Trace-linked, Request, or Heuristic) and a hint when no trace id is observed. Signals that cannot be tied to a
+shared trace id; BootUI captures the active trace and request context when each security event is published, so failed
+logins, access-denied, and 401/403 events are trace-linked to the request that caused them just like SQL and exceptions.
+Without tracing it falls back to HTTP-request anchoring — exceptions and security events by request path, and security
+events also by principal or, when no principal lines up, the nearest contemporaneous request — and then thread plus
+time-window heuristics, and the panel makes that confidence explicit with a per-request badge (Trace-linked, Request, or
+Heuristic) and a hint when no trace id is observed. Signals that cannot be tied to a
 request are surfaced in a separate "Unattributed signals" list rather than being silently dropped. Selecting a request reveals its chronological timeline
 (HTTP, SQL, exceptions, and security events) with one-click links back to the Traces and HTTP Exchanges panels. The
 dashboard is placed first in the Diagnostics group; when none of the underlying sources are active it shows a clear

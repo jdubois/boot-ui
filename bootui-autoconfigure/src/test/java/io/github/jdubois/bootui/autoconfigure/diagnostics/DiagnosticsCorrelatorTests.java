@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsCorrelator.
 import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsCorrelator.HttpSignal;
 import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsCorrelator.Inputs;
 import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsCorrelator.SecuritySignal;
+import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsCorrelator.SpanSignal;
 import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsCorrelator.SqlSignal;
 import io.github.jdubois.bootui.core.dto.DiagnosticsDashboardReport;
 import io.github.jdubois.bootui.core.dto.DiagnosticsRequestDto;
@@ -74,7 +75,7 @@ class DiagnosticsCorrelatorTests {
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of(new SecuritySignal(3_000L, "carol", "AUTHENTICATION_FAILURE")));
+                List.of(new SecuritySignal(3_000L, null, "carol", "AUTHENTICATION_FAILURE", null, null)));
 
         DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
 
@@ -89,7 +90,7 @@ class DiagnosticsCorrelatorTests {
                 List.of(new HttpSignal(10_000L, null, "GET", "/admin", 403, 4L, null)),
                 List.of(),
                 List.of(),
-                List.of(new SecuritySignal(10_050L, "anonymousUser", "AUTHORIZATION_DENIED")));
+                List.of(new SecuritySignal(10_050L, null, "anonymousUser", "AUTHORIZATION_DENIED", null, null)));
 
         DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
 
@@ -107,7 +108,7 @@ class DiagnosticsCorrelatorTests {
                 List.of(new HttpSignal(20_000L, null, "GET", "/account", 200, 6L, "alice")),
                 List.of(),
                 List.of(),
-                List.of(new SecuritySignal(20_050L, "bob", "AUTHENTICATION_FAILURE")));
+                List.of(new SecuritySignal(20_050L, null, "bob", "AUTHENTICATION_FAILURE", null, null)));
 
         DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
 
@@ -123,12 +124,73 @@ class DiagnosticsCorrelatorTests {
                 List.of(new HttpSignal(30_000L, null, "GET", "/admin", 403, 4L, null)),
                 List.of(),
                 List.of(),
-                List.of(new SecuritySignal(40_000L, "anonymousUser", "AUTHORIZATION_DENIED")));
+                List.of(new SecuritySignal(40_000L, null, "anonymousUser", "AUTHORIZATION_DENIED", null, null)));
 
         DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
 
         assertThat(report.requests()).noneMatch(request -> request.securityCount() > 0);
         assertThat(report.unattributed().securityCount()).isEqualTo(1);
+    }
+
+    @Test
+    void joinsSecurityEventToItsHttpRequestByTraceId() {
+        Inputs inputs = inputs(
+                List.of(new HttpSignal(50_000L, "trace-sec", "GET", "/admin", 403, 4L, null)),
+                List.of(),
+                List.of(),
+                List.of(new SecuritySignal(
+                        50_010L, "trace-sec", "anonymousUser", "AUTHORIZATION_DENIED", "GET", "/admin")));
+
+        DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
+
+        assertThat(report.tracingActive()).isTrue();
+        assertThat(report.requests()).hasSize(1);
+        DiagnosticsRequestDto request = report.requests().get(0);
+        assertThat(request.correlation()).isEqualTo("TRACE");
+        assertThat(request.traceId()).isEqualTo("trace-sec");
+        assertThat(request.securityCount()).isEqualTo(1);
+        assertThat(request.timeline()).extracting(e -> e.kind()).contains("HTTP", "SECURITY");
+        assertThat(report.unattributed().securityCount()).isZero();
+    }
+
+    @Test
+    void linksSecurityEventToItsHttpRequestByCapturedPathWhenTracingIsOff() {
+        Inputs inputs = inputs(
+                List.of(
+                        new HttpSignal(60_000L, null, "POST", "/login", 401, 3L, null),
+                        new HttpSignal(60_005L, null, "GET", "/health", 200, 1L, null)),
+                List.of(),
+                List.of(),
+                List.of(new SecuritySignal(60_050L, null, "alice", "AUTHENTICATION_FAILURE", "POST", "/login")));
+
+        DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
+
+        assertThat(report.requests()).anySatisfy(request -> {
+            assertThat(request.path()).isEqualTo("/login");
+            assertThat(request.securityCount()).isEqualTo(1);
+        });
+        assertThat(report.requests())
+                .noneMatch(request -> "/health".equals(request.path()) && request.securityCount() > 0);
+        assertThat(report.unattributed().securityCount()).isZero();
+    }
+
+    @Test
+    void groupsSecurityEventUnderSpanOnlyTraceAsLastResort() {
+        Inputs inputs = new Inputs(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new SecuritySignal(70_010L, "trace-span", "anonymousUser", "AUTHORIZATION_DENIED", null, null)),
+                List.of(new SpanSignal("trace-span", "GET /admin", 70_000L, 70_020L, true)),
+                ALL_SOURCES);
+
+        DiagnosticsDashboardReport report = DiagnosticsCorrelator.correlate(inputs, null, null, null);
+
+        assertThat(report.requests()).hasSize(1);
+        DiagnosticsRequestDto request = report.requests().get(0);
+        assertThat(request.traceId()).isEqualTo("trace-span");
+        assertThat(request.securityCount()).isEqualTo(1);
+        assertThat(report.unattributed().securityCount()).isZero();
     }
 
     @Test
