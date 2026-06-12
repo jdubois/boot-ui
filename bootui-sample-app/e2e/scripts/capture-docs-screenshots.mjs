@@ -37,6 +37,7 @@ const panelOrder = [
   ['conditions', 'Conditions'],
   ['mappings', 'Mappings'],
   ['database-connection-pools', 'Database Connection Pools'],
+  ['sql-trace', 'SQL Trace'],
   ['data', 'Spring Data'],
   ['hibernate', 'Hibernate'],
   ['flyway', 'Flyway'],
@@ -2663,6 +2664,94 @@ function exceptionDetail(id) {
   return {group, frames: [], causes: [], occurrences: []}
 }
 
+const sqlSelectProductsActive =
+  'select p1_0.id,p1_0.active,p1_0.category,p1_0.name,p1_0.price from products p1_0 where p1_0.active=?'
+const sqlSelectProductById =
+  'select p1_0.id,p1_0.active,p1_0.category,p1_0.name,p1_0.price from products p1_0 where p1_0.id=?'
+const sqlSelectOrderItems =
+  'select oi1_0.order_id,oi1_0.id,oi1_0.product_id,oi1_0.quantity from order_items oi1_0 where oi1_0.order_id=?'
+const sqlInsertOrder = 'insert into orders (customer,reference,total,id) values (?,?,?,?)'
+
+const sqlTrace = {
+  available: true,
+  unavailableReason: null,
+  capturing: true,
+  captureParameters: false,
+  bufferSize: 200,
+  totalCaptured: 14,
+  slowQueryThresholdMillis: 100,
+  dataSources: ['dataSource'],
+  stats: {
+    totalQueries: 14,
+    totalDurationMillis: 254,
+    maxDurationMillis: 142,
+    avgDurationMillis: 18.1,
+    slowQueries: 1,
+    failedQueries: 1,
+    batchExecutions: 0,
+    selectCount: 9,
+    insertCount: 3,
+    updateCount: 1,
+    deleteCount: 1,
+    otherCount: 0,
+    evicted: 0
+  },
+  topStatements: [
+    {
+      sql: sqlSelectOrderItems,
+      category: 'SELECT',
+      executions: 6,
+      totalDurationMillis: 61,
+      maxDurationMillis: 14,
+      potentialNPlusOne: true
+    },
+    {
+      sql: sqlInsertOrder,
+      category: 'INSERT',
+      executions: 3,
+      totalDurationMillis: 18,
+      maxDurationMillis: 9,
+      potentialNPlusOne: false
+    },
+    {
+      sql: sqlSelectProductsActive,
+      category: 'SELECT',
+      executions: 2,
+      totalDurationMillis: 160,
+      maxDurationMillis: 142,
+      potentialNPlusOne: false
+    }
+  ],
+  entries: [
+    sqlTraceEntry(14, 2, sqlSelectProductsActive, 'SELECT', 142, true, null, 'conn-2', 4),
+    sqlTraceEntry(13, 8, sqlSelectOrderItems, 'SELECT', 14, true, null, 'conn-2', 4),
+    sqlTraceEntry(12, 8, sqlSelectOrderItems, 'SELECT', 12, true, null, 'conn-2', 4),
+    sqlTraceEntry(11, 9, sqlSelectOrderItems, 'SELECT', 11, true, null, 'conn-2', 4),
+    sqlTraceEntry(10, 9, sqlSelectOrderItems, 'SELECT', 9, true, null, 'conn-2', 4),
+    sqlTraceEntry(9, 9, sqlSelectOrderItems, 'SELECT', 8, true, null, 'conn-2', 4),
+    sqlTraceEntry(8, 10, sqlSelectOrderItems, 'SELECT', 7, true, null, 'conn-2', 4),
+    sqlTraceEntry(7, 24, sqlInsertOrder, 'INSERT', 9, true, 1, 'conn-5', 6),
+    sqlTraceEntry(
+      6,
+      26,
+      sqlInsertOrder,
+      'INSERT',
+      3,
+      false,
+      null,
+      'conn-5',
+      6,
+      'could not execute statement [Unique index or primary key violation: PUBLIC.ORDERS(REFERENCE)]'
+    ),
+    sqlTraceEntry(5, 41, sqlInsertOrder, 'INSERT', 6, true, 1, 'conn-5', 6),
+    sqlTraceEntry(4, 58, 'update products set price=? where id=?', 'UPDATE', 5, true, 1, 'conn-3', 2),
+    sqlTraceEntry(3, 72, 'delete from cart_items where cart_id=?', 'DELETE', 4, true, 1, 'conn-3', 2),
+    sqlTraceEntry(2, 90, sqlSelectProductsActive, 'SELECT', 18, true, null, 'conn-1', 2),
+    sqlTraceEntry(1, 96, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2)
+  ],
+  warnings: []
+}
+
 const screenshots = [
   [
     'overview',
@@ -2728,6 +2817,17 @@ const screenshots = [
       await page.getByText('HikariPool-1').first().waitFor()
       await page.getByText('jdbc:postgresql://localhost:5432/bootui_sample').waitFor()
       await page.waitForTimeout(4500)
+    }
+  ],
+  [
+    'sql-trace',
+    'SQL Trace',
+    'bootui-sql-trace.png',
+    async (page) => {
+      await page.getByText('Most frequent statements').waitFor()
+      await page.getByText('possible N+1').waitFor()
+      await page.locator('tr.sql-row').first().click()
+      await page.getByText('PREPARED').first().waitFor()
     }
   ],
   [
@@ -3330,6 +3430,8 @@ async function handleApiRoute(route) {
     const poolName = endpoint.slice('database-connection-pools/pools/'.length, -'/snapshot'.length)
     return fulfillJson(route, databaseConnectionPoolSnapshot(poolName))
   }
+  if (endpoint === 'sql-trace' || endpoint === 'sql-trace/clear' || endpoint === 'sql-trace/recording')
+    return fulfillJson(route, sqlTrace)
   if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
   if (endpoint === 'spring-cache') return fulfillJson(route, cache)
   if (endpoint === 'spring-security') return fulfillJson(route, springSecurity)
@@ -3642,6 +3744,36 @@ function githubWorkflow(id, name, workflowPath) {
     state: 'active',
     htmlUrl: `https://github.com/jdubois/boot-ui/actions/workflows/${workflowPath.split('/').at(-1)}`,
     latestRun: null
+  }
+}
+
+function sqlTraceEntry(
+  id,
+  secondsAgo,
+  sql,
+  category,
+  durationMillis,
+  success,
+  affectedRows,
+  connectionId,
+  threadSuffix,
+  errorMessage = null
+) {
+  return {
+    id,
+    timestamp: nowMillis - secondsAgo * 1000,
+    sql,
+    statementType: 'PREPARED',
+    category,
+    durationMillis,
+    success,
+    errorMessage,
+    affectedRows,
+    batchSize: 0,
+    connectionId,
+    thread: `http-nio-8080-exec-${threadSuffix}`,
+    slow: durationMillis >= 100,
+    parameters: []
   }
 }
 

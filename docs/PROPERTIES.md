@@ -67,6 +67,7 @@ Panel settings are consistent across the UI and API:
 | Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                |
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
+| Database        | SQL Trace                 | `sql-trace`                 | `bootui.panels.sql-trace.enabled`                 | `bootui.panels.sql-trace.read-only`       |
 | Database        | Spring Data               | `data`                      | `bootui.panels.data.enabled`                      | Not applicable; view-only.                |
 | Database        | Flyway                    | `flyway`                    | `bootui.panels.flyway.enabled`                    | `bootui.panels.flyway.read-only`          |
 | Database        | Liquibase                 | `liquibase`                 | `bootui.panels.liquibase.enabled`                 | `bootui.panels.liquibase.read-only`       |
@@ -77,8 +78,10 @@ Panel settings are consistent across the UI and API:
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
+| Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
+| Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                |
@@ -210,6 +213,21 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.liquibase.enabled`   | `true`  | Show Liquibase change-set history and allow its read APIs.                   |
 | `bootui.panels.liquibase.read-only` | `false` | Disable Liquibase `update` actions while keeping change-set history visible. |
 
+### SQL Trace
+
+| Property                                  | Default | Description                                                                                                                                  |
+| ----------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.sql-trace.enabled`         | `true`  | Show the SQL Trace panel and its captured executions.                                                                                        |
+| `bootui.panels.sql-trace.read-only`       | `false` | Disable the Pause/Resume and Clear actions while keeping captured executions visible.                                                        |
+| `bootui.sql-trace.enabled`                | `true`  | Wrap `DataSource` beans with BootUI's hand-written JDBC tracing proxy. When `false`, no data source is wrapped.                              |
+| `bootui.sql-trace.recording`              | `true`  | Initial recording state. Recording can be paused and resumed at runtime from the panel without unwrapping data sources.                      |
+| `bootui.sql-trace.capture-parameters`     | `false` | Capture bound statement parameters alongside the SQL text. Off by default because values may be sensitive; metadata-only exposure suppresses them even when enabled. |
+| `bootui.sql-trace.max-entries`            | `200`   | Maximum number of executed statements retained in the in-memory ring buffer.                                                                 |
+| `bootui.sql-trace.slow-query-threshold-millis` | `100` | Executions at or above this many milliseconds are flagged as slow. Set to `0` to disable slow-query flagging.                              |
+| `bootui.sql-trace.max-sql-length`         | `2000`  | Maximum retained SQL text length; longer statements are truncated.                                                                           |
+| `bootui.sql-trace.max-parameter-length`   | `200`   | Maximum retained length of a single captured parameter value.                                                                                |
+| `bootui.sql-trace.n-plus-one-threshold`   | `5`     | Number of times an identical `SELECT` must repeat within the buffer before it is flagged as a likely N+1 access pattern (minimum `2`).       |
+
 ### Traces
 
 | Property                                     | Default   | Description                                                                                           |
@@ -237,6 +255,16 @@ Panel settings are consistent across the UI and API:
 | ------------------------------------ | ------- | ---------------------------------------------- |
 | `bootui.panels.http-probe.enabled`   | `true`  | Show the HTTP Probe panel.                     |
 | `bootui.panels.http-probe.read-only` | `false` | Disable sending probe requests through BootUI. |
+
+### Exceptions
+
+| Property                                    | Default | Description                                                                                                |
+| ------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.exceptions.enabled`          | `true`  | Show the Exceptions panel and its captured exception groups.                                               |
+| `bootui.panels.exceptions.read-only`        | `false` | Disable the clear action while keeping captured exceptions visible.                                        |
+| `bootui.exceptions.max-groups`              | `100`   | Maximum number of distinct exception groups retained. The group with the oldest most-recent occurrence is evicted first. |
+| `bootui.exceptions.max-occurrences-per-group` | `25`  | Maximum number of recent occurrences retained per exception group.                                         |
+| `bootui.exceptions.max-stack-frames`        | `50`    | Maximum number of stack-trace frames retained per exception (and per cause).                               |
 
 ### Vulnerabilities
 
@@ -278,10 +306,13 @@ Panel settings are consistent across the UI and API:
 
 ### GraalVM
 
-| Property                          | Default | Description                                                                          |
-| --------------------------------- | ------- | ------------------------------------------------------------------------------------ |
-| `bootui.panels.graalvm.enabled`   | `true`  | Show the GraalVM native-image readiness panel and its latest report.                 |
-| `bootui.panels.graalvm.read-only` | `false` | Disable the on-demand readiness scan action (the metadata download stays available). |
+| Property                                  | Default | Description                                                                          |
+| ----------------------------------------- | ------- | ------------------------------------------------------------------------------------ |
+| `bootui.panels.graalvm.enabled`           | `true`  | Show the GraalVM native-image readiness panel and its latest report.                 |
+| `bootui.panels.graalvm.read-only`         | `false` | Disable the on-demand readiness scan action (the metadata download stays available). |
+| `bootui.graalvm.repository-lookup-enabled` | `true` | Allow the dependency survey to query Oracle's GraalVM reachability-metadata repository. This is the panel's only outbound network call and runs only during a user-initiated scan. |
+| `bootui.graalvm.repository-lookup-timeout` | `2s`   | Timeout applied to each reachability-metadata repository request.                    |
+| `bootui.graalvm.max-repository-lookups`   | `500`   | Maximum number of distinct dependency coordinates looked up against the reachability-metadata repository in a single scan. |
 
 ### CRaC
 
