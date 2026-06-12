@@ -119,6 +119,10 @@ When BootUI is enabled, the application startup output should include:
 BootUI is available at http://localhost:8080/bootui
 ```
 
+The scheme follows `server.ssl.enabled`: when TLS is enabled the banner uses `https://`
+instead of `http://`. The port and context path are resolved from `local.server.port`
+(falling back to `server.port`, then `8080`) and `server.servlet.context-path`.
+
 This should integrate with the project's startup banner convention.
 
 ### 4.4 First-run experience

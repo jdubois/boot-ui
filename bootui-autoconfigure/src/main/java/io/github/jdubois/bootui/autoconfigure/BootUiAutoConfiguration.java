@@ -538,10 +538,15 @@ public class BootUiAutoConfiguration {
             if (!properties.isShowBanner()) {
                 return;
             }
-            String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
-            String contextPath = environment.getProperty("server.servlet.context-path", "");
-            String url = "http://localhost:" + port + contextPath + properties.getPath();
-            log.info("BootUI is available at {}", url);
+            log.info("BootUI is available at {}", buildStartupUrl(environment, properties));
         };
+    }
+
+    static String buildStartupUrl(Environment environment, BootUiProperties properties) {
+        boolean sslEnabled = environment.getProperty("server.ssl.enabled", Boolean.class, false);
+        String scheme = sslEnabled ? "https" : "http";
+        String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
+        String contextPath = environment.getProperty("server.servlet.context-path", "");
+        return scheme + "://localhost:" + port + contextPath + properties.getPath();
     }
 }
