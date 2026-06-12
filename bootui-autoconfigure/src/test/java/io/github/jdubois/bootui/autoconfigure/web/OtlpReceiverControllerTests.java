@@ -37,9 +37,13 @@ class OtlpReceiverControllerTests {
 
     private static final String TRACE_ID = "0123456789abcdef0123456789abcdef";
 
+    private static final String HOST_TRACE_ID = "fedcba9876543210fedcba9876543210";
+
     private static final String HOST_SPAN_ID = "1111111111111111";
 
     private static final String SELF_SPAN_ID = "2222222222222222";
+
+    private static final String SELF_CHILD_SPAN_ID = "3333333333333333";
 
     private BootUiProperties properties;
 
@@ -83,7 +87,7 @@ class OtlpReceiverControllerTests {
     private static Span hostSpan() {
         long now = System.currentTimeMillis() * 1_000_000L;
         return Span.newBuilder()
-                .setTraceId(bytes(TRACE_ID))
+                .setTraceId(bytes(HOST_TRACE_ID))
                 .setSpanId(bytes(HOST_SPAN_ID))
                 .setName("chat qwen3")
                 .setKind(Span.SpanKind.SPAN_KIND_CLIENT)
@@ -110,6 +114,27 @@ class OtlpReceiverControllerTests {
                         .setCode(Status.StatusCode.STATUS_CODE_OK)
                         .build())
                 .addAttributes(stringAttr("http.route", "/bootui/api/overview"))
+                .build();
+    }
+
+    /**
+     * A nested Spring Security observation span that belongs to the same BootUI request as
+     * {@link #selfSpan()} but carries no path attribute, so it can only be recognized as BootUI's
+     * own through its trace association.
+     */
+    private static Span selfFilterChainSpan() {
+        long now = System.currentTimeMillis() * 1_000_000L;
+        return Span.newBuilder()
+                .setTraceId(bytes(TRACE_ID))
+                .setSpanId(bytes(SELF_CHILD_SPAN_ID))
+                .setParentSpanId(bytes(SELF_SPAN_ID))
+                .setName("security filterchain before")
+                .setKind(Span.SpanKind.SPAN_KIND_INTERNAL)
+                .setStartTimeUnixNano(now)
+                .setEndTimeUnixNano(now + 1_000_000L)
+                .setStatus(Status.newBuilder()
+                        .setCode(Status.StatusCode.STATUS_CODE_OK)
+                        .build())
                 .build();
     }
 
@@ -194,12 +219,16 @@ class OtlpReceiverControllerTests {
     }
 
     @Test
-    void dropsOnlySelfSpansFromMixedPayload() throws Exception {
+    void dropsWholeSelfTraceButKeepsUnrelatedHostTrace() throws Exception {
+        // The self request contributes both its path-bearing root and a nested filter-chain span
+        // that carries no path; both must be dropped, while the unrelated host trace is kept.
         mvc.perform(post("/bootui/api/otlp/v1/traces")
                         .contentType("application/x-protobuf")
-                        .content(request(selfSpan(), hostSpan()).toByteArray()))
+                        .content(request(selfFilterChainSpan(), hostSpan(), selfSpan())
+                                .toByteArray()))
                 .andExpect(status().isOk());
 
+        assertThat(store.findTrace(TRACE_ID)).isNull();
         assertThat(store.allSpansSnapshot()).hasSize(1);
         assertThat(store.allSpansSnapshot().get(0).spanId()).isEqualTo(HOST_SPAN_ID);
     }

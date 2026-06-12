@@ -20,13 +20,38 @@ public class TelemetryStore {
     static final int HARD_MAX_TRACES = 10_000;
 
     static final int HARD_MAX_SPANS_PER_TRACE = 1_000;
+
+    /**
+     * Upper bound on the number of trace ids remembered as BootUI's own traffic. Spans of a single
+     * trace are exported within a short window, so a generous bound keeps a self trace identifiable
+     * across export batches without growing without limit.
+     */
+    static final int SELF_TRACE_MEMORY = 4_096;
+
     private final BootUiProperties.Telemetry config;
     private final LinkedHashMap<String, TraceBucket> tracesById;
+
+    /**
+     * Trace ids known to belong to BootUI's own API traffic. A trace is remembered here the first
+     * time any of its spans is classified as a self span (for example the path-bearing HTTP server
+     * span for {@code /bootui/api/**}). Sibling spans of the same trace that carry no path
+     * attribute &mdash; such as Spring Security {@code security filterchain before/after}
+     * observations &mdash; are then dropped as well, even when they are exported in an earlier batch
+     * than the root span that identifies the trace.
+     */
+    private final LinkedHashMap<String, Boolean> selfTraceIds;
+
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public TelemetryStore(BootUiProperties.Telemetry config) {
         this.config = config;
         this.tracesById = new LinkedHashMap<>(256, 0.75f, false);
+        this.selfTraceIds = new LinkedHashMap<>(256, 0.75f, false) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                return size() > SELF_TRACE_MEMORY;
+            }
+        };
     }
 
     static int effectiveMaxTraces(BootUiProperties.Telemetry config) {
@@ -45,14 +70,37 @@ public class TelemetryStore {
      * Append a span to its trace, evicting the eldest trace when capacity is reached.
      */
     public void add(NormalizedSpan span) {
+        add(span, false);
+    }
+
+    /**
+     * Append a span to its trace unless the span (or any sibling already seen) marks the trace as
+     * BootUI's own traffic.
+     *
+     * @param span the normalized span to store
+     * @param selfSpan {@code true} when the caller has classified this span as BootUI's own (for
+     *     example because it carries a {@code /bootui/**} path); the whole trace is then dropped and
+     *     remembered so its remaining spans are dropped too
+     * @return {@code true} when the span was stored, {@code false} when it was dropped
+     */
+    public boolean add(NormalizedSpan span, boolean selfSpan) {
         if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
-            return;
+            return false;
         }
         lock.writeLock().lock();
         try {
-            TraceBucket bucket = tracesById.remove(span.traceId());
+            String traceId = span.traceId();
+            if (selfSpan) {
+                selfTraceIds.put(traceId, Boolean.TRUE);
+                tracesById.remove(traceId);
+                return false;
+            }
+            if (selfTraceIds.containsKey(traceId)) {
+                return false;
+            }
+            TraceBucket bucket = tracesById.remove(traceId);
             if (bucket == null) {
-                bucket = new TraceBucket(span.traceId());
+                bucket = new TraceBucket(traceId);
                 while (tracesById.size() >= effectiveMaxTraces(config)) {
                     Iterator<Map.Entry<String, TraceBucket>> it =
                             tracesById.entrySet().iterator();
@@ -67,7 +115,8 @@ public class TelemetryStore {
                 bucket.spans.add(span);
             }
             bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
-            tracesById.put(span.traceId(), bucket);
+            tracesById.put(traceId, bucket);
+            return true;
         } finally {
             lock.writeLock().unlock();
         }

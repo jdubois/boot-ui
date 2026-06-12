@@ -78,13 +78,13 @@ public class OtlpReceiverController {
         try {
             List<NormalizedSpan> spans = decoder.decode(body);
             String apiPath = properties.getApiPath();
+            boolean excludeSelf = telemetry.isExcludeSelfSpans();
             int kept = 0;
             for (NormalizedSpan span : spans) {
-                if (telemetry.isExcludeSelfSpans() && TelemetrySpanFilter.isSelfSpan(span, apiPath)) {
-                    continue;
+                boolean selfSpan = excludeSelf && TelemetrySpanFilter.isSelfSpan(span, apiPath);
+                if (store.add(span, selfSpan)) {
+                    kept++;
                 }
-                store.add(span);
-                kept++;
             }
             if (log.isTraceEnabled()) {
                 log.trace("OTLP receiver stored {} spans (of {} received)", kept, spans.size());

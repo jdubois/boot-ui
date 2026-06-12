@@ -10,7 +10,8 @@ const traceReport = {
   traces: [
     {
       traceId,
-      rootSpanName: 'GET /api/sample/hello',
+      rootSpanName: 'security filterchain before',
+      httpPath: '/api/sample/hello',
       services: ['sample-app', 'inventory'],
       startEpochNanos: Date.now() * 1_000_000,
       endEpochNanos: Date.now() * 1_000_000 + 125_000_000,
@@ -78,7 +79,7 @@ test.describe('Traces view', () => {
 
     await openView('traces', /^Traces/)
     await expect(page.getByText('1 / 500 retained trace')).toBeVisible()
-    const traceRow = page.locator('tbody tr', {hasText: 'GET /api/sample/hello'})
+    const traceRow = page.locator('tbody tr', {hasText: '/api/sample/hello'})
     await expect(traceRow).toBeVisible()
     await expect(page.getByText('sample-app')).toBeVisible()
     await expect(traceRow.getByText('AI', {exact: true})).toBeVisible()

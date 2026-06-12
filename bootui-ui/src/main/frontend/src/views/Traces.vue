@@ -95,6 +95,7 @@ const filteredTraces = computed(() => {
   return report.value.traces.filter(
     (t) =>
       (t.traceId || '').toLowerCase().includes(v) ||
+      (t.httpPath || '').toLowerCase().includes(v) ||
       (t.rootSpanName || '').toLowerCase().includes(v) ||
       (t.services || []).join(' ').toLowerCase().includes(v)
   )
@@ -182,7 +183,7 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
           <input
             v-model="filter"
             class="form-control form-control-sm"
-            placeholder="Filter by trace id, root span, or service…"
+            placeholder="Filter by trace id, path, root span, or service…"
           />
         </div>
 
@@ -191,7 +192,7 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
             <thead>
               <tr>
                 <th>Started</th>
-                <th>Root span</th>
+                <th>Request</th>
                 <th>Services</th>
                 <th>Spans</th>
                 <th>Duration</th>
@@ -205,7 +206,11 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
                   <td class="text-muted small">{{ formatTime(t.startEpochNanos) }}</td>
                   <td>
                     <code class="me-2">{{ shortId(t.traceId) }}</code>
-                    <span class="fw-semibold">{{ t.rootSpanName || '—' }}</span>
+                    <span
+                      class="fw-semibold"
+                      :title="t.httpPath && t.rootSpanName && t.httpPath !== t.rootSpanName ? t.rootSpanName : null"
+                      >{{ t.httpPath || t.rootSpanName || '—' }}</span
+                    >
                     <span v-if="t.hasAi" class="badge text-bg-info ms-1"><i class="bi bi-stars"></i> AI</span>
                   </td>
                   <td>
