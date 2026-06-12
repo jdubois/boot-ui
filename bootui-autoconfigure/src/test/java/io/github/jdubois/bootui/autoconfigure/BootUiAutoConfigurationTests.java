@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.aot.AotDetector;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
@@ -44,6 +45,8 @@ import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webmvc.autoconfigure.DispatcherServletAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
+import org.springframework.core.SpringProperties;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -89,6 +92,27 @@ class BootUiAutoConfigurationTests {
     void activatesOnEnabledProfile() {
         runner.withPropertyValues("spring.profiles.active=dev")
                 .run(context -> assertThat(context).hasSingleBean(BootUiAutoConfiguration.class));
+    }
+
+    @Test
+    void reportsEnabledInAotModeWhenRuntimeEnvironmentNoLongerMatches() {
+        // In a native image the activation condition is frozen at AOT build time, so this bean only
+        // exists because BootUI was enabled then. Simulate that with the AOT flag plus a bare
+        // environment that resolve() would otherwise report as disabled (no enabling profile / devtools).
+        SpringProperties.setProperty(AotDetector.AOT_ENABLED, "true");
+        try {
+            BootUiActivation activation = new BootUiAutoConfiguration().bootUiActivation(new MockEnvironment());
+            assertThat(activation.enabled()).isTrue();
+            assertThat(activation.reason()).contains("build time");
+        } finally {
+            SpringProperties.setProperty(AotDetector.AOT_ENABLED, null);
+        }
+    }
+
+    @Test
+    void reportsResolvedStateOutsideAotModeWhenEnvironmentDoesNotMatch() {
+        BootUiActivation activation = new BootUiAutoConfiguration().bootUiActivation(new MockEnvironment());
+        assertThat(activation.enabled()).isFalse();
     }
 
     @Test
