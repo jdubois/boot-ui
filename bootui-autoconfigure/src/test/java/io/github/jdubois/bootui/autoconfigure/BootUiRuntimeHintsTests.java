@@ -63,4 +63,20 @@ class BootUiRuntimeHintsTests {
         assertThat(RuntimeHintsPredicates.reflection().onType(TypeReference.of(PanelDto[].class)))
                 .accepts(hints);
     }
+
+    @Test
+    void registersActuatorMappingsExpressionDescriptionArrayTypesForJacksonSerialization() {
+        String mediaType =
+                "org.springframework.boot.webmvc.actuate.web.mappings.RequestMappingConditionsDescription$MediaTypeExpressionDescription";
+        String nameValue =
+                "org.springframework.boot.webmvc.actuate.web.mappings.RequestMappingConditionsDescription$NameValueExpressionDescription";
+        for (String descriptionType : new String[] {mediaType, nameValue}) {
+            assertThat(RuntimeHintsPredicates.reflection()
+                            .onType(TypeReference.of(descriptionType))
+                            .withMemberCategory(MemberCategory.INVOKE_PUBLIC_METHODS))
+                    .accepts(hints);
+            assertThat(RuntimeHintsPredicates.reflection().onType(TypeReference.of(descriptionType + "[]")))
+                    .accepts(hints);
+        }
+    }
 }

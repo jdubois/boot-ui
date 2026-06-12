@@ -17,6 +17,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the entrypoint is exec-form, and the Docker `HEALTHCHECK` was dropped (probe `/actuator/health` from your orchestrator
   instead, as the native image already documents).
 
+### Fixed
+
+- **GraalVM native image: the Mappings panel no longer fails.** `GET /bootui/api/mappings` (the compatibility
+  endpoint that returns Actuator's raw mappings descriptor) threw a `MissingReflectionRegistrationError` in a native
+  image because Jackson reflectively instantiates the array forms of Actuator's nested `MediaTypeExpressionDescription`
+  / `NameValueExpressionDescription` types while serializing them. BootUI's `RuntimeHints` now register those types and
+  their array forms, so consumers of the starter no longer need to declare the hints themselves.
+- **GraalVM native image: BootUI no longer self-reports as "Disabled" while running.** In a native image the activation
+  condition is frozen at AOT build time, but the `BootUiActivation` bean recomputed it against the live runtime
+  environment (where the build-time `dev` profile / `bootui.enabled=ON` no longer apply), so the Overview panel and the
+  startup log claimed BootUI was disabled even though it was serving. When running AOT-generated artifacts, BootUI now
+  trusts the frozen build-time decision and reports the accurate enabled state.
+
 ## [1.3.0] - 2026-06-11
 
 Feature release headlined by two new GraalVM/CRaC capabilities — a new **CRaC (Coordinated Restore at Checkpoint)
