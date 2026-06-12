@@ -6,6 +6,10 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -13,20 +17,26 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.sql.DataSource;
-import org.springframework.util.ClassUtils;
 
 /**
  * Hand-written JDBC tracing built only on {@link java.lang.reflect.Proxy}.
  *
  * <p>This is the from-scratch replacement for a third-party database-proxy
  * library. {@link #wrap(DataSource, SqlTraceRecorder)} returns a dynamic proxy
- * for the {@code DataSource}; that proxy wraps every {@link java.sql.Connection}
- * it hands out, and each connection wraps the {@link java.sql.Statement},
- * {@link java.sql.PreparedStatement}, and {@link java.sql.CallableStatement}
- * objects it creates. Only the {@code execute*}, {@code addBatch}, and parameter
- * {@code set*} methods are intercepted; every other call is delegated unchanged,
- * which keeps the surface small while remaining transparent to callers
- * (including {@code unwrap}, so pool discovery still finds the real pool).</p>
+ * for the {@code DataSource}; that proxy wraps every {@link Connection} it hands
+ * out, and each connection wraps the {@link Statement}, {@link PreparedStatement},
+ * and {@link CallableStatement} objects it creates. Only the {@code execute*},
+ * {@code addBatch}, and parameter {@code set*} methods are intercepted; every
+ * other call is delegated unchanged, which keeps the surface small while remaining
+ * transparent to callers (including {@code unwrap}, so pool discovery still finds
+ * the real pool).</p>
+ *
+ * <p><b>GraalVM:</b> each proxy is created over a fixed set of standard JDBC API
+ * interfaces (rather than every interface of the concrete driver/pool class) so
+ * the proxy classes are known at build time and can be registered as native-image
+ * proxy metadata by {@link SqlTraceRuntimeHints}. The trade-off is that callers who
+ * cast a connection/statement directly to a driver-specific type must instead go
+ * through {@code unwrap(...)}, which the proxy delegates to the real object.</p>
  */
 final class SqlTracingProxies {
 
@@ -36,6 +46,14 @@ final class SqlTracingProxies {
             Set.of("execute", "executeQuery", "executeUpdate", "executeLargeUpdate");
     private static final Set<String> BATCH_EXECUTE_METHODS = Set.of("executeBatch", "executeLargeBatch");
 
+    // Fixed proxy interface sets. These must stay in sync with SqlTraceRuntimeHints, which registers the
+    // same JDK proxies for native images; the ordering is significant because it identifies the proxy class.
+    static final Class<?>[] DATA_SOURCE_INTERFACES = {DataSource.class, AutoCloseable.class, SqlTracedDataSource.class};
+    static final Class<?>[] CONNECTION_INTERFACES = {Connection.class};
+    static final Class<?>[] STATEMENT_INTERFACES = {Statement.class};
+    static final Class<?>[] PREPARED_STATEMENT_INTERFACES = {PreparedStatement.class};
+    static final Class<?>[] CALLABLE_STATEMENT_INTERFACES = {CallableStatement.class};
+
     private SqlTracingProxies() {}
 
     /** Wraps a data source so all SQL flowing through it is recorded. */
@@ -43,23 +61,13 @@ final class SqlTracingProxies {
         if (dataSource instanceof SqlTracedDataSource) {
             return dataSource;
         }
-        Class<?>[] interfaces = proxyInterfaces(dataSource.getClass(), SqlTracedDataSource.class);
         return (DataSource) Proxy.newProxyInstance(
-                classLoader(dataSource), interfaces, new DataSourceHandler(dataSource, recorder));
+                classLoader(dataSource), DATA_SOURCE_INTERFACES, new DataSourceHandler(dataSource, recorder));
     }
 
     private static ClassLoader classLoader(Object target) {
         ClassLoader loader = target.getClass().getClassLoader();
         return loader != null ? loader : SqlTracingProxies.class.getClassLoader();
-    }
-
-    private static Class<?>[] proxyInterfaces(Class<?> targetType, Class<?> extra) {
-        Set<Class<?>> interfaces = new java.util.LinkedHashSet<>(
-                List.of(ClassUtils.getAllInterfacesForClass(targetType, SqlTracingProxies.class.getClassLoader())));
-        if (extra != null) {
-            interfaces.add(extra);
-        }
-        return interfaces.toArray(Class<?>[]::new);
     }
 
     /** Base handler that delegates {@code Object} plumbing and unknown methods to the target. */
@@ -107,19 +115,27 @@ final class SqlTracingProxies {
             if (isObjectMethod(method)) {
                 return handleObjectMethod(proxy, method, args);
             }
+            // The proxy advertises AutoCloseable so Spring still infers a destroy method and closes the
+            // pool; if the underlying data source is not closeable, swallow close() instead of failing.
+            if ("close".equals(method.getName())
+                    && method.getParameterCount() == 0
+                    && !(target instanceof AutoCloseable)) {
+                return null;
+            }
             Object result = invokeTarget(method, args);
-            if ("getConnection".equals(method.getName()) && result instanceof java.sql.Connection connection) {
+            if ("getConnection".equals(method.getName()) && result instanceof Connection connection) {
                 return wrapConnection(connection, recorder);
             }
             return result;
         }
     }
 
-    private static java.sql.Connection wrapConnection(java.sql.Connection connection, SqlTraceRecorder recorder) {
+    private static Connection wrapConnection(Connection connection, SqlTraceRecorder recorder) {
         String connectionId = "conn-" + CONNECTION_IDS.incrementAndGet();
-        Class<?>[] interfaces = proxyInterfaces(connection.getClass(), null);
-        return (java.sql.Connection) Proxy.newProxyInstance(
-                classLoader(connection), interfaces, new ConnectionHandler(connection, recorder, connectionId));
+        return (Connection) Proxy.newProxyInstance(
+                classLoader(connection),
+                CONNECTION_INTERFACES,
+                new ConnectionHandler(connection, recorder, connectionId));
     }
 
     /** Wraps the statements a connection creates, remembering prepared/callable SQL. */
@@ -139,7 +155,7 @@ final class SqlTracingProxies {
             }
             Object result = invokeTarget(method, args);
             String name = method.getName();
-            if (result instanceof java.sql.Statement statement) {
+            if (result instanceof Statement statement) {
                 String sql = (args != null && args.length > 0 && args[0] instanceof String s) ? s : null;
                 StatementType type =
                         switch (name) {
@@ -153,14 +169,19 @@ final class SqlTracingProxies {
         }
     }
 
-    private static java.sql.Statement wrapStatement(
-            java.sql.Statement statement,
+    private static Statement wrapStatement(
+            Statement statement,
             SqlTraceRecorder recorder,
             String connectionId,
             StatementType type,
             String preparedSql) {
-        Class<?>[] interfaces = proxyInterfaces(statement.getClass(), null);
-        return (java.sql.Statement) Proxy.newProxyInstance(
+        Class<?>[] interfaces =
+                switch (type) {
+                    case PREPARED -> PREPARED_STATEMENT_INTERFACES;
+                    case CALLABLE -> CALLABLE_STATEMENT_INTERFACES;
+                    case STATEMENT -> STATEMENT_INTERFACES;
+                };
+        return (Statement) Proxy.newProxyInstance(
                 classLoader(statement),
                 interfaces,
                 new StatementHandler(statement, recorder, connectionId, type, preparedSql));

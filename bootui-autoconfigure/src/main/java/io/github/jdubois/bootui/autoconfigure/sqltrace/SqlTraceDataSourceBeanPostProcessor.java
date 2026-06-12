@@ -20,9 +20,13 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
  *
  * <p>It fails open: if wrapping a {@code DataSource} throws, the original bean is
  * returned unchanged so the application's database access is never compromised.
- * Spring's delegating/routing {@code DataSource} wrappers are skipped because they
- * forward to another {@code DataSource} bean that is wrapped on its own, which
- * would otherwise double-count executions.</p>
+ * This includes GraalVM native images, where creating a JDK proxy for an
+ * unregistered interface set throws an {@link Error} rather than a
+ * {@code RuntimeException}; the catch is deliberately broad (only re-throwing
+ * {@link VirtualMachineError}) so tracing simply stays off instead of breaking
+ * startup. Spring's delegating/routing {@code DataSource} wrappers are skipped
+ * because they forward to another {@code DataSource} bean that is wrapped on its
+ * own, which would otherwise double-count executions.</p>
  */
 public final class SqlTraceDataSourceBeanPostProcessor implements BeanPostProcessor {
 
@@ -54,7 +58,10 @@ public final class SqlTraceDataSourceBeanPostProcessor implements BeanPostProces
             DataSource traced = SqlTracingProxies.wrap(dataSource, recorder);
             recorder.registerDataSource(beanName);
             return traced;
-        } catch (RuntimeException ex) {
+        } catch (Throwable ex) {
+            if (ex instanceof VirtualMachineError vme) {
+                throw vme;
+            }
             log.warn(
                     "BootUI could not enable SQL tracing for DataSource bean '{}'; leaving it unwrapped", beanName, ex);
             return bean;

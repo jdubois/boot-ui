@@ -3,11 +3,14 @@ package io.github.jdubois.bootui.autoconfigure.sqltrace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.CapturedStatement;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
+import java.io.Closeable;
+import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -160,4 +163,67 @@ class SqlTracingProxiesTests {
         // Wrapping an already-traced data source returns it unchanged.
         assertThat(SqlTracingProxies.wrap(traced, recorder)).isSameAs(traced);
     }
+
+    @Test
+    void usesFixedRegistrableInterfaceSetsForEveryProxy() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement ps = mock(PreparedStatement.class);
+        CallableStatement cs = mock(CallableStatement.class);
+        Statement stmt = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement("select 1")).thenReturn(ps);
+        when(conn.prepareCall("{call p()}")).thenReturn(cs);
+        when(conn.createStatement()).thenReturn(stmt);
+
+        DataSource traced = SqlTracingProxies.wrap(ds, recorder);
+        Connection c = traced.getConnection();
+
+        // The proxy interface sets must match SqlTraceRuntimeHints exactly (order included), otherwise the
+        // proxies created at runtime would not match the JDK proxies registered for the native image.
+        assertThat(traced.getClass().getInterfaces()).containsExactly(SqlTracingProxies.DATA_SOURCE_INTERFACES);
+        assertThat(c.getClass().getInterfaces()).containsExactly(SqlTracingProxies.CONNECTION_INTERFACES);
+        assertThat(c.prepareStatement("select 1").getClass().getInterfaces())
+                .containsExactly(SqlTracingProxies.PREPARED_STATEMENT_INTERFACES);
+        assertThat(c.prepareCall("{call p()}").getClass().getInterfaces())
+                .containsExactly(SqlTracingProxies.CALLABLE_STATEMENT_INTERFACES);
+        assertThat(c.createStatement().getClass().getInterfaces())
+                .containsExactly(SqlTracingProxies.STATEMENT_INTERFACES);
+    }
+
+    @Test
+    void closeIsNoOpWhenTargetDataSourceIsNotCloseable() {
+        SqlTraceRecorder recorder = recorder();
+        DataSource ds = mock(DataSource.class);
+
+        DataSource traced = SqlTracingProxies.wrap(ds, recorder);
+
+        // The proxy advertises AutoCloseable for Spring's destroy-method inference; closing it must not fail
+        // even though the underlying DataSource mock is not AutoCloseable.
+        assertThat(traced).isInstanceOf(AutoCloseable.class);
+        assertThatNoCloseFailure((AutoCloseable) traced);
+    }
+
+    @Test
+    void closeIsDelegatedWhenTargetDataSourceIsCloseable() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        CloseableDataSource ds = mock(CloseableDataSource.class);
+
+        DataSource traced = SqlTracingProxies.wrap(ds, recorder);
+        ((AutoCloseable) traced).close();
+
+        verify(ds).close();
+    }
+
+    private static void assertThatNoCloseFailure(AutoCloseable closeable) {
+        try {
+            closeable.close();
+        } catch (Exception ex) {
+            throw new AssertionError("close() on a non-closeable traced DataSource must be a no-op", ex);
+        }
+    }
+
+    /** A {@link DataSource} that is also {@link Closeable}, like Hikari's pool, for the delegation test. */
+    private interface CloseableDataSource extends DataSource, Closeable {}
 }

@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -72,7 +73,7 @@ import org.springframework.core.env.Environment;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @EnableConfigurationProperties(BootUiProperties.class)
-@ImportRuntimeHints(BootUiRuntimeHints.class)
+@ImportRuntimeHints({BootUiRuntimeHints.class, SqlTraceRuntimeHints.class})
 @Import({
     OverviewController.class,
     GitHubController.class,

@@ -486,6 +486,11 @@ the rest of BootUI; an inline warning reminds you when captured parameters are b
 when no `DataSource` bean is wrapped. Tracing, the initial recording state, parameter capture, buffer size, the
 slow-query and N+1 thresholds, and SQL/parameter truncation limits are all configurable under `bootui.sql-trace.*`.
 
+> **GraalVM native images are supported.** The tracing proxies are created over a fixed set of standard JDBC API
+> interfaces, and those JDK proxies are registered as native-image proxy metadata by BootUI, so SQL Trace works in a
+> native executable. If a proxy ever cannot be created (for example an interface set that was not registered), wrapping
+> still fails open and the `DataSource` is left untraced rather than breaking application startup.
+
 ### Spring Data
 
 The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
