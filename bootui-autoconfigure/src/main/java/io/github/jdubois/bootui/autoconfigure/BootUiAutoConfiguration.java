@@ -10,6 +10,9 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
@@ -30,6 +33,7 @@ import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
@@ -59,6 +63,7 @@ import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Main BootUI auto-configuration entry point.
@@ -110,6 +115,7 @@ import org.springframework.core.env.Environment;
     LogTailController.class,
     ExceptionsController.class,
     BootUiAutoConfiguration.ExceptionsConfiguration.class,
+    BootUiAutoConfiguration.McpConfiguration.class,
     HttpExchangesController.class,
     ProfileDiffController.class,
     SpringSecurityController.class,
@@ -287,6 +293,76 @@ public class BootUiAutoConfiguration {
             BootUiExceptionLogAppender bootUiExceptionLogAppender(ExceptionStore store) {
                 return BootUiExceptionLogAppender.install(store);
             }
+        }
+    }
+
+    /**
+     * Registers the opt-in, local-only MCP server. Active only when {@code bootui.mcp.enabled=ON};
+     * BootUI's own activation condition keeps it confined to dev contexts, and the endpoint lives
+     * under {@code /bootui/api} so it inherits the loopback/Host/cross-site safety filters. Tools are
+     * thin adapters over the existing BootUI controllers, so masking and per-panel toggles still apply.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "bootui.mcp", name = "enabled", havingValue = "ON")
+    static class McpConfiguration {
+
+        @Bean
+        BootUiMcpTools bootUiMcpTools(
+                ObjectProvider<OverviewController> overview,
+                ObjectProvider<HealthController> health,
+                ObjectProvider<ConfigController> config,
+                ObjectProvider<BeansController> beans,
+                ObjectProvider<MappingsController> mappings,
+                ObjectProvider<ExceptionsController> exceptions,
+                ObjectProvider<SecurityLogsController> securityLogs,
+                ObjectProvider<SqlTraceController> sqlTrace,
+                ObjectProvider<TracesController> traces,
+                ObjectProvider<LogTailController> logTail,
+                ObjectProvider<HttpExchangesController> httpExchanges,
+                ObjectProvider<ArchitectureController> architecture,
+                ObjectProvider<SpringController> spring,
+                ObjectProvider<HibernateController> hibernate,
+                ObjectProvider<MemoryController> memory,
+                ObjectProvider<SecurityController> security,
+                ObjectProvider<PentestingController> pentesting,
+                ObjectProvider<RestApiController> restApi,
+                ObjectProvider<GraalVmController> graalvm,
+                ObjectProvider<CracController> crac,
+                BootUiProperties properties) {
+            return new BootUiMcpTools(
+                    overview,
+                    health,
+                    config,
+                    beans,
+                    mappings,
+                    exceptions,
+                    securityLogs,
+                    sqlTrace,
+                    traces,
+                    logTail,
+                    httpExchanges,
+                    architecture,
+                    spring,
+                    hibernate,
+                    memory,
+                    security,
+                    pentesting,
+                    restApi,
+                    graalvm,
+                    crac,
+                    Math.max(1, properties.getMcp().getMaxResults()));
+        }
+
+        @Bean
+        BootUiMcpService bootUiMcpService(
+                BootUiMcpTools tools, BootUiProperties properties, ObjectProvider<ObjectMapper> objectMapper) {
+            String version = BootUiAutoConfiguration.class.getPackage().getImplementationVersion();
+            return new BootUiMcpService(tools, properties, objectMapper.getIfAvailable(ObjectMapper::new), version);
+        }
+
+        @Bean
+        BootUiMcpController bootUiMcpController(BootUiMcpService service, BootUiMcpTools tools) {
+            return new BootUiMcpController(service, tools);
         }
     }
 
