@@ -4,7 +4,7 @@
 # the build stage and the sample app is built together with the modules it
 # depends on (`-pl bootui-sample-app -am`).
 #
-# This image is deliberately kept small with three techniques:
+# This image is deliberately kept small and low-CVE with three techniques:
 #   1. The repackaged Spring Boot jar is exploded into its layers
 #      (`-Djarmode=tools ... extract --layers`) and run via the JarLauncher, so
 #      the large, rarely-changing dependency layer is cached/re-pushed less often
@@ -12,9 +12,15 @@
 #   2. A custom, minimal Java runtime is assembled with `jlink` (only the JDK
 #      modules the app needs, with debug symbols/man-pages/headers stripped),
 #      replacing the full ~200 MB JRE.
-#   3. The final stage is a bare Alpine base (no bundled JDK/JRE) and brings the
-#      application in with `COPY --chown` instead of a `RUN chown -R` layer that
-#      would otherwise duplicate every copied file.
+#   3. The final stage is Google's "distroless" glibc base
+#      (`gcr.io/distroless/base-debian12:nonroot`): it ships glibc and a CA bundle
+#      but no shell, package manager, curl, perl or tar, so the runtime carries
+#      almost no OS-package CVEs (the same base Dockerfile-native uses). It runs
+#      as an unprivileged user (uid 65532) and brings the application in with
+#      `COPY --chown` instead of a `RUN chown -R` layer that would otherwise
+#      duplicate every copied file. Because it has no shell, the jlink runtime is
+#      built on a glibc JDK (not the Alpine/musl one) and JVM flags are passed via
+#      JAVA_TOOL_OPTIONS rather than a `sh -c` entrypoint (see below).
 #
 # For a GraalVM native image, see Dockerfile-native.
 # For a JVM image using CRaC, see Dockerfile-crac.
@@ -70,12 +76,9 @@ RUN cp bootui-sample-app/target/bootui-sample-app-*.jar app.jar && \
     java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 # ---------------------------------------------------------------------------
-# JRE stage: assemble a minimal custom Java runtime with jlink. Built on the
-# Alpine (musl) JDK so the produced runtime's libc matches the Alpine runtime
-# base below.
+# Assemble a minimal custom Java runtime with jlink, in this same glibc JDK so
+# the produced runtime's libc matches the distroless glibc runtime base below.
 # ---------------------------------------------------------------------------
-FROM eclipse-temurin:25-jdk-alpine AS jre-build
-
 # Deliberate superset of the JDK modules the sample app and BootUI use - several
 # are loaded reflectively, so the set cannot be derived reliably with jdeps:
 #   - JDBC / JPA / Hibernate: java.sql, java.sql.rowset, java.naming, java.transaction.xa
@@ -93,39 +96,44 @@ RUN "$JAVA_HOME/bin/jlink" \
       --strip-debug --no-man-pages --no-header-files --compress=zip-6 \
       --output /javaruntime
 
+# An empty, non-root-owned state directory copied into the runtime image so BootUI
+# can write its runtime state (config overrides under /app/.bootui) even though the
+# distroless base has no shell to `mkdir`/`chown` at build time. uid:gid 65532 is
+# the distroless "nonroot" user the final stage runs as.
+RUN mkdir -p /runtime-state/.bootui && chown -R 65532:65532 /runtime-state
+
 # ---------------------------------------------------------------------------
-# Runtime stage: a bare Alpine base (no bundled JDK/JRE) plus the custom jlink
-# runtime. alpine:3.23 matches the Temurin Alpine images above so the jlink
-# runtime's musl libc lines up.
+# Runtime stage: Google's "distroless" glibc base. It ships glibc and a CA bundle
+# but no shell, package manager, curl, perl or tar - which removes the bulk of the
+# OS-package CVEs an Alpine/Debian base otherwise carries. The jlink runtime above
+# is glibc-linked to match it, and the :nonroot tag runs as an unprivileged user
+# (uid 65532).
 # ---------------------------------------------------------------------------
-FROM alpine:3.23
+FROM gcr.io/distroless/base-debian12:nonroot
 
 # Custom Java runtime assembled by jlink above.
 ENV JAVA_HOME=/opt/java
 ENV PATH="$JAVA_HOME/bin:$PATH"
-COPY --from=jre-build /javaruntime $JAVA_HOME
-
-# Create a non-root user and an application directory it owns. Making /app itself
-# springboot-owned (not just its contents) lets BootUI write its runtime state -
-# heap dumps and config overrides under /app/.bootui - at runtime. The chown is
-# non-recursive (an empty dir here), so it adds a negligible layer rather than
-# duplicating the copied application below.
-RUN adduser -D -u 1001 springboot && \
-    mkdir -p /app && \
-    chown springboot:springboot /app
+COPY --from=build /javaruntime $JAVA_HOME
 
 WORKDIR /app
 
+# Bring in the non-root-owned state directory first so /app and /app/.bootui are
+# owned by the runtime user (uid 65532): BootUI writes config overrides there, and
+# the distroless base has no shell to chown it afterwards. Heap dumps go to /tmp
+# (see -XX:HeapDumpPath below), which is world-writable on the base.
+COPY --from=build --chown=65532:65532 /runtime-state/ ./
+
 # Copy the exploded application layers, ordered least- to most-frequently
 # changing so Docker's layer cache is reused across rebuilds. COPY --chown sets
-# ownership inline, avoiding a `RUN chown -R` layer that would otherwise
-# duplicate every copied file in a fresh layer.
-COPY --from=build --chown=springboot:springboot /app/extracted/dependencies/ ./
-COPY --from=build --chown=springboot:springboot /app/extracted/spring-boot-loader/ ./
-COPY --from=build --chown=springboot:springboot /app/extracted/snapshot-dependencies/ ./
-COPY --from=build --chown=springboot:springboot /app/extracted/application/ ./
+# ownership inline, avoiding a `RUN chown -R` layer (impossible here anyway: the
+# distroless base has no shell) that would otherwise duplicate every copied file.
+COPY --from=build --chown=65532:65532 /app/extracted/dependencies/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/spring-boot-loader/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/snapshot-dependencies/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/application/ ./
 
-USER springboot
+USER nonroot
 
 # Run with the "dev" profile *active* (not merely spring.profiles.default=dev): BootUI's activation
 # checks Environment.getActiveProfiles(), which excludes spring.profiles.default, and the repackaged
@@ -139,21 +147,22 @@ ENV SPRING_PROFILES_ACTIVE=dev
 ENV SPRING_FLYWAY_ENABLED=false
 ENV SPRING_LIQUIBASE_ENABLED=false
 
-# JVM tuning flags for a small, predictable container footprint. Heap, metaspace, code cache, direct
+# JVM tuning flags for a small, predictable container footprint, passed via JAVA_TOOL_OPTIONS
+# (the distroless base has no shell, so there is no `sh -c` to word-split a JAVA_OPTS variable; the
+# JVM reads JAVA_TOOL_OPTIONS itself and handles the spaces). Heap, metaspace, code cache, direct
 # memory and thread stacks are bounded explicitly (instead of -XX:MaxRAMPercentage); G1 with string
 # deduplication and compact object headers (promoted to a product feature in JDK 25) keeps the
 # footprint down, and the JVM fails fast with a heap dump on OutOfMemoryError. Override the whole set
-# at runtime with -e JAVA_OPTS="...".
-ENV JAVA_OPTS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
+# at runtime with -e JAVA_TOOL_OPTIONS="...".
+ENV JAVA_TOOL_OPTIONS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
 
 EXPOSE 8080
 
-# Health check using Spring Boot Actuator. The bare Alpine base ships BusyBox wget (no curl), which
-# exits non-zero on a non-2xx response - so a 503 from a DOWN actuator health endpoint fails the check.
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD wget -q -O /dev/null "http://localhost:${SERVER_PORT:-8080}/actuator/health" || exit 1
+# No Docker HEALTHCHECK: the distroless base has no shell, wget or curl to run a probe. Probe the web
+# server (or /actuator/health) from your orchestrator's liveness/readiness checks instead.
 
-# Launch the exploded application via the Spring Boot JarLauncher. `sh -c ... exec java` keeps java as
-# PID 1 (so it still receives SIGTERM from `docker stop` for Spring Boot's graceful shutdown) while
-# letting the shell word-split $JAVA_OPTS.
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]
+# Launch the exploded application via the Spring Boot JarLauncher, in exec form so `java` is PID 1
+# (and still receives SIGTERM from `docker stop` for Spring Boot's graceful shutdown). An absolute
+# path is used because the distroless base has no shell to resolve $PATH. JVM flags come from
+# JAVA_TOOL_OPTIONS above.
+ENTRYPOINT ["/opt/java/bin/java", "org.springframework.boot.loader.launch.JarLauncher"]

@@ -5,6 +5,18 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Hardened the sample app's JVM Docker image (published as `jdubois/bootui-sample-app`) to carry no known OS-package
+  CVEs. Its runtime stage now uses Google's distroless glibc base (`gcr.io/distroless/base-debian12:nonroot`, the same
+  base `Dockerfile-native` uses) instead of Alpine, which removes the vulnerable `openssl` (`libssl3`/`libcrypto3`) and
+  `busybox` packages a scanner previously flagged. The `jlink` runtime is now assembled on the glibc JDK to match the
+  base; because distroless ships no shell, JVM flags moved from a `sh -c $JAVA_OPTS` entrypoint to `JAVA_TOOL_OPTIONS`,
+  the entrypoint is exec-form, and the Docker `HEALTHCHECK` was dropped (probe `/actuator/health` from your orchestrator
+  instead, as the native image already documents).
+
 ## [1.3.0] - 2026-06-11
 
 Feature release headlined by two new GraalVM/CRaC capabilities — a new **CRaC (Coordinated Restore at Checkpoint)
