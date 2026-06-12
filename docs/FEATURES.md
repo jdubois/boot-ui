@@ -675,7 +675,9 @@ duration, and body. It is designed for quick route checks from inside the same l
 ### DevTools
 
 The DevTools panel reports Spring Boot DevTools availability, LiveReload status, and restart support. Restart actions
-are shown only when available and require explicit confirmation before execution.
+are shown only when available and require explicit confirmation before execution. When DevTools is on the classpath but
+the LiveReload server is not running, the panel shows a tip to set `spring.devtools.livereload.enabled=true` (Spring
+Boot 4 disables LiveReload by default).
 
 ![BootUI DevTools panel](./images/bootui-devtools.png)
 

@@ -13,7 +13,7 @@ test.describe('DevTools view', () => {
     await expect(liveReloadCard.locator('.badge')).toContainText(/Available|Unavailable/)
     await expect(restartCard.locator('.badge')).toContainText(/Available|Unavailable|Pending/)
     await expect(page.getByRole('button', {name: /Restart app/})).toBeVisible()
-    await expect(page.locator('.alert-info')).toContainText('Restart interrupts the current JVM context')
+    await expect(page.getByText('Restart interrupts the current JVM context')).toBeVisible()
   })
 
   test('triggering LiveReload shows action feedback and keeps restart guarded', async ({openView, page}) => {
