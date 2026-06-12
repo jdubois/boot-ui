@@ -23,7 +23,7 @@ test.describe('Exceptions view', () => {
     const drawer = page.locator('.exception-drawer')
     await expect(drawer).toBeVisible()
     await expect(drawer).toContainText('Caused by: java.lang.NumberFormatException')
-    await expect(drawer.locator('.stack-pane')).toContainText('BootUiSampleApplication')
+    await expect(drawer.locator('.stack-pane')).toContainText('SampleController')
     await expect(drawer).toContainText('Recent occurrences')
   })
 
