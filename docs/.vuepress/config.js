@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {viteBundler} from '@vuepress/bundler-vite'
-import {markdownTabPlugin} from '@vuepress/plugin-markdown-tab'
 import {defaultTheme} from '@vuepress/theme-default'
 import {defineUserConfig} from 'vuepress'
 import {inferRoutePath} from 'vuepress/shared'
@@ -27,8 +26,7 @@ export default defineUserConfig({
   plugins: [
     cleanDocsPermalinksPlugin(),
     cleanMarkdownDocLinksPlugin(),
-    lazyLoadMarkdownImagesPlugin(),
-    markdownTabPlugin({tabs: true, codeTabs: true})
+    lazyLoadMarkdownImagesPlugin()
   ],
   theme: defaultTheme({
     hostname: 'https://www.julien-dubois.com',
