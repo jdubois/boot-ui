@@ -35,6 +35,7 @@ import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.aot.AotDetector;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
@@ -384,6 +385,16 @@ public class BootUiAutoConfiguration {
     public BootUiActivation bootUiActivation(Environment environment) {
         BootUiActivation activation =
                 BootUiActivationCondition.resolve(environment, getClass().getClassLoader());
+        if (!activation.enabled() && AotDetector.useGeneratedArtifacts()) {
+            // In a native image (or any AOT-generated context) BootUiAutoConfiguration's activation
+            // condition is frozen from build time: this bean only exists because the condition
+            // matched then. The live runtime environment may no longer match (for example the
+            // build-time 'dev' profile is not active at runtime), so resolve() would mis-report
+            // BootUI as disabled even though it is wired into the image and serving. Trust the frozen
+            // build-time decision so the Overview panel and startup log reflect reality. A runtime
+            // bootui.enabled=OFF cannot remove the baked-in beans, so it does not change this.
+            activation = new BootUiActivation(true, "Enabled at build time (AOT/native image)", activation.warnings());
+        }
         log.info("BootUI activation: {}", activation.reason());
         for (String warning : activation.warnings()) {
             log.warn("BootUI activation warning: {}", warning);

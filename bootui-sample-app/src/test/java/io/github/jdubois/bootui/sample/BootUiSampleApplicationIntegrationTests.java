@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.sample;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.sample.catalog.Product;
+import io.github.jdubois.bootui.sample.catalog.ProductRepository;
 import java.net.CookieManager;
 import java.net.HttpCookie;
 import java.net.Proxy;

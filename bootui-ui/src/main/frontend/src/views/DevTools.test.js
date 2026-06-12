@@ -55,4 +55,28 @@ describe('DevTools', () => {
     expect(wrapper.text()).toContain('Restart application')
     expect(wrapper.text()).not.toContain('DevTools status is unavailable')
   })
+
+  it('shows the enable tip when LiveReload is disabled but DevTools is on the classpath', async () => {
+    const status = {
+      ...devToolsStatus(),
+      restartAvailable: true,
+      restartUnavailableReason: null,
+      liveReloadUnavailableReason: 'Spring Boot DevTools LiveReload server is not available.'
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(status)))
+
+    wrapper = mount(DevTools)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('spring.devtools.livereload.enabled=true')
+  })
+
+  it('hides the enable tip when DevTools is not on the classpath', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(devToolsStatus())))
+
+    wrapper = mount(DevTools)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('spring.devtools.livereload.enabled=true')
+  })
 })

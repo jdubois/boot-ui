@@ -1,5 +1,7 @@
-package io.github.jdubois.bootui.sample;
+package io.github.jdubois.bootui.sample.config;
 
+import io.github.jdubois.bootui.sample.catalog.ProductSummary;
+import io.github.jdubois.bootui.sample.catalog.SampleCatalog;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -21,10 +23,10 @@ import org.springframework.context.annotation.ImportRuntimeHints;
  *
  * <ul>
  *   <li><b>SpEL reflection</b> — {@code unless = "#result.isEmpty()"} on {@link
- *       BootUiSampleApplication.SampleCatalog#activeProducts()} invokes a method reflectively. SpEL
- *       resolves {@code isEmpty()} against the {@link List} interface while the receiver is the
- *       concrete (JDK-internal) immutable list returned by {@link Stream#toList()} / {@link
- *       List#of}; the public methods of both are registered.
+ *       SampleCatalog#activeProducts()} invokes a method reflectively. SpEL resolves {@code
+ *       isEmpty()} against the {@link List} interface while the receiver is the concrete
+ *       (JDK-internal) immutable list returned by {@link Stream#toList()} / {@link List#of};
+ *       the public methods of both are registered.
  *   <li><b>JDK serialization</b> — the default Redis cache serializer serializes cached values with
  *       {@link java.io.ObjectOutputStream}. The cached {@code List<ProductSummary>} graph (the
  *       record, its element wrappers and the immutable list type) is registered for serialization.
@@ -68,7 +70,7 @@ class NativeHintsConfiguration {
 
             // JDK serialization graph for the cached List<ProductSummary> value.
             Set<Class<?>> serializable = new LinkedHashSet<>();
-            serializable.add(BootUiSampleApplication.ProductSummary.class);
+            serializable.add(ProductSummary.class);
             serializable.add(Long.class);
             serializable.add(Integer.class);
             serializable.add(Boolean.class);

@@ -22,6 +22,12 @@ let reconnectTimer = null
 
 const restartReady = computed(() => status.value?.restartAvailable && !status.value?.restartPending)
 const liveReloadReady = computed(() => status.value?.liveReloadAvailable)
+const liveReloadDisabled = computed(
+  () =>
+    !!status.value &&
+    !status.value.liveReloadAvailable &&
+    !/classpath/i.test(status.value.liveReloadUnavailableReason || '')
+)
 const autoRefreshEnabled = computed(() => !restarting.value)
 
 async function fetchStatus() {
@@ -176,6 +182,19 @@ onUnmounted(clearReconnectTimer)
                 >LiveReload port: <code>{{ status.liveReloadPort }}</code></span
               >
               <span v-else>{{ status.liveReloadUnavailableReason || 'No LiveReload port reported.' }}</span>
+            </div>
+
+            <div
+              v-if="liveReloadDisabled"
+              class="alert alert-info small d-flex align-items-start gap-2 py-2 px-3 mb-3"
+              role="note"
+            >
+              <i class="bi bi-info-circle-fill mt-1"></i>
+              <div>
+                Spring Boot 4 disables the DevTools LiveReload server by default. Set
+                <code>spring.devtools.livereload.enabled=true</code> in your application properties and restart the app
+                to enable it.
+              </div>
             </div>
 
             <SpinnerButton

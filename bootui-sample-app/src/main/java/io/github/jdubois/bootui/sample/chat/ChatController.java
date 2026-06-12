@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.sample;
+package io.github.jdubois.bootui.sample.chat;
 
 import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
