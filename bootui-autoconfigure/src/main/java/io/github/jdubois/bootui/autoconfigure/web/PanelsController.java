@@ -151,6 +151,8 @@ public class PanelsController {
             case BootUiPanels.REST_API -> availability(restApiAvailable(), restApiUnavailableReason());
             case BootUiPanels.GRAALVM -> availability(graalvmAvailable(), graalvmUnavailableReason());
             case BootUiPanels.CRAC -> availability(cracAvailable(), cracUnavailableReason());
+            case BootUiPanels.SQL_TRACE ->
+                availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
             case BootUiPanels.THREADS ->
                 availability(
                         java.lang.management.ManagementFactory.getThreadMXBean() != null,

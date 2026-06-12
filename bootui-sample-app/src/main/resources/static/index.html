@@ -260,6 +260,11 @@
           <small>Inspect: Spring Data, Spring Cache, HTTP Exchanges</small>
         </article>
         <article class="test-action">
+          <button class="button" id="sql-query-button" type="button">Run an SQL query</button>
+          <p>Calls <code>GET /api/sample/product-search</code> to run a live, uncached SQL <code>SELECT</code>.</p>
+          <small>Inspect: SQL Trace, Spring Data</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="session-data-button" type="button">Create session data</button>
           <p>Adds demo attributes, including a fake token, to this browser session.</p>
           <small>Inspect: HTTP Sessions</small>
@@ -320,6 +325,7 @@
   const chatStatus = document.getElementById('ai-chat-status')
   const chatResult = document.getElementById('ai-chat-result')
   const productsButton = document.getElementById('products-button')
+  const sqlQueryButton = document.getElementById('sql-query-button')
   const greetingButton = document.getElementById('greeting-button')
   const publicApiButton = document.getElementById('public-api-button')
   const secureAdminButton = document.getElementById('secure-admin-button')
@@ -415,6 +421,24 @@
       showSampleResult(
         `Loaded ${products.length} active products`,
         `${names}\n\nOpen BootUI Spring Data, Spring Cache, or HTTP Exchanges to inspect this request.`
+      )
+    })
+  )
+
+  sqlQueryButton.addEventListener('click', () =>
+    runSampleAction(sqlQueryButton, 'Running an SQL query...', async () => {
+      const term = 'console'
+      const response = await fetch(`/api/sample/product-search?term=${encodeURIComponent(term)}`, {
+        headers: {Accept: 'application/json'}
+      })
+      const products = await response.json()
+      if (!response.ok) {
+        throw new Error(`SQL query failed with HTTP ${response.status}`)
+      }
+      const names = products.map(product => `- ${product.name} (${product.category})`).join('\n') || '(no rows)'
+      showSampleResult(
+        `Ran a live SQL SELECT and matched ${products.length} product(s) for "${term}"`,
+        `${names}\n\nOpen BootUI SQL Trace to inspect the captured statement.`
       )
     })
   )

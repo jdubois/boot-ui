@@ -123,6 +123,10 @@ public class BootUiProperties {
      */
     private HttpExchanges httpExchanges = new HttpExchanges();
     /**
+     * SQL Trace panel settings.
+     */
+    private SqlTrace sqlTrace = new SqlTrace();
+    /**
      * HTTP Sessions panel settings.
      */
     private HttpSessions httpSessions = new HttpSessions();
@@ -358,6 +362,14 @@ public class BootUiProperties {
 
     public void setHttpExchanges(HttpExchanges httpExchanges) {
         this.httpExchanges = httpExchanges == null ? new HttpExchanges() : httpExchanges;
+    }
+
+    public SqlTrace getSqlTrace() {
+        return sqlTrace;
+    }
+
+    public void setSqlTrace(SqlTrace sqlTrace) {
+        this.sqlTrace = sqlTrace == null ? new SqlTrace() : sqlTrace;
     }
 
     public HttpSessions getHttpSessions() {
@@ -796,6 +808,120 @@ public class BootUiProperties {
 
         public void setMaxExchanges(int maxExchanges) {
             this.maxExchanges = maxExchanges;
+        }
+    }
+
+    public static class SqlTrace {
+
+        /**
+         * Whether BootUI wraps {@code DataSource} beans with its hand-written JDBC tracing
+         * proxy to capture executed SQL. When {@code false}, no data source is wrapped.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Whether new executions are recorded into the in-memory buffer. Recording can be
+         * paused and resumed at runtime from the panel without unwrapping {@code DataSource}
+         * beans; this sets the initial state.
+         */
+        private boolean recording = true;
+
+        /**
+         * Whether bound statement parameters are captured alongside the SQL text. Off by
+         * default because parameter values may contain sensitive data; metadata-only value
+         * exposure additionally suppresses parameters even when this is enabled.
+         */
+        private boolean captureParameters = false;
+
+        /**
+         * Maximum number of executed statements retained in the in-memory ring buffer.
+         */
+        private int maxEntries = 200;
+
+        /**
+         * Executions taking at least this many milliseconds are flagged as slow. Set to
+         * {@code 0} to disable slow-query flagging.
+         */
+        private long slowQueryThresholdMillis = 100;
+
+        /**
+         * Maximum retained SQL text length; longer statements are truncated.
+         */
+        private int maxSqlLength = 2000;
+
+        /**
+         * Maximum retained length of a single captured parameter value.
+         */
+        private int maxParameterLength = 200;
+
+        /**
+         * Number of times an identical {@code SELECT} must repeat within the buffer before it
+         * is flagged as a likely N+1 access pattern. Minimum {@code 2}.
+         */
+        private int nPlusOneThreshold = 5;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isRecording() {
+            return recording;
+        }
+
+        public void setRecording(boolean recording) {
+            this.recording = recording;
+        }
+
+        public boolean isCaptureParameters() {
+            return captureParameters;
+        }
+
+        public void setCaptureParameters(boolean captureParameters) {
+            this.captureParameters = captureParameters;
+        }
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public long getSlowQueryThresholdMillis() {
+            return slowQueryThresholdMillis;
+        }
+
+        public void setSlowQueryThresholdMillis(long slowQueryThresholdMillis) {
+            this.slowQueryThresholdMillis = slowQueryThresholdMillis;
+        }
+
+        public int getMaxSqlLength() {
+            return maxSqlLength;
+        }
+
+        public void setMaxSqlLength(int maxSqlLength) {
+            this.maxSqlLength = maxSqlLength;
+        }
+
+        public int getMaxParameterLength() {
+            return maxParameterLength;
+        }
+
+        public void setMaxParameterLength(int maxParameterLength) {
+            this.maxParameterLength = maxParameterLength;
+        }
+
+        public int getNPlusOneThreshold() {
+            return nPlusOneThreshold;
+        }
+
+        public void setNPlusOneThreshold(int nPlusOneThreshold) {
+            this.nPlusOneThreshold = nPlusOneThreshold;
         }
     }
 
