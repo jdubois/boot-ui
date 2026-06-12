@@ -7,7 +7,9 @@ Thumbs.db
 *.iml
 *.ipr
 *.iws
-.vscode/
+.vscode/*
+# Track the project-level MCP configuration; exclude personal VS Code preferences.
+!.vscode/mcp.json
 .classpath
 .project
 .settings/
