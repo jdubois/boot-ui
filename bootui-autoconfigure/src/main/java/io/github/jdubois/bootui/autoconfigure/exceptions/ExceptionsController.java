@@ -9,15 +9,11 @@ import io.github.jdubois.bootui.core.dto.ExceptionFrameDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
-import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Read/clear API for the BootUI Exceptions panel.
@@ -39,9 +34,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/bootui/api/exceptions")
 public class ExceptionsController {
 
-    /** Upper bound on simultaneous exception streams; this is a local dev tool, not a fan-out hub. */
-    static final int MAX_CONCURRENT_STREAMS = 20;
-
     private static final Pattern SECRET_ASSIGNMENT = Pattern.compile(
             "(?i)([\"']?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|authorization|credential|"
                     + "access[-_]?key|client[-_]?secret|private[-_]?key)[\"']?\\s*[=:]\\s*[\"']?)([^\\s\"',;&)]+)");
@@ -51,8 +43,6 @@ public class ExceptionsController {
     private final BootUiProperties properties;
 
     private final BootUiExposure exposure;
-
-    private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
     @Autowired
     public ExceptionsController(
@@ -88,48 +78,6 @@ public class ExceptionsController {
         return toDetailDto(detail);
     }
 
-    @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream() {
-        SseEmitter emitter = new SseEmitter(0L);
-        ExceptionStore store = storeProvider.getIfAvailable();
-        if (store == null) {
-            emitter.completeWithError(new IllegalStateException("Exception capture is disabled"));
-            return emitter;
-        }
-        if (emitters.size() >= MAX_CONCURRENT_STREAMS) {
-            emitter.completeWithError(new IllegalStateException("Too many concurrent BootUI exception streams"));
-            return emitter;
-        }
-        emitters.add(emitter);
-
-        AtomicReference<Runnable> unsubscribeRef = new AtomicReference<>(() -> {});
-        emitter.onCompletion(() -> cleanup(emitter, unsubscribeRef.get()));
-        emitter.onTimeout(() -> cleanup(emitter, unsubscribeRef.get()));
-        emitter.onError(error -> cleanup(emitter, unsubscribeRef.get()));
-
-        try {
-            for (ExceptionStore.GroupSummary summary : store.groups()) {
-                sendGroup(emitter, toGroupDto(summary));
-            }
-        } catch (IOException ex) {
-            cleanup(emitter, unsubscribeRef.get());
-            emitter.completeWithError(ex);
-            return emitter;
-        }
-
-        Runnable unsubscribe = store.subscribe(summary -> {
-            try {
-                sendGroup(emitter, toGroupDto(summary));
-            } catch (IOException ex) {
-                cleanup(emitter, unsubscribeRef.get());
-                emitter.completeWithError(ex);
-            }
-        });
-        unsubscribeRef.set(unsubscribe);
-
-        return emitter;
-    }
-
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void clear() {
@@ -137,15 +85,6 @@ public class ExceptionsController {
         if (store != null) {
             store.clear();
         }
-    }
-
-    private void cleanup(SseEmitter emitter, Runnable unsubscribe) {
-        emitters.remove(emitter);
-        unsubscribe.run();
-    }
-
-    private void sendGroup(SseEmitter emitter, ExceptionGroupDto group) throws IOException {
-        emitter.send(SseEmitter.event().name("exception").data(group, MediaType.APPLICATION_JSON));
     }
 
     private ExceptionGroupDto toGroupDto(ExceptionStore.GroupSummary summary) {

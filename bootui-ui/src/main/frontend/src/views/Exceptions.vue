@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, ref} from 'vue'
 import {formatClockTime, formatRelative, formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -27,10 +27,6 @@ const detailLoading = ref(false)
 const busy = ref(false)
 const lastFetched = ref(null)
 
-const streamSupported = typeof EventSource !== 'undefined'
-const streamStatus = ref(streamSupported ? 'Connecting' : 'Off')
-let eventSource = null
-
 async function fetchExceptions() {
   error.value = null
   try {
@@ -41,63 +37,6 @@ async function fetchExceptions() {
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load exceptions')
   }
-}
-
-function upsertGroup(group) {
-  if (!report.value) return
-  const groups = report.value.groups ? [...report.value.groups] : []
-  const index = groups.findIndex((g) => g.id === group.id)
-  if (index >= 0) {
-    groups[index] = group
-  } else {
-    groups.push(group)
-  }
-  groups.sort((a, b) => b.lastSeen - a.lastSeen)
-  report.value = {
-    ...report.value,
-    available: true,
-    groups,
-    totalExceptions: groups.reduce((sum, g) => sum + (g.count || 0), 0)
-  }
-}
-
-function connectStream() {
-  if (!streamSupported) return
-  disconnectStream(false)
-  streamStatus.value = 'Connecting'
-  eventSource = new EventSource('api/exceptions/stream')
-  eventSource.onopen = () => {
-    streamStatus.value = 'Live'
-  }
-  eventSource.addEventListener('exception', (event) => {
-    try {
-      upsertGroup(JSON.parse(event.data))
-    } catch {
-      // Ignore malformed frames; the next snapshot refresh will reconcile.
-    }
-  })
-  eventSource.onerror = () => {
-    streamStatus.value = 'Disconnected'
-  }
-}
-
-function disconnectStream(paused = true) {
-  if (eventSource) {
-    eventSource.close()
-    eventSource = null
-  }
-  if (paused) {
-    streamStatus.value = streamSupported ? 'Paused' : 'Off'
-  }
-}
-
-function toggleStream() {
-  if (!streamSupported) return
-  if (streamStatus.value === 'Live' || streamStatus.value === 'Connecting') {
-    disconnectStream(true)
-    return
-  }
-  connectStream()
 }
 
 async function openException(id) {
@@ -172,17 +111,6 @@ const totalText = computed(() => {
   }`
 })
 
-const streamBadgeClass = computed(
-  () =>
-    ({
-      Live: 'text-bg-success',
-      Connecting: 'text-bg-info',
-      Paused: 'text-bg-secondary',
-      Disconnected: 'text-bg-danger',
-      Off: 'text-bg-secondary'
-    })[streamStatus.value] || 'text-bg-secondary'
-)
-
 function sourceBadgeClass(source) {
   return source === 'web' ? 'text-bg-primary' : 'text-bg-secondary'
 }
@@ -200,15 +128,13 @@ function requestLabel(item) {
   return method ? `${method} ${path}` : path
 }
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchExceptions, {defaultEnabled: false})
-
-onMounted(connectStream)
-onBeforeUnmount(() => disconnectStream(false))
+const {autoRefresh, loading, load} = useAutoRefresh(fetchExceptions)
 </script>
 
 <template>
   <div>
     <PanelHeader
+      v-model:auto-refresh="autoRefresh"
       icon="bi-exclamation-octagon"
       title="Exceptions"
       :subtitle="totalText"
@@ -218,26 +144,6 @@ onBeforeUnmount(() => disconnectStream(false))
       @refresh="load"
     >
       <template #actions>
-        <span
-          :class="streamBadgeClass"
-          class="badge"
-          :title="streamSupported ? 'Live exception stream' : 'Live streaming is not available in this browser'"
-        >
-          <i class="bi bi-broadcast me-1"></i>{{ streamStatus }}
-        </span>
-        <button
-          v-if="streamSupported"
-          class="btn btn-sm btn-outline-primary"
-          :title="streamStatus === 'Live' || streamStatus === 'Connecting' ? 'Pause live stream' : 'Resume live stream'"
-          @click="toggleStream"
-        >
-          <i
-            :class="[
-              'bi',
-              streamStatus === 'Live' || streamStatus === 'Connecting' ? 'bi-pause-circle' : 'bi-play-circle'
-            ]"
-          ></i>
-        </button>
         <SpinnerButton
           :loading="busy"
           :disabled="!report || readOnly || !report.groups || report.groups.length === 0 || busy"

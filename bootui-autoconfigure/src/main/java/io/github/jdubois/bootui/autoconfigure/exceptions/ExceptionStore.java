@@ -13,8 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
 
 /**
  * In-memory, bounded store of exceptions thrown by the host application, grouped by a stable
@@ -71,7 +69,6 @@ public final class ExceptionStore {
     private final Object lock = new Object();
     private final Map<String, Group> groups = new HashMap<>();
     private final Set<Throwable> seen = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
-    private final CopyOnWriteArrayList<Consumer<GroupSummary>> subscribers = new CopyOnWriteArrayList<>();
 
     private volatile List<String> applicationPackages = List.of();
 
@@ -127,7 +124,6 @@ public final class ExceptionStore {
         long now = System.currentTimeMillis();
         Occurrence occurrence = new Occurrence(now, thread, method, path, handler, source);
 
-        GroupSummary summary;
         synchronized (lock) {
             Group group = groups.get(fingerprint);
             if (group == null) {
@@ -143,10 +139,6 @@ public final class ExceptionStore {
             group.lastSeen = now;
             group.count++;
             group.addOccurrence(occurrence, maxOccurrencesPerGroup);
-            summary = group.summary();
-        }
-        for (Consumer<GroupSummary> subscriber : subscribers) {
-            subscriber.accept(summary);
         }
     }
 
@@ -187,11 +179,6 @@ public final class ExceptionStore {
 
     public int maxGroups() {
         return maxGroups;
-    }
-
-    public Runnable subscribe(Consumer<GroupSummary> consumer) {
-        subscribers.add(consumer);
-        return () -> subscribers.remove(consumer);
     }
 
     private void evictIfNeeded() {

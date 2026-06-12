@@ -3118,7 +3118,6 @@ async function handleApiRoute(route) {
   if (endpoint === 'traces') return fulfillJson(route, traceReport)
   if (endpoint === `traces/${traceId}`) return fulfillJson(route, traceDetail)
   if (endpoint === 'exceptions') return fulfillJson(route, exceptions)
-  if (endpoint === 'exceptions/stream') return // leave the SSE connection open; the snapshot drives the screenshot
   if (endpoint.startsWith('exceptions/'))
     return fulfillJson(route, exceptionDetail(endpoint.slice('exceptions/'.length)))
   if (endpoint === 'ai/overview') return fulfillJson(route, aiOverview)

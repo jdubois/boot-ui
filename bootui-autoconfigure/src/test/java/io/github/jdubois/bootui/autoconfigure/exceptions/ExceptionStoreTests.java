@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 
 class ExceptionStoreTests {
@@ -98,17 +97,11 @@ class ExceptionStoreTests {
     }
 
     @Test
-    void notifiesSubscribersAndClearsState() {
+    void clearsState() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
-        CopyOnWriteArrayList<ExceptionStore.GroupSummary> received = new CopyOnWriteArrayList<>();
-        Runnable unsubscribe = store.subscribe(received::add);
 
         store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
-        assertThat(received).hasSize(1);
-
-        unsubscribe.run();
-        store.record(new IllegalStateException("boom2"), "main", null, null, null, "log");
-        assertThat(received).hasSize(1);
+        assertThat(store.groups()).hasSize(1);
 
         store.clear();
         assertThat(store.groups()).isEmpty();

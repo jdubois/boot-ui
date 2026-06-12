@@ -604,7 +604,7 @@ Exceptions are grouped by a stable fingerprint derived from the exception type a
 error collapses into one row showing its type, latest message, first/last seen times, originating location, and total
 count. Opening a group shows the representative stack trace with application frames highlighted, the full cause chain
 (`Caused by: …` with `… N more` common-frame folding), and the most recent occurrences with their thread, source, and
-request context. A live indicator streams new occurrences into the list over Server-Sent Events, and the list can be
+request context. The list refreshes on demand or on the standard auto-refresh interval, and can be
 filtered by text, by capture source (web vs. logged), or to application-originated exceptions only.
 
 Exception messages follow the same exposure policy as the rest of BootUI: they are scrubbed of secret-like
