@@ -2,6 +2,7 @@
 import {computed, nextTick, ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {routes} from '../../routes.js'
+import {loadRecentPanels} from '../../utils/recentPanels.js'
 
 const emit = defineEmits(['close'])
 const router = useRouter()
@@ -10,6 +11,10 @@ const inputEl = ref(null)
 const activeIndex = ref(0)
 
 const searchableRoutes = routes.filter((r) => r.name && r.meta?.title)
+const recentRouteList = loadRecentPanels()
+  .map((name) => searchableRoutes.find((r) => r.name === name))
+  .filter(Boolean)
+const recentNames = new Set(recentRouteList.map((r) => r.name))
 
 function score(route, q) {
   const title = (route.meta.title || '').toLowerCase()
@@ -21,15 +26,25 @@ function score(route, q) {
   return 0
 }
 
+const showRecent = computed(() => !query.value.trim() && recentRouteList.length > 0)
+
 const results = computed(() => {
   const q = query.value.trim()
-  if (!q) return searchableRoutes
+  if (!q) {
+    if (!recentRouteList.length) return searchableRoutes
+    const rest = searchableRoutes.filter((r) => !recentNames.has(r.name))
+    return [...recentRouteList, ...rest]
+  }
   return searchableRoutes
     .map((r) => ({route: r, score: score(r, q)}))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((x) => x.route)
 })
+
+function isRecent(route) {
+  return showRecent.value && recentNames.has(route.name)
+}
 
 watch(query, () => {
   activeIndex.value = 0
@@ -79,6 +94,7 @@ defineExpose({focusInput})
         />
         <kbd class="cp-esc-hint">Esc</kbd>
       </div>
+      <div v-if="showRecent" class="cp-section-label">Recent</div>
       <ul v-if="results.length" class="cp-list" role="listbox">
         <li
           v-for="(r, i) in results"
@@ -92,6 +108,12 @@ defineExpose({focusInput})
         >
           <i :class="['bi', r.meta.icon, 'cp-item-icon']"></i>
           <span class="cp-item-title">{{ r.meta.title }}</span>
+          <i
+            v-if="isRecent(r)"
+            class="bi bi-clock-history cp-item-recent"
+            title="Recently viewed"
+            aria-hidden="true"
+          ></i>
           <span class="cp-item-group">{{ r.meta.group }}</span>
         </li>
       </ul>
@@ -204,6 +226,21 @@ defineExpose({focusInput})
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.cp-item-recent {
+  color: var(--bootui-green, #198754);
+  flex-shrink: 0;
+  font-size: 0.85rem;
+}
+
+.cp-section-label {
+  color: var(--bootui-text-subtle, #94a3b8);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0.5rem 1.25rem 0;
+  text-transform: uppercase;
 }
 
 .cp-empty {

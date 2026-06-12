@@ -1,9 +1,15 @@
 <script setup>
-import {isPlainObject} from '../utils/format.js'
+import {formatBytes, isPlainObject} from '../utils/format.js'
 
 defineProps({
   value: {required: false, default: null}
 })
+
+const BYTE_KEYS = new Set(['total', 'free', 'threshold', 'used', 'available', 'size'])
+
+function isByteKey(key) {
+  return BYTE_KEYS.has(String(key).toLowerCase())
+}
 
 function isScalar(value) {
   return value === null || value === undefined || ['string', 'number', 'boolean'].includes(typeof value)
@@ -21,9 +27,10 @@ function labelFor(key) {
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : key
 }
 
-function formatScalar(value) {
+function formatScalar(value, key = null) {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (key !== null && isByteKey(key) && typeof value === 'number') return formatBytes(value)
   return String(value)
 }
 </script>
@@ -46,7 +53,7 @@ function formatScalar(value) {
         <tr v-for="[key, item] in entries(value)" :key="key">
           <th class="text-muted fw-normal ps-0" style="width: 34%">{{ labelFor(key) }}</th>
           <td class="pe-0">
-            <code v-if="isScalar(item)">{{ formatScalar(item) }}</code>
+            <code v-if="isScalar(item)">{{ formatScalar(item, key) }}</code>
             <div v-else class="border rounded bg-light-subtle p-2">
               <HealthDetails :value="item" />
             </div>

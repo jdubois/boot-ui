@@ -1,5 +1,29 @@
+import {fileURLToPath} from 'node:url'
+import path from 'node:path'
 import {defineConfig} from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import {generateBootstrapIconsSubset} from './scripts/generate-icon-subset.mjs'
+
+const frontendRoot = path.dirname(fileURLToPath(import.meta.url))
+
+// Vite plugin that subsets the Bootstrap Icons font + CSS to only the glyphs the
+// app actually references, writing the result into `src/generated/` (git-ignored).
+// Runs in `buildStart`, which fires for production builds, the dev server, and
+// Vitest, so `main.js`'s `./generated/bootstrap-icons.css` import always resolves.
+function bootstrapIconsSubsetPlugin() {
+  return {
+    name: 'bootui-bootstrap-icons-subset',
+    async buildStart() {
+      const stats = await generateBootstrapIconsSubset({
+        sourceRoot: path.join(frontendRoot, 'src'),
+        outputDir: path.join(frontendRoot, 'src', 'generated')
+      })
+      if (stats.missing.length > 0) {
+        this.warn(`Ignoring unknown Bootstrap Icon classes: ${stats.missing.join(', ')}`)
+      }
+    }
+  }
+}
 
 // Build the BootUI Vue app as a static SPA that lives under /bootui/.
 //
@@ -22,7 +46,7 @@ export default defineConfig(({command}) => ({
       }
     }
   },
-  plugins: [vue()],
+  plugins: [vue(), bootstrapIconsSubsetPlugin()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -34,7 +58,7 @@ export default defineConfig(({command}) => ({
   },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.js'],
+    include: ['src/**/*.test.js', 'scripts/**/*.test.js'],
     clearMocks: true,
     restoreMocks: true,
     reporters: process.env.CI ? ['default', 'junit'] : 'default',

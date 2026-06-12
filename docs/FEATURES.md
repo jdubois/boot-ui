@@ -346,8 +346,10 @@ did not generate. Alongside the metadata scaffold the panel also generates a tai
 **`Dockerfile-native`** that builds a GraalVM native image of the host application. It detects the project's build
 system — Maven or Gradle, with or without the wrapper — and uses the matching native build command (`./mvnw`/`mvn
 -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the resulting executable —
-named after the resolved `artifactId` — into a minimal Debian runtime image (installing a known, pinned Maven/Gradle
-release in the build stage when the project has no wrapper). It can be downloaded, or written directly to the project root under the
+named after the resolved `artifactId` — into a minimal, distroless runtime image (`gcr.io/distroless/base-debian12:nonroot`,
+which runs as a non-root user and carries no shell/curl/perl/tar, keeping the OS-package CVE surface near zero; the binary
+is built *mostly static* so it needs only glibc, and the build stage installs a known, pinned Maven/Gradle
+release when the project has no wrapper). It can be downloaded, or written directly to the project root under the
 same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
 generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
 top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a
@@ -372,8 +374,9 @@ CRaC or BellSoft Liberica, detected via the real CRaC implementation rather than
 `spring.context.checkpoint=onRefresh` is set, and any `-XX:CRaCCheckpointTo` / `-XX:CRaCRestoreFrom` JVM arguments (read
 from the same `RuntimeMXBean` input arguments the JVM Tuning panel uses). On demand the readiness advisor imports the
 application's own classes (bounded to the detected base package(s)) and runs a curated set of `CRaC-*` checks for
-constructs that complicate checkpoint/restore — open resources held outside Spring/CRaC lifecycle, unmanaged threads,
-captured timestamps, static random seeds, eagerly captured secrets, network listeners, and missing `org.crac.Resource`
+constructs that complicate checkpoint/restore — open resources and file handles held outside Spring/CRaC lifecycle,
+network listeners, live connection pools and cache managers, unmanaged threads, captured timestamps, captured
+environment/system configuration, static random seeds, eagerly captured secrets, and missing `org.crac.Resource`
 registrations. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run
 on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
 each one inspects.

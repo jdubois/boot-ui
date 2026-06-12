@@ -23,7 +23,12 @@ export default defineUserConfig({
     ['meta', {property: 'og:description', content: 'A local-only developer console for Spring Boot 4 applications.'}]
   ],
   bundler: viteBundler(),
-  plugins: [cleanDocsPermalinksPlugin(), cleanMarkdownDocLinksPlugin(), markdownTabPlugin({tabs: true, codeTabs: true})],
+  plugins: [
+    cleanDocsPermalinksPlugin(),
+    cleanMarkdownDocLinksPlugin(),
+    lazyLoadMarkdownImagesPlugin(),
+    markdownTabPlugin({tabs: true, codeTabs: true})
+  ],
   theme: defaultTheme({
     hostname: 'https://www.julien-dubois.com',
     themePlugins: {
@@ -89,6 +94,28 @@ function cleanDocsPermalinksPlugin() {
       const cleanPath = toDocLink(page.filePathRelative)
       if (cleanPath !== '/') {
         page.pathInferred = `${cleanPath}.html`
+      }
+    }
+  }
+}
+
+function lazyLoadMarkdownImagesPlugin() {
+  return {
+    name: 'bootui-lazy-load-markdown-images',
+    extendsMarkdown(markdown) {
+      const rawImageRule =
+        markdown.renderer.rules.image ??
+        ((tokens, index, options, _env, self) => self.renderToken(tokens, index, options))
+
+      markdown.renderer.rules.image = (tokens, index, options, env, self) => {
+        const token = tokens[index]
+        if (token.attrIndex('loading') < 0) {
+          token.attrPush(['loading', 'lazy'])
+        }
+        if (token.attrIndex('decoding') < 0) {
+          token.attrPush(['decoding', 'async'])
+        }
+        return rawImageRule(tokens, index, options, env, self)
       }
     }
   }
