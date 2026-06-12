@@ -109,19 +109,17 @@ describe('DiagnosticsDashboard', () => {
   it('shows the unavailable message when there are no sources', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          jsonResponse({
-            available: false,
-            unavailableReason: 'No diagnostic sources are active',
-            tracingActive: false,
-            sources: {},
-            totalRequests: 0,
-            requests: [],
-            unattributed: null
-          })
-        )
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          available: false,
+          unavailableReason: 'No diagnostic sources are active',
+          tracingActive: false,
+          sources: {},
+          totalRequests: 0,
+          requests: [],
+          unattributed: null
+        })
+      )
     )
 
     wrapper = mount(DiagnosticsDashboard, mountOptions)

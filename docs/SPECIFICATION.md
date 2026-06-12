@@ -1308,6 +1308,7 @@ Top-level navigation:
   - Spring Cache.
   - AI Usage.
 - Diagnostics:
+  - Diagnostics dashboard.
   - Traces.
   - Log Tail.
   - Exceptions.
@@ -1410,7 +1411,8 @@ BootUI's 1.0 release surface is complete when:
   Disabled / unavailable navigation groups covering Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump,
   Threads, Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database
   Connection Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
-  Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
+  Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Diagnostics dashboard, Traces, Log Tail, HTTP Exchanges,
+  HTTP Probe, Architecture,
   REST API, Spring, Memory,
   DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.
