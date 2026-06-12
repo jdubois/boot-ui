@@ -17,6 +17,7 @@ export default defineUserConfig({
   title: 'BootUI',
   description: 'A local-only developer console for Spring Boot 4 applications.',
   head: [
+    ['link', {rel: 'icon', type: 'image/svg+xml', href: `${siteBase}favicon.svg`}],
     ['meta', {name: 'theme-color', content: '#198754'}],
     ['meta', {property: 'og:type', content: 'website'}],
     ['meta', {property: 'og:title', content: 'BootUI'}],
