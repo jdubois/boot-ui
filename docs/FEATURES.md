@@ -672,6 +672,24 @@ duration, and body. It is designed for quick route checks from inside the same l
 
 ## Developer tools
 
+### MCP Server
+
+The MCP Server panel controls BootUI's local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server,
+which exposes BootUI's advisors and read-only diagnostics as tools to local AI coding agents (such as GitHub Copilot or
+Claude Code). A prominent toggle at the top of the panel turns the server on or off **at runtime, overriding the
+`bootui.mcp.enabled` Spring Boot property** for the lifetime of the running application — the configured mode only sets
+the initial state, and the panel shows when the live state is an override. The server is disabled by default
+(fail-closed) and, like the rest of the BootUI API, only reachable over the loopback interface.
+
+The panel explains what the server does and lists every tool it exposes, split into **action tools** (advisor scans such
+as `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`, `pentest_scan`, `rest_api_scan`,
+`graalvm_scan`, `crac_scan`) and **read tools** (`get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
+`get_exceptions`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`). Each tool
+delegates to the same controller the browser UI uses, so secret masking and the per-panel `bootui.panels.*` enable and
+read-only toggles apply identically; a tool is advertised only when its backing panel is enabled, and action tools are
+refused when the backing panel is read-only. Connection details (the JSON-RPC endpoint at `/bootui/api/mcp`, transport,
+protocol revision, and the `bootui.mcp.max-results` cap) are shown so the server can be wired into an agent.
+
 ### DevTools
 
 The DevTools panel reports Spring Boot DevTools availability, LiveReload status, and restart support. Restart actions

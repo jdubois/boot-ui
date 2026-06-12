@@ -13,6 +13,8 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
+import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
+import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
@@ -116,6 +118,7 @@ import tools.jackson.databind.ObjectMapper;
     ExceptionsController.class,
     BootUiAutoConfiguration.ExceptionsConfiguration.class,
     BootUiAutoConfiguration.McpConfiguration.class,
+    McpServerController.class,
     HttpExchangesController.class,
     ProfileDiffController.class,
     SpringSecurityController.class,
@@ -192,6 +195,7 @@ public class BootUiAutoConfiguration {
             ExceptionsController.class.getName(),
             ThreadDumpController.class.getName(),
             MemoryController.class.getName(),
+            McpServerController.class.getName(),
             DismissedRulesController.class.getName());
 
     private static final Set<String> LAZY_BEAN_NAMES =
@@ -297,16 +301,24 @@ public class BootUiAutoConfiguration {
     }
 
     /**
-     * Registers the opt-in, local-only MCP server. Active only when {@code bootui.mcp.enabled=ON};
-     * BootUI's own activation condition keeps it confined to dev contexts, and the endpoint lives
-     * under {@code /bootui/api} so it inherits the loopback/Host/cross-site safety filters. Tools are
-     * thin adapters over the existing BootUI controllers, so masking and per-panel toggles still apply.
+     * Registers the local-only MCP server beans. The beans are always registered while BootUI is
+     * active, but the server only serves requests while {@link McpServerState} is enabled. The live
+     * state is initialized from {@code bootui.mcp.enabled} (fail closed: {@code OFF}/{@code AUTO}
+     * start disabled) and can be toggled at runtime from the MCP Server panel. BootUI's activation
+     * condition keeps it confined to dev contexts, and the endpoint lives under {@code /bootui/api}
+     * so it inherits the loopback/Host/cross-site safety filters. Tools are thin adapters over the
+     * existing BootUI controllers, so masking and per-panel toggles still apply.
      */
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnProperty(prefix = "bootui.mcp", name = "enabled", havingValue = "ON")
     static class McpConfiguration {
 
         @Bean
+        McpServerState bootUiMcpServerState(BootUiProperties properties) {
+            return new McpServerState(properties.getMcp().getEnabled());
+        }
+
+        @Bean
+        @Lazy
         BootUiMcpTools bootUiMcpTools(
                 ObjectProvider<OverviewController> overview,
                 ObjectProvider<HealthController> health,
@@ -354,6 +366,7 @@ public class BootUiAutoConfiguration {
         }
 
         @Bean
+        @Lazy
         BootUiMcpService bootUiMcpService(
                 BootUiMcpTools tools, BootUiProperties properties, ObjectProvider<ObjectMapper> objectMapper) {
             String version = BootUiAutoConfiguration.class.getPackage().getImplementationVersion();
@@ -361,8 +374,9 @@ public class BootUiAutoConfiguration {
         }
 
         @Bean
-        BootUiMcpController bootUiMcpController(BootUiMcpService service, BootUiMcpTools tools) {
-            return new BootUiMcpController(service, tools);
+        @Lazy
+        BootUiMcpController bootUiMcpController(BootUiMcpService service, BootUiMcpTools tools, McpServerState state) {
+            return new BootUiMcpController(service, tools, state);
         }
     }
 

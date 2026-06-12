@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
+import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
@@ -242,6 +243,7 @@ class BootUiAutoConfigurationTests {
                             TracesController.class,
                             ThreadDumpController.class,
                             MemoryController.class,
+                            McpServerController.class,
                             DismissedRulesController.class)
                     .forEach(beanType -> assertLazyBean(beanFactory, beanType));
 

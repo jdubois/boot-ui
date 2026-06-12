@@ -1364,17 +1364,21 @@ public class BootUiProperties {
      * Settings for the local, opt-in MCP (Model Context Protocol) server that exposes BootUI
      * advisors and diagnostics as tools to local AI agents.
      *
-     * <p>Disabled by default ({@link Mode#OFF}). Set {@code bootui.mcp.enabled=ON} to expose the
-     * JSON-RPC endpoint at {@code /bootui/api/mcp}. Even when enabled, the endpoint stays behind the
-     * same loopback / Host allow-list / cross-site write defenses as the rest of the BootUI API, and
-     * every tool honors the per-panel {@code bootui.panels.*} enable and read-only toggles.
+     * <p>Disabled by default ({@link Mode#OFF}). This property sets the <em>initial</em> state of the
+     * server; {@code bootui.mcp.enabled=ON} starts it enabled and exposes the JSON-RPC endpoint at
+     * {@code /bootui/api/mcp}. The MCP Server panel can toggle the server on or off at runtime
+     * (overriding this value) via {@code POST /bootui/api/mcp-server/toggle}. Even when enabled, the
+     * endpoint stays behind the same loopback / Host allow-list / cross-site write defenses as the
+     * rest of the BootUI API, and every tool honors the per-panel {@code bootui.panels.*} enable and
+     * read-only toggles.
      */
     public static class Mcp {
 
         /**
-         * Enable the local MCP server. {@link Mode#OFF} by default (fail closed); {@link Mode#ON}
-         * exposes the endpoint. {@link Mode#AUTO} is treated the same as {@link Mode#OFF} so the
-         * server is never silently exposed.
+         * Initial state of the local MCP server. {@link Mode#OFF} by default (fail closed);
+         * {@link Mode#ON} starts the server enabled. {@link Mode#AUTO} is treated the same as
+         * {@link Mode#OFF} so the server is never silently exposed. The MCP Server panel can override
+         * this at runtime.
          */
         private Mode enabled = Mode.OFF;
 
