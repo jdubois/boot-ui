@@ -112,6 +112,17 @@ running sample app. Use `npm run test:watch` for Vitest watch mode while iterati
 When you are done, run `./mvnw install -pl bootui-ui` once to re-bundle the assets
 into the JAR.
 
+### Bootstrap Icons subsetting
+
+To keep the packaged JAR small, the build does not ship the full Bootstrap Icons
+pack. A Vite plugin (`scripts/generate-icon-subset.mjs`) scans the front-end
+sources for the `bi-*` classes that are actually used and emits a subset font plus
+a trimmed stylesheet into `src/generated/` (git-ignored), which `main.js` imports.
+This runs automatically on build, dev-server start, and Vitest, so using a new
+icon needs no extra steps — just reference its `bi-*` class. If you add an icon
+while `npm run dev` is already running, restart the dev server so the subset is
+regenerated.
+
 ## Publishing
 
 Maven Central publication uses the `release` Maven profile:
