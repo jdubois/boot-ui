@@ -59,6 +59,7 @@
         <central-publishing-maven-plugin.version>0.10.0</central-publishing-maven-plugin.version>
         <native-build-tools-plugin.version>1.1.1</native-build-tools-plugin.version>
         <archunit.version>1.4.2</archunit.version>
+        <datasource-proxy.version>1.10.1</datasource-proxy.version>
         <central.autoPublish>true</central.autoPublish>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
@@ -90,6 +91,11 @@
                 <groupId>com.tngtech.archunit</groupId>
                 <artifactId>archunit-junit5</artifactId>
                 <version>${archunit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.ttddyy</groupId>
+                <artifactId>datasource-proxy</artifactId>
+                <version>${datasource-proxy.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>

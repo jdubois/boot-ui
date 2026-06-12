@@ -45,6 +45,7 @@ class PanelsControllerTests {
             BootUiPanels.SCHEDULED,
             BootUiPanels.DATABASE_CONNECTION_POOLS,
             BootUiPanels.DATA,
+            BootUiPanels.SQL_TRACE,
             BootUiPanels.HIBERNATE,
             BootUiPanels.SPRING_CACHE,
             BootUiPanels.AI,

@@ -200,6 +200,7 @@ class PanelAccessFilterTests {
         requests.put("loggers", new ActionRequest("POST", "/bootui/api/loggers/io.github.jdubois.bootui"));
         requests.put("security", new ActionRequest("POST", "/bootui/api/security/scan"));
         requests.put("pentesting", new ActionRequest("POST", "/bootui/api/pentesting/scan"));
+        requests.put("sql-trace", new ActionRequest("POST", "/bootui/api/sql-trace/clear"));
         requests.put("hibernate", new ActionRequest("POST", "/bootui/api/hibernate/scan"));
         requests.put("spring-cache", new ActionRequest("POST", "/bootui/api/spring-cache/clear"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));

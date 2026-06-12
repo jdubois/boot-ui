@@ -468,6 +468,27 @@ methods, and degrades to a clear empty state when Spring Data is not present or 
 
 ![BootUI Spring Data panel](./images/bootui-data.png)
 
+### SQL Trace
+
+The SQL Trace panel records the SQL statements your application runs at runtime. It works generically across persistence
+technologies — JPA/Hibernate, `JdbcTemplate`, MyBatis, jOOQ, and plain JDBC all go through a `DataSource`, so BootUI
+wraps each `DataSource` bean with a lightweight [datasource-proxy](https://github.com/jdbc-observations/datasource-proxy)
+and reports every execution into a bounded in-memory ring buffer. The proxy is only installed while BootUI is active
+(typically the `dev`/`local` profiles) and fails open: if a `DataSource` cannot be wrapped the original bean is used
+unchanged, so application database access is never affected.
+
+For each execution the panel shows the SQL category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`), elapsed time, success or
+failure, the data source and connection, and the originating thread. Statements at or above
+`bootui.sql-trace.slow-query-threshold` (200 ms by default) are flagged as slow, and a *Most frequent statements* section
+groups identical statements to surface repeated queries and likely N+1 access patterns. Recording can be paused/resumed
+and the buffer cleared from the panel; these actions are read-only when the `sql-trace` panel is configured read-only.
+
+Bound parameter values are captured by default in dev to make queries easy to read; set
+`bootui.sql-trace.capture-parameters=false` to hide them, or `bootui.sql-trace.enabled=false` to disable tracing (and the
+`DataSource` wrapping) entirely. The buffer size is configurable with `bootui.sql-trace.max-queries`.
+
+![BootUI SQL Trace panel](./images/bootui-sql-trace.png)
+
 ### Flyway
 
 The Flyway panel shows schema migrations for each `Flyway` bean in the context and lists, per database, the current schema

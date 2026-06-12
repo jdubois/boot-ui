@@ -146,6 +146,10 @@ public class BootUiProperties {
      * GraalVM readiness panel settings.
      */
     private Graalvm graalvm = new Graalvm();
+    /**
+     * SQL Trace panel settings.
+     */
+    private SqlTrace sqlTrace = new SqlTrace();
 
     public Mode getEnabled() {
         return enabled;
@@ -404,6 +408,14 @@ public class BootUiProperties {
         this.graalvm = graalvm == null ? new Graalvm() : graalvm;
     }
 
+    public SqlTrace getSqlTrace() {
+        return sqlTrace;
+    }
+
+    public void setSqlTrace(SqlTrace sqlTrace) {
+        this.sqlTrace = sqlTrace == null ? new SqlTrace() : sqlTrace;
+    }
+
     /**
      * Mode selector: AUTO (dev detection), ON (force enable), OFF (force disable).
      */
@@ -618,6 +630,77 @@ public class BootUiProperties {
 
         public void setMaxRepositoryLookups(int maxRepositoryLookups) {
             this.maxRepositoryLookups = maxRepositoryLookups;
+        }
+    }
+
+    public static class SqlTrace {
+
+        /**
+         * Wrap application {@code DataSource} beans to trace SQL executions. When false the SQL Trace
+         * panel reports as unavailable and no proxy is installed.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Record executions as soon as the application starts. When false, tracing is wrapped but
+         * paused until resumed from the panel.
+         */
+        private boolean recording = true;
+
+        /**
+         * Capture bound parameter values alongside each statement. Disable to avoid surfacing
+         * potentially sensitive parameter values in the browser.
+         */
+        private boolean captureParameters = true;
+
+        /**
+         * Maximum number of executions retained in the in-memory ring buffer.
+         */
+        private int maxQueries = 200;
+
+        /**
+         * Executions at or above this duration are flagged as slow. Set to zero to disable flagging.
+         */
+        private Duration slowQueryThreshold = Duration.ofMillis(200);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isRecording() {
+            return recording;
+        }
+
+        public void setRecording(boolean recording) {
+            this.recording = recording;
+        }
+
+        public boolean isCaptureParameters() {
+            return captureParameters;
+        }
+
+        public void setCaptureParameters(boolean captureParameters) {
+            this.captureParameters = captureParameters;
+        }
+
+        public int getMaxQueries() {
+            return maxQueries;
+        }
+
+        public void setMaxQueries(int maxQueries) {
+            this.maxQueries = maxQueries;
+        }
+
+        public Duration getSlowQueryThreshold() {
+            return slowQueryThreshold;
+        }
+
+        public void setSlowQueryThreshold(Duration slowQueryThreshold) {
+            this.slowQueryThreshold = slowQueryThreshold == null ? Duration.ZERO : slowQueryThreshold;
         }
     }
 

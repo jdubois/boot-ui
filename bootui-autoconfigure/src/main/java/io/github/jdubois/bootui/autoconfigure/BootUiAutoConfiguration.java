@@ -17,11 +17,15 @@ import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
+import io.github.jdubois.bootui.autoconfigure.sql.SqlTraceController;
+import io.github.jdubois.bootui.autoconfigure.sql.SqlTraceDataSourceBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.sql.SqlTraceStore;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
@@ -82,6 +86,7 @@ import org.springframework.core.env.Environment;
     LoggersController.class,
     StartupController.class,
     DataController.class,
+    SqlTraceController.class,
     HibernateController.class,
     FlywayController.class,
     LiquibaseController.class,
@@ -140,6 +145,7 @@ public class BootUiAutoConfiguration {
             ConfigController.class.getName(),
             CopilotController.class.getName(),
             DataController.class.getName(),
+            SqlTraceController.class.getName(),
             FlywayController.class.getName(),
             LiquibaseController.class.getName(),
             VulnerabilitiesController.class.getName(),
@@ -298,6 +304,19 @@ public class BootUiAutoConfiguration {
     @Bean
     public TelemetryStore bootUiTelemetryStore(BootUiProperties properties) {
         return new TelemetryStore(properties.getTelemetry());
+    }
+
+    @Bean
+    public SqlTraceStore bootUiSqlTraceStore(BootUiProperties properties) {
+        return new SqlTraceStore(properties.getSqlTrace());
+    }
+
+    @Bean
+    @ConditionalOnClass(name = "net.ttddyy.dsproxy.support.ProxyDataSource")
+    @ConditionalOnProperty(prefix = "bootui.sql-trace", name = "enabled", matchIfMissing = true)
+    static SqlTraceDataSourceBeanPostProcessor bootUiSqlTraceDataSourceBeanPostProcessor(
+            ObjectProvider<SqlTraceStore> store) {
+        return new SqlTraceDataSourceBeanPostProcessor(store, true);
     }
 
     @Bean

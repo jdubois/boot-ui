@@ -9,6 +9,7 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const Data = () => import('./views/Data.vue')
+const SqlTrace = () => import('./views/SqlTrace.vue')
 const Hibernate = () => import('./views/Hibernate.vue')
 const Flyway = () => import('./views/Flyway.vue')
 const Liquibase = () => import('./views/Liquibase.vue')
@@ -222,6 +223,12 @@ export const routes = [
     name: 'data',
     component: Data,
     meta: {group: groups.database, icon: 'bi-database', title: 'Spring Data'}
+  },
+  {
+    path: '/sql-trace',
+    name: 'sql-trace',
+    component: SqlTrace,
+    meta: {group: groups.database, icon: 'bi-clipboard-data', title: 'SQL Trace'}
   },
   {
     path: '/flyway',

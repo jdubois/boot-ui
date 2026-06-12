@@ -38,6 +38,7 @@ const panelOrder = [
   ['mappings', 'Mappings'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['data', 'Spring Data'],
+  ['sql-trace', 'SQL Trace'],
   ['hibernate', 'Hibernate'],
   ['flyway', 'Flyway'],
   ['liquibase', 'Liquibase'],
@@ -916,6 +917,140 @@ const dataReport = {
     }
   ]
 }
+
+const sqlTrace = (() => {
+  const select =
+    'select p1_0.id,p1_0.active,p1_0.category,p1_0.name from sample_products p1_0 where p1_0.active=true order by p1_0.name'
+  const nPlusOne = 'select o1_0.id,o1_0.status,o1_0.total from sample_advisor_orders o1_0 where o1_0.customer_id=?'
+  const insert = 'insert into sample_advisor_orders (customer_id,status,total) values (?,?,?)'
+  const update = 'update sample_products set active=? where id=?'
+  const queries = []
+  let id = 60
+  const push = (q) => queries.push({id: id, timestamp: nowMillis - (60 - id) * 120, ...q})
+
+  push({
+    dataSource: 'dataSource',
+    connectionId: '7',
+    type: 'PREPARED',
+    category: 'SELECT',
+    batch: false,
+    batchSize: 0,
+    elapsedMillis: 248,
+    success: true,
+    slow: true,
+    error: null,
+    thread: 'http-nio-8080-exec-3',
+    statements: [select],
+    parameters: []
+  })
+  id -= 1
+  push({
+    dataSource: 'dataSource',
+    connectionId: '7',
+    type: 'PREPARED',
+    category: 'UPDATE',
+    batch: false,
+    batchSize: 0,
+    elapsedMillis: 9,
+    success: true,
+    slow: false,
+    error: null,
+    thread: 'http-nio-8080-exec-3',
+    statements: [update],
+    parameters: ['[false, 4]']
+  })
+  for (let i = 0; i < 6; i += 1) {
+    id -= 1
+    push({
+      dataSource: 'dataSource',
+      connectionId: '7',
+      type: 'PREPARED',
+      category: 'SELECT',
+      batch: false,
+      batchSize: 0,
+      elapsedMillis: 3 + i,
+      success: true,
+      slow: false,
+      error: null,
+      thread: 'http-nio-8080-exec-5',
+      statements: [nPlusOne],
+      parameters: [`[${1000 + i}]`]
+    })
+  }
+  id -= 1
+  push({
+    dataSource: 'dataSource',
+    connectionId: '7',
+    type: 'PREPARED',
+    category: 'INSERT',
+    batch: true,
+    batchSize: 3,
+    elapsedMillis: 12,
+    success: true,
+    slow: false,
+    error: null,
+    thread: 'http-nio-8080-exec-5',
+    statements: [insert],
+    parameters: ['[1000, NEW, 49.90]', '[1001, NEW, 19.00]', '[1002, NEW, 7.50]']
+  })
+
+  queries.reverse()
+  return {
+    available: true,
+    unavailableReason: null,
+    recording: true,
+    captureParameters: true,
+    maxQueries: 200,
+    slowQueryThresholdMillis: 200,
+    dataSources: ['dataSource'],
+    stats: {
+      recorded: queries.length,
+      captured: queries.length,
+      evicted: 0,
+      totalElapsedMillis: 301,
+      maxElapsedMillis: 248,
+      avgElapsedMillis: 301 / queries.length,
+      slowQueries: 1,
+      failedQueries: 0,
+      batchExecutions: 1,
+      selectCount: 7,
+      insertCount: 1,
+      updateCount: 1,
+      deleteCount: 0,
+      otherCount: 0
+    },
+    queries,
+    topStatements: [
+      {
+        sql: nPlusOne,
+        category: 'SELECT',
+        executions: 6,
+        totalElapsedMillis: 33,
+        maxElapsedMillis: 8,
+        potentialNPlusOne: true
+      },
+      {
+        sql: select,
+        category: 'SELECT',
+        executions: 1,
+        totalElapsedMillis: 248,
+        maxElapsedMillis: 248,
+        potentialNPlusOne: false
+      },
+      {
+        sql: insert,
+        category: 'INSERT',
+        executions: 1,
+        totalElapsedMillis: 12,
+        maxElapsedMillis: 12,
+        potentialNPlusOne: false
+      }
+    ],
+    warnings: [
+      'Bound parameter values are captured in clear text. Set bootui.sql-trace.capture-parameters=false to hide them.'
+    ]
+  }
+})()
 
 const databaseConnectionPoolsReport = {
   available: true,
@@ -2474,6 +2609,7 @@ const screenshots = [
     }
   ],
   ['hibernate', 'Hibernate', 'bootui-hibernate.png', waitForText('FetchType.EAGER')],
+  ['sql-trace', 'SQL Trace', 'bootui-sql-trace.png', waitForText('select p1_0.id')],
   ['flyway', 'Flyway', 'bootui-flyway.png', waitForText('V3__add_catalog_tags.sql')],
   ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
   ['spring-security', 'Spring Security', 'bootui-spring-security.png', waitForText('/api/sample/hello')],
@@ -3034,6 +3170,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'scheduled') return fulfillJson(route, scheduled)
   if (endpoint === 'data/repositories') return fulfillJson(route, dataReport)
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
+  if (endpoint === 'sql-trace') return fulfillJson(route, sqlTrace)
   if (endpoint === 'hibernate') return fulfillJson(route, hibernate)
   if (endpoint === 'hibernate/scan') return fulfillJson(route, hibernate)
   if (endpoint === 'flyway/migrations') return fulfillJson(route, flyway)

@@ -32,6 +32,7 @@ public final class BootUiPanels {
     public static final String CONDITIONS = "conditions";
     public static final String MAPPINGS = "mappings";
     public static final String DATA = "data";
+    public static final String SQL_TRACE = "sql-trace";
     public static final String FLYWAY = "flyway";
     public static final String LIQUIBASE = "liquibase";
     public static final String DATABASE_CONNECTION_POOLS = "database-connection-pools";
@@ -82,6 +83,7 @@ public final class BootUiPanels {
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
             new Panel(DATA, "Spring Data", false, "/data"),
+            new Panel(SQL_TRACE, "SQL Trace", true, "/sql-trace"),
             new Panel(HIBERNATE, "Hibernate", true, "/hibernate"),
             new Panel(SPRING_CACHE, "Spring Cache", true, "/spring-cache"),
             new Panel(AI, "AI Usage", false, "/ai"),

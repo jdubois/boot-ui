@@ -23,6 +23,7 @@ const allPanelLinks = [
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
+  {id: 'sql-trace', title: 'SQL Trace', heading: /^SQL Trace/},
   {id: 'hibernate', title: 'Hibernate', heading: /^Hibernate/},
   {id: 'flyway', title: 'Flyway', heading: /Flyway migrations/},
   {id: 'liquibase', title: 'Liquibase', heading: /Liquibase change sets/},
@@ -145,7 +146,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Advisors', count: 8},
       {title: 'Runtime', count: 10},
       {title: 'Configuration', count: 6},
-      {title: 'Database', count: 4},
+      {title: 'Database', count: 5},
       {title: 'Security', count: 2},
       {title: 'Services', count: 3},
       {title: 'Diagnostics', count: 4},
@@ -169,10 +170,11 @@ test.describe('BootUI app shell', () => {
       'Vulnerabilities'
     ])
 
-    await page.getByRole('button', {name: /Database\s+4/}).click()
+    await page.getByRole('button', {name: /Database\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
       'Spring Data',
+      'SQL Trace',
       'Flyway',
       'Liquibase'
     ])

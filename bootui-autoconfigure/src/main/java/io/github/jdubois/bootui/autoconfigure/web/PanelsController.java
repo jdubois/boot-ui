@@ -116,6 +116,7 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
+            case BootUiPanels.SQL_TRACE -> availability(sqlTraceAvailable(), sqlTraceUnavailableReason());
             case BootUiPanels.SPRING_CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
             case BootUiPanels.SPRING_SECURITY ->
@@ -288,6 +289,22 @@ public class PanelsController {
             return "Liquibase is not on the classpath";
         }
         return "No Liquibase beans are available";
+    }
+
+    private boolean sqlTraceAvailable() {
+        return properties.getSqlTrace().isEnabled()
+                && classPresent("net.ttddyy.dsproxy.support.ProxyDataSource")
+                && beanPresent("javax.sql.DataSource");
+    }
+
+    private String sqlTraceUnavailableReason() {
+        if (!properties.getSqlTrace().isEnabled()) {
+            return "SQL tracing is disabled via bootui.sql-trace.enabled=false";
+        }
+        if (!classPresent("net.ttddyy.dsproxy.support.ProxyDataSource")) {
+            return "datasource-proxy is not on the classpath";
+        }
+        return "No DataSource beans are available";
     }
 
     private boolean beanPresent(String className) {

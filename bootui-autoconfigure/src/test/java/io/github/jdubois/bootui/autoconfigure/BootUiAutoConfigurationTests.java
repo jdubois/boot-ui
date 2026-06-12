@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
+import io.github.jdubois.bootui.autoconfigure.sql.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.net.URI;
 import java.nio.file.Path;
@@ -208,6 +209,7 @@ class BootUiAutoConfigurationTests {
                             ConfigController.class,
                             CopilotController.class,
                             DataController.class,
+                            SqlTraceController.class,
                             FlywayController.class,
                             LiquibaseController.class,
                             VulnerabilitiesController.class,
