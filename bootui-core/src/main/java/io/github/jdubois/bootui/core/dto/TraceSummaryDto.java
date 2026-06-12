@@ -8,6 +8,7 @@ import java.util.List;
 public record TraceSummaryDto(
         String traceId,
         String rootSpanName,
+        String httpPath,
         List<String> services,
         long startEpochNanos,
         long endEpochNanos,

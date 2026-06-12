@@ -99,6 +99,33 @@ class BootUiSpanExporterTests {
         }
     }
 
+    @Test
+    void dropsChildSpansOfBootUiSelfTraces() {
+        BootUiProperties properties = new BootUiProperties();
+        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        try {
+            Tracer tracer = provider.get("bootui-test-scope");
+            // The HTTP server span carries the /bootui path; the nested Spring Security filter-chain
+            // span does not. With SimpleSpanProcessor the child is exported when it ends (before the
+            // parent), mirroring how OpenTelemetry batches spans in production.
+            Span root = tracer.spanBuilder("http get /bootui/api/traces")
+                    .setSpanKind(SpanKind.SERVER)
+                    .setAttribute("http.route", "/bootui/api/traces")
+                    .startSpan();
+            Span child = tracer.spanBuilder("security filterchain before")
+                    .setParent(io.opentelemetry.context.Context.current().with(root))
+                    .startSpan();
+            child.end();
+            root.end();
+            provider.forceFlush().join(1, TimeUnit.SECONDS);
+
+            assertThat(store.retainedTraceCount()).isZero();
+        } finally {
+            provider.shutdown().join(1, TimeUnit.SECONDS);
+        }
+    }
+
     private SdkTracerProvider tracerProvider(BootUiSpanExporter exporter) {
         return SdkTracerProvider.builder()
                 .setResource(Resource.create(Attributes.of(SERVICE_NAME, "sample-service")))

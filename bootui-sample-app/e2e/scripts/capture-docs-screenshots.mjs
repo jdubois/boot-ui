@@ -673,6 +673,7 @@ const traceReport = {
     {
       traceId,
       rootSpanName: 'POST /api/chat',
+      httpPath: '/api/chat',
       services: ['bootui-sample', 'ollama', 'redis'],
       startEpochNanos: nowNanos - 45_000_000_000,
       endEpochNanos: nowNanos - 43_780_000_000,
@@ -684,6 +685,7 @@ const traceReport = {
     {
       traceId: 'fedcba9876543210fedcba9876543210',
       rootSpanName: 'GET /api/sample/products',
+      httpPath: '/api/sample/products',
       services: ['bootui-sample', 'postgres'],
       startEpochNanos: nowNanos - 23_000_000_000,
       endEpochNanos: nowNanos - 22_870_000_000,

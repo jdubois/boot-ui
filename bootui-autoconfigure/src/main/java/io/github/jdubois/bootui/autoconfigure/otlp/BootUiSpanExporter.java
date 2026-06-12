@@ -36,12 +36,11 @@ public final class BootUiSpanExporter implements SpanExporter {
             return CompletableResultCode.ofSuccess();
         }
         String apiPath = properties.getApiPath();
+        boolean excludeSelf = telemetry.isExcludeSelfSpans();
         for (SpanData span : spans) {
             NormalizedSpan normalized = toNormalized(span);
-            if (telemetry.isExcludeSelfSpans() && TelemetrySpanFilter.isSelfSpan(normalized, apiPath)) {
-                continue;
-            }
-            store.add(normalized);
+            boolean selfSpan = excludeSelf && TelemetrySpanFilter.isSelfSpan(normalized, apiPath);
+            store.add(normalized, selfSpan);
         }
         return CompletableResultCode.ofSuccess();
     }

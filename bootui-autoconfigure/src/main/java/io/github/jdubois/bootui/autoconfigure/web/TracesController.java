@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.SpanEventDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.core.dto.TraceSummaryDto;
 import io.github.jdubois.bootui.core.dto.TracesReport;
+import java.net.URI;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,15 @@ import org.springframework.web.server.ResponseStatusException;
 public class TracesController {
 
     private static final int MAX_SUMMARY_SERVICES = 20;
+
+    /**
+     * Span attribute keys that can carry an HTTP request path, ordered from the most literal
+     * request path to the most templated/abstract, so the Traces list can label a trace with the
+     * URL path it served instead of a generic root span name such as {@code security filterchain
+     * before}.
+     */
+    private static final List<String> HTTP_PATH_ATTRIBUTE_KEYS =
+            List.of("url.path", "http.target", "http.path", "path", "uri", "http.route", "url.full", "http.url");
 
     private final TelemetryStore store;
 
@@ -89,6 +99,7 @@ public class TracesController {
         return new TraceSummaryDto(
                 bucket.traceId(),
                 rootSpanName,
+                resolveHttpPath(bucket.spans(), earliest),
                 firstServices(services),
                 minStart,
                 maxEnd,
@@ -96,6 +107,96 @@ public class TracesController {
                 bucket.spans().size(),
                 hasError,
                 hasAi);
+    }
+
+    /**
+     * Resolves the HTTP request path a trace served, when one is available, so the Traces list can
+     * show something more useful than the raw root span name. The root span is preferred; otherwise
+     * the earliest server span carrying a path wins, falling back to the earliest span of any kind.
+     */
+    static String resolveHttpPath(Collection<NormalizedSpan> spans, NormalizedSpan root) {
+        String rootPath = httpPath(root);
+        if (rootPath != null) {
+            return rootPath;
+        }
+        if (spans == null) {
+            return null;
+        }
+        NormalizedSpan bestServer = null;
+        String bestServerPath = null;
+        NormalizedSpan bestAny = null;
+        String bestAnyPath = null;
+        for (NormalizedSpan span : spans) {
+            String path = httpPath(span);
+            if (path == null) {
+                continue;
+            }
+            if (bestAny == null || span.startEpochNanos() < bestAny.startEpochNanos()) {
+                bestAny = span;
+                bestAnyPath = path;
+            }
+            if (isServer(span) && (bestServer == null || span.startEpochNanos() < bestServer.startEpochNanos())) {
+                bestServer = span;
+                bestServerPath = path;
+            }
+        }
+        return bestServerPath != null ? bestServerPath : bestAnyPath;
+    }
+
+    static String httpPath(NormalizedSpan span) {
+        if (span == null) {
+            return null;
+        }
+        Map<String, AttributeValue> attributes = span.attributes();
+        if (attributes == null || attributes.isEmpty()) {
+            return null;
+        }
+        for (String key : HTTP_PATH_ATTRIBUTE_KEYS) {
+            AttributeValue value = attributes.get(key);
+            if (value == null) {
+                continue;
+            }
+            String path = normalizePath(value.asString());
+            if (path != null) {
+                return path;
+            }
+        }
+        return null;
+    }
+
+    private static String normalizePath(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String path = raw.trim();
+        if (path.isEmpty()) {
+            return null;
+        }
+        if (path.contains("://")) {
+            try {
+                String uriPath = URI.create(path).getRawPath();
+                if (uriPath != null && !uriPath.isEmpty()) {
+                    path = uriPath;
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Keep the raw value if it cannot be parsed as a URI.
+            }
+        }
+        int cut = path.length();
+        int query = path.indexOf('?');
+        if (query >= 0) {
+            cut = query;
+        }
+        int fragment = path.indexOf('#');
+        if (fragment >= 0 && fragment < cut) {
+            cut = fragment;
+        }
+        path = path.substring(0, cut).trim();
+        return path.isEmpty() ? null : path;
+    }
+
+    private static boolean isServer(NormalizedSpan span) {
+        return span.kind() != null && span.kind().contains("SERVER");
     }
 
     static SpanDto toSpanDto(NormalizedSpan span) {
