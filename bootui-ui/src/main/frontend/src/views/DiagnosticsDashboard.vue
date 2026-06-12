@@ -33,7 +33,7 @@ async function fetchDashboard() {
 }
 
 const requests = computed(() => (report.value && report.value.requests) || [])
-const unattributed = computed(() => report.value && report.value.unattributed)
+const unattributed = computed(() => (report.value && report.value.unattributed) || null)
 const sources = computed(() => (report.value && report.value.sources) || {})
 
 const selected = computed(() => requests.value.find((r) => r.id === selectedId.value) || null)

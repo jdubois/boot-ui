@@ -529,6 +529,8 @@ public final class DiagnosticsCorrelator {
             List<DiagnosticsTimelineEntryDto> sorted = new ArrayList<>(timeline);
             sorted.sort(Comparator.comparingLong(DiagnosticsTimelineEntryDto::timestamp));
             if (sorted.size() > MAX_TIMELINE_PER_REQUEST) {
+                // Keep the most recent events while preserving chronological (oldest-first) order by
+                // slicing the tail of the ascending-sorted list.
                 sorted = new ArrayList<>(sorted.subList(sorted.size() - MAX_TIMELINE_PER_REQUEST, sorted.size()));
             }
             long start = sorted.isEmpty() ? earliestTimestamp() : sorted.get(0).timestamp();
