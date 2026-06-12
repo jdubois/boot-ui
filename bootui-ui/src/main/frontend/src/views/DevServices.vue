@@ -259,8 +259,11 @@ async function responseMessage(res) {
                     <span :class="statusClass(service.status)" class="badge">{{ service.status }}</span>
                   </td>
                   <td class="small" data-label="Host / ports">
-                    <div>{{ service.host || '—' }}</div>
-                    <code>{{ formatPorts(service) }}</code>
+                    <template v-if="service.host || service.ports?.length">
+                      <div v-if="service.host">{{ service.host }}</div>
+                      <code v-if="service.ports?.length">{{ formatPorts(service) }}</code>
+                    </template>
+                    <span v-else class="text-muted">—</span>
                   </td>
                   <td class="text-end" data-label="Actions">
                     <div class="d-flex flex-wrap justify-content-end gap-1 service-actions">
