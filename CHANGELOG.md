@@ -5,17 +5,70 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-06-12
+
+Feature release headlined by three new panels — a **SQL Trace** panel that records executed SQL through a hand-written
+JDBC proxy and flags slow queries and likely N+1 access patterns, an **Exceptions** diagnostics panel that captures and
+groups runtime exceptions, and an opt-in, local-only **MCP server** (with a Developer Tools panel) that exposes BootUI's
+advisors and read-only diagnostics to local AI coding agents. It also sharpens the Traces panel, strengthens the CRaC
+advisor, fixes two GraalVM native-image issues in the starter, hardens the sample app's JVM and native Docker images to
+zero OS-package CVEs, shrinks the packaged UI, and polishes the console shell.
+
+### Added
+
+- **SQL Trace panel** — a new Database panel showing the SQL statements the application recently executed, captured by a
+  hand-written JDBC tracing proxy built on the JDK's own dynamic-proxy support (no third-party database-proxy library).
+  It transparently wraps each `DataSource` and records SQL text, statement/category, wall-clock duration, affected rows,
+  batch size, connection, thread, and failures into a bounded in-memory ring buffer; groups identical statements; flags
+  likely **N+1** access patterns and slow queries; and offers local-only Pause/Resume and Clear actions. Parameter
+  capture is off by default and masked when enabled, wrapping fails open, and the JDK proxies are registered for GraalVM
+  native images. Configurable under `bootui.sql-trace.*` (#359).
+- **Exceptions panel** — a new Diagnostics panel that captures, groups, and surfaces exceptions thrown by the host
+  application. Capture uses two observe-only sources (a `HandlerExceptionResolver` for MVC handler exceptions with
+  request context, and a Logback root appender for anything logged with a throwable), deduplicated by `Throwable`
+  identity and grouped by a SHA-256 fingerprint of the class and top stack frames, with bounded recent occurrences and
+  the cause chain. Messages are masked, request paths are captured without query strings, and the clear action honors
+  read-only. Configurable under `bootui.exceptions.*` (#358).
+- **MCP server for AI agents** — BootUI can optionally expose its advisors and read-only diagnostics to local AI coding
+  agents (GitHub Copilot, Claude Code) through an opt-in, local-only
+  [Model Context Protocol](https://modelcontextprotocol.io) server. It is a hand-rolled JSON-RPC 2.0 endpoint at
+  `POST /bootui/api/mcp`, disabled by default (`bootui.mcp.enabled=OFF`), that reuses the existing controllers and DTOs
+  so every tool returns the same masked, bounded shape as the REST API — advisor scans as action tools, plus diagnostics
+  and core-context read tools — and inherits BootUI's full safety model. A new **MCP Server** panel (top of Developer
+  Tools) documents the exposed tools, shows connection details and a copyable client-configuration JSON, and toggles the
+  server on or off at runtime, overriding the configured mode. Configurable under `bootui.mcp.*` (#368, #370).
+- Three new **CRaC readiness checks** — `CRAC-FILE-001` (direct file-handle opens), `CRAC-CACHE-001` (live
+  `CacheManager` beans), and `CRAC-CONFIG-001` (static initializers capturing env/properties) — plus broadened
+  `CRAC-RES-001`, `CRAC-SECRET-001`, and `CRAC-POOL-001` coverage, all catalogued in
+  [`docs/CRAC-READINESS-CHECKS.md`](docs/CRAC-READINESS-CHECKS.md) (#355).
+- New `bootui.sql-trace.*`, `bootui.exceptions.*`, and `bootui.mcp.*` configuration properties, all catalogued in
+  [`docs/PROPERTIES.md`](docs/PROPERTIES.md).
+- A brand favicon for the console UI, the sample app, and the VuePress documentation site (#364).
 
 ### Changed
 
-- Hardened the sample app's JVM Docker image (published as `jdubois/bootui-sample-app`) to carry no known OS-package
+- **Traces panel now shows the HTTP request path** a trace served (falling back to the root span name when no path
+  attribute is present) instead of labelling traces with generic root spans, and **fully excludes BootUI's own
+  traffic**: self-span filtering is now trace-level, so once any span identifies a trace as BootUI's own the whole trace
+  — and sibling spans exported in other OTLP batches — is dropped. Applied to both the in-process span exporter and the
+  `/bootui/api/otlp` receiver (#375).
+- **Polished the console shell** — collapsed-sidebar hover flyouts, a mobile overlay drawer and responsive topbar, a
+  pulsing "live" dot on the auto-refresh toggle, recently visited panels floated to the top of the command palette, and
+  human-readable byte sizes in Health details (#362).
+- **Shrank the packaged UI JAR** by subsetting the Bootstrap Icons font and CSS to only the icons BootUI uses (#363).
+- **Hardened the sample app's JVM Docker image** (published as `jdubois/bootui-sample-app`) to carry no known OS-package
   CVEs. Its runtime stage now uses Google's distroless glibc base (`gcr.io/distroless/base-debian12:nonroot`, the same
   base `Dockerfile-native` uses) instead of Alpine, which removes the vulnerable `openssl` (`libssl3`/`libcrypto3`) and
   `busybox` packages a scanner previously flagged. The `jlink` runtime is now assembled on the glibc JDK to match the
   base; because distroless ships no shell, JVM flags moved from a `sh -c $JAVA_OPTS` entrypoint to `JAVA_TOOL_OPTIONS`,
   the entrypoint is exec-form, and the Docker `HEALTHCHECK` was dropped (probe `/actuator/health` from your orchestrator
-  instead, as the native image already documents).
+  instead, as the native image already documents) (#365).
+- **Hardened the sample app's GraalVM native Docker image** by building a mostly-static binary and switching the runtime
+  stage to `gcr.io/distroless/base-debian12:nonroot`, taking it (and the BootUI-generated `Dockerfile-native`) to zero
+  CVEs; the curl-based `HEALTHCHECK` was dropped (#356).
+- **Shrank the sample app's JVM Docker image from 739MB to 338MB** by exploding the repackaged Spring Boot jar into
+  layers, assembling a curated `jlink` runtime, and using a minimal Alpine final stage (#361).
+- Refactored the sample app into clean feature packages for clearer demos and integration tests (#371).
 
 ### Fixed
 
@@ -23,12 +76,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   endpoint that returns Actuator's raw mappings descriptor) threw a `MissingReflectionRegistrationError` in a native
   image because Jackson reflectively instantiates the array forms of Actuator's nested `MediaTypeExpressionDescription`
   / `NameValueExpressionDescription` types while serializing them. BootUI's `RuntimeHints` now register those types and
-  their array forms, so consumers of the starter no longer need to declare the hints themselves.
+  their array forms, so consumers of the starter no longer need to declare the hints themselves (#367).
 - **GraalVM native image: BootUI no longer self-reports as "Disabled" while running.** In a native image the activation
   condition is frozen at AOT build time, but the `BootUiActivation` bean recomputed it against the live runtime
   environment (where the build-time `dev` profile / `bootui.enabled=ON` no longer apply), so the Overview panel and the
   startup log claimed BootUI was disabled even though it was serving. When running AOT-generated artifacts, BootUI now
-  trusts the frozen build-time decision and reports the accurate enabled state.
+  trusts the frozen build-time decision and reports the accurate enabled state (#367).
+- Exempted the `/bootui/api/mcp` endpoint from Spring Security's SPA CSRF token so non-browser MCP clients (e.g. VS
+  Code) can connect without a token, while `LocalhostOnlyFilter`'s loopback, `Host` allow-list, and cross-site
+  defenses still apply (#370).
+- Fixed VuePress documentation anchor links landing on the wrong section (#374).
 
 ## [1.3.0] - 2026-06-11
 
@@ -541,7 +598,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.3.0...HEAD
+[1.4.0]: https://github.com/jdubois/boot-ui/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/jdubois/boot-ui/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/jdubois/boot-ui/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/jdubois/boot-ui/compare/v1.0.0...v1.1.0
