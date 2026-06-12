@@ -124,7 +124,14 @@ public final class ExceptionStore {
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
         Occurrence occurrence = new Occurrence(
-                now, thread, method, path, handler, source, TraceContext.currentTraceId(), TraceContext.currentSpanId());
+                now,
+                thread,
+                method,
+                path,
+                handler,
+                source,
+                TraceContext.currentTraceId(),
+                TraceContext.currentSpanId());
 
         synchronized (lock) {
             Group group = groups.get(fingerprint);
@@ -191,7 +198,8 @@ public final class ExceptionStore {
                             occurrence));
                 }
             }
-            all.sort(Comparator.comparingLong((OccurrenceView view) -> view.occurrence().timestamp())
+            all.sort(Comparator.comparingLong(
+                            (OccurrenceView view) -> view.occurrence().timestamp())
                     .reversed());
             if (limit > 0 && all.size() > limit) {
                 return new ArrayList<>(all.subList(0, limit));

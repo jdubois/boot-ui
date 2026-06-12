@@ -97,7 +97,8 @@ public class DiagnosticsDashboardController {
         }
         List<DiagnosticsCorrelator.HttpSignal> signals = new ArrayList<>();
         for (HttpExchangeDto exchange : report.exchanges()) {
-            long timestamp = exchange.timestamp() == null ? 0L : exchange.timestamp().toEpochMilli();
+            long timestamp =
+                    exchange.timestamp() == null ? 0L : exchange.timestamp().toEpochMilli();
             signals.add(new DiagnosticsCorrelator.HttpSignal(
                     timestamp,
                     exchange.traceId(),

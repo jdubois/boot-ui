@@ -87,6 +87,10 @@ public final class DiagnosticsCorrelator {
     private DiagnosticsCorrelator() {}
 
     public static DiagnosticsDashboardReport correlate(Inputs inputs, String query, Integer offset, Integer limit) {
+        if (!hasActiveSource(inputs.sources())) {
+            return DiagnosticsDashboardReport.unavailable(
+                    "Enable the HTTP Exchanges, SQL Trace, Exceptions, Security Logs or Traces panels to populate the diagnostics dashboard");
+        }
         Map<String, Activity> byTrace = new LinkedHashMap<>();
         List<Activity> httpActivities = new ArrayList<>();
         List<DiagnosticsTimelineEntryDto> unattributed = new ArrayList<>();
@@ -181,8 +185,7 @@ public final class DiagnosticsCorrelator {
         }
 
         // 7. Remaining SQL + exceptions: group by thread + time window.
-        List<Activity> threadActivities =
-                groupByThread(looseSql, threadExceptions, unattributed, unattributedCounts);
+        List<Activity> threadActivities = groupByThread(looseSql, threadExceptions, unattributed, unattributedCounts);
 
         List<Activity> all = new ArrayList<>(byTrace.values());
         all.addAll(httpActivities);
@@ -198,7 +201,8 @@ public final class DiagnosticsCorrelator {
             requests.add(activity.toDto());
         }
 
-        requests.sort(Comparator.comparingLong(DiagnosticsRequestDto::startTimestamp).reversed());
+        requests.sort(
+                Comparator.comparingLong(DiagnosticsRequestDto::startTimestamp).reversed());
 
         // 9. Filter + page.
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
@@ -211,7 +215,8 @@ public final class DiagnosticsCorrelator {
         int total = filtered.size();
         List<DiagnosticsRequestDto> page = paginate(filtered, offset, limit);
 
-        unattributed.sort(Comparator.comparingLong(DiagnosticsTimelineEntryDto::timestamp).reversed());
+        unattributed.sort(
+                Comparator.comparingLong(DiagnosticsTimelineEntryDto::timestamp).reversed());
         List<DiagnosticsTimelineEntryDto> unattributedSample = unattributed.size() > MAX_UNATTRIBUTED_SAMPLE
                 ? new ArrayList<>(unattributed.subList(0, MAX_UNATTRIBUTED_SAMPLE))
                 : unattributed;
@@ -240,8 +245,7 @@ public final class DiagnosticsCorrelator {
         }
         for (ExceptionSignal entry : exceptions) {
             byThread.computeIfAbsent(threadKey(entry.thread()), key -> new ArrayList<>())
-                    .add(new ThreadSignal(
-                            entry.timestamp(), entry.thread(), exceptionEntry(entry), "EXCEPTION", true));
+                    .add(new ThreadSignal(entry.timestamp(), entry.thread(), exceptionEntry(entry), "EXCEPTION", true));
         }
 
         List<Activity> result = new ArrayList<>();
@@ -279,7 +283,8 @@ public final class DiagnosticsCorrelator {
             return;
         }
         String thread = cluster.get(0).thread();
-        Activity activity = new Activity("thread:" + threadKey(thread) + ":" + cluster.get(0).timestamp());
+        Activity activity = new Activity(
+                "thread:" + threadKey(thread) + ":" + cluster.get(0).timestamp());
         activity.thread = thread;
         for (ThreadSignal signal : cluster) {
             activity.add(signal.entry(), signal.kind());
@@ -409,6 +414,16 @@ public final class DiagnosticsCorrelator {
         return value != null && !value.isBlank();
     }
 
+    private static boolean hasActiveSource(DiagnosticsSourcesDto sources) {
+        return sources != null
+                && (sources.httpExchanges()
+                        || sources.sqlTrace()
+                        || sources.exceptions()
+                        || sources.securityLogs()
+                        || sources.traces()
+                        || sources.logTail());
+    }
+
     private record ThreadSignal(
             long timestamp, String thread, DiagnosticsTimelineEntryDto entry, String kind, boolean error) {}
 
@@ -519,7 +534,8 @@ public final class DiagnosticsCorrelator {
             long start = sorted.isEmpty() ? earliestTimestamp() : sorted.get(0).timestamp();
             String resolvedLabel = label;
             if (resolvedLabel == null) {
-                resolvedLabel = thread != null ? thread : (traceId != null ? "trace " + shortTrace(traceId) : "Activity");
+                resolvedLabel =
+                        thread != null ? thread : (traceId != null ? "trace " + shortTrace(traceId) : "Activity");
             }
             return new DiagnosticsRequestDto(
                     id == null ? resolvedLabel : id,

@@ -35,6 +35,7 @@ const allPanelLinks = [
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
+  {id: 'diagnostics-dashboard', title: 'Diagnostics dashboard', heading: /Diagnostics dashboard/},
   {id: 'traces', title: 'Traces', heading: /^Traces/},
   {id: 'log-tail', title: 'Log Tail', heading: /Log Tail/},
   {id: 'exceptions', title: 'Exceptions', heading: /^Exceptions/},
@@ -150,7 +151,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Database', count: 5},
       {title: 'Security', count: 2},
       {title: 'Services', count: 3},
-      {title: 'Diagnostics', count: 5},
+      {title: 'Diagnostics', count: 6},
       {title: 'Developer tools', count: 4}
     ]
 
@@ -193,8 +194,9 @@ test.describe('BootUI app shell', () => {
       'AI Usage'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+5/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+6/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Diagnostics dashboard',
       'Traces',
       'Log Tail',
       'Exceptions',

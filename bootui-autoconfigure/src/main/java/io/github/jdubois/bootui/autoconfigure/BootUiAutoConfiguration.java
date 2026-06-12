@@ -4,9 +4,9 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
+import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsDashboardController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionHandlerResolver;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
-import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsDashboardController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;

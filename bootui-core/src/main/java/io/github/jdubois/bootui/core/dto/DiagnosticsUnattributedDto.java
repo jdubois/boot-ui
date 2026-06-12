@@ -13,11 +13,7 @@ import java.util.List;
  * @param entries a bounded, most-recent-first sample of the unattributed events
  */
 public record DiagnosticsUnattributedDto(
-        int sqlCount,
-        int exceptionCount,
-        int securityCount,
-        int logCount,
-        List<DiagnosticsTimelineEntryDto> entries) {
+        int sqlCount, int exceptionCount, int securityCount, int logCount, List<DiagnosticsTimelineEntryDto> entries) {
 
     public DiagnosticsUnattributedDto {
         entries = entries == null ? List.of() : List.copyOf(entries);
