@@ -165,7 +165,7 @@ public class BootUiMcpTools {
                     args -> exceptionsBean.list()));
         }
         if (securityLogsBean != null) {
-            registry.add(read(
+            registry.add(limitRead(
                     "get_security_logs",
                     "List recent security audit events (authentication, authorization, etc.).",
                     BootUiPanels.SECURITY_LOGS,
@@ -179,7 +179,7 @@ public class BootUiMcpTools {
                     args -> sqlTraceBean.trace()));
         }
         if (tracesBean != null) {
-            registry.add(read(
+            registry.add(limitRead(
                     "get_traces",
                     "Return recent distributed/local traces captured by BootUI.",
                     BootUiPanels.TRACES,
@@ -193,7 +193,7 @@ public class BootUiMcpTools {
                     args -> logTailBean.recent()));
         }
         if (httpExchangesBean != null) {
-            registry.add(read(
+            registry.add(limitRead(
                     "get_http_exchanges",
                     "List recent HTTP request/response exchanges handled by the application.",
                     BootUiPanels.HTTP_EXCHANGES,
@@ -259,6 +259,11 @@ public class BootUiMcpTools {
         return new McpTool(name, description, emptyObjectSchema(), panelId, false, handler);
     }
 
+    private static McpTool limitRead(
+            String name, String description, String panelId, Function<JsonNode, Object> handler) {
+        return new McpTool(name, description, limitSchema(), panelId, false, handler);
+    }
+
     private static McpTool searchRead(
             String name, String description, String panelId, Function<JsonNode, Object> handler) {
         return new McpTool(name, description, querySchema(), panelId, false, handler);
@@ -272,6 +277,16 @@ public class BootUiMcpTools {
         return schema;
     }
 
+    private static ObjectNode limitSchema() {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        properties.set("limit", limitProperty());
+        schema.set("properties", properties);
+        schema.put("additionalProperties", false);
+        return schema;
+    }
+
     private static ObjectNode querySchema() {
         ObjectNode schema = JsonNodeFactory.instance.objectNode();
         schema.put("type", "object");
@@ -280,9 +295,20 @@ public class BootUiMcpTools {
         query.put("type", "string");
         query.put("description", "Optional case-insensitive filter applied to the results.");
         properties.set("query", query);
+        properties.set("limit", limitProperty());
         schema.set("properties", properties);
         schema.put("additionalProperties", false);
         return schema;
+    }
+
+    private static ObjectNode limitProperty() {
+        ObjectNode limit = JsonNodeFactory.instance.objectNode();
+        limit.put("type", "integer");
+        limit.put("minimum", 1);
+        limit.put(
+                "description",
+                "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit.");
+        return limit;
     }
 
     private static String query(JsonNode args) {
@@ -293,7 +319,17 @@ public class BootUiMcpTools {
         return value.isEmpty() ? null : value;
     }
 
+    /**
+     * Resolve the effective page size for a read tool: honor an optional client-supplied positive
+     * {@code limit} argument, but never exceed the configured {@code bootui.mcp.max-results} cap.
+     */
     private static Integer limit(JsonNode args, int maxResults) {
+        if (args != null && args.has("limit") && args.get("limit").isIntegralNumber()) {
+            int requested = args.get("limit").asInt();
+            if (requested >= 1) {
+                return Math.min(requested, maxResults);
+            }
+        }
         return maxResults;
     }
 }
