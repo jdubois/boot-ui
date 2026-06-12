@@ -7,15 +7,6 @@ test.describe('SQL Trace view', () => {
 
     await openView('sql-trace', 'SQL Trace')
 
-    // Loading the panel sets the SPA CSRF cookie; reuse it for the state-changing eviction call so the
-    // next products request hits the database instead of being served from the Spring cache.
-    const cookies = await page.context().cookies()
-    const xsrfToken = cookies.find((cookie) => cookie.name === 'XSRF-TOKEN')?.value ?? ''
-    await page.request.post('/bootui/api/spring-cache/clear', {
-      data: {all: true, confirm: true},
-      headers: {'Content-Type': 'application/json', 'X-XSRF-TOKEN': xsrfToken}
-    })
-
     // Start from an empty buffer so the assertions below are deterministic.
     const clearButton = page.getByRole('button', {name: 'Clear'})
     if (await clearButton.isEnabled()) {
@@ -23,8 +14,8 @@ test.describe('SQL Trace view', () => {
       await expect(page.locator('.alert-success')).toBeVisible()
     }
 
-    // Trigger a real SELECT against sample_products (the cache was just evicted).
-    const response = await page.request.get('/api/sample/products')
+    // Trigger a real, uncached SELECT against sample_products via the sample app's product search.
+    const response = await page.request.get('/api/sample/product-search?term=console')
     expect(response.status()).toBe(200)
 
     await page.getByTitle('Refresh', {exact: true}).click()

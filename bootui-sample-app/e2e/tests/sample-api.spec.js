@@ -29,6 +29,10 @@ test.describe('Sample application REST API', () => {
     await expect(page.locator('#sample-action-status')).toContainText(/Loaded \d+ active products/)
     await expect(page.locator('#sample-action-result')).toContainText('BootUI Starter')
 
+    await page.getByRole('button', {name: 'Run an SQL query'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText(/Ran a live SQL SELECT and matched \d+ product/)
+    await expect(page.locator('#sample-action-result')).toContainText('Sample Console')
+
     await page.getByRole('button', {name: 'Create session data'}).click()
     await expect(page.locator('#session-data-status')).toContainText('Added 5 attributes')
     await expect(page.locator('#sample-action-result')).toContainText('sampleMessage')
@@ -68,6 +72,16 @@ test.describe('Sample application REST API', () => {
     expect(names).toContain('BootUI Starter')
     expect(names).toContain('Sample Console')
     expect(names).not.toContain('Archived Prototype')
+  })
+
+  test('GET /api/sample/product-search runs a live SQL query for the given term', async ({request}) => {
+    const response = await request.get('/api/sample/product-search?term=console')
+    expect(response.status()).toBe(200)
+    const products = await response.json()
+    expect(Array.isArray(products)).toBeTruthy()
+    const names = products.map((p) => p.name)
+    expect(names).toContain('Sample Console')
+    expect(names).not.toContain('BootUI Starter')
   })
 
   test('/admin requires basic authentication with the ADMIN role', async ({request}) => {

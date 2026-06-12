@@ -33,6 +33,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootApplication
@@ -169,6 +170,11 @@ public class BootUiSampleApplication {
             return catalog.activeProducts();
         }
 
+        @GetMapping("/product-search")
+        public List<ProductSummary> productSearch(@RequestParam(name = "term", defaultValue = "console") String term) {
+            return catalog.searchProducts(term);
+        }
+
         @GetMapping("/session")
         public Map<String, Object> session(HttpServletRequest request) {
             HttpSession session = request.getSession(true);
@@ -208,6 +214,13 @@ public class BootUiSampleApplication {
         @Cacheable(cacheNames = "sample-products", key = "'active'", unless = "#result.isEmpty()")
         public List<ProductSummary> activeProducts() {
             return products.findByActiveTrueOrderByNameAsc().stream()
+                    .map(ProductSummary::from)
+                    .toList();
+        }
+
+        public List<ProductSummary> searchProducts(String term) {
+            // Intentionally uncached so every call runs a live SQL SELECT for the SQL Trace panel to capture.
+            return products.searchByName(term).stream()
                     .map(ProductSummary::from)
                     .toList();
         }
