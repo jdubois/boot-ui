@@ -1220,6 +1220,8 @@ Initial properties:
 | `bootui.claude-code.max-parsed-sessions`     | `100`                                   | Maximum recent Claude Code JSONL files parsed and retained in memory.                             |
 | `bootui.claude-code.stream-debounce`         | `400ms`                                 | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.   |
 | `bootui.claude-code.allow-raw-reveal`        | `false`                                 | Allows opt-in raw Claude Code JSONL reveal; disabled by default because logs can include content. |
+| `bootui.mcp.enabled`                         | `OFF`                                   | Enable the local-only MCP server for AI agents. `OFF`/`AUTO` keep it disabled; `ON` exposes it.   |
+| `bootui.mcp.max-results`                     | `200`                                   | Maximum items returned by paginated MCP read tools (config, beans, mappings, logs, traces, etc.). |
 
 Every visible panel must support `bootui.panels.<panel-id>.enabled`; panels with mutating browser actions must also
 support `bootui.panels.<panel-id>.read-only`. These properties are specified panel-by-panel in
@@ -1259,6 +1261,34 @@ bootui.allow-non-localhost=true
 ```
 
 The second property should be required to expose BootUI beyond localhost.
+
+### 6.7 MCP server for AI agents
+
+BootUI optionally exposes its advisors and read-only diagnostics to local AI coding agents (GitHub Copilot, Claude Code)
+through a [Model Context Protocol](https://modelcontextprotocol.io) server, enabling an agent to consult the advisors
+before proposing a fix and to pull runtime diagnostics (exceptions, security logs, SQL traces, HTTP exchanges, traces)
+while diagnosing an issue. It is a headless integration rather than a UI panel.
+
+Design rules:
+
+- **Opt-in and fail-closed.** Registered only when `bootui.mcp.enabled=ON`, and only while BootUI itself is active, so it
+  is never reachable in production. `OFF` (default) and `AUTO` keep it disabled.
+- **In-process and dependency-light.** Implemented as a hand-rolled JSON-RPC 2.0 server (`initialize`, `ping`,
+  `tools/list`, `tools/call`) served over the existing Spring MVC stack at `POST /bootui/api/mcp`, with a
+  `GET /bootui/api/mcp` status response for human inspection. No new runtime dependencies beyond what BootUI already
+  ships. The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
+- **Reuse, don't reimplement.** Each tool delegates to the same controller/service the REST API and panels use and
+  returns the existing DTO records, so contracts stay stable and masked.
+- **Tool surface.** Advisor scans as action tools (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`,
+  `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`); diagnostics reads (`get_exceptions`,
+  `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`); and core context reads
+  (`get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`). Tools whose backing controller is absent
+  (conditional on classpath, e.g. Hibernate or Spring Security) are not advertised.
+- **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
+  allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
+  panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.
+  Values flow through the same secret masking and `bootui.expose-values` mode, and paginated reads are bounded by
+  `bootui.mcp.max-results`.
 
 ## 7. UX specification
 

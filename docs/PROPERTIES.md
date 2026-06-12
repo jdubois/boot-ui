@@ -341,7 +341,20 @@ Panel settings are consistent across the UI and API:
 | `bootui.claude-code.stream-debounce`        | `400ms`              | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.                          |
 | `bootui.claude-code.allow-raw-reveal`       | `false`              | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs.           |
 
-## Read-only examples
+### MCP server
+
+The MCP server exposes BootUI's advisors and read-only diagnostics to local AI agents (GitHub Copilot, Claude Code) over
+a loopback-only Model Context Protocol endpoint at `POST /bootui/api/mcp`. It is **off by default** and only ever active
+while BootUI itself is active, so it is never reachable in production. Tools inherit the same safety model as the panels:
+read tools require the backing panel to be enabled, action (`*_scan`) tools are additionally refused when the panel is
+read-only, and all values flow through the same secret masking as the REST API.
+
+| Property                | Default | Description                                                                                                                       |
+| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.mcp.enabled`    | `OFF`   | Enable the local MCP server. `OFF` (default) and `AUTO` keep it disabled so it is never silently exposed; `ON` exposes the endpoint. |
+| `bootui.mcp.max-results` | `200`   | Maximum number of items returned by paginated read tools (config, beans, mappings, security logs, traces, HTTP exchanges) per call. |
+
+
 
 Make the whole application read-only:
 

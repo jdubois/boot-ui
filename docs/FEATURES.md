@@ -739,3 +739,49 @@ under `~/.claude/`. Because Claude Code writes sessions inside per-project subdi
 through the shared visibility-aware auto-refresh polling used by the other live data panels.
 
 ![BootUI Claude Code panel](./images/bootui-claude-code.png)
+
+### MCP server (for AI agents)
+
+BootUI can expose its advisors and read-only diagnostics to local AI coding agents (GitHub Copilot, Claude Code) through
+a [Model Context Protocol](https://modelcontextprotocol.io) server, so an agent can consult the advisors before
+proposing a fix and pull runtime diagnostics (exceptions, security logs, SQL traces, HTTP exchanges) while investigating
+an issue. It is **not a UI panel**: it is a headless JSON-RPC 2.0 endpoint at `POST /bootui/api/mcp`, off by default, and
+enabled with `bootui.mcp.enabled=ON`. A `GET /bootui/api/mcp` status request returns the advertised tool list for human
+inspection.
+
+It reuses the existing controllers and DTOs rather than reimplementing anything, so every tool returns the same masked,
+bounded shape as the REST API. The tools fall into three groups:
+
+- **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
+  `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`. Each triggers the same scan the panel's action button runs
+  and returns the report DTO.
+- **Diagnostics reads:** `get_exceptions`, `get_security_logs`, `get_sql_traces`, `get_traces`, `get_log_tail`,
+  `get_http_exchanges`.
+- **Core context reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`, `get_mappings`.
+
+Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are
+absent) are simply not advertised. The server inherits BootUI's full safety model:
+
+- It is only ever live while BootUI is active, so it is never reachable in production.
+- The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host` allow-list, cross-site write protection), so it
+  is local-only like the rest of BootUI.
+- Read tools require the backing panel to be enabled; action (`*_scan`) tools are additionally refused when the panel is
+  read-only or `bootui.read-only=true`, returning a clear tool error instead of running.
+- Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are
+  capped by `bootui.mcp.max-results`.
+
+To wire it into an agent, point the client at the loopback HTTP endpoint of your running app. For example, in a Copilot
+or Claude Code MCP configuration:
+
+```json
+{
+  "servers": {
+    "bootui": {
+      "type": "http",
+      "url": "http://127.0.0.1:8080/bootui/api/mcp"
+    }
+  }
+}
+```
+
+See [docs/PROPERTIES.md](./PROPERTIES.md) for the `bootui.mcp.*` settings.
