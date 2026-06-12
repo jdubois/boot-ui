@@ -4,6 +4,9 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
+import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsDashboardController;
+import io.github.jdubois.bootui.autoconfigure.diagnostics.SecurityAuditTraceListener;
+import io.github.jdubois.bootui.autoconfigure.diagnostics.SecurityAuditTraceStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionHandlerResolver;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
@@ -130,6 +133,7 @@ import org.springframework.core.env.Environment;
     GraalVmController.class,
     CracController.class,
     SqlTraceController.class,
+    DiagnosticsDashboardController.class,
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
@@ -161,6 +165,7 @@ public class BootUiAutoConfiguration {
             GraalVmController.class.getName(),
             CracController.class.getName(),
             SqlTraceController.class.getName(),
+            DiagnosticsDashboardController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
             HttpExchangesController.class.getName(),
@@ -253,6 +258,17 @@ public class BootUiAutoConfiguration {
         @ConditionalOnMissingBean(AuditEventRepository.class)
         AuditEventRepository bootUiAuditEventRepository() {
             return new InMemoryAuditEventRepository();
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        SecurityAuditTraceStore bootUiSecurityAuditTraceStore() {
+            return new SecurityAuditTraceStore();
+        }
+
+        @Bean
+        SecurityAuditTraceListener bootUiSecurityAuditTraceListener(SecurityAuditTraceStore store) {
+            return new SecurityAuditTraceListener(store);
         }
     }
 

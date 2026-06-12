@@ -24,6 +24,7 @@ const Crac = () => import('./views/Crac.vue')
 const LogTail = () => import('./views/LogTail.vue')
 const Exceptions = () => import('./views/Exceptions.vue')
 const HttpExchanges = () => import('./views/HttpExchanges.vue')
+const DiagnosticsDashboard = () => import('./views/DiagnosticsDashboard.vue')
 const ProfileDiff = () => import('./views/ProfileDiff.vue')
 const SpringCache = () => import('./views/SpringCache.vue')
 const SpringSecurity = () => import('./views/SpringSecurity.vue')
@@ -272,6 +273,12 @@ export const routes = [
     name: 'ai',
     component: Ai,
     meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage'}
+  },
+  {
+    path: '/diagnostics-dashboard',
+    name: 'diagnostics-dashboard',
+    component: DiagnosticsDashboard,
+    meta: {group: groups.diagnostics, icon: 'bi-binoculars-fill', title: 'Diagnostics dashboard'}
   },
   {
     path: '/traces',

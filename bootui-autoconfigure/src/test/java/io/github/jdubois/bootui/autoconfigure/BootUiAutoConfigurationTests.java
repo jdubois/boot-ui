@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
+import io.github.jdubois.bootui.autoconfigure.diagnostics.DiagnosticsDashboardController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
@@ -241,6 +242,7 @@ class BootUiAutoConfigurationTests {
                             GraalVmController.class,
                             CracController.class,
                             SqlTraceController.class,
+                            DiagnosticsDashboardController.class,
                             HealthController.class,
                             DatabaseConnectionPoolsController.class,
                             HttpExchangesController.class,

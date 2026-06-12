@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.exceptions;
 
+import io.github.jdubois.bootui.autoconfigure.diagnostics.TraceContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -122,7 +123,15 @@ public final class ExceptionStore {
         String location = location(safeFrames);
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
-        Occurrence occurrence = new Occurrence(now, thread, method, path, handler, source);
+        Occurrence occurrence = new Occurrence(
+                now,
+                thread,
+                method,
+                path,
+                handler,
+                source,
+                TraceContext.currentTraceId(),
+                TraceContext.currentSpanId());
 
         synchronized (lock) {
             Group group = groups.get(fingerprint);
@@ -167,6 +176,35 @@ public final class ExceptionStore {
         synchronized (lock) {
             Group group = groups.get(fingerprint);
             return group == null ? null : group.detail();
+        }
+    }
+
+    /**
+     * Returns the individual retained occurrences across all groups, most recent first, each paired
+     * with its group's identifying metadata. Used by the Diagnostics dashboard to correlate
+     * individual exception events with the requests/traces that produced them.
+     */
+    public List<OccurrenceView> recentOccurrences(int limit) {
+        synchronized (lock) {
+            List<OccurrenceView> all = new ArrayList<>();
+            for (Group group : groups.values()) {
+                for (Occurrence occurrence : group.occurrences) {
+                    all.add(new OccurrenceView(
+                            group.fingerprint,
+                            group.exceptionClassName,
+                            group.message,
+                            group.location,
+                            group.applicationException,
+                            occurrence));
+                }
+            }
+            all.sort(Comparator.comparingLong(
+                            (OccurrenceView view) -> view.occurrence().timestamp())
+                    .reversed());
+            if (limit > 0 && all.size() > limit) {
+                return new ArrayList<>(all.subList(0, limit));
+            }
+            return all;
         }
     }
 
@@ -383,7 +421,14 @@ public final class ExceptionStore {
     public record Cause(String exceptionClassName, String message, List<Frame> frames, int commonFrames) {}
 
     public record Occurrence(
-            long timestamp, String thread, String requestMethod, String requestPath, String handler, String source) {}
+            long timestamp,
+            String thread,
+            String requestMethod,
+            String requestPath,
+            String handler,
+            String source,
+            String traceId,
+            String spanId) {}
 
     public record GroupSummary(
             String fingerprint,
@@ -398,4 +443,12 @@ public final class ExceptionStore {
 
     public record GroupDetail(
             GroupSummary summary, List<Frame> frames, List<Cause> causes, List<Occurrence> occurrences) {}
+
+    public record OccurrenceView(
+            String fingerprint,
+            String exceptionClassName,
+            String message,
+            String location,
+            boolean applicationException,
+            Occurrence occurrence) {}
 }

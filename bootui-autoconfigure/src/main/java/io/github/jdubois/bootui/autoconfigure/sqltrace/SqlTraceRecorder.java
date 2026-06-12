@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
+import io.github.jdubois.bootui.autoconfigure.diagnostics.TraceContext;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import java.util.ArrayDeque;
@@ -66,6 +67,8 @@ public final class SqlTraceRecorder {
             int batchSize,
             String connectionId,
             String thread,
+            String traceId,
+            String spanId,
             List<String> parameters) {
 
         public CapturedStatement {
@@ -180,6 +183,8 @@ public final class SqlTraceRecorder {
                 Math.max(0, batchSize),
                 connectionId,
                 thread,
+                TraceContext.currentTraceId(),
+                TraceContext.currentSpanId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of());
         synchronized (lock) {
             buffer.addLast(entry);
