@@ -19,9 +19,12 @@ const recentNames = new Set(recentRouteList.map((r) => r.name))
 function score(route, q) {
   const title = (route.meta.title || '').toLowerCase()
   const group = (route.meta.group || '').toLowerCase()
+  const shortcut = (route.meta.shortcut || '').toLowerCase()
   const needle = q.toLowerCase()
   if (title.startsWith(needle)) return 3
+  if (shortcut.startsWith(needle)) return 3
   if (title.includes(needle)) return 2
+  if (shortcut.includes(needle)) return 2
   if (group.includes(needle)) return 1
   return 0
 }
@@ -55,6 +58,8 @@ function navigate(route) {
   emit('close')
 }
 
+const numberedNavKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
+
 function onKeydown(e) {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
@@ -68,6 +73,12 @@ function onKeydown(e) {
     if (selected) navigate(selected)
   } else if (e.key === 'Escape') {
     emit('close')
+  } else if (numberedNavKeys.includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const idx = numberedNavKeys.indexOf(e.key)
+    if (idx < results.value.length) {
+      e.preventDefault()
+      navigate(results.value[idx])
+    }
   }
 }
 
@@ -106,6 +117,7 @@ defineExpose({focusInput})
           @click="navigate(r)"
           @mouseover="activeIndex = i"
         >
+          <span v-if="i < 9 && !query.trim()" class="cp-item-num">{{ i + 1 }}</span>
           <i :class="['bi', r.meta.icon, 'cp-item-icon']"></i>
           <span class="cp-item-title">{{ r.meta.title }}</span>
           <i
@@ -114,6 +126,7 @@ defineExpose({focusInput})
             title="Recently viewed"
             aria-hidden="true"
           ></i>
+          <span v-if="r.meta.shortcut" class="cp-item-shortcut">{{ r.meta.shortcut }}</span>
           <span class="cp-item-group">{{ r.meta.group }}</span>
         </li>
       </ul>
@@ -226,6 +239,30 @@ defineExpose({focusInput})
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.cp-item-num {
+  align-items: center;
+  background: var(--bootui-nav-group-bg, rgba(100, 116, 139, 0.08));
+  border-radius: 0.35rem;
+  color: var(--bootui-text-muted, #94a3b8);
+  display: inline-flex;
+  font-size: 0.65rem;
+  font-weight: 700;
+  height: 1.25rem;
+  justify-content: center;
+  line-height: 1;
+  min-width: 1.25rem;
+}
+
+.cp-item-shortcut {
+  background: var(--bootui-nav-group-bg, rgba(100, 116, 139, 0.08));
+  border-radius: 0.25rem;
+  color: var(--bootui-text-muted, #94a3b8);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.35rem;
 }
 
 .cp-item-recent {
