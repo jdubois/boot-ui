@@ -59,6 +59,7 @@ describe('routes', () => {
     expect(new Set(namedRoutes.map((route) => route.name)).size).toBe(namedRoutes.length)
     expect(new Set(namedRoutes.map((route) => route.path)).size).toBe(namedRoutes.length)
     expect(new Set(namedRoutes.map((route) => route.meta.icon)).size).toBe(namedRoutes.length)
+    expect(new Set(namedRoutes.map((route) => route.meta.shortcut)).size).toBe(namedRoutes.length)
 
     for (const route of namedRoutes) {
       expect(route.path).toMatch(/^\/[a-z0-9-]+$/)
@@ -68,7 +69,8 @@ describe('routes', () => {
         icon: expect.stringMatching(/^bi-/),
         group: expect.stringMatching(
           /^(overview|advisors|runtime|configuration|database|security|services|diagnostics|developer-tools)$/
-        )
+        ),
+        shortcut: expect.stringMatching(/^[a-z]{2,3}$/)
       })
     }
   })
