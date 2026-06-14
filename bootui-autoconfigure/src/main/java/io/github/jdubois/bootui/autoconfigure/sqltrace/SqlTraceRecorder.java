@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -88,6 +89,7 @@ public final class SqlTraceRecorder {
     private final AtomicLong evicted = new AtomicLong();
     private final AtomicBoolean recording;
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
+    private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     public SqlTraceRecorder(
             boolean enabled,
@@ -117,7 +119,10 @@ public final class SqlTraceRecorder {
     }
 
     public void setRecording(boolean value) {
-        recording.set(value);
+        boolean changed = recording.getAndSet(value) != value;
+        if (changed) {
+            notifyListeners();
+        }
     }
 
     public boolean isCaptureParameters() {
@@ -189,6 +194,7 @@ public final class SqlTraceRecorder {
             }
         }
         totalCaptured.incrementAndGet();
+        notifyListeners();
     }
 
     /** Returns the retained executions, most recent first. */
@@ -211,6 +217,27 @@ public final class SqlTraceRecorder {
     public void clear() {
         synchronized (lock) {
             buffer.clear();
+        }
+        notifyListeners();
+    }
+
+    /**
+     * Registers a listener invoked (with no payload) whenever the trace changes, i.e. on a recorded
+     * statement, a {@link #clear()}, or a recording pause/resume. Returns a handle that removes the
+     * listener when run. Listener failures are isolated so they cannot disrupt query execution.
+     */
+    public Runnable subscribe(Runnable listener) {
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
+    private void notifyListeners() {
+        for (Runnable listener : listeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException ignored) {
+                // A misbehaving stream subscriber must never disrupt query execution.
+            }
         }
     }
 

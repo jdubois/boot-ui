@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.CapturedStatement;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
@@ -10,11 +11,13 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Read-mostly endpoint backing the SQL Trace panel.
@@ -34,6 +37,7 @@ public class SqlTraceController {
     private final ObjectProvider<SqlTraceRecorder> recorderProvider;
     private final ObjectProvider<DataSource> dataSourceProvider;
     private final BootUiExposure exposure;
+    private final BootUiChangeStream changeStream;
 
     public SqlTraceController(
             ObjectProvider<SqlTraceRecorder> recorderProvider,
@@ -42,6 +46,11 @@ public class SqlTraceController {
         this.recorderProvider = recorderProvider;
         this.dataSourceProvider = dataSourceProvider;
         this.exposure = exposure;
+        this.changeStream = new BootUiChangeStream("sql-trace");
+        SqlTraceRecorder recorder = recorderProvider.getIfAvailable();
+        if (recorder != null) {
+            recorder.subscribe(changeStream::signal);
+        }
     }
 
     @GetMapping
@@ -72,6 +81,15 @@ public class SqlTraceController {
         boolean enabled = (request == null || request.enabled() == null) ? !recorder.isRecording() : request.enabled();
         recorder.setRecording(enabled);
         return report(recorder);
+    }
+
+    /**
+     * Streams a coalesced {@code update} notification whenever a statement is captured, the buffer is
+     * cleared, or recording is paused/resumed, so the browser can refresh live without polling.
+     */
+    @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream() {
+        return changeStream.open();
     }
 
     private SqlTraceReport report(SqlTraceRecorder recorder) {

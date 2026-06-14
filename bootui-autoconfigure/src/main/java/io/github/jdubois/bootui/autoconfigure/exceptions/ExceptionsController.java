@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.exceptions;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.dto.ExceptionCauseDto;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionFrameDto;
@@ -14,6 +15,7 @@ import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Read/clear API for the BootUI Exceptions panel.
@@ -44,12 +47,19 @@ public class ExceptionsController {
 
     private final BootUiExposure exposure;
 
+    private final BootUiChangeStream changeStream;
+
     @Autowired
     public ExceptionsController(
             ObjectProvider<ExceptionStore> storeProvider, BootUiProperties properties, BootUiExposure exposure) {
         this.storeProvider = storeProvider;
         this.properties = properties;
         this.exposure = exposure;
+        this.changeStream = new BootUiChangeStream("exceptions");
+        ExceptionStore store = storeProvider.getIfAvailable();
+        if (store != null) {
+            store.subscribe(changeStream::signal);
+        }
     }
 
     ExceptionsController(ObjectProvider<ExceptionStore> storeProvider, BootUiProperties properties) {
@@ -85,6 +95,15 @@ public class ExceptionsController {
         if (store != null) {
             store.clear();
         }
+    }
+
+    /**
+     * Streams a coalesced {@code update} notification whenever a new exception is captured or the
+     * panel is cleared, so the browser can refresh live without polling.
+     */
+    @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream() {
+        return changeStream.open();
     }
 
     private ExceptionGroupDto toGroupDto(ExceptionStore.GroupSummary summary) {

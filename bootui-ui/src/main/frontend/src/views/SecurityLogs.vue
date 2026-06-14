@@ -2,7 +2,7 @@
 import {apiFetch} from '../api.js'
 import {computed, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
-import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -51,7 +51,7 @@ async function fetchLogs(reset = false) {
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchLogs)
+const {autoRefresh, loading, initialLoading, load} = useEventStreamRefresh('api/security-logs/stream', fetchLogs)
 
 function previousPage() {
   if (!page.value) return

@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * In-memory, bounded store of exceptions thrown by the host application, grouped by a stable
@@ -69,6 +70,7 @@ public final class ExceptionStore {
     private final Object lock = new Object();
     private final Map<String, Group> groups = new HashMap<>();
     private final Set<Throwable> seen = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+    private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private volatile List<String> applicationPackages = List.of();
 
@@ -140,6 +142,7 @@ public final class ExceptionStore {
             group.count++;
             group.addOccurrence(occurrence, maxOccurrencesPerGroup);
         }
+        notifyListeners();
     }
 
     public List<GroupSummary> groups() {
@@ -175,6 +178,27 @@ public final class ExceptionStore {
             groups.clear();
         }
         seen.clear();
+        notifyListeners();
+    }
+
+    /**
+     * Registers a listener invoked (with no payload) whenever the store changes, i.e. on a recorded
+     * exception or a {@link #clear()}. Returns a handle that removes the listener when run. Listener
+     * failures are isolated so one bad subscriber cannot break exception capture.
+     */
+    public Runnable subscribe(Runnable listener) {
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
+    private void notifyListeners() {
+        for (Runnable listener : listeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException ignored) {
+                // A misbehaving stream subscriber must never disrupt exception capture.
+            }
+        }
     }
 
     public int maxGroups() {
