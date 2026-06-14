@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'bootui.recentPanels'
-export const MAX_RECENT_PANELS = 5
+const MAX_RECENT_PANELS = 5
 
 function storage() {
   try {

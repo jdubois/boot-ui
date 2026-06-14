@@ -1,6 +1,6 @@
 // Simple weighted-penalty scoring model shared by the Overview dashboard.
 // Each finding subtracts a fixed number of points from a perfect score of 100.
-export const SEVERITY_WEIGHTS = {
+const SEVERITY_WEIGHTS = {
   CRITICAL: 25,
   HIGH: 10,
   MEDIUM: 3,
@@ -26,7 +26,7 @@ export function scoreFromSeverityCounts(severityCounts) {
   return clampScore(MAX_SCORE - penalty)
 }
 
-export function clampScore(value) {
+function clampScore(value) {
   if (!Number.isFinite(value)) return MIN_SCORE
   return Math.max(MIN_SCORE, Math.min(MAX_SCORE, Math.round(value)))
 }
