@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
@@ -459,6 +461,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public RequestCorrelationRegistry bootUiRequestCorrelationRegistry(BootUiProperties properties) {
+        return new RequestCorrelationRegistry(properties.getActivity().getMaxEntries());
+    }
+
+    @Bean
     public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
@@ -525,6 +532,17 @@ public class BootUiAutoConfiguration {
         registration.addUrlPatterns(properties.getApiPath() + "/*");
         registration.setOrder(Integer.MIN_VALUE + 1);
         registration.setName("bootUiPanelAccessFilter");
+        return registration;
+    }
+
+    @Bean
+    public FilterRegistrationBean<RequestCorrelationFilter> bootUiRequestCorrelationFilterRegistration(
+            RequestCorrelationRegistry registry, BootUiProperties properties) {
+        FilterRegistrationBean<RequestCorrelationFilter> registration =
+                new FilterRegistrationBean<>(new RequestCorrelationFilter(registry, properties.getPath()));
+        registration.addUrlPatterns("/*");
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
+        registration.setName("bootUiRequestCorrelationFilter");
         return registration;
     }
 

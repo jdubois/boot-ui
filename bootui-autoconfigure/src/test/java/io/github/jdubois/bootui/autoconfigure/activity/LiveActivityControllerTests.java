@@ -52,6 +52,7 @@ class LiveActivityControllerTests {
                 empty(HealthController.class),
                 empty(SqlTraceRecorder.class),
                 empty(ExceptionStore.class),
+                empty(RequestCorrelationRegistry.class),
                 properties);
     }
 

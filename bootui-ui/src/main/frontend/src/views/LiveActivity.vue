@@ -242,7 +242,7 @@ function renderProfileReport() {
   if (req.traceId) lines.push(`Trace id: ${req.traceId}`)
   if (p.timing) lines.push(`Timing: ${timingSummary.value}`)
   lines.push('')
-  lines.push(`SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact, trace id'}):`)
+  lines.push(`SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}):`)
   if (p.sqlGroups && p.sqlGroups.length) {
     for (const group of p.sqlGroups) {
       const flag = group.potentialNPlusOne ? ' [N+1]' : ''
@@ -644,9 +644,16 @@ function clearFilters() {
                 <span
                   v-if="profile.sqlCorrelationApproximate"
                   class="badge text-bg-secondary ms-1"
-                  title="SQL has no trace id; correlated by time window"
+                  title="Correlated by time window only (no trace id or uniquely identifiable serving thread)"
                 >
                   approximate
+                </span>
+                <span
+                  v-else-if="profile.sql && profile.sql.length"
+                  class="badge text-bg-success ms-1"
+                  title="Correlated exactly by trace id or the request's serving thread"
+                >
+                  exact
                 </span>
               </h3>
               <div v-for="group in profile.sqlGroups" :key="group.sql" class="small mb-1">

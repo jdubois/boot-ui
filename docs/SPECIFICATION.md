@@ -670,10 +670,12 @@ Features:
   pause/resume control over a live feed pushed by **Server-Sent Events** (`GET /bootui/api/activity/stream`): the server
   emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
 - A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's signals with a tiered
-  join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window), time window only (SQL,
-  which carries no trace id), and time window plus principal (Spring Security audit events). The SQL association is
-  flagged approximate, and repeated identical `SELECT`s above `bootui.activity.n-plus-one-threshold` are surfaced as a
-  potential N+1.
+  join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window), serving thread within the
+  request window (SQL, which carries no trace id but runs on the request's worker thread), and time window plus principal
+  (Spring Security audit events). SQL is matched exactly by trace id when present, otherwise exactly by the request's
+  serving thread; it falls back to an approximate time-window match only when the serving thread cannot be uniquely
+  identified (concurrent identical requests or async execution). Repeated identical `SELECT`s above
+  `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1.
 
 Acceptance criteria:
 

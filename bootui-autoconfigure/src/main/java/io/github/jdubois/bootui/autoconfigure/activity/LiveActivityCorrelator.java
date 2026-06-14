@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
@@ -41,8 +42,10 @@ import org.springframework.beans.factory.ObjectProvider;
  *   <li>trace id (strongest): the distributed trace whose id matches the exchange;</li>
  *   <li>HTTP anchor: exceptions whose recorded request method + path match the exchange within its
  *       time window;</li>
- *   <li>time window (heuristic): SQL executions that completed inside the request window. SQL carries
- *       no trace id, so this can over- or under-match under concurrency and is flagged approximate.</li>
+ *   <li>serving thread: SQL executions on the worker thread that handled the request, within its
+ *       window — precise even without a trace id, because a servlet thread serves one request at a
+ *       time. Falls back to a time-window heuristic (flagged approximate) when the request's thread
+ *       cannot be uniquely identified;</li>
  *   <li>time window + principal: Spring Security audit events recorded inside the request window,
  *       restricted to the request's principal when both are known. Audit events carry no trace id, so
  *       this is heuristic in the same way as SQL.</li>
@@ -55,6 +58,7 @@ public class LiveActivityCorrelator {
     private final ObjectProvider<ExceptionsController> exceptions;
     private final ObjectProvider<SecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
+    private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
     private final BootUiProperties properties;
 
     public LiveActivityCorrelator(
@@ -63,12 +67,14 @@ public class LiveActivityCorrelator {
             ObjectProvider<ExceptionsController> exceptions,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
+            ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
         this.exceptions = exceptions;
         this.securityLogs = securityLogs;
         this.traces = traces;
+        this.requestCorrelations = requestCorrelations;
         this.properties = properties;
     }
 
@@ -84,13 +90,15 @@ public class LiveActivityCorrelator {
 
         List<String> notes = new ArrayList<>();
 
-        SqlCorrelation sqlCorrelation = correlateSql(request.traceId(), start, end);
+        SqlCorrelation sqlCorrelation = correlateSql(request, start, end);
         List<SqlTraceEntryDto> sql = sqlCorrelation.entries();
         boolean sqlApproximate = sqlCorrelation.approximate();
         if (!sql.isEmpty()) {
             if (sqlApproximate) {
-                notes.add("SQL is correlated by time window only (no matching trace id), so it may "
-                        + "include or miss statements under concurrent requests.");
+                notes.add("SQL is correlated by time window only (no matching trace id or serving "
+                        + "thread), so it may include or miss statements under concurrent requests.");
+            } else if (sqlCorrelation.matchedBy() == SqlMatch.THREAD) {
+                notes.add("SQL is correlated exactly by the request's serving thread within its window.");
             } else {
                 notes.add("SQL is correlated exactly by trace id " + request.traceId() + ".");
             }
@@ -144,12 +152,23 @@ public class LiveActivityCorrelator {
     }
 
     /**
-     * Correlate SQL to the request, preferring an exact join on trace id when both the request and
-     * the captured statements carry one (Micrometer tracing present), and falling back to the
-     * time-window heuristic only when no statement matches by trace id. The returned
-     * {@link SqlCorrelation#approximate()} flag drives the visible "approximate" badge.
+     * Correlate SQL to the request with a tiered strategy, strongest key first:
+     *
+     * <ol>
+     *   <li><b>trace id</b> — an exact join when both the request and the captured statements carry a
+     *       matching id (Micrometer tracing present and a trace context on the request);</li>
+     *   <li><b>serving thread</b> — an exact join on the worker thread that handled the request,
+     *       within its handling window. A servlet request runs on one thread which serves only one
+     *       request at a time, so this is precise even without any trace id. Requires a unique
+     *       {@link RequestCorrelation} for the request (see {@link RequestCorrelationRegistry#match});
+     *   </li>
+     *   <li><b>time window</b> — the heuristic fallback, flagged approximate, used only when neither
+     *       exact key is available.</li>
+     * </ol>
+     *
+     * The returned {@link SqlCorrelation#approximate()} flag drives the visible "approximate" badge.
      */
-    private SqlCorrelation correlateSql(String traceId, long start, long end) {
+    private SqlCorrelation correlateSql(HttpExchangeDto request, long start, long end) {
         if (!properties.isPanelEnabled(BootUiPanels.SQL_TRACE)) {
             return SqlCorrelation.empty();
         }
@@ -162,6 +181,7 @@ public class LiveActivityCorrelator {
             return SqlCorrelation.empty();
         }
 
+        String traceId = request.traceId();
         if (traceId != null && !traceId.isBlank()) {
             List<SqlTraceEntryDto> exact = new ArrayList<>();
             for (SqlTraceEntryDto entry : report.entries()) {
@@ -171,7 +191,24 @@ public class LiveActivityCorrelator {
             }
             if (!exact.isEmpty()) {
                 exact.sort(Comparator.comparingLong(SqlTraceEntryDto::timestamp));
-                return new SqlCorrelation(exact, false);
+                return new SqlCorrelation(exact, false, SqlMatch.TRACE_ID);
+            }
+        }
+
+        RequestCorrelation served = matchServingThread(request, start, end);
+        if (served != null) {
+            long slack = 50L;
+            List<SqlTraceEntryDto> byThread = new ArrayList<>();
+            for (SqlTraceEntryDto entry : report.entries()) {
+                if (served.thread().equals(entry.thread())
+                        && entry.timestamp() >= served.startMillis() - slack
+                        && entry.timestamp() <= served.endMillis() + slack) {
+                    byThread.add(entry);
+                }
+            }
+            if (!byThread.isEmpty()) {
+                byThread.sort(Comparator.comparingLong(SqlTraceEntryDto::timestamp));
+                return new SqlCorrelation(byThread, false, SqlMatch.THREAD);
             }
         }
 
@@ -182,13 +219,28 @@ public class LiveActivityCorrelator {
             }
         }
         matched.sort(Comparator.comparingLong(SqlTraceEntryDto::timestamp));
-        return new SqlCorrelation(matched, !matched.isEmpty());
+        return new SqlCorrelation(matched, !matched.isEmpty(), SqlMatch.TIME_WINDOW);
     }
 
-    /** The SQL statements correlated to a request plus whether the association was heuristic. */
-    private record SqlCorrelation(List<SqlTraceEntryDto> entries, boolean approximate) {
+    private RequestCorrelation matchServingThread(HttpExchangeDto request, long start, long end) {
+        RequestCorrelationRegistry registry = requestCorrelations == null ? null : requestCorrelations.getIfAvailable();
+        if (registry == null) {
+            return null;
+        }
+        return registry.match(request.method(), request.path(), start, end);
+    }
+
+    /** How the SQL tier matched the request; drives the human-readable note. */
+    private enum SqlMatch {
+        TRACE_ID,
+        THREAD,
+        TIME_WINDOW
+    }
+
+    /** The SQL statements correlated to a request, how they matched, and whether it was heuristic. */
+    private record SqlCorrelation(List<SqlTraceEntryDto> entries, boolean approximate, SqlMatch matchedBy) {
         static SqlCorrelation empty() {
-            return new SqlCorrelation(List.of(), false);
+            return new SqlCorrelation(List.of(), false, SqlMatch.TIME_WINDOW);
         }
     }
 

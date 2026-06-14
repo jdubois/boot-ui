@@ -192,6 +192,59 @@ class LiveActivityCorrelatorTests {
         assertThat(profile.notes()).anyMatch(note -> note.contains("Security events are matched"));
     }
 
+    @Test
+    void correlatesSqlExactlyByServingThreadWhenNoTraceId() {
+        // The request was handled on thread "exec-1" during [START, START+100].
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(100);
+        registry.record(new RequestCorrelationRegistry.RequestCorrelation(START, START + 100, "exec-1", "GET", "/a"));
+
+        SqlTraceController sql = sqlController(
+                sqlEntryOnThread(1, START + 10, "SELECT * FROM t", "SELECT", 3, "exec-1"), // same thread, in window
+                sqlEntryOnThread(2, START + 20, "SELECT * FROM u", "SELECT", 4, "exec-2"), // concurrent other request
+                sqlEntryOnThread(3, START + 50, "SELECT * FROM v", "SELECT", 5, "exec-1")); // same thread, in window
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)),
+                sql,
+                null,
+                null,
+                null,
+                registry,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.sql()).extracting(SqlTraceEntryDto::id).containsExactly(1L, 3L);
+        assertThat(profile.sqlCorrelationApproximate()).isFalse();
+        assertThat(profile.notes()).anyMatch(note -> note.contains("serving thread"));
+    }
+
+    @Test
+    void fallsBackToApproximateWhenServingThreadIsAmbiguous() {
+        // Two genuinely concurrent identical requests have overlapping windows, so the serving thread
+        // cannot be uniquely identified and correlation must stay on the time-window heuristic.
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(100);
+        registry.record(new RequestCorrelationRegistry.RequestCorrelation(START, START + 100, "exec-1", "GET", "/a"));
+        registry.record(
+                new RequestCorrelationRegistry.RequestCorrelation(START + 10, START + 90, "exec-2", "GET", "/a"));
+
+        SqlTraceController sql = sqlController(
+                sqlEntryOnThread(1, START + 10, "SELECT 1", "SELECT", 3, "exec-1"),
+                sqlEntryOnThread(2, START + 20, "SELECT 2", "SELECT", 4, "exec-2"));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)),
+                sql,
+                null,
+                null,
+                null,
+                registry,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.sql()).hasSize(2);
+        assertThat(profile.sqlCorrelationApproximate()).isTrue();
+    }
+
     // --- helpers ---
 
     private LiveActivityCorrelator correlator(
@@ -210,12 +263,24 @@ class LiveActivityCorrelatorTests {
             TracesController traces,
             SecurityLogsController security,
             BootUiProperties properties) {
+        return correlator(requests, sql, exceptions, traces, security, null, properties);
+    }
+
+    private LiveActivityCorrelator correlator(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            TracesController traces,
+            SecurityLogsController security,
+            RequestCorrelationRegistry requestCorrelations,
+            BootUiProperties properties) {
         return new LiveActivityCorrelator(
                 provider(requests),
                 provider(sql),
                 provider(exceptions),
                 provider(security),
                 provider(traces),
+                provider(requestCorrelations),
                 properties);
     }
 
@@ -360,6 +425,26 @@ class LiveActivityCorrelatorTests {
     private static SqlTraceEntryDto sqlEntry(
             long id, long timestamp, String sql, String category, long durationMillis) {
         return sqlEntry(id, timestamp, sql, category, durationMillis, null);
+    }
+
+    private static SqlTraceEntryDto sqlEntryOnThread(
+            long id, long timestamp, String sql, String category, long durationMillis, String thread) {
+        return new SqlTraceEntryDto(
+                id,
+                timestamp,
+                sql,
+                category,
+                category,
+                durationMillis,
+                true,
+                null,
+                null,
+                0,
+                "conn-1",
+                thread,
+                false,
+                List.of(),
+                null);
     }
 
     private static SqlTraceEntryDto sqlEntry(

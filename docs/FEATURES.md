@@ -99,8 +99,12 @@ trace is matched by trace id, exceptions are matched by request method, path, an
 matched by time window and the request principal (so an `AUTHENTICATION_SUCCESS` or `AUTHORIZATION_FAILURE` raised while
 serving a secured endpoint is linked to that very request), and SQL is matched
 **exactly by trace id** when Micrometer Tracing is present (BootUI threads the active `traceId` from the SLF4J MDC onto
-each captured statement). Only when no statement carries a matching trace id does SQL fall back to a time-window
-heuristic, which is then clearly labelled **approximate** in the drawer; identical repeated `SELECT`s above
+each captured statement). When no trace id is available — the common local-dev case — SQL is still matched **exactly by
+the request's serving thread** within its handling window: a servlet request runs start-to-finish on one worker thread
+that serves only one request at a time, so statements on that thread are unambiguously its own. Only when the serving
+thread cannot be uniquely identified (for example two genuinely concurrent identical requests, or SQL run on an async
+thread) does SQL fall back to a time-window heuristic, which is then clearly labelled **approximate** in the drawer;
+identical repeated `SELECT`s above
 `bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. The drawer also shows the request's timing
 breakdown (time spent in SQL versus the rest), its auth/principal context, and the trace span list, can be dismissed with
 the **Escape** key (with focus trapped inside while open), and offers a **Copy profile** action that exports the

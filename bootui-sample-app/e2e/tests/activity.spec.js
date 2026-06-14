@@ -19,20 +19,27 @@ test.describe('Live Activity view', () => {
   })
 
   test('opens a per-request profile drawer with correlated signals', async ({openView, page}) => {
-    const products = await page.request.get('/api/sample/products')
-    expect(products.ok()).toBeTruthy()
+    // product-search runs SQL on every call (unlike the cached products endpoint), so the request
+    // reliably has SQL to correlate.
+    const search = await page.request.get('/api/sample/product-search')
+    expect(search.ok()).toBeTruthy()
 
     await openView('activity', 'Live Activity')
 
-    const productsRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/products'}).first()
-    await expect(productsRow).toBeVisible({timeout: 15_000})
+    const searchRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/product-search'}).first()
+    await expect(searchRow).toBeVisible({timeout: 15_000})
 
-    await productsRow.getByRole('button', {name: /Profile/}).click()
+    await searchRow.getByRole('button', {name: /Profile/}).click()
 
     const drawer = page.locator('.activity-drawer')
     await expect(drawer).toBeVisible()
     await expect(drawer).toContainText('Request profile')
-    await expect(drawer).toContainText('/api/sample/products')
+    await expect(drawer).toContainText('/api/sample/product-search')
+
+    // The SQL-backed request is correlated exactly by its serving thread (no distributed trace id
+    // required), so the drawer shows the "exact" badge rather than the "approximate" fallback.
+    await expect(drawer.getByText('exact', {exact: true})).toBeVisible()
+    await expect(drawer.getByText('approximate', {exact: true})).toHaveCount(0)
 
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
