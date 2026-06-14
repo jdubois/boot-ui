@@ -8,6 +8,7 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
       'Overview',
       'GitHub',
+      'Live Activity',
       'Architecture',
       'REST API',
       'Spring',
@@ -42,7 +43,6 @@ describe('routes', () => {
       'Scheduled Tasks',
       'Spring Cache',
       'AI Usage',
-      'Live Activity',
       'Traces',
       'Log Tail',
       'Exceptions',
@@ -92,6 +92,7 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
       groups.overview,
       groups.overview,
+      groups.overview,
       groups.advisors,
       groups.advisors,
       groups.advisors,
@@ -126,7 +127,6 @@ describe('routes', () => {
       groups.services,
       groups.services,
       groups.services,
-      groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,

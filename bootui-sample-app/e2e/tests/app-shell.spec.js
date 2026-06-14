@@ -4,6 +4,7 @@ import {expect, test} from './fixtures.js'
 const allPanelLinks = [
   {id: 'overview', title: 'Overview', heading: /^Overview/},
   {id: 'github', title: 'GitHub', heading: /^GitHub/},
+  {id: 'activity', title: 'Live Activity', heading: /Live Activity/},
   {id: 'health', title: 'Health', heading: /^Health/},
   {id: 'http-sessions', title: 'HTTP Sessions', heading: /^HTTP Sessions/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
@@ -35,7 +36,6 @@ const allPanelLinks = [
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
   {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
-  {id: 'activity', title: 'Live Activity', heading: /Live Activity/},
   {id: 'traces', title: 'Traces', heading: /^Traces/},
   {id: 'log-tail', title: 'Log Tail', heading: /Log Tail/},
   {id: 'exceptions', title: 'Exceptions', heading: /^Exceptions/},
@@ -152,7 +152,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Database', count: 5},
       {title: 'Security', count: 2},
       {title: 'Services', count: 3},
-      {title: 'Diagnostics', count: 6},
+      {title: 'Diagnostics', count: 5},
       {title: 'Developer tools', count: 5}
     ]
 
@@ -195,9 +195,8 @@ test.describe('BootUI app shell', () => {
       'AI Usage'
     ])
 
-    await page.getByRole('button', {name: /Diagnostics\s+6/}).click()
+    await page.getByRole('button', {name: /Diagnostics\s+5/}).click()
     await expect(page.getByRole('group', {name: 'Diagnostics panels'}).locator('.bootui-nav-link__label')).toHaveText([
-      'Live Activity',
       'Traces',
       'Log Tail',
       'Exceptions',

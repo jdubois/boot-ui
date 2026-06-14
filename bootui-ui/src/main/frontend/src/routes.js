@@ -72,6 +72,12 @@ export const routes = [
     meta: {group: groups.overview, icon: 'bi-github', title: 'GitHub', shortcut: 'gh'}
   },
   {
+    path: '/activity',
+    name: 'activity',
+    component: LiveActivity,
+    meta: {group: groups.overview, icon: 'bi-broadcast', title: 'Live Activity', shortcut: 'la'}
+  },
+  {
     path: '/architecture',
     name: 'architecture',
     component: Architecture,
@@ -274,12 +280,6 @@ export const routes = [
     name: 'ai',
     component: Ai,
     meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage', shortcut: 'ai'}
-  },
-  {
-    path: '/activity',
-    name: 'activity',
-    component: LiveActivity,
-    meta: {group: groups.diagnostics, icon: 'bi-broadcast', title: 'Live Activity', shortcut: 'la'}
   },
   {
     path: '/traces',
