@@ -667,7 +667,8 @@ Features:
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, health status, and heap usage.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count, and a
-  pause/resume control over the visibility-aware auto-refresh.
+  pause/resume control over a live feed pushed by **Server-Sent Events** (`GET /bootui/api/activity/stream`): the server
+  emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
 - A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's signals with a tiered
   join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window), and time window only (SQL,
   which carries no trace id). The SQL association is flagged approximate, and repeated identical `SELECT`s above
@@ -1193,6 +1194,7 @@ Initial endpoints:
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`) |
+| `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
 
 ### 6.5 Configuration properties

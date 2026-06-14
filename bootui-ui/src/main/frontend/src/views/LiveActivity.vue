@@ -3,7 +3,7 @@ import {computed, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
-import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {filterEntries, groupEntries} from '../utils/activityStream.js'
 
 const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY']
@@ -35,7 +35,7 @@ async function loadActivity() {
   }
 }
 
-const {autoRefresh, loading, load: refreshNow} = useAutoRefresh(loadActivity)
+const {autoRefresh, loading, load: refreshNow} = useEventStreamRefresh('api/activity/stream', loadActivity)
 
 const available = computed(() => report.value?.available ?? false)
 const kpis = computed(() => report.value?.kpis ?? null)
@@ -147,7 +147,7 @@ function clearFilters() {
       :error="error"
       :last-fetched="lastFetched"
       v-model:auto-refresh="autoRefresh"
-      auto-refresh-title="Stream new activity every 10 seconds while this tab is visible"
+      auto-refresh-title="Stream new activity live over Server-Sent Events while this tab is visible"
       @refresh="refreshNow"
     />
 

@@ -618,8 +618,10 @@ The stream merges four signal types into one feed: requests (`REQUEST`), SQL sta
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed and slow rows are
 highlighted, adjacent identical entries are collapsed with an occurrence count to cut noise, and filter chips narrow the
 feed by type and severity. A KPI strip across the top summarises requests per minute, error rate, p50/p95 latency, SQL
-rate, active exception count, and heap usage computed from the same buffers. The live feed follows BootUI's
-visibility-aware auto-refresh and can be paused and resumed so a row you are inspecting does not scroll away.
+rate, active exception count, and heap usage computed from the same buffers. Because the merged feed is genuinely
+event-driven, it refreshes over **Server-Sent Events** instead of fixed-interval polling: the browser subscribes to
+`/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
+exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
 
 Clicking **Profile** on a request row opens a Symfony-style drawer that correlates that single request's signals using a
 tiered join that degrades gracefully and never fabricates data: the distributed trace is matched by trace id, exceptions

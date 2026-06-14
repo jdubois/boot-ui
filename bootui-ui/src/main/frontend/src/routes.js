@@ -279,7 +279,7 @@ export const routes = [
     path: '/activity',
     name: 'activity',
     component: LiveActivity,
-    meta: {group: groups.diagnostics, icon: 'bi-broadcast', title: 'Live Activity'}
+    meta: {group: groups.diagnostics, icon: 'bi-broadcast', title: 'Live Activity', shortcut: 'la'}
   },
   {
     path: '/traces',
