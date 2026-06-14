@@ -663,10 +663,16 @@ Features:
 
 - Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
   severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
-  `bootui.activity.max-entries`. The `since` cursor allows incremental polling.
+  `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
+  `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
+  method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
+  that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
+  precise request correlation have a null `parentId`.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, health status, and heap usage.
-- Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count, and a
+- Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
+  nesting of correlated children under their request (expanded by default; any active filter or free-text search
+  flattens the feed so the query spans every signal), and a
   pause/resume control over a live feed pushed by **Server-Sent Events** (`GET /bootui/api/activity/stream`): the server
   emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
 - A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's signals with a tiered

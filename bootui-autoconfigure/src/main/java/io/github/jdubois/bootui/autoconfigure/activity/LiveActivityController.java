@@ -59,7 +59,15 @@ public class LiveActivityController {
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
             ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             BootUiProperties properties) {
-        this.service = new LiveActivityService(httpExchanges, sqlTrace, exceptions, securityLogs, health, properties);
+        this.service = new LiveActivityService(
+                httpExchanges,
+                sqlTrace,
+                exceptions,
+                securityLogs,
+                health,
+                requestCorrelations,
+                securityCorrelations,
+                properties);
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
                 sqlTrace,

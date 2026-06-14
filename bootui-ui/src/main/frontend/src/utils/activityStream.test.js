@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {bucketEntries, deepLink, filterEntries, groupEntries} from './activityStream.js'
+import {bucketEntries, deepLink, filterEntries, groupEntries, nestEntries} from './activityStream.js'
 
 const entries = [
   {id: 'r2', type: 'REQUEST', severity: 'ERROR', summary: 'GET /b → 500', path: '/b', method: 'GET', timestamp: 3000},
@@ -56,6 +56,38 @@ describe('groupEntries', () => {
       {id: 'c', type: 'SQL', severity: 'OK', summary: 'SELECT 1'}
     ]
     expect(groupEntries(list)).toHaveLength(3)
+  })
+})
+
+describe('nestEntries', () => {
+  it('nests correlated children under their request, chronologically', () => {
+    const list = [
+      {id: 'r1', type: 'REQUEST', summary: 'GET /a → 200', timestamp: 1000},
+      {id: 'sec-0', type: 'SECURITY', summary: 'AUTH', timestamp: 1020, parentId: 'r1'},
+      {id: 'sql-1', type: 'SQL', summary: 'SELECT 1', timestamp: 1010, parentId: 'r1'},
+      {id: 'r0', type: 'REQUEST', summary: 'GET /b → 200', timestamp: 500}
+    ]
+    const nested = nestEntries(list)
+    expect(nested.map((e) => e.id)).toEqual(['r1', 'r0'])
+    expect(nested[0].children.map((c) => c.id)).toEqual(['sql-1', 'sec-0'])
+    expect(nested[1].children).toEqual([])
+  })
+
+  it('keeps an entry top-level when its parent is not in the list', () => {
+    const list = [
+      {id: 'sql-1', type: 'SQL', summary: 'SELECT 1', timestamp: 1010, parentId: 'gone'},
+      {id: 'r0', type: 'REQUEST', summary: 'GET /b → 200', timestamp: 500}
+    ]
+    const nested = nestEntries(list)
+    expect(nested.map((e) => e.id)).toEqual(['sql-1', 'r0'])
+    expect(nested[0].children).toEqual([])
+  })
+
+  it('ignores a self-referential parentId', () => {
+    const list = [{id: 'r1', type: 'REQUEST', summary: 'GET /a → 200', timestamp: 1000, parentId: 'r1'}]
+    const nested = nestEntries(list)
+    expect(nested.map((e) => e.id)).toEqual(['r1'])
+    expect(nested[0].children).toEqual([])
   })
 })
 

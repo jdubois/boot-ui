@@ -5,7 +5,7 @@ import UnavailableState from './components/UnavailableState.vue'
 import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
-import {bucketEntries, deepLink, filterEntries, groupEntries} from '../utils/activityStream.js'
+import {bucketEntries, deepLink, filterEntries, groupEntries, nestEntries} from '../utils/activityStream.js'
 
 const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
@@ -51,19 +51,46 @@ const kpis = computed(() => report.value?.kpis ?? null)
 const sources = computed(() => report.value?.sources ?? [])
 const warnings = computed(() => report.value?.warnings ?? [])
 
-const visibleEntries = computed(() => {
-  const filtered = filterEntries(report.value?.entries ?? [], {
-    type: typeFilter.value,
-    severity: severityFilter.value,
-    text: textFilter.value,
-    errorsOnly: errorsOnly.value
-  })
-  return groupEntries(filtered)
-})
-
 const hasActiveFilters = computed(
   () => !!typeFilter.value || !!severityFilter.value || !!textFilter.value.trim() || errorsOnly.value
 )
+
+// Collapsed parent ids in the nested view. Requests are expanded by default, so we only track the
+// ones the developer has explicitly folded away.
+const collapsed = ref(new Set())
+
+const visibleEntries = computed(() => {
+  const all = report.value?.entries ?? []
+  // While filtering/searching, keep the flat grouped list so the search spans every signal; nesting
+  // would hide children whose parent request was filtered out.
+  if (hasActiveFilters.value) {
+    return groupEntries(
+      filterEntries(all, {
+        type: typeFilter.value,
+        severity: severityFilter.value,
+        text: textFilter.value,
+        errorsOnly: errorsOnly.value
+      })
+    )
+  }
+  return nestEntries(all)
+})
+
+function hasChildren(entry) {
+  return Array.isArray(entry.children) && entry.children.length > 0
+}
+
+function isCollapsed(id) {
+  return collapsed.value.has(id)
+}
+
+function toggleExpand(id) {
+  if (collapsed.value.has(id)) {
+    collapsed.value.delete(id)
+  } else {
+    collapsed.value.add(id)
+  }
+}
 
 // Requests-over-time mini timeline: bucket the unfiltered stream so spikes and error bursts stay
 // visible even while a filter narrows the table below.
@@ -533,44 +560,92 @@ function clearFilters() {
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="entry in visibleEntries"
-              :key="entry.id"
-              :class="[rowClass(entry), entry.profileable ? 'activity-row-clickable' : '']"
-              :tabindex="entry.profileable ? 0 : undefined"
-              @click="onRowClick(entry)"
-              @keydown.enter="onRowClick(entry)"
-            >
-              <td class="text-nowrap small">{{ formatClockTime(entry.timestamp) }}</td>
-              <td class="text-nowrap"><i :class="['bi', typeIcon(entry.type), 'me-1']"></i>{{ entry.type }}</td>
-              <td>
-                <span :class="['badge', severityBadgeClass(entry.severity)]">{{ entry.severity }}</span>
-              </td>
-              <td class="activity-summary-cell">
-                <span>{{ entry.summary }}</span>
-                <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2">×{{ entry.count }}</span>
-                <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
-              </td>
-              <td class="text-end text-nowrap small">{{ formatDurationMs(entry.durationMs) }}</td>
-              <td class="text-end text-nowrap" @click.stop>
-                <router-link
-                  v-if="entryLink(entry)"
-                  :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
-                  class="btn btn-outline-secondary btn-sm rounded-pill me-1"
-                  :title="entryLink(entry).label"
-                >
-                  <i class="bi bi-box-arrow-up-right"></i>
-                </router-link>
-                <button
-                  v-if="entry.profileable"
-                  class="btn btn-outline-primary btn-sm rounded-pill"
-                  type="button"
-                  @click="openProfile(entry)"
-                >
-                  <i class="bi bi-search me-1"></i>Profile
-                </button>
-              </td>
-            </tr>
+            <template v-for="entry in visibleEntries" :key="entry.id">
+              <tr
+                :class="[
+                  rowClass(entry),
+                  entry.profileable ? 'activity-row-clickable' : '',
+                  hasChildren(entry) ? 'activity-parent-row' : ''
+                ]"
+                :tabindex="entry.profileable ? 0 : undefined"
+                @click="onRowClick(entry)"
+                @keydown.enter="onRowClick(entry)"
+              >
+                <td class="text-nowrap small">{{ formatClockTime(entry.timestamp) }}</td>
+                <td class="text-nowrap"><i :class="['bi', typeIcon(entry.type), 'me-1']"></i>{{ entry.type }}</td>
+                <td>
+                  <span :class="['badge', severityBadgeClass(entry.severity)]">{{ entry.severity }}</span>
+                </td>
+                <td class="activity-summary-cell">
+                  <button
+                    v-if="hasChildren(entry)"
+                    class="btn btn-link btn-sm p-0 me-2 align-baseline activity-disclosure"
+                    type="button"
+                    :aria-expanded="!isCollapsed(entry.id)"
+                    :title="isCollapsed(entry.id) ? 'Expand correlated signals' : 'Collapse correlated signals'"
+                    @click.stop="toggleExpand(entry.id)"
+                  >
+                    <i :class="['bi', isCollapsed(entry.id) ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
+                  </button>
+                  <span>{{ entry.summary }}</span>
+                  <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2">×{{ entry.count }}</span>
+                  <span
+                    v-if="hasChildren(entry)"
+                    class="badge rounded-pill text-bg-light ms-2"
+                    title="Correlated SQL, exceptions and security events"
+                    >+{{ entry.children.length }}</span
+                  >
+                  <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
+                </td>
+                <td class="text-end text-nowrap small">{{ formatDurationMs(entry.durationMs) }}</td>
+                <td class="text-end text-nowrap" @click.stop>
+                  <router-link
+                    v-if="entryLink(entry)"
+                    :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
+                    class="btn btn-outline-secondary btn-sm rounded-pill me-1"
+                    :title="entryLink(entry).label"
+                  >
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  </router-link>
+                  <button
+                    v-if="entry.profileable"
+                    class="btn btn-outline-primary btn-sm rounded-pill"
+                    type="button"
+                    @click="openProfile(entry)"
+                  >
+                    <i class="bi bi-search me-1"></i>Profile
+                  </button>
+                </td>
+              </tr>
+              <tr
+                v-for="child in hasChildren(entry) && !isCollapsed(entry.id) ? entry.children : []"
+                :key="child.id"
+                :class="[rowClass(child), 'activity-child-row']"
+              >
+                <td class="text-nowrap small">{{ formatClockTime(child.timestamp) }}</td>
+                <td class="text-nowrap activity-child-type">
+                  <i :class="['bi', typeIcon(child.type), 'me-1']"></i>{{ child.type }}
+                </td>
+                <td>
+                  <span :class="['badge', severityBadgeClass(child.severity)]">{{ child.severity }}</span>
+                </td>
+                <td class="activity-summary-cell">
+                  <span>{{ child.summary }}</span>
+                  <span v-if="child.detail" class="d-block text-muted small">{{ child.detail }}</span>
+                </td>
+                <td class="text-end text-nowrap small">{{ formatDurationMs(child.durationMs) }}</td>
+                <td class="text-end text-nowrap" @click.stop>
+                  <router-link
+                    v-if="entryLink(child)"
+                    :to="{path: entryLink(child).path, query: entryLink(child).query}"
+                    class="btn btn-outline-secondary btn-sm rounded-pill"
+                    :title="entryLink(child).label"
+                  >
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  </router-link>
+                </td>
+              </tr>
+            </template>
             <tr v-if="!visibleEntries.length">
               <td colspan="6" class="text-center text-muted py-4">No activity matches the current filters.</td>
             </tr>
@@ -791,6 +866,29 @@ function clearFilters() {
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
+}
+
+.activity-disclosure {
+  color: var(--bs-secondary-color);
+  text-decoration: none;
+  line-height: 1;
+}
+
+.activity-disclosure:hover,
+.activity-disclosure:focus-visible {
+  color: var(--bs-primary);
+}
+
+.activity-child-row > td {
+  background-color: var(--bs-tertiary-bg, rgba(0, 0, 0, 0.025));
+}
+
+.activity-child-row > td:first-child {
+  box-shadow: inset 0.25rem 0 0 var(--bs-border-color);
+}
+
+.activity-child-type {
+  padding-left: 1.5rem;
 }
 
 .activity-text-filter {

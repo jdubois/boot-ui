@@ -90,6 +90,12 @@ respectively. Because the merged feed is genuinely event-driven, it refreshes ov
 fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
 exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
+When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
+SQL statements, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
+request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
+(expanded by default), so one click reveals exactly what a single request did, in order. Signals that cannot be tied to a
+request stay top-level, and applying any filter or free-text search flattens the feed again so the query spans every
+signal.
 
 Every row is also a launchpad: clicking anywhere on a request row opens its profiler, and each row carries a deep link
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in

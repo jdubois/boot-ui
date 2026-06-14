@@ -2,6 +2,41 @@
 // independently of the Vue component.
 
 /**
+ * Nest correlated child signals (SQL, exceptions, security events) under the HTTP request entry they
+ * belong to, using the server-computed {@code parentId}. Top-level entries keep their newest-first
+ * input order; each request's {@code children} are ordered chronologically (oldest first) so they read
+ * as the sequence of things that happened while the request was handled.
+ *
+ * An entry whose {@code parentId} is absent, self-referential, or not present in the supplied list
+ * stays top-level (so nothing is hidden when its parent has scrolled out of the window). Every returned
+ * entry carries a {@code children} array (possibly empty).
+ *
+ * @param {Array<object>} entries flat entries, newest-first, each optionally carrying `parentId`
+ * @returns {Array<object & {children: Array<object>}>}
+ */
+export function nestEntries(entries) {
+  const list = entries || []
+  const byId = new Map(list.map((entry) => [entry.id, entry]))
+  const childrenByParent = new Map()
+  const topLevel = []
+  for (const entry of list) {
+    const parentId = entry.parentId
+    if (parentId && parentId !== entry.id && byId.has(parentId)) {
+      const bucket = childrenByParent.get(parentId) || []
+      bucket.push(entry)
+      childrenByParent.set(parentId, bucket)
+    } else {
+      topLevel.push(entry)
+    }
+  }
+  return topLevel.map((entry) => {
+    const kids = childrenByParent.get(entry.id) || []
+    const children = [...kids].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+    return {...entry, children}
+  })
+}
+
+/**
  * Filter activity entries by type, severity and a free-text needle (all case-insensitive). An
  * {@code errorsOnly} flag keeps only ERROR-severity entries. Empty/false filters match all.
  *

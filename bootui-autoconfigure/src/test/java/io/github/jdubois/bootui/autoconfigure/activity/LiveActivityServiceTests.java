@@ -16,6 +16,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
+import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
@@ -137,7 +139,99 @@ class LiveActivityServiceTests {
         assertThat(kpis.slowestQueryMs()).isEqualTo(40L);
     }
 
+    @Test
+    void nestsSqlUnderRequestByTraceId() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                sql(sqlEntryOn(1, BASE.plusMillis(1010).toEpochMilli(), "http-thread", "trace-r1")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "sql-1")).isEqualTo("r1");
+    }
+
+    @Test
+    void nestsSqlUnderRequestByServingThread() {
+        RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
+        requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
+                BASE.plusMillis(1000).toEpochMilli(), BASE.plusMillis(1030).toEpochMilli(), "worker-9", "GET", "/a"));
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                sql(sqlEntryOn(1, BASE.plusMillis(1015).toEpochMilli(), "worker-9", null)),
+                null,
+                null,
+                null,
+                requestCorrelations,
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "sql-1")).isEqualTo("r1");
+    }
+
+    @Test
+    void nestsExceptionUnderRequestByMethodAndPath() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 500, 30L)),
+                null,
+                exceptions(group(
+                        "e1",
+                        "java.lang.IllegalStateException",
+                        BASE.plusMillis(1020).toEpochMilli())),
+                null,
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "exc-e1")).isEqualTo("r1");
+    }
+
+    @Test
+    void nestsSecurityUnderRequestByServingThread() {
+        long ts = BASE.plusMillis(1015).toEpochMilli();
+        SecurityEventCorrelationRegistry securityCorrelations = new SecurityEventCorrelationRegistry(10);
+        securityCorrelations.record(new SecurityEventCorrelationRegistry.SecurityEventCorrelation(
+                ts, "worker-7", "AUTHENTICATION_SUCCESS", "alice"));
+        RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
+        requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
+                BASE.plusMillis(1000).toEpochMilli(), BASE.plusMillis(1030).toEpochMilli(), "worker-7", "GET", "/a"));
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                null,
+                null,
+                security(securityEvent("AUTHENTICATION_SUCCESS", "alice", ts)),
+                null,
+                requestCorrelations,
+                securityCorrelations,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "sec-0")).isEqualTo("r1");
+    }
+
+    @Test
+    void leavesUncorrelatedSignalsTopLevel() {
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
+                sql(sqlEntryOn(1, BASE.plusMillis(5000).toEpochMilli(), "other-thread", "trace-zzz")),
+                null,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+        assertThat(parentOf(report, "sql-1")).isNull();
+        assertThat(parentOf(report, "r1")).isNull();
+    }
+
     // --- helpers ---
+
+    private static String parentOf(LiveActivityReport report, String entryId) {
+        return report.entries().stream()
+                .filter(e -> e.id().equals(entryId))
+                .findFirst()
+                .orElseThrow()
+                .parentId();
+    }
 
     private LiveActivityService service(
             HttpExchangesController requests,
@@ -146,12 +240,26 @@ class LiveActivityServiceTests {
             SecurityLogsController security,
             HealthController health,
             BootUiProperties properties) {
+        return service(requests, sql, exceptions, security, health, null, null, properties);
+    }
+
+    private LiveActivityService service(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            SecurityLogsController security,
+            HealthController health,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            BootUiProperties properties) {
         return new LiveActivityService(
                 provider(requests),
                 provider(sql),
                 provider(exceptions),
                 provider(security),
                 provider(health),
+                provider(requestCorrelations),
+                provider(securityCorrelations),
                 properties);
     }
 
@@ -240,6 +348,42 @@ class LiveActivityServiceTests {
                 slow,
                 List.of(),
                 null);
+    }
+
+    private static SqlTraceEntryDto sqlEntryOn(long id, long timestamp, String thread, String traceId) {
+        return new SqlTraceEntryDto(
+                id,
+                timestamp,
+                "SELECT 1",
+                "SELECT",
+                "SELECT",
+                5,
+                true,
+                null,
+                null,
+                0,
+                "conn-1",
+                thread,
+                false,
+                List.of(),
+                traceId);
+    }
+
+    private static SecurityLogsController security(SecurityLogEventDto... events) {
+        SecurityLogsController controller = mock(SecurityLogsController.class);
+        SecurityLogsReport report = new SecurityLogsReport(
+                true,
+                null,
+                100,
+                List.of(),
+                List.of(events),
+                new PageMetadata(0, events.length, events.length, 1, 0, false));
+        when(controller.logs(null, null, null, 0, 200)).thenReturn(report);
+        return controller;
+    }
+
+    private static SecurityLogEventDto securityEvent(String type, String principal, long timestampMillis) {
+        return new SecurityLogEventDto(Instant.ofEpochMilli(timestampMillis).toString(), principal, type, List.of());
     }
 
     private static ExceptionGroupDto group(String id, String className, long lastSeen) {

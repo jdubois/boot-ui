@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -42,6 +43,15 @@ public class LiveActivityService {
     /** Maximum characters of a SQL statement shown inline in a stream summary. */
     private static final int SQL_SUMMARY_LENGTH = 120;
 
+    /** Slack (ms) applied to a request window when attributing correlated signals to it. */
+    private static final long MATCH_SLACK_MS = 50L;
+
+    /**
+     * Tight slack (ms) for pinning a security audit event to a serving thread: the capture and the
+     * displayed event come from the same {@code AuditEvent}, so their timestamps are effectively equal.
+     */
+    private static final long SECURITY_THREAD_SLACK_MS = 2L;
+
     static final String TYPE_REQUEST = "REQUEST";
     static final String TYPE_SQL = "SQL";
     static final String TYPE_EXCEPTION = "EXCEPTION";
@@ -57,6 +67,8 @@ public class LiveActivityService {
     private final ObjectProvider<ExceptionsController> exceptions;
     private final ObjectProvider<SecurityLogsController> securityLogs;
     private final ObjectProvider<HealthController> health;
+    private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
+    private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final BootUiProperties properties;
 
     public LiveActivityService(
@@ -65,12 +77,16 @@ public class LiveActivityService {
             ObjectProvider<ExceptionsController> exceptions,
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<HealthController> health,
+            ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
+            ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
         this.exceptions = exceptions;
         this.securityLogs = securityLogs;
         this.health = health;
+        this.requestCorrelations = requestCorrelations;
+        this.securityCorrelations = securityCorrelations;
         this.properties = properties;
     }
 
@@ -92,26 +108,35 @@ public class LiveActivityService {
         ExceptionsReport exceptionsReport = loadExceptions(sources);
         SecurityLogsReport security = loadSecurity(sources);
 
+        List<RequestAnchor> anchors = buildAnchors(requests);
+        Map<String, RequestAnchor> anchorsById = new HashMap<>();
+        for (RequestAnchor anchor : anchors) {
+            anchorsById.put(anchor.id(), anchor);
+        }
+        SecurityEventCorrelationRegistry securityRegistry =
+                securityCorrelations == null ? null : securityCorrelations.getIfAvailable();
+
         List<ActivityEntryDto> all = new ArrayList<>();
         if (requests != null) {
             for (HttpExchangeDto exchange : requests.exchanges()) {
-                all.add(toRequestEntry(exchange));
+                RequestAnchor anchor = anchorsById.get(exchange.id());
+                all.add(toRequestEntry(exchange, anchor == null ? null : anchor.thread()));
             }
         }
         if (sql != null) {
             for (SqlTraceEntryDto entry : sql.entries()) {
-                all.add(toSqlEntry(entry));
+                all.add(toSqlEntry(entry, matchSqlParent(entry, anchors)));
             }
         }
         if (exceptionsReport != null) {
             for (ExceptionGroupDto group : exceptionsReport.groups()) {
-                all.add(toExceptionEntry(group));
+                all.add(toExceptionEntry(group, matchExceptionParent(group, anchors)));
             }
         }
         if (security != null) {
             int index = 0;
             for (SecurityLogEventDto event : security.events()) {
-                all.add(toSecurityEntry(event, index++));
+                all.add(toSecurityEntry(event, index++, matchSecurityParent(event, anchors, securityRegistry)));
             }
         }
 
@@ -211,7 +236,7 @@ public class LiveActivityService {
         return report;
     }
 
-    private ActivityEntryDto toRequestEntry(HttpExchangeDto exchange) {
+    private ActivityEntryDto toRequestEntry(HttpExchangeDto exchange, String servingThread) {
         long timestamp =
                 exchange.timestamp() == null ? 0L : exchange.timestamp().toEpochMilli();
         int status = exchange.status();
@@ -240,11 +265,12 @@ public class LiveActivityService {
                 exchange.method(),
                 exchange.path(),
                 status,
-                null,
-                true);
+                servingThread,
+                true,
+                null);
     }
 
-    private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry) {
+    private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry, String parentId) {
         String severity;
         if (!entry.success()) {
             severity = SEVERITY_ERROR;
@@ -269,10 +295,11 @@ public class LiveActivityService {
                 null,
                 null,
                 entry.thread(),
-                false);
+                false,
+                parentId);
     }
 
-    private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group) {
+    private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group, String parentId) {
         String message = group.message() == null ? "" : ": " + group.message();
         String summary = group.exceptionClassName() + message;
         String detail = group.location();
@@ -292,10 +319,11 @@ public class LiveActivityService {
                 group.lastRequestPath(),
                 null,
                 group.lastThread(),
-                false);
+                false,
+                parentId);
     }
 
-    private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index) {
+    private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index, String parentId) {
         long timestamp = parseEpochMillis(event.timestamp());
         String type = event.type() == null ? "" : event.type();
         String upper = type.toUpperCase(Locale.ROOT);
@@ -314,8 +342,145 @@ public class LiveActivityService {
                 null,
                 null,
                 null,
-                false);
+                false,
+                parentId);
     }
+
+    /**
+     * Builds one {@link RequestAnchor} per recent HTTP request, resolving its serving thread and precise
+     * window from {@link RequestCorrelationRegistry} when available. Used to attach correlated SQL,
+     * exception, and security entries to the request that caused them.
+     */
+    private List<RequestAnchor> buildAnchors(HttpExchangesReport requests) {
+        if (requests == null) {
+            return List.of();
+        }
+        RequestCorrelationRegistry registry = requestCorrelations == null ? null : requestCorrelations.getIfAvailable();
+        List<RequestAnchor> anchors = new ArrayList<>();
+        for (HttpExchangeDto exchange : requests.exchanges()) {
+            long start =
+                    exchange.timestamp() == null ? 0L : exchange.timestamp().toEpochMilli();
+            long end = exchange.durationMs() == null ? start : start + exchange.durationMs();
+            String thread = null;
+            if (registry != null && exchange.method() != null && exchange.path() != null) {
+                RequestCorrelationRegistry.RequestCorrelation corr =
+                        registry.match(exchange.method(), exchange.path(), start, end);
+                if (corr != null) {
+                    thread = corr.thread();
+                    start = corr.startMillis();
+                    end = corr.endMillis();
+                }
+            }
+            anchors.add(new RequestAnchor(
+                    exchange.id(), start, end, thread, exchange.traceId(), exchange.method(), exchange.path()));
+        }
+        return anchors;
+    }
+
+    /**
+     * Resolves the request that a SQL statement belongs to: trace-id join first (exact), then serving
+     * thread within the request window (exact). Returns {@code null} when neither tier yields a unique
+     * request, so the entry stays top-level rather than being mis-attributed.
+     */
+    private static String matchSqlParent(SqlTraceEntryDto entry, List<RequestAnchor> anchors) {
+        String traceId = entry.traceId();
+        if (traceId != null && !traceId.isBlank()) {
+            String byTrace = uniqueByTrace(anchors, traceId);
+            if (byTrace != null) {
+                return byTrace;
+            }
+        }
+        String thread = entry.thread();
+        if (thread == null) {
+            return null;
+        }
+        String found = null;
+        for (RequestAnchor anchor : anchors) {
+            if (thread.equals(anchor.thread()) && covers(anchor, entry.timestamp())) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Resolves the request that an exception group belongs to by matching the last request method/path
+     * within the request window, disambiguating by serving thread when more than one request matches.
+     */
+    private static String matchExceptionParent(ExceptionGroupDto group, List<RequestAnchor> anchors) {
+        String method = group.lastRequestMethod();
+        String path = group.lastRequestPath();
+        if (method == null || path == null) {
+            return null;
+        }
+        long ts = group.lastSeen();
+        List<RequestAnchor> candidates = new ArrayList<>();
+        for (RequestAnchor anchor : anchors) {
+            if (method.equalsIgnoreCase(anchor.method())
+                    && path.equalsIgnoreCase(anchor.path())
+                    && covers(anchor, ts)) {
+                candidates.add(anchor);
+            }
+        }
+        if (candidates.size() > 1 && group.lastThread() != null) {
+            candidates.removeIf(anchor -> !group.lastThread().equals(anchor.thread()));
+        }
+        return candidates.size() == 1 ? candidates.get(0).id() : null;
+    }
+
+    /**
+     * Resolves the request that a security audit event belongs to using the serving-thread classifier:
+     * the event is attributed to a request only when it was emitted on that request's serving thread.
+     */
+    private static String matchSecurityParent(
+            SecurityLogEventDto event, List<RequestAnchor> anchors, SecurityEventCorrelationRegistry registry) {
+        if (registry == null) {
+            return null;
+        }
+        long ts = parseEpochMillis(event.timestamp());
+        String type = event.type();
+        String found = null;
+        for (RequestAnchor anchor : anchors) {
+            if (anchor.thread() == null || !covers(anchor, ts)) {
+                continue;
+            }
+            if (registry.classify(anchor.thread(), type, ts, SECURITY_THREAD_SLACK_MS)
+                    == SecurityEventCorrelationRegistry.ThreadMatch.OURS) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    private static String uniqueByTrace(List<RequestAnchor> anchors, String traceId) {
+        String found = null;
+        for (RequestAnchor anchor : anchors) {
+            if (traceId.equals(anchor.traceId())) {
+                if (found != null) {
+                    return null;
+                }
+                found = anchor.id();
+            }
+        }
+        return found;
+    }
+
+    private static boolean covers(RequestAnchor anchor, long timestamp) {
+        return timestamp >= anchor.start() - MATCH_SLACK_MS && timestamp <= anchor.end() + MATCH_SLACK_MS;
+    }
+
+    /**
+     * A recent HTTP request reduced to what is needed to attach correlated signals to it: its id, the
+     * (possibly thread-refined) time window, the serving thread when known, and the trace id.
+     */
+    private record RequestAnchor(
+            String id, long start, long end, String thread, String traceId, String method, String path) {}
 
     private ActivityKpiDto computeKpis(HttpExchangesReport requests, SqlTraceReport sql, ExceptionsReport exceptions) {
         double requestsPerMinute = 0;

@@ -74,6 +74,34 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toHaveCount(0)
   })
 
+  test('nests correlated SQL and security events under the request row', async ({openView, page}) => {
+    // A secure, SQL-backed admin request produces a SQL statement and an AUTHENTICATION_SUCCESS audit
+    // event, both pinned to the request's serving thread, so they nest beneath the request row.
+    const secure = await page.request.get('/api/secure/products', {
+      headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
+    })
+    expect(secure.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+
+    const secureRow = page.locator('.activity-table tbody tr', {hasText: '/api/secure/products'}).first()
+    await expect(secureRow).toBeVisible({timeout: 15_000})
+
+    // The request row carries a disclosure control because correlated children are nested under it,
+    // expanded by default.
+    const disclosure = secureRow.locator('.activity-disclosure')
+    await expect(disclosure).toBeVisible()
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+
+    // The security event appears as an indented child row rather than a flat sibling.
+    const childRows = page.locator('.activity-table tbody tr.activity-child-row')
+    await expect(childRows.filter({hasText: 'AUTHENTICATION_SUCCESS'}).first()).toBeVisible({timeout: 15_000})
+
+    // Collapsing the request folds its children away.
+    await disclosure.click()
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  })
+
   test('pauses and resumes the live feed', async ({openView, page}) => {
     await openView('activity', 'Live Activity')
 

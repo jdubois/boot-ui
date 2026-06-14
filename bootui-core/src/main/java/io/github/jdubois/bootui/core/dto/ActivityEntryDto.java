@@ -22,6 +22,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param status HTTP status for request entries, or {@code null}
  * @param thread originating thread name when known, or {@code null}
  * @param profileable whether a per-request profile can be requested for this entry
+ * @param parentId id of the {@code REQUEST} entry this entry is correlated to (so the UI can nest it
+ *     under that request), or {@code null} when the entry has no precise request correlation
  */
 public record ActivityEntryDto(
         String id,
@@ -36,4 +38,5 @@ public record ActivityEntryDto(
         String path,
         Integer status,
         String thread,
-        boolean profileable) {}
+        boolean profileable,
+        String parentId) {}
