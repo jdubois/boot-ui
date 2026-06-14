@@ -27,7 +27,7 @@ const panelConfigs = {
   'claude-code': {
     apiBase: 'api/claude-code',
     title: 'Claude Code',
-    icon: 'bi-stars',
+    icon: 'bi-claude',
     description: 'Sanitized Claude Code tool use, failures, project activity, and recent sessions.',
     propertyPrefix: 'bootui.claude-code',
     emptyTitle: 'No Claude Code project logs found',
