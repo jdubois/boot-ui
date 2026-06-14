@@ -475,6 +475,14 @@ function clearFilters() {
 
       <div class="table-responsive">
         <table class="table table-sm align-middle activity-table">
+          <colgroup>
+            <col class="activity-col-time" />
+            <col class="activity-col-type" />
+            <col class="activity-col-severity" />
+            <col class="activity-col-summary" />
+            <col class="activity-col-duration" />
+            <col class="activity-col-actions" />
+          </colgroup>
           <thead>
             <tr>
               <th class="text-nowrap">Time</th>
@@ -499,7 +507,7 @@ function clearFilters() {
               <td>
                 <span :class="['badge', severityBadgeClass(entry.severity)]">{{ entry.severity }}</span>
               </td>
-              <td>
+              <td class="activity-summary-cell">
                 <span>{{ entry.summary }}</span>
                 <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2">×{{ entry.count }}</span>
                 <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
@@ -667,6 +675,42 @@ function clearFilters() {
 
 .activity-row-clickable {
   cursor: pointer;
+}
+
+.activity-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 40rem;
+}
+
+.activity-col-time {
+  width: 5.5rem;
+}
+
+.activity-col-type {
+  width: 7rem;
+}
+
+.activity-col-severity {
+  width: 5rem;
+}
+
+.activity-col-summary {
+  width: auto;
+}
+
+.activity-col-duration {
+  width: 5.5rem;
+}
+
+.activity-col-actions {
+  width: 8rem;
+}
+
+.activity-summary-cell {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .activity-text-filter {
