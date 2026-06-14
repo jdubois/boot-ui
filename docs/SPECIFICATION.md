@@ -648,6 +648,39 @@ Acceptance criteria:
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`.
 - The panel is read-only and returns a stable unavailable DTO when no `HttpExchangeRepository` is available.
 
+### 5.14.2 Live Activity Panel
+
+Purpose: provide one diagnostics "home base" that merges BootUI's already-captured signals into a single
+reverse-chronological activity stream, plus a Symfony-style per-request profiler for drilling into a single request.
+
+Data sources:
+
+- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
+  no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
+  bounds are inherited unchanged from each source panel.
+
+Features:
+
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
+  severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
+  `bootui.activity.max-entries`. The `since` cursor allows incremental polling.
+- A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
+  exception count, SQL/min, slowest query, health status, and heap usage.
+- Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count, and a
+  pause/resume control over the visibility-aware auto-refresh.
+- A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's signals with a tiered
+  join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window), and time window only (SQL,
+  which carries no trace id). The SQL association is flagged approximate, and repeated identical `SELECT`s above
+  `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1.
+
+Acceptance criteria:
+
+- The panel is read-only and inherits the loopback filter, Host allow-list, cross-site write defenses, and value masking
+  from the underlying sources.
+- Sources that are absent or disabled (through their own `bootui.panels.*` toggles) simply drop out of the stream; when
+  no source is available the panel returns a stable unavailable report.
+- SQL↔request correlation is presented as approximate and never fabricates trace-id links that do not exist.
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
@@ -1159,6 +1192,8 @@ Initial endpoints:
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
+| `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`) |
+| `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
 
 ### 6.5 Configuration properties
 

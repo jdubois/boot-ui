@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
@@ -241,6 +242,7 @@ class BootUiAutoConfigurationTests {
                             GitHubController.class,
                             GraalVmController.class,
                             CracController.class,
+                            LiveActivityController.class,
                             SqlTraceController.class,
                             HealthController.class,
                             DatabaseConnectionPoolsController.class,

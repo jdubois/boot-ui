@@ -43,6 +43,7 @@ const Traces = () => import('./views/Traces.vue')
 const Ai = () => import('./views/Ai.vue')
 const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
+const LiveActivity = () => import('./views/LiveActivity.vue')
 
 export const groups = {
   overview: 'overview',
@@ -273,6 +274,12 @@ export const routes = [
     name: 'ai',
     component: Ai,
     meta: {group: groups.services, icon: 'bi-cpu', title: 'AI Usage'}
+  },
+  {
+    path: '/activity',
+    name: 'activity',
+    component: LiveActivity,
+    meta: {group: groups.diagnostics, icon: 'bi-broadcast', title: 'Live Activity'}
   },
   {
     path: '/traces',

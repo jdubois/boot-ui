@@ -1,0 +1,251 @@
+package io.github.jdubois.bootui.autoconfigure.activity;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
+import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
+import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
+import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
+import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
+import io.github.jdubois.bootui.core.dto.ExceptionsReport;
+import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
+import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import java.time.Instant;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+
+class LiveActivityCorrelatorTests {
+
+    private static final Instant BASE = Instant.parse("2026-06-14T10:00:00Z");
+    private static final long START = BASE.toEpochMilli();
+
+    @Test
+    void returnsUnavailableWhenRequestNotFound() {
+        LiveActivityCorrelator correlator = correlator(requestsController(), null, null, null, new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("missing");
+
+        assertThat(profile.available()).isFalse();
+        assertThat(profile.unavailableReason()).contains("missing");
+    }
+
+    @Test
+    void correlatesSqlByTimeWindowAndFlagsApproximate() {
+        SqlTraceController sql = sqlController(
+                sqlEntry(1, START + 5, "SELECT * FROM t", "SELECT", 3),
+                sqlEntry(2, START + 90, "SELECT * FROM t", "SELECT", 3),
+                sqlEntry(3, START + 5000, "SELECT * FROM other", "SELECT", 3)); // outside window
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)),
+                sql,
+                null,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.available()).isTrue();
+        assertThat(profile.sql()).hasSize(2);
+        assertThat(profile.sqlCorrelationApproximate()).isTrue();
+        assertThat(profile.timing().sqlCount()).isEqualTo(2);
+        assertThat(profile.timing().sqlMs()).isEqualTo(6L);
+    }
+
+    @Test
+    void detectsNPlusOneWhenIdenticalSelectsRepeatAboveThreshold() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setNPlusOneThreshold(3);
+        SqlTraceController sql = sqlController(
+                sqlEntry(1, START + 1, "SELECT * FROM child WHERE id = ?", "SELECT", 1),
+                sqlEntry(2, START + 2, "SELECT * FROM child WHERE id = ?", "SELECT", 1),
+                sqlEntry(3, START + 3, "SELECT * FROM child WHERE id = ?", "SELECT", 1));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)), sql, null, null, properties);
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.sqlGroups()).hasSize(1);
+        assertThat(profile.sqlGroups().get(0).executions()).isEqualTo(3);
+        assertThat(profile.sqlGroups().get(0).potentialNPlusOne()).isTrue();
+    }
+
+    @Test
+    void doesNotFlagNPlusOneBelowThreshold() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setNPlusOneThreshold(5);
+        SqlTraceController sql = sqlController(
+                sqlEntry(1, START + 1, "SELECT * FROM child WHERE id = ?", "SELECT", 1),
+                sqlEntry(2, START + 2, "SELECT * FROM child WHERE id = ?", "SELECT", 1));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)), sql, null, null, properties);
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.sqlGroups().get(0).potentialNPlusOne()).isFalse();
+    }
+
+    @Test
+    void correlatesExceptionsByPathMethodAndWindow() {
+        ExceptionsController exceptions = exceptionsController(
+                "GET",
+                "/a",
+                START + 10, // matches
+                "POST",
+                "/a",
+                START + 10, // wrong method
+                "GET",
+                "/b",
+                START + 10); // wrong path
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 500, 100L)),
+                null,
+                exceptions,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.exceptions()).hasSize(1);
+        assertThat(profile.exceptions().get(0).exceptionClassName()).isEqualTo("ex-GET-/a");
+    }
+
+    // --- helpers ---
+
+    private LiveActivityCorrelator correlator(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            TracesController traces,
+            BootUiProperties properties) {
+        return new LiveActivityCorrelator(
+                provider(requests), provider(sql), provider(exceptions), provider(traces), properties);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> provider(T value) {
+        ObjectProvider<T> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(value);
+        return provider;
+    }
+
+    private static HttpExchangesController requestsController(HttpExchangeDto... exchanges) {
+        HttpExchangesController controller = mock(HttpExchangesController.class);
+        HttpExchangesReport report = new HttpExchangesReport(
+                exchanges.length,
+                exchanges.length,
+                0,
+                List.of(exchanges),
+                new PageMetadata(0, exchanges.length, exchanges.length, 1, 0, false),
+                null);
+        when(controller.exchanges(eq(null), eq(null), eq(null), eq(0), anyInt()))
+                .thenReturn(report);
+        return controller;
+    }
+
+    private static SqlTraceController sqlController(SqlTraceEntryDto... entries) {
+        SqlTraceController controller = mock(SqlTraceController.class);
+        SqlTraceReport report = new SqlTraceReport(
+                true,
+                null,
+                true,
+                false,
+                100,
+                entries.length,
+                1000,
+                List.of("ds"),
+                SqlTraceStatsDto.empty(),
+                List.of(entries),
+                List.of(),
+                List.of());
+        when(controller.trace()).thenReturn(report);
+        return controller;
+    }
+
+    private static ExceptionsController exceptionsController(Object... methodPathTimeTriples) {
+        ExceptionsController controller = mock(ExceptionsController.class);
+        int count = methodPathTimeTriples.length / 3;
+        ExceptionGroupDto[] groups = new ExceptionGroupDto[count];
+        for (int i = 0; i < count; i++) {
+            String method = (String) methodPathTimeTriples[i * 3];
+            String path = (String) methodPathTimeTriples[i * 3 + 1];
+            long ts = (long) methodPathTimeTriples[i * 3 + 2];
+            String id = "g" + i;
+            groups[i] = new ExceptionGroupDto(
+                    id,
+                    "ex-" + method + "-" + path,
+                    "boom",
+                    1,
+                    ts,
+                    ts,
+                    "Foo.java:1",
+                    true,
+                    "t",
+                    method,
+                    path,
+                    "h",
+                    "s");
+            ExceptionDetailDto detail = new ExceptionDetailDto(
+                    groups[i],
+                    List.of(),
+                    List.of(),
+                    List.of(new ExceptionOccurrenceDto(ts, "t", method, path, "h", "s")));
+            when(controller.detail(id)).thenReturn(detail);
+        }
+        ExceptionsReport report = new ExceptionsReport(true, null, 50, count, List.of(groups));
+        when(controller.list()).thenReturn(report);
+        return controller;
+    }
+
+    private static HttpExchangeDto exchange(
+            String id, Instant timestamp, String method, String path, int status, Long durationMs) {
+        return new HttpExchangeDto(
+                id,
+                timestamp,
+                method,
+                path,
+                null,
+                path,
+                status,
+                status >= 500 ? "SERVER_ERROR" : "SUCCESS",
+                durationMs,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of());
+    }
+
+    private static SqlTraceEntryDto sqlEntry(
+            long id, long timestamp, String sql, String category, long durationMillis) {
+        return new SqlTraceEntryDto(
+                id,
+                timestamp,
+                sql,
+                category,
+                category,
+                durationMillis,
+                true,
+                null,
+                null,
+                0,
+                "conn-1",
+                "http-thread",
+                false,
+                List.of());
+    }
+}
