@@ -95,7 +95,9 @@ Every row is also a launchpad: clicking anywhere on a request row opens its prof
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
 **SQL Trace**, and exceptions in **Exceptions**. The per-request profiler drawer is a Symfony-style view that correlates
 that single request's signals using a tiered join that degrades gracefully and never fabricates data: the distributed
-trace is matched by trace id, exceptions are matched by request method, path, and time window, security audit events are
+trace is matched by trace id, exceptions are matched by request method, path, and time window — and, when the
+request's serving thread is uniquely known, further disambiguated by that thread so a concurrent identical request
+cannot steal the occurrence — security audit events are
 matched by time window and the request principal (so an `AUTHENTICATION_SUCCESS` or `AUTHORIZATION_FAILURE` raised while
 serving a secured endpoint is linked to that very request), and SQL is matched
 **exactly by trace id** when Micrometer Tracing is present (BootUI threads the active `traceId` from the SLF4J MDC onto

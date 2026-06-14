@@ -167,6 +167,63 @@ class LiveActivityCorrelatorTests {
     }
 
     @Test
+    void correlatesExceptionsExactlyByServingThreadAcrossConcurrentIdenticalRequests() {
+        // Two concurrent GET /a requests both threw the same exception in the same window, on
+        // different worker threads. The registry uniquely identifies this exchange's thread, so only
+        // the occurrence thrown on that thread is attributed to it.
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(100);
+        registry.record(new RequestCorrelationRegistry.RequestCorrelation(START, START + 100, "exec-1", "GET", "/a"));
+
+        ExceptionsController exceptions = exceptionsControllerWithOccurrences(
+                "GET",
+                "/a",
+                new ExceptionOccurrenceDto(START + 10, "exec-1", "GET", "/a", "h", "web"),
+                new ExceptionOccurrenceDto(START + 20, "exec-2", "GET", "/a", "h", "web"));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 500, 100L)),
+                null,
+                exceptions,
+                null,
+                null,
+                registry,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.exceptions()).extracting(dto -> dto.thread()).containsExactly("exec-1");
+        assertThat(profile.notes()).anyMatch(note -> note.contains("serving thread"));
+    }
+
+    @Test
+    void fallsBackToMethodPathWindowForExceptionsWhenServingThreadIsAmbiguous() {
+        // Two genuinely concurrent identical requests overlap, so the request's serving thread cannot
+        // be uniquely identified and exception correlation stays on method + path + window.
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(100);
+        registry.record(new RequestCorrelationRegistry.RequestCorrelation(START, START + 100, "exec-1", "GET", "/a"));
+        registry.record(
+                new RequestCorrelationRegistry.RequestCorrelation(START + 10, START + 90, "exec-2", "GET", "/a"));
+
+        ExceptionsController exceptions = exceptionsControllerWithOccurrences(
+                "GET",
+                "/a",
+                new ExceptionOccurrenceDto(START + 10, "exec-1", "GET", "/a", "h", "web"),
+                new ExceptionOccurrenceDto(START + 20, "exec-2", "GET", "/a", "h", "web"));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 500, 100L)),
+                null,
+                exceptions,
+                null,
+                null,
+                registry,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.exceptions()).extracting(dto -> dto.thread()).containsExactly("exec-1", "exec-2");
+        assertThat(profile.notes()).noneMatch(note -> note.contains("serving thread"));
+    }
+
+    @Test
     void correlatesSecurityEventsByTimeWindowAndPrincipal() {
         SecurityLogsController security = securityController(
                 securityEvent("AUTHENTICATION_SUCCESS", "admin", START + 5), // in window, principal matches
@@ -372,6 +429,33 @@ class LiveActivityCorrelatorTests {
             when(controller.detail(id)).thenReturn(detail);
         }
         ExceptionsReport report = new ExceptionsReport(true, null, 50, count, List.of(groups));
+        when(controller.list()).thenReturn(report);
+        return controller;
+    }
+
+    private static ExceptionsController exceptionsControllerWithOccurrences(
+            String method, String path, ExceptionOccurrenceDto... occurrences) {
+        ExceptionsController controller = mock(ExceptionsController.class);
+        long firstTs = occurrences.length == 0 ? 0 : occurrences[0].timestamp();
+        long lastTs = occurrences.length == 0 ? 0 : occurrences[occurrences.length - 1].timestamp();
+        String lastThread = occurrences.length == 0 ? "t" : occurrences[occurrences.length - 1].thread();
+        ExceptionGroupDto group = new ExceptionGroupDto(
+                "g0",
+                "ex-" + method + "-" + path,
+                "boom",
+                occurrences.length,
+                firstTs,
+                lastTs,
+                "Foo.java:1",
+                true,
+                lastThread,
+                method,
+                path,
+                "h",
+                "web");
+        ExceptionDetailDto detail = new ExceptionDetailDto(group, List.of(), List.of(), List.of(occurrences));
+        when(controller.detail("g0")).thenReturn(detail);
+        ExceptionsReport report = new ExceptionsReport(true, null, 50, 1, List.of(group));
         when(controller.list()).thenReturn(report);
         return controller;
     }

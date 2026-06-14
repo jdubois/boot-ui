@@ -41,7 +41,8 @@ import org.springframework.beans.factory.ObjectProvider;
  * <ol>
  *   <li>trace id (strongest): the distributed trace whose id matches the exchange;</li>
  *   <li>HTTP anchor: exceptions whose recorded request method + path match the exchange within its
- *       time window;</li>
+ *       time window, further disambiguated by the serving thread when the request's thread is
+ *       uniquely known (so a concurrent identical request cannot steal the occurrence);</li>
  *   <li>serving thread: SQL executions on the worker thread that handled the request, within its
  *       window — precise even without a trace id, because a servlet thread serves one request at a
  *       time. Falls back to a time-window heuristic (flagged approximate) when the request's thread
@@ -105,9 +106,14 @@ public class LiveActivityCorrelator {
         }
         List<SqlTraceGroupDto> sqlGroups = groupSql(sql);
 
-        List<RequestProfileExceptionDto> requestExceptions = correlateExceptions(request, start, end);
+        ExceptionCorrelation exceptionCorrelation = correlateExceptions(request, start, end);
+        List<RequestProfileExceptionDto> requestExceptions = exceptionCorrelation.entries();
         if (!requestExceptions.isEmpty()) {
-            notes.add("Exceptions are matched by request method, path and time window.");
+            notes.add(
+                    exceptionCorrelation.byThread()
+                            ? "Exceptions are matched exactly by the request's serving thread, within its window and "
+                                    + "alongside the request method and path."
+                            : "Exceptions are matched by request method, path and time window.");
         }
 
         List<RequestProfileSecurityDto> security = correlateSecurity(request, start, end);
@@ -271,20 +277,29 @@ public class LiveActivityCorrelator {
         return groups;
     }
 
-    private List<RequestProfileExceptionDto> correlateExceptions(HttpExchangeDto request, long start, long end) {
+    private ExceptionCorrelation correlateExceptions(HttpExchangeDto request, long start, long end) {
         if (!properties.isPanelEnabled(BootUiPanels.EXCEPTIONS)) {
-            return List.of();
+            return ExceptionCorrelation.empty();
         }
         ExceptionsController controller = exceptions.getIfAvailable();
         if (controller == null) {
-            return List.of();
+            return ExceptionCorrelation.empty();
         }
         ExceptionsReport report = controller.list();
         if (!report.available()) {
-            return List.of();
+            return ExceptionCorrelation.empty();
         }
         String method = request.method();
         String path = request.path();
+
+        // When the request's serving thread is uniquely known, use it to disambiguate occurrences
+        // that share this method + path + window but were thrown while serving a different,
+        // concurrent request. Web occurrences always carry the throwing thread, and log-sourced
+        // occurrences (no request path) are already excluded by occurrenceMatches, so a non-null
+        // serving thread lets us keep exactly the occurrences thrown on this request's thread.
+        RequestCorrelation served = matchServingThread(request, start, end);
+        String servingThread = served == null ? null : served.thread();
+
         List<RequestProfileExceptionDto> matched = new ArrayList<>();
         for (ExceptionGroupDto group : report.groups()) {
             if (!pathMatches(group.lastRequestPath(), path)) {
@@ -295,20 +310,33 @@ public class LiveActivityCorrelator {
                 continue;
             }
             for (ExceptionOccurrenceDto occurrence : detail.occurrences()) {
-                if (occurrenceMatches(occurrence, method, path, start, end)) {
-                    matched.add(new RequestProfileExceptionDto(
-                            group.exceptionClassName(),
-                            group.message(),
-                            group.location(),
-                            occurrence.timestamp(),
-                            occurrence.thread(),
-                            occurrence.handler(),
-                            occurrence.source()));
+                if (!occurrenceMatches(occurrence, method, path, start, end)) {
+                    continue;
                 }
+                if (servingThread != null
+                        && occurrence.thread() != null
+                        && !servingThread.equals(occurrence.thread())) {
+                    continue;
+                }
+                matched.add(new RequestProfileExceptionDto(
+                        group.exceptionClassName(),
+                        group.message(),
+                        group.location(),
+                        occurrence.timestamp(),
+                        occurrence.thread(),
+                        occurrence.handler(),
+                        occurrence.source()));
             }
         }
         matched.sort(Comparator.comparingLong(RequestProfileExceptionDto::timestamp));
-        return matched;
+        return new ExceptionCorrelation(matched, servingThread != null && !matched.isEmpty());
+    }
+
+    /** Exceptions correlated to a request and whether the serving-thread tier disambiguated them. */
+    private record ExceptionCorrelation(List<RequestProfileExceptionDto> entries, boolean byThread) {
+        static ExceptionCorrelation empty() {
+            return new ExceptionCorrelation(List.of(), false);
+        }
     }
 
     private boolean occurrenceMatches(
