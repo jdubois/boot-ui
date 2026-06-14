@@ -294,6 +294,36 @@
           <p>Calls <code>GET /api/sample/boom</code>, which throws on purpose to record a server-side failure.</p>
           <small>Inspect: Exceptions, Log Tail, Traces</small>
         </article>
+        <article class="test-action">
+          <button class="button" id="metrics-burst-button" type="button">Generate metrics traffic</button>
+          <p>Calls <code>GET /api/sample/metrics-burst</code> to record a custom counter and timer several times.</p>
+          <small>Inspect: Metrics</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="allocate-button" type="button">Allocate sample memory</button>
+          <p>Calls <code>GET /api/sample/allocate</code> to briefly allocate a bounded heap buffer.</p>
+          <small>Inspect: Live Memory, Heap Dump, JVM Tuning</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="slow-button" type="button">Run a slow request</button>
+          <p>Calls <code>GET /api/sample/slow</code>, which sleeps briefly so a request thread stays busy.</p>
+          <small>Inspect: Threads, Metrics, HTTP Exchanges</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="pool-stress-button" type="button">Exercise the connection pool</button>
+          <p>Calls <code>GET /api/sample/pool-stress</code> to run several concurrent read-only queries.</p>
+          <small>Inspect: Database Connection Pools, Spring Data, SQL Trace</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="chained-button" type="button">Make a multi-hop request</button>
+          <p>Calls <code>GET /api/sample/chained</code>, which nests spans across a catalog read and a live query.</p>
+          <small>Inspect: Traces, Diagnostics, HTTP Exchanges, SQL Trace</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="auth-fail-button" type="button">Fail authentication</button>
+          <p>Calls <code>GET /api/secure</code> with bad credentials to produce an unauthorized response.</p>
+          <small>Inspect: Spring Security, Security Logs, Pentesting</small>
+        </article>
       </div>
       <div class="form-row">
         <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
@@ -336,6 +366,12 @@
   const secureAdminButton = document.getElementById('secure-admin-button')
   const secureUserButton = document.getElementById('secure-user-button')
   const exceptionButton = document.getElementById('exception-button')
+  const metricsBurstButton = document.getElementById('metrics-burst-button')
+  const allocateButton = document.getElementById('allocate-button')
+  const slowButton = document.getElementById('slow-button')
+  const poolStressButton = document.getElementById('pool-stress-button')
+  const chainedButton = document.getElementById('chained-button')
+  const authFailButton = document.getElementById('auth-fail-button')
   const sessionDataButton = document.getElementById('session-data-button')
   const sessionDataStatus = document.getElementById('session-data-status')
   const sampleActionStatus = document.getElementById('sample-action-status')
@@ -526,6 +562,92 @@
         `Triggered a sample exception (HTTP ${response.status})`,
         'The server threw an IllegalStateException on purpose.\n\n' +
           'Open BootUI Exceptions to inspect the captured stack trace and masked details.'
+      )
+    })
+  )
+
+  metricsBurstButton.addEventListener('click', () =>
+    runSampleAction(metricsBurstButton, 'Recording sample metrics...', async () => {
+      const response = await fetch('/api/sample/metrics-burst', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Metrics request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Recorded ${body.iterations} samples to ${body.counter} and ${body.timer}`,
+        `Counter total: ${body.counterTotal}\nTimer count: ${body.timerCount}\n\n` +
+          'Open BootUI Metrics and search for "sample.orders" to inspect the custom meters.'
+      )
+    })
+  )
+
+  allocateButton.addEventListener('click', () =>
+    runSampleAction(allocateButton, 'Allocating sample memory...', async () => {
+      const response = await fetch('/api/sample/allocate', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Allocation request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Allocated ${body.allocatedMb} MB (heap used ~${body.heapUsedMb} MB)`,
+        'The buffer is released after the request.\n\n' +
+          'Open BootUI Live Memory or Heap Dump to inspect the heap usage.'
+      )
+    })
+  )
+
+  slowButton.addEventListener('click', () =>
+    runSampleAction(slowButton, 'Running a slow request...', async () => {
+      const response = await fetch('/api/sample/slow', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Slow request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Request slept for ${body.sleptMillis} ms on thread ${body.thread}`,
+        'Open BootUI Threads (during the request) or Metrics to inspect the timing.'
+      )
+    })
+  )
+
+  poolStressButton.addEventListener('click', () =>
+    runSampleAction(poolStressButton, 'Exercising the connection pool...', async () => {
+      const response = await fetch('/api/sample/pool-stress', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Pool stress request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Ran ${body.queries} concurrent queries in ${body.elapsedMillis} ms`,
+        'Open BootUI Database Connection Pools to inspect active connections and usage.'
+      )
+    })
+  )
+
+  chainedButton.addEventListener('click', () =>
+    runSampleAction(chainedButton, 'Making a multi-hop request...', async () => {
+      const response = await fetch('/api/sample/chained', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Chained request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Completed a multi-hop request (${body.activeProducts} active, ${body.searchMatches} matched)`,
+        'This request nests child spans across a catalog read and a live query.\n\n' +
+          'Open BootUI Traces or Diagnostics to inspect the correlated timeline.'
+      )
+    })
+  )
+
+  authFailButton.addEventListener('click', () =>
+    runSampleAction(authFailButton, 'Calling secured API with bad credentials...', async () => {
+      const response = await fetch('/api/secure', {
+        headers: {Authorization: basicAuth('intruder', 'wrong-password')}
+      })
+      const text = await readTextResponse(response)
+      showSampleResult(
+        `Authentication failed with HTTP ${response.status}`,
+        `${text}\n\nThis unauthorized response is useful in Spring Security, Security Logs, and Pentesting.`
       )
     })
   )
