@@ -73,7 +73,7 @@ function onKeydown(e) {
     if (selected) navigate(selected)
   } else if (e.key === 'Escape') {
     emit('close')
-  } else if (numberedNavKeys.includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+  } else if (!query.value.trim() && numberedNavKeys.includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
     const idx = numberedNavKeys.indexOf(e.key)
     if (idx < results.value.length) {
       e.preventDefault()
