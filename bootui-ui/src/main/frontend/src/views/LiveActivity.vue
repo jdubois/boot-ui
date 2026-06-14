@@ -1,5 +1,5 @@
 <script setup>
-import {computed, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
@@ -102,6 +102,7 @@ function rowClass(entry) {
 
 function formatDurationMs(durationMs) {
   if (durationMs == null) return ''
+  if (durationMs === 0) return '<1 ms'
   if (durationMs < 1000) return `${durationMs} ms`
   return `${(durationMs / 1000).toFixed(2)} s`
 }
@@ -131,6 +132,15 @@ function closeProfile() {
   profileError.value = null
 }
 
+function onKeydown(event) {
+  if (event.key === 'Escape' && profileRequestId.value) {
+    closeProfile()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
 function clearFilters() {
   typeFilter.value = ''
   severityFilter.value = ''
@@ -159,7 +169,7 @@ function clearFilters() {
 
     <template v-else-if="report">
       <div v-if="kpis" class="row g-2 mb-3 activity-kpis">
-        <div class="col-6 col-lg-2">
+        <div class="col-6 col-lg-3">
           <div class="card h-100">
             <div class="card-body py-2">
               <div class="text-muted small">Requests/min</div>
@@ -167,7 +177,7 @@ function clearFilters() {
             </div>
           </div>
         </div>
-        <div class="col-6 col-lg-2">
+        <div class="col-6 col-lg-3">
           <div class="card h-100">
             <div class="card-body py-2">
               <div class="text-muted small">Error rate</div>
@@ -175,7 +185,7 @@ function clearFilters() {
             </div>
           </div>
         </div>
-        <div class="col-6 col-lg-2">
+        <div class="col-6 col-lg-3">
           <div class="card h-100">
             <div class="card-body py-2">
               <div class="text-muted small">Latency p50 / p95</div>
@@ -183,7 +193,7 @@ function clearFilters() {
             </div>
           </div>
         </div>
-        <div class="col-6 col-lg-2">
+        <div class="col-6 col-lg-3">
           <div class="card h-100">
             <div class="card-body py-2">
               <div class="text-muted small">SQL/min</div>
@@ -191,7 +201,21 @@ function clearFilters() {
             </div>
           </div>
         </div>
-        <div class="col-6 col-lg-2">
+        <div class="col-6 col-lg-3">
+          <div class="card h-100">
+            <div class="card-body py-2">
+              <div class="text-muted small">Slowest endpoint</div>
+              <div class="fs-5 text-truncate" :title="kpis.slowestEndpoint ?? ''">
+                <template v-if="kpis.slowestEndpoint">
+                  {{ kpis.slowestEndpointMs ?? '—' }} ms
+                  <span class="text-muted small d-block text-truncate">{{ kpis.slowestEndpoint }}</span>
+                </template>
+                <template v-else>—</template>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
           <div class="card h-100">
             <div class="card-body py-2">
               <div class="text-muted small">Active exceptions</div>
@@ -199,7 +223,15 @@ function clearFilters() {
             </div>
           </div>
         </div>
-        <div class="col-6 col-lg-2">
+        <div class="col-6 col-lg-3">
+          <div class="card h-100">
+            <div class="card-body py-2">
+              <div class="text-muted small">Health</div>
+              <div class="fs-5">{{ kpis.healthStatus ?? '—' }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
           <div class="card h-100">
             <div class="card-body py-2">
               <div class="text-muted small">Heap used</div>
