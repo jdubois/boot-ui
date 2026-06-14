@@ -238,7 +238,8 @@ class LiveActivityServiceTests {
                 "conn-1",
                 "http-thread",
                 slow,
-                List.of());
+                List.of(),
+                null);
     }
 
     private static ExceptionGroupDto group(String id, String className, long lastSeen) {

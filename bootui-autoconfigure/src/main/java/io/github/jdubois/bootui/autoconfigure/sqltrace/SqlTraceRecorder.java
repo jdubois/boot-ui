@@ -67,6 +67,7 @@ public final class SqlTraceRecorder {
             int batchSize,
             String connectionId,
             String thread,
+            String traceId,
             List<String> parameters) {
 
         public CapturedStatement {
@@ -185,6 +186,7 @@ public final class SqlTraceRecorder {
                 Math.max(0, batchSize),
                 connectionId,
                 thread,
+                currentTraceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of());
         synchronized (lock) {
             buffer.addLast(entry);
@@ -341,6 +343,21 @@ public final class SqlTraceRecorder {
             return stripped;
         }
         return stripped.substring(0, max) + "…";
+    }
+
+    /**
+     * Best-effort current trace id, read from the SLF4J MDC where Micrometer Tracing publishes it
+     * (the {@code traceId} correlation key). Returns {@code null} when no tracer is active or the key
+     * is absent, in which case downstream correlation falls back to its time-window heuristic. The
+     * lookup is fully guarded so SQL execution is never disrupted by a missing or misbehaving MDC.
+     */
+    private static String currentTraceId() {
+        try {
+            String traceId = org.slf4j.MDC.get("traceId");
+            return traceId == null || traceId.isBlank() ? null : traceId;
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private static final class Aggregate {

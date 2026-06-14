@@ -43,6 +43,45 @@ class LiveActivityCorrelatorTests {
     }
 
     @Test
+    void correlatesSqlExactlyByTraceIdWhenPresent() {
+        SqlTraceController sql = sqlController(
+                sqlEntry(1, START + 5, "SELECT * FROM t", "SELECT", 3, "trace-abc"),
+                sqlEntry(2, START + 9000, "SELECT * FROM t", "SELECT", 3, "trace-abc"), // outside window, same trace
+                sqlEntry(3, START + 6, "SELECT * FROM other", "SELECT", 3, "trace-zzz")); // in window, other trace
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")),
+                sql,
+                null,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.available()).isTrue();
+        assertThat(profile.sql()).hasSize(2);
+        assertThat(profile.sql()).allSatisfy(entry -> assertThat(entry.traceId()).isEqualTo("trace-abc"));
+        assertThat(profile.sqlCorrelationApproximate()).isFalse();
+    }
+
+    @Test
+    void fallsBackToTimeWindowWhenNoSqlMatchesTraceId() {
+        SqlTraceController sql = sqlController(
+                sqlEntry(1, START + 5, "SELECT * FROM t", "SELECT", 3, "trace-other"),
+                sqlEntry(2, START + 90, "SELECT * FROM t", "SELECT", 3, null));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L, "trace-abc")),
+                sql,
+                null,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.sql()).hasSize(2);
+        assertThat(profile.sqlCorrelationApproximate()).isTrue();
+    }
+
+    @Test
     void correlatesSqlByTimeWindowAndFlagsApproximate() {
         SqlTraceController sql = sqlController(
                 sqlEntry(1, START + 5, "SELECT * FROM t", "SELECT", 3),
@@ -211,6 +250,11 @@ class LiveActivityCorrelatorTests {
 
     private static HttpExchangeDto exchange(
             String id, Instant timestamp, String method, String path, int status, Long durationMs) {
+        return exchange(id, timestamp, method, path, status, durationMs, null);
+    }
+
+    private static HttpExchangeDto exchange(
+            String id, Instant timestamp, String method, String path, int status, Long durationMs, String traceId) {
         return new HttpExchangeDto(
                 id,
                 timestamp,
@@ -225,13 +269,18 @@ class LiveActivityCorrelatorTests {
                 null,
                 null,
                 null,
-                null,
+                traceId,
                 List.of(),
                 List.of());
     }
 
     private static SqlTraceEntryDto sqlEntry(
             long id, long timestamp, String sql, String category, long durationMillis) {
+        return sqlEntry(id, timestamp, sql, category, durationMillis, null);
+    }
+
+    private static SqlTraceEntryDto sqlEntry(
+            long id, long timestamp, String sql, String category, long durationMillis, String traceId) {
         return new SqlTraceEntryDto(
                 id,
                 timestamp,
@@ -246,6 +295,7 @@ class LiveActivityCorrelatorTests {
                 "conn-1",
                 "http-thread",
                 false,
-                List.of());
+                List.of(),
+                traceId);
     }
 }

@@ -157,6 +157,7 @@ public class SqlTraceController {
                 entry.connectionId(),
                 entry.thread(),
                 recorder.isSlow(entry.durationMillis()),
-                exposeParameters ? entry.parameters() : List.of());
+                exposeParameters ? entry.parameters() : List.of(),
+                entry.traceId());
     }
 }

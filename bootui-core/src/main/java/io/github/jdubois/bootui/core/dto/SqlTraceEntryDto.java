@@ -24,6 +24,8 @@ import java.util.List;
  * @param thread name of the thread that ran the statement
  * @param slow whether the execution exceeded the configured slow-query threshold
  * @param parameters ordered, stringified parameter bindings (may be empty)
+ * @param traceId Micrometer/W3C trace id active when the statement ran, or {@code null} when no
+ *     tracer was present; used to correlate the statement to its originating request exactly
  */
 public record SqlTraceEntryDto(
         long id,
@@ -39,7 +41,8 @@ public record SqlTraceEntryDto(
         String connectionId,
         String thread,
         boolean slow,
-        List<String> parameters) {
+        List<String> parameters,
+        String traceId) {
 
     public SqlTraceEntryDto {
         parameters = parameters == null ? List.of() : List.copyOf(parameters);

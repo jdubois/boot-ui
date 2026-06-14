@@ -264,7 +264,7 @@ public class LiveActivityService {
                 summary.trim(),
                 detail,
                 entry.durationMillis(),
-                null,
+                entry.traceId(),
                 null,
                 null,
                 null,

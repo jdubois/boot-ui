@@ -72,11 +72,16 @@ public class LiveActivityCorrelator {
 
         List<String> notes = new ArrayList<>();
 
-        List<SqlTraceEntryDto> sql = correlateSql(start, end);
-        boolean sqlApproximate = !sql.isEmpty();
-        if (sqlApproximate) {
-            notes.add("SQL is correlated by time window only (statements carry no trace id), so it may "
-                    + "include or miss statements under concurrent requests.");
+        SqlCorrelation sqlCorrelation = correlateSql(request.traceId(), start, end);
+        List<SqlTraceEntryDto> sql = sqlCorrelation.entries();
+        boolean sqlApproximate = sqlCorrelation.approximate();
+        if (!sql.isEmpty()) {
+            if (sqlApproximate) {
+                notes.add("SQL is correlated by time window only (no matching trace id), so it may "
+                        + "include or miss statements under concurrent requests.");
+            } else {
+                notes.add("SQL is correlated exactly by trace id " + request.traceId() + ".");
+            }
         }
         List<SqlTraceGroupDto> sqlGroups = groupSql(sql);
 
@@ -120,18 +125,38 @@ public class LiveActivityCorrelator {
                 .orElse(null);
     }
 
-    private List<SqlTraceEntryDto> correlateSql(long start, long end) {
+    /**
+     * Correlate SQL to the request, preferring an exact join on trace id when both the request and
+     * the captured statements carry one (Micrometer tracing present), and falling back to the
+     * time-window heuristic only when no statement matches by trace id. The returned
+     * {@link SqlCorrelation#approximate()} flag drives the visible "approximate" badge.
+     */
+    private SqlCorrelation correlateSql(String traceId, long start, long end) {
         if (!properties.isPanelEnabled(BootUiPanels.SQL_TRACE)) {
-            return List.of();
+            return SqlCorrelation.empty();
         }
         SqlTraceController controller = sqlTrace.getIfAvailable();
         if (controller == null) {
-            return List.of();
+            return SqlCorrelation.empty();
         }
         SqlTraceReport report = controller.trace();
         if (!report.available()) {
-            return List.of();
+            return SqlCorrelation.empty();
         }
+
+        if (traceId != null && !traceId.isBlank()) {
+            List<SqlTraceEntryDto> exact = new ArrayList<>();
+            for (SqlTraceEntryDto entry : report.entries()) {
+                if (traceId.equals(entry.traceId())) {
+                    exact.add(entry);
+                }
+            }
+            if (!exact.isEmpty()) {
+                exact.sort(Comparator.comparingLong(SqlTraceEntryDto::timestamp));
+                return new SqlCorrelation(exact, false);
+            }
+        }
+
         List<SqlTraceEntryDto> matched = new ArrayList<>();
         for (SqlTraceEntryDto entry : report.entries()) {
             if (entry.timestamp() >= start && entry.timestamp() <= end) {
@@ -139,7 +164,14 @@ public class LiveActivityCorrelator {
             }
         }
         matched.sort(Comparator.comparingLong(SqlTraceEntryDto::timestamp));
-        return matched;
+        return new SqlCorrelation(matched, !matched.isEmpty());
+    }
+
+    /** The SQL statements correlated to a request plus whether the association was heuristic. */
+    private record SqlCorrelation(List<SqlTraceEntryDto> entries, boolean approximate) {
+        static SqlCorrelation empty() {
+            return new SqlCorrelation(List.of(), false);
+        }
     }
 
     private List<SqlTraceGroupDto> groupSql(List<SqlTraceEntryDto> sql) {
