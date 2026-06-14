@@ -30,9 +30,27 @@ docker run --rm -p 8080:8080 \
 
 ## Other sample-app images
 
-Two more flavors of the same sample app are published for experimentation. Like the JVM image above, both default to the
-Docker-free `dev` profile (in-memory H2) and accept `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` so the host browser can reach
-BootUI while the Host allow-list and CSRF defenses stay in force.
+Three more flavors of the same sample app are published for experimentation. Like the JVM image above, all three default
+to the Docker-free `dev` profile (in-memory H2) and accept `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` so the host browser can
+reach BootUI while the Host allow-list and CSRF defenses stay in force.
+
+### JVM + AOT image (faster startup, no extra infrastructure)
+
+`jdubois/bootui-sample-app-aot` combines two Ahead-of-Time optimizations on the plain JVM image for a significantly
+faster start — no GraalVM toolchain and no CRIU privileges required:
+
+- **Spring AOT** — the application context wiring is pre-generated at build time, replacing dynamic CGLIB proxies and
+  reflection with static factory code.
+- **JDK 25 AOT class loading cache (JEP 483)** — class-loading and linking patterns are recorded in a training run
+  during the Docker build and replayed on every production start, bypassing most of the normal classloading pipeline.
+
+```bash
+docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-aot
+```
+
+Typical result: **~40–45 % shorter startup** vs the plain JVM image (Spring-reported ~9.7 s → ~5–6 s), at the cost of a
+~70–100 MB larger image (the AOT cache file). The Spring profile can still be overridden at runtime with
+`-e SPRING_PROFILES_ACTIVE=...` — nothing is frozen at build time.
 
 ### GraalVM native image
 

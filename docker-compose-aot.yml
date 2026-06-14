@@ -1,0 +1,38 @@
+# Runs the BootUI sample app as a JVM + AOT image using the in-memory "dev"
+# profile, so it works out of the box without PostgreSQL, Redis, or Ollama.
+#
+#   docker compose -f docker-compose-aot.yml up --build
+#
+# The image is built from Dockerfile-aot, which adds two AOT optimizations to
+# the plain JVM image (Dockerfile):
+#
+#   1. Spring AOT — pre-generated application context wiring (no dynamic proxies
+#      or reflection at startup). Activated by SPRING_AOT_ENABLED=true at runtime.
+#   2. JDK 25 AOT class loading cache (JEP 483) — pre-verified, pre-linked class
+#      data recorded in a training run during the Docker build stage.
+#
+# Combined, these reduce Spring-reported startup time by roughly 35–55 % compared
+# with the plain JVM image, at the cost of a larger image (~70–100 MB for the
+# AOT cache file). See the benchmark table in bootui-sample-app/README.md.
+#
+# Unlike CRaC, no CRIU privileges are required. Unlike GraalVM native, the
+# Spring profile can still be overridden at runtime.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-aot
+    environment:
+      SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: "dev"
+      # Host browser requests arrive through Docker's bridge gateway rather than
+      # loopback. The port is bound to 127.0.0.1 so this remains local-only.
+      BOOTUI_ALLOW_NON_LOCALHOST: "true"
+      # Spring AOT and the JDK AOT cache are already baked into JAVA_TOOL_OPTIONS
+      # in the image; set them explicitly here too so docker inspect shows the
+      # full effective config.
+      SPRING_AOT_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
