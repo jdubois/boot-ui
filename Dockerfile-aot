@@ -11,7 +11,7 @@
 #      activates the generated code instead of the dynamic path.
 #      Result: 30–50 % reduction in Spring context-refresh time.
 #
-#   2. JDK 25 AOT class loading cache (JEP 483, -XX:AOTMode=record / -XX:AOTCache=)
+#   2. JDK 25 AOT class loading cache (JEP 483/514, -XX:AOTCacheOutput / -XX:AOTCache=)
 #      JDK 24 introduced a class loading and linking cache: a training run records
 #      all classes loaded during a real startup; subsequent runs read the pre-
 #      verified, pre-linked class data directly from the cache, bypassing most of
@@ -61,8 +61,8 @@ FROM eclipse-temurin:25-jdk-noble AS build
 
 WORKDIR /app
 
-# Install curl: the Maven wrapper uses it to bootstrap maven-wrapper.jar, and
-# the AOT training run's readiness poll uses it to wait for /actuator/health.
+# Install curl as a fallback the Maven wrapper can use to bootstrap
+# maven-wrapper.jar if the committed wrapper jar is ever unavailable.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
@@ -114,49 +114,44 @@ RUN mkdir -p /app/training && \
     cp -r /app/extracted/application/. /app/training/
 
 # ---------------------------------------------------------------------------
-# Train the JDK 25 AOT class loading and linking cache (JEP 483).
+# Train the JDK 25 AOT class loading and linking cache (JEP 483/514).
 #
 # The training run starts the application for real using the same jlink runtime
-# and the same merged exploded structure that production will use, polls
-# /actuator/health until the app is ready, then sends SIGTERM so the JVM writes
-# the cache on a clean exit. Using the jlink runtime (rather than the full JDK)
-# ensures the cache is byte-for-byte compatible with what the runtime stage runs.
+# and the same merged exploded structure that production will use. With
+# -XX:AOTCacheOutput set, the JVM records the class-loading/linking work in
+# "record" mode and assembles the final cache (/app/app.aot) when it exits.
+# Using the jlink runtime (rather than the full JDK) ensures the cache is
+# byte-for-byte compatible with what the runtime stage runs.
+#
+# -Dspring.context.exit=onRefresh makes Spring close the application context and
+# exit cleanly as soon as it has refreshed, so the training JVM terminates on its
+# own — no readiness poll or SIGTERM needed — and reliably flushes the AOT cache.
+# This is the training approach documented in the Spring Boot reference. (A
+# SIGTERM-killed JVM would not assemble the one-command AOTCacheOutput cache.)
 #
 # -Dspring.aot.enabled=true activates the Spring AOT-generated code during
 # training so the recorded class-loading path already reflects the AOT startup
 # (not the slower dynamic path that would be replaced at runtime anyway).
 #
-# Environment variables mirror the runtime-stage ENV declarations below so the
-# training and production configurations are identical.
+# The heap, GC and object-header flags (-Xms/-Xmx, -XX:+UseG1GC,
+# -XX:+UseCompactObjectHeaders) must match the runtime-stage JAVA_TOOL_OPTIONS
+# below: the JVM refuses to map an AOT cache whose UseCompactObjectHeaders (or
+# GC / heap) setting differs from the running JVM and silently falls back to
+# normal class loading, defeating the cache. The environment variables likewise
+# mirror the runtime ENV declarations so training and production are identical.
 # ---------------------------------------------------------------------------
 RUN cd /app/training && \
     SPRING_PROFILES_ACTIVE=dev \
     SPRING_FLYWAY_ENABLED=false \
     SPRING_LIQUIBASE_ENABLED=false \
     /javaruntime/bin/java \
-        -XX:AOTMode=record -XX:AOTCache=/app/app.aot \
+        -XX:AOTCacheOutput=/app/app.aot \
         -Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m \
+        -XX:+UseG1GC -XX:+UseCompactObjectHeaders \
         -Dspring.aot.enabled=true \
-        org.springframework.boot.loader.launch.JarLauncher & \
-    APP_PID=$! ; \
-    echo "[aot-train] waiting for the app to start (up to 120 s) ..." ; \
-    READY=0 ; \
-    for i in $(seq 1 60); do \
-        sleep 2 ; \
-        if curl -sf http://localhost:8080/actuator/health >/dev/null 2>&1; then \
-            READY=1 ; \
-            echo "[aot-train] app ready after $((i * 2)) s — stopping to flush cache." ; \
-            break ; \
-        fi ; \
-    done ; \
-    if [ "$READY" -ne 1 ]; then \
-        echo "[aot-train] ERROR: app did not become healthy within 120 s" ; \
-        kill -9 "$APP_PID" 2>/dev/null || true ; \
-        exit 1 ; \
-    fi ; \
-    kill -SIGTERM "$APP_PID" ; \
-    wait "$APP_PID" ; \
-    echo "[aot-train] AOT cache written:" ; \
+        -Dspring.context.exit=onRefresh \
+        org.springframework.boot.loader.launch.JarLauncher && \
+    echo "[aot-train] AOT cache written:" && \
     ls -lh /app/app.aot
 
 # ---------------------------------------------------------------------------
