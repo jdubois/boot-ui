@@ -66,6 +66,9 @@ public class HttpExchangesController {
         this.properties = properties;
         this.selfDataFilter = selfDataFilter;
         this.exposure = exposure;
+        // changeStreamProvider is only null via the test-only two-arg convenience constructor; Spring
+        // always injects a non-null ObjectProvider. The fallback keeps a usable (if never-signalled)
+        // stream when the http-exchanges configuration is absent (panel disabled / class missing).
         this.changeStream = changeStreamProvider == null
                 ? new BootUiChangeStream("http-exchanges")
                 : changeStreamProvider.getIfAvailable(() -> new BootUiChangeStream("http-exchanges"));

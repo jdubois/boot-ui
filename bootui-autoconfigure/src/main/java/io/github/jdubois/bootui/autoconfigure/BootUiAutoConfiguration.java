@@ -233,11 +233,11 @@ public class BootUiAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
         HttpExchangeRepository bootUiHttpExchangeRepository(
-                BootUiProperties properties, BootUiChangeStream changeStream) {
+                BootUiProperties properties, BootUiChangeStream httpExchangesChangeStream) {
             InMemoryHttpExchangeRepository repository = new InMemoryHttpExchangeRepository();
             repository.setCapacity(Math.max(1, properties.getHttpExchanges().getMaxExchanges()));
             repository.setReverse(true);
-            return new NotifyingHttpExchangeRepository(repository, changeStream);
+            return new NotifyingHttpExchangeRepository(repository, httpExchangesChangeStream);
         }
 
         @Bean
