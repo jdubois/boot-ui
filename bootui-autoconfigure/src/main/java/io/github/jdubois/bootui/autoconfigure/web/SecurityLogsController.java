@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.SecurityLogDataDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
@@ -20,19 +21,23 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
+import org.springframework.boot.actuate.audit.listener.AuditApplicationEvent;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.context.ApplicationListener;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @ConditionalOnClass(AuditEventRepository.class)
 @RequestMapping("/bootui/api/security-logs")
-public class SecurityLogsController {
+public class SecurityLogsController implements ApplicationListener<AuditApplicationEvent> {
 
     private static final int MAX_MAX_LOGS = 10_000;
 
@@ -47,6 +52,8 @@ public class SecurityLogsController {
     private final BootUiExposure exposure;
 
     private final SecretMasker masker = new SecretMasker();
+
+    private final BootUiChangeStream changeStream = new BootUiChangeStream("security-logs");
 
     @Autowired
     public SecurityLogsController(
@@ -87,6 +94,21 @@ public class SecurityLogsController {
         List<SecurityLogEventDto> eventDtos = events.stream().map(this::toDto).toList();
         PagedList.Result<SecurityLogEventDto> page = PagedList.from(eventDtos, offset, limit);
         return new SecurityLogsReport(true, null, maxLogs, typeSummaries, page.items(), page.page());
+    }
+
+    /**
+     * Streams a coalesced {@code update} notification whenever a new audit event is recorded, so the
+     * browser can refresh live without polling. The push is a tiny tick; the browser re-fetches the
+     * filtered/paginated report through {@link #logs}, preserving masking and value-exposure rules.
+     */
+    @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream() {
+        return changeStream.open();
+    }
+
+    @Override
+    public void onApplicationEvent(AuditApplicationEvent event) {
+        changeStream.signal();
     }
 
     @ExceptionHandler({DateTimeParseException.class, IllegalArgumentException.class})

@@ -108,6 +108,35 @@ class ExceptionStoreTests {
         assertThat(store.totalExceptions()).isZero();
     }
 
+    @Test
+    void notifiesSubscribersOnRecordAndClearAndStopsAfterUnsubscribe() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        java.util.concurrent.atomic.AtomicInteger notifications = new java.util.concurrent.atomic.AtomicInteger();
+        Runnable handle = store.subscribe(notifications::incrementAndGet);
+
+        store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
+        assertThat(notifications.get()).isEqualTo(1);
+
+        store.clear();
+        assertThat(notifications.get()).isEqualTo(2);
+
+        handle.run();
+        store.record(new IllegalStateException("after"), "main", null, null, null, "log");
+        assertThat(notifications.get()).isEqualTo(2);
+    }
+
+    @Test
+    void isolatesSubscriberFailuresFromCapture() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.subscribe(() -> {
+            throw new RuntimeException("bad subscriber");
+        });
+
+        store.record(new IllegalStateException("boom"), "main", null, null, null, "log");
+
+        assertThat(store.totalExceptions()).isEqualTo(1);
+    }
+
     private static List<Throwable> sameOrigin(int count) {
         List<Throwable> throwables = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {

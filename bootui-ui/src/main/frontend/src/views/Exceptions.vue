@@ -4,7 +4,7 @@ import {computed, ref} from 'vue'
 import {formatClockTime, formatRelative, formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
-import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -128,7 +128,7 @@ function requestLabel(item) {
   return method ? `${method} ${path}` : path
 }
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchExceptions)
+const {autoRefresh, loading, load} = useEventStreamRefresh('api/exceptions/stream', fetchExceptions)
 </script>
 
 <template>
