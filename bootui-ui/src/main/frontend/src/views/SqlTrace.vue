@@ -4,7 +4,7 @@ import {computed, ref} from 'vue'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
-import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -36,7 +36,7 @@ async function fetchReport() {
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
+const {autoRefresh, loading, initialLoading, load} = useEventStreamRefresh('api/sql-trace/stream', fetchReport)
 
 const stats = computed(() => report.value?.stats ?? null)
 const entries = computed(() => report.value?.entries ?? [])
@@ -154,7 +154,7 @@ function clearTrace() {
   })
 }
 
-// useAutoRefresh automatically loads on mount unless configured otherwise
+// useEventStreamRefresh automatically loads on mount unless configured otherwise
 </script>
 
 <template>

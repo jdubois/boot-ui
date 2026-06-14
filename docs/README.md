@@ -1,6 +1,5 @@
 ---
 home: true
-title: BootUI
 heroText: BootUI
 tagline: A local-only developer console for Spring Boot 4 applications.
 actions:

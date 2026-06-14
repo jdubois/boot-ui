@@ -489,6 +489,13 @@ the rest of BootUI; an inline warning reminds you when captured parameters are b
 when no `DataSource` bean is wrapped. Tracing, the initial recording state, parameter capture, buffer size, the
 slow-query and N+1 thresholds, and SQL/parameter truncation limits are all configurable under `bootui.sql-trace.*`.
 
+Because the trace buffer is genuinely event-driven, the panel refreshes over **Server-Sent Events** instead of fixed-interval
+polling: the browser subscribes to `/bootui/api/sql-trace/stream` and the server pushes a small coalesced notification the
+moment a statement is captured, the buffer is cleared, or recording is paused/resumed, prompting the panel to re-fetch. The
+push carries no data — masking, truncation, and value-exposure rules still apply through the regular endpoint — and bursts of
+statements are folded into a single refresh so high-volume workloads do not flood the UI. When the auto-refresh toggle is off
+or the tab is hidden the stream is closed, and the panel falls back to its initial load when Server-Sent Events are unavailable.
+
 > **GraalVM native images are supported.** The tracing proxies are created over a fixed set of standard JDBC API
 > interfaces, and those JDK proxies are registered as native-image proxy metadata by BootUI, so SQL Trace works in a
 > native executable. If a proxy ever cannot be created (for example an interface set that was not registered), wrapping
@@ -548,9 +555,10 @@ The Security Logs panel reads recent Spring Boot audit events from the applicati
 authentication successes/failures and authorization denials when Spring Security audit listeners are active. When BootUI is
 active and the panel is enabled, it contributes an in-memory repository if the host app has not already defined one, which
 also lets Spring Boot create its standard audit listeners. It supports filtering by principal, event type, and time window,
-summarizes retained event counts by type, uses the shared visibility-aware auto-refresh controls, and masks sensitive event
-data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to `500`; if audit support
-is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
+summarizes retained event counts by type, refreshes live over **Server-Sent Events** (the browser subscribes to
+`/bootui/api/security-logs/stream` and re-fetches when the server signals a new audit event, instead of polling on a timer),
+and masks sensitive event data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to
+`500`; if audit support is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
 ![BootUI Security Logs panel](./images/bootui-security-logs.png)
 
@@ -670,7 +678,8 @@ Exceptions are grouped by a stable fingerprint derived from the exception type a
 error collapses into one row showing its type, latest message, first/last seen times, originating location, and total
 count. Opening a group shows the representative stack trace with application frames highlighted, the full cause chain
 (`Caused by: …` with `… N more` common-frame folding), and the most recent occurrences with their thread, source, and
-request context. The list refreshes on demand or on the standard auto-refresh interval, and can be
+request context. The list updates live over **Server-Sent Events** — the browser subscribes to `/bootui/api/exceptions/stream`
+and re-fetches whenever an exception is captured or the store is cleared, rather than polling on a fixed interval — and can be
 filtered by text, by capture source (web vs. logged), or to application-originated exceptions only.
 
 Exception messages follow the same exposure policy as the rest of BootUI: they are scrubbed of secret-like
