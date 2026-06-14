@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 /**
  * In-memory, bounded store of exceptions thrown by the host application, grouped by a stable
@@ -87,9 +88,16 @@ public final class ExceptionStore {
     /**
      * Records a thrown exception. No-ops if the exact {@link Throwable} instance was already
      * recorded, so a failure observed by both the handler resolver and the log appender counts once.
+     *
+     * <p>Client-disconnect exceptions are skipped entirely: a remote client that goes away
+     * mid-response (most commonly a browser closing a Server-Sent Events stream such as BootUI's own
+     * Live Activity feed, which surfaces as a broken-pipe {@code AsyncRequestNotUsableException}) is
+     * expected disconnect noise, not a host-application fault, so it must never pollute the panel.</p>
      */
     public void record(Throwable throwable, String thread, String method, String path, String handler, String source) {
-        if (throwable == null || !seen.add(throwable)) {
+        if (throwable == null
+                || DisconnectedClientHelper.isClientDisconnectedException(throwable)
+                || !seen.add(throwable)) {
             return;
         }
         List<Frame> frames = buildFrames(throwable.getStackTrace());

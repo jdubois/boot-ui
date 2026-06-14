@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 class ExceptionStoreTests {
 
@@ -41,6 +42,23 @@ class ExceptionStoreTests {
         store.record(new IllegalArgumentException("b"), "main", null, null, null, "log");
 
         assertThat(store.groups()).hasSize(2);
+    }
+
+    @Test
+    void ignoresClientDisconnectExceptionsSuchAsSseStreamBrokenPipes() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+
+        store.record(
+                new AsyncRequestNotUsableException("ServletResponse failed to flushBuffer: Broken pipe"),
+                "bootui-activity-stream",
+                "GET",
+                "/bootui/api/activity/stream",
+                "LiveActivityController#stream",
+                "web");
+        store.record(new java.io.IOException("Broken pipe"), "http-nio-8080-exec-1", null, null, null, "log");
+
+        assertThat(store.groups()).isEmpty();
+        assertThat(store.totalExceptions()).isZero();
     }
 
     @Test
