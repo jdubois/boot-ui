@@ -616,19 +616,28 @@ bounded exactly as those panels are.
 The stream merges four signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
 (`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a colour-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed and slow rows are
-highlighted, adjacent identical entries are collapsed with an occurrence count to cut noise, and filter chips narrow the
-feed by type and severity. A KPI strip across the top summarises requests per minute, error rate, p50/p95 latency, SQL
-rate, the slowest recent endpoint, active exception count, health status, and heap usage computed from the same buffers. Because the merged feed is genuinely
+highlighted, adjacent identical entries are collapsed with an occurrence count to cut noise, and the feed can be narrowed
+by type, severity, a free-text needle (path, status, SQL, or exception class), and an **errors-only** quick toggle — the
+chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
+table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
+minute, error rate, p50/p95 latency, SQL rate, the slowest recent endpoint, active exception count, health status, and
+heap usage computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`). Because the merged feed is genuinely
 event-driven, it refreshes over **Server-Sent Events** instead of fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
 exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
 
-Clicking **Profile** on a request row opens a Symfony-style drawer that correlates that single request's signals using a
-tiered join that degrades gracefully and never fabricates data: the distributed trace is matched by trace id, exceptions
-are matched by request method, path, and time window, and SQL is associated by time window only. Because SQL statements
-carry no trace id, the SQL correlation is heuristic and is clearly labelled **approximate** in the drawer; identical
-repeated `SELECT`s above `bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. The drawer also shows the
-request's timing breakdown (time spent in SQL versus the rest), its auth/principal context, and the trace span list.
+Every row is also a launchpad: clicking anywhere on a request row opens its profiler, and each row carries a deep link
+that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
+**SQL Trace**, and exceptions in **Exceptions**. The per-request profiler drawer is a Symfony-style view that correlates
+that single request's signals using a tiered join that degrades gracefully and never fabricates data: the distributed
+trace is matched by trace id, exceptions are matched by request method, path, and time window, and SQL is matched
+**exactly by trace id** when Micrometer Tracing is present (BootUI threads the active `traceId` from the SLF4J MDC onto
+each captured statement). Only when no statement carries a matching trace id does SQL fall back to a time-window
+heuristic, which is then clearly labelled **approximate** in the drawer; identical repeated `SELECT`s above
+`bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. The drawer also shows the request's timing
+breakdown (time spent in SQL versus the rest), its auth/principal context, and the trace span list, can be dismissed with
+the **Escape** key (with focus trapped inside while open), and offers a **Copy profile** action that exports the
+already-masked correlated timeline (request + SQL + exceptions) as plain text to paste straight into a bug report.
 
 The panel is read-only and inherits BootUI's full safety model (loopback filter, Host allow-list, cross-site write
 defenses, value masking). The stream is capped by `bootui.activity.max-entries`, the slow-request threshold is

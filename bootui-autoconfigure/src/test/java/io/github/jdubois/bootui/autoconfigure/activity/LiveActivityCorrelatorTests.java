@@ -59,7 +59,8 @@ class LiveActivityCorrelatorTests {
 
         assertThat(profile.available()).isTrue();
         assertThat(profile.sql()).hasSize(2);
-        assertThat(profile.sql()).allSatisfy(entry -> assertThat(entry.traceId()).isEqualTo("trace-abc"));
+        assertThat(profile.sql())
+                .allSatisfy(entry -> assertThat(entry.traceId()).isEqualTo("trace-abc"));
         assertThat(profile.sqlCorrelationApproximate()).isFalse();
     }
 

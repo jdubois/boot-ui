@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, onMounted, ref} from 'vue'
+import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -37,6 +38,14 @@ async function fetchReport() {
 }
 
 const {autoRefresh, loading, initialLoading, load} = useEventStreamRefresh('api/sql-trace/stream', fetchReport)
+
+const route = useRoute()
+onMounted(() => {
+  const prefill = route?.query?.q
+  if (typeof prefill === 'string' && prefill) {
+    filter.value = prefill
+  }
+})
 
 const stats = computed(() => report.value?.stats ?? null)
 const entries = computed(() => report.value?.entries ?? [])

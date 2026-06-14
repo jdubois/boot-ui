@@ -46,4 +46,51 @@ test.describe('Live Activity view', () => {
     await pauseButton.click()
     await expect(page.getByRole('button', {name: /Resume/})).toBeVisible()
   })
+
+  test('filters to errors only and persists the choice across a reload', async ({openView, page}) => {
+    await page.request.get('/api/sample/products')
+    const boom = await page.request.get('/api/sample/boom')
+    expect(boom.status()).toBe(500)
+
+    await openView('activity', 'Live Activity')
+    await expect(page.locator('.activity-table tbody tr').first()).toBeVisible({timeout: 15_000})
+
+    const errorsOnly = page.locator('#activity-errors-only')
+    await errorsOnly.check()
+    // Every visible severity badge is now ERROR.
+    const badges = page.locator('.activity-table tbody tr td .badge.text-bg-danger')
+    await expect(badges.first()).toBeVisible()
+
+    await page.reload()
+    await expect(page.locator('#activity-errors-only')).toBeChecked()
+  })
+
+  test('deep-links a request row to the HTTP Exchanges panel', async ({openView, page}) => {
+    await page.request.get('/api/sample/products')
+
+    await openView('activity', 'Live Activity')
+    const productsRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/products'}).first()
+    await expect(productsRow).toBeVisible({timeout: 15_000})
+
+    await productsRow.getByTitle('Open in HTTP Exchanges').click()
+
+    await expect(page.getByRole('heading', {name: 'HTTP Exchanges'})).toBeVisible()
+    await expect(page).toHaveURL(/\/http-exchanges/)
+  })
+
+  test('closes the profile drawer with the Escape key and offers a copy action', async ({openView, page}) => {
+    await page.request.get('/api/sample/products')
+
+    await openView('activity', 'Live Activity')
+    const productsRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/products'}).first()
+    await expect(productsRow).toBeVisible({timeout: 15_000})
+    await productsRow.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer.getByRole('button', {name: /Copy profile/})).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
+  })
 })

@@ -1,24 +1,33 @@
 <script setup>
-import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
-import {filterEntries, groupEntries} from '../utils/activityStream.js'
+import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
+import {bucketEntries, deepLink, filterEntries, groupEntries} from '../utils/activityStream.js'
 
 const TYPES = ['REQUEST', 'SQL', 'EXCEPTION', 'SECURITY']
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
+const FILTERS_STORAGE_KEY = 'bootui.activity.filters'
 
 const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
 const typeFilter = ref('')
 const severityFilter = ref('')
+const textFilter = ref('')
+const errorsOnly = ref(false)
 
 const profile = ref(null)
 const profileLoading = ref(false)
 const profileError = ref(null)
 const profileRequestId = ref(null)
+const drawerEl = ref(null)
+
+const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
+
+restoreFilters()
 
 async function loadActivity() {
   try {
@@ -45,9 +54,41 @@ const warnings = computed(() => report.value?.warnings ?? [])
 const visibleEntries = computed(() => {
   const filtered = filterEntries(report.value?.entries ?? [], {
     type: typeFilter.value,
-    severity: severityFilter.value
+    severity: severityFilter.value,
+    text: textFilter.value,
+    errorsOnly: errorsOnly.value
   })
   return groupEntries(filtered)
+})
+
+const hasActiveFilters = computed(
+  () => !!typeFilter.value || !!severityFilter.value || !!textFilter.value.trim() || errorsOnly.value
+)
+
+// Requests-over-time mini timeline: bucket the unfiltered stream so spikes and error bursts stay
+// visible even while a filter narrows the table below.
+const SPARKLINE_BUCKETS = 32
+const SPARKLINE_HEIGHT = 36
+const sparkline = computed(() => bucketEntries(report.value?.entries ?? [], SPARKLINE_BUCKETS))
+const sparklineMax = computed(() => sparkline.value.reduce((max, bucket) => Math.max(max, bucket.count), 0))
+const sparkBars = computed(() => {
+  const data = sparkline.value
+  const max = sparklineMax.value
+  if (!data.length || max <= 0) return []
+  const slot = 100 / data.length
+  return data.map((bucket, index) => {
+    const height = (bucket.count / max) * SPARKLINE_HEIGHT
+    return {
+      key: index,
+      x: index * slot,
+      width: slot,
+      height,
+      y: SPARKLINE_HEIGHT - height,
+      errorHeight: max > 0 ? (bucket.errors / max) * SPARKLINE_HEIGHT : 0,
+      count: bucket.count,
+      errors: bucket.errors
+    }
+  })
 })
 
 const subtitle = computed(() => {
@@ -107,6 +148,16 @@ function formatDurationMs(durationMs) {
   return `${(durationMs / 1000).toFixed(2)} s`
 }
 
+function entryLink(entry) {
+  return deepLink(entry)
+}
+
+function onRowClick(entry) {
+  if (entry.profileable) {
+    openProfile(entry)
+  }
+}
+
 async function openProfile(entry) {
   if (!entry.profileable) return
   profileRequestId.value = entry.id
@@ -123,6 +174,7 @@ async function openProfile(entry) {
     profileError.value = err.message || 'Could not load request profile'
   } finally {
     profileLoading.value = false
+    focusDrawer()
   }
 }
 
@@ -132,11 +184,121 @@ function closeProfile() {
   profileError.value = null
 }
 
+function focusDrawer() {
+  requestAnimationFrame(() => {
+    drawerEl.value?.focus?.()
+  })
+}
+
 function onKeydown(event) {
-  if (event.key === 'Escape' && profileRequestId.value) {
+  if (!profileRequestId.value) return
+  if (event.key === 'Escape') {
     closeProfile()
+    return
+  }
+  if (event.key === 'Tab') {
+    trapFocus(event)
   }
 }
+
+// Minimal focus trap so keyboard users cannot tab out of the open drawer.
+function trapFocus(event) {
+  const root = drawerEl.value
+  if (!root) return
+  const focusable = root.querySelectorAll(
+    'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )
+  if (!focusable.length) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const active = document.activeElement
+  if (event.shiftKey && (active === first || active === root)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+function copyProfile() {
+  const text = renderProfileReport()
+  if (text) {
+    copyToClipboard(text, 'profile')
+  }
+}
+
+// Build a plain-text, already-masked timeline (request + SQL + exceptions) a developer can paste
+// straight into a bug report. All values come from the masked profile payload; nothing new is read.
+function renderProfileReport() {
+  const p = profile.value
+  if (!p || !p.available) return ''
+  const lines = []
+  lines.push('# BootUI request profile')
+  const req = p.request
+  lines.push(`Request: ${req.method} ${req.path} → ${req.status}`)
+  if (req.durationMs != null) lines.push(`Duration: ${formatDurationMs(req.durationMs)}`)
+  if (req.principal) lines.push(`Principal: ${req.principal}`)
+  if (req.traceId) lines.push(`Trace id: ${req.traceId}`)
+  if (p.timing) lines.push(`Timing: ${timingSummary.value}`)
+  lines.push('')
+  lines.push(`SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact, trace id'}):`)
+  if (p.sqlGroups && p.sqlGroups.length) {
+    for (const group of p.sqlGroups) {
+      const flag = group.potentialNPlusOne ? ' [N+1]' : ''
+      lines.push(`  ×${group.executions}${flag} ${group.sql}`)
+    }
+  } else {
+    lines.push('  (none correlated)')
+  }
+  if (p.exceptions && p.exceptions.length) {
+    lines.push('')
+    lines.push('Exceptions:')
+    for (const ex of p.exceptions) {
+      const message = ex.message ? `: ${ex.message}` : ''
+      lines.push(`  ${ex.exceptionClassName}${message}`)
+      if (ex.location) lines.push(`    at ${ex.location}`)
+    }
+  }
+  if (p.notes && p.notes.length) {
+    lines.push('')
+    lines.push('Notes:')
+    for (const note of p.notes) lines.push(`  - ${note}`)
+  }
+  return lines.join('\n')
+}
+
+function restoreFilters() {
+  try {
+    const raw = localStorage.getItem(FILTERS_STORAGE_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    if (typeof saved.type === 'string') typeFilter.value = saved.type
+    if (typeof saved.severity === 'string') severityFilter.value = saved.severity
+    if (typeof saved.text === 'string') textFilter.value = saved.text
+    if (typeof saved.errorsOnly === 'boolean') errorsOnly.value = saved.errorsOnly
+  } catch (_) {
+    // Corrupt or unavailable storage: fall back to defaults silently.
+  }
+}
+
+function persistFilters() {
+  try {
+    localStorage.setItem(
+      FILTERS_STORAGE_KEY,
+      JSON.stringify({
+        type: typeFilter.value,
+        severity: severityFilter.value,
+        text: textFilter.value,
+        errorsOnly: errorsOnly.value
+      })
+    )
+  } catch (_) {
+    // Ignore storage write failures (private mode, quota); filters still work in-session.
+  }
+}
+
+watch([typeFilter, severityFilter, textFilter, errorsOnly], persistFilters)
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
@@ -144,6 +306,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 function clearFilters() {
   typeFilter.value = ''
   severityFilter.value = ''
+  textFilter.value = ''
+  errorsOnly.value = false
 }
 </script>
 
@@ -242,6 +406,16 @@ function clearFilters() {
       </div>
 
       <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
+        <div class="activity-text-filter">
+          <label class="form-label small mb-1">Filter</label>
+          <input
+            v-model="textFilter"
+            type="search"
+            class="form-control form-control-sm"
+            placeholder="Path, status, SQL, exception…"
+            aria-label="Free-text activity filter"
+          />
+        </div>
         <div>
           <label class="form-label small mb-1">Type</label>
           <select v-model="typeFilter" class="form-select form-select-sm">
@@ -256,12 +430,11 @@ function clearFilters() {
             <option v-for="severity in SEVERITIES" :key="severity" :value="severity">{{ severity }}</option>
           </select>
         </div>
-        <button
-          v-if="typeFilter || severityFilter"
-          class="btn btn-sm btn-outline-secondary"
-          type="button"
-          @click="clearFilters"
-        >
+        <div class="form-check mb-1">
+          <input id="activity-errors-only" v-model="errorsOnly" class="form-check-input" type="checkbox" />
+          <label class="form-check-label small" for="activity-errors-only">Errors only</label>
+        </div>
+        <button v-if="hasActiveFilters" class="btn btn-sm btn-outline-secondary" type="button" @click="clearFilters">
           Clear
         </button>
         <div class="ms-auto">
@@ -281,6 +454,25 @@ function clearFilters() {
         {{ warning }}
       </div>
 
+      <figure v-if="sparkBars.length" class="activity-sparkline mb-3" aria-hidden="true">
+        <figcaption class="text-muted small mb-1">Events over time (red = errors)</figcaption>
+        <svg viewBox="0 0 100 36" preserveAspectRatio="none" class="w-100 activity-sparkline-svg">
+          <g v-for="bar in sparkBars" :key="bar.key">
+            <rect :x="bar.x" :y="bar.y" :width="bar.width" :height="bar.height" class="activity-spark-bar">
+              <title>{{ bar.count }} events, {{ bar.errors }} errors</title>
+            </rect>
+            <rect
+              v-if="bar.errors"
+              :x="bar.x"
+              :y="36 - bar.errorHeight"
+              :width="bar.width"
+              :height="bar.errorHeight"
+              class="activity-spark-error"
+            />
+          </g>
+        </svg>
+      </figure>
+
       <div class="table-responsive">
         <table class="table table-sm align-middle activity-table">
           <thead>
@@ -294,7 +486,14 @@ function clearFilters() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="entry in visibleEntries" :key="entry.id" :class="rowClass(entry)">
+            <tr
+              v-for="entry in visibleEntries"
+              :key="entry.id"
+              :class="[rowClass(entry), entry.profileable ? 'activity-row-clickable' : '']"
+              :tabindex="entry.profileable ? 0 : undefined"
+              @click="onRowClick(entry)"
+              @keydown.enter="onRowClick(entry)"
+            >
               <td class="text-nowrap small">{{ formatClockTime(entry.timestamp) }}</td>
               <td class="text-nowrap"><i :class="['bi', typeIcon(entry.type), 'me-1']"></i>{{ entry.type }}</td>
               <td>
@@ -306,7 +505,15 @@ function clearFilters() {
                 <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
               </td>
               <td class="text-end text-nowrap small">{{ formatDurationMs(entry.durationMs) }}</td>
-              <td class="text-end">
+              <td class="text-end text-nowrap" @click.stop>
+                <router-link
+                  v-if="entryLink(entry)"
+                  :to="{path: entryLink(entry).path, query: entryLink(entry).query}"
+                  class="btn btn-outline-secondary btn-sm rounded-pill me-1"
+                  :title="entryLink(entry).label"
+                >
+                  <i class="bi bi-box-arrow-up-right"></i>
+                </router-link>
                 <button
                   v-if="entry.profileable"
                   class="btn btn-outline-primary btn-sm rounded-pill"
@@ -327,10 +534,27 @@ function clearFilters() {
 
     <!-- Per-request profiler drawer -->
     <div v-if="profileRequestId" class="activity-drawer-backdrop" @click.self="closeProfile">
-      <aside class="activity-drawer card shadow">
+      <aside
+        ref="drawerEl"
+        class="activity-drawer card shadow"
+        tabindex="-1"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Request profile"
+      >
         <div class="card-header d-flex align-items-center justify-content-between">
           <h2 class="h6 mb-0">Request profile</h2>
-          <button class="btn-close" type="button" aria-label="Close" @click="closeProfile"></button>
+          <div class="d-flex align-items-center gap-2">
+            <button
+              v-if="profile && profile.available"
+              class="btn btn-sm btn-outline-secondary"
+              type="button"
+              @click="copyProfile"
+            >
+              <i class="bi bi-clipboard me-1"></i>{{ copiedKey === 'profile' ? 'Copied' : 'Copy profile' }}
+            </button>
+            <button class="btn-close" type="button" aria-label="Close" @click="closeProfile"></button>
+          </div>
         </div>
         <div class="card-body activity-drawer-body">
           <div v-if="profileLoading" class="text-muted">Loading…</div>
@@ -439,5 +663,28 @@ function clearFilters() {
 
 .activity-drawer-body {
   overflow-y: auto;
+}
+
+.activity-row-clickable {
+  cursor: pointer;
+}
+
+.activity-text-filter {
+  min-width: 16rem;
+  flex: 1 1 16rem;
+}
+
+.activity-sparkline-svg {
+  height: 36px;
+  display: block;
+}
+
+.activity-spark-bar {
+  fill: var(--bs-primary, #0d6efd);
+  opacity: 0.55;
+}
+
+.activity-spark-error {
+  fill: var(--bs-danger, #dc3545);
 }
 </style>
