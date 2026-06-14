@@ -242,6 +242,9 @@ read-only.
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request profile flags a potential N+1 pattern.  |
 
 ### Traces
+
+| Property                                     | Default   | Description                                                                                            |
+| -------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
 | `bootui.panels.traces.read-only`             | `false`   | Disable clearing retained traces. OTLP ingestion remains controlled by `bootui.telemetry.enabled`.    |
 | `bootui.telemetry.enabled`                   | `true`    | Enables local in-memory trace capture and accepts OTLP/HTTP trace payloads at BootUI's OTLP endpoint. |
 | `bootui.telemetry.max-traces`                | `500`     | Maximum distinct traces retained in memory.                                                           |

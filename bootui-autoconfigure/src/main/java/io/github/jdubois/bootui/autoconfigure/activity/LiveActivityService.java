@@ -254,8 +254,7 @@ public class LiveActivityService {
             severity = SEVERITY_OK;
         }
         String sql = entry.sql() == null ? "" : entry.sql();
-        String summary =
-                entry.category() + " " + truncate(sql.replaceAll("\\s+", " ").trim());
+        String summary = entry.category() + " " + truncate(ActivitySql.normalize(sql));
         String detail = entry.success() ? null : entry.errorMessage();
         return new ActivityEntryDto(
                 "sql-" + entry.id(),

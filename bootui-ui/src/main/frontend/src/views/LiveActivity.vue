@@ -58,6 +58,16 @@ const subtitle = computed(() => {
 
 const paused = computed(() => !autoRefresh.value)
 
+const timingSummary = computed(() => {
+  const timing = profile.value?.timing
+  if (!timing) return ''
+  let text = `${timing.sqlCount} SQL statement(s), ${timing.sqlMs} ms in SQL`
+  if (timing.sqlPercent != null) {
+    text += ` (${timing.sqlPercent}% of request)`
+  }
+  return text
+})
+
 function togglePause() {
   autoRefresh.value = !autoRefresh.value
 }
@@ -323,10 +333,7 @@ function clearFilters() {
 
             <section v-if="profile.timing" class="mb-3">
               <h3 class="h6">Timing</h3>
-              <p class="small mb-1">
-                {{ profile.timing.sqlCount }} SQL statement(s), {{ profile.timing.sqlMs }} ms in SQL
-                <span v-if="profile.timing.sqlPercent != null">({{ profile.timing.sqlPercent }}% of request)</span>
-              </p>
+              <p class="small mb-1">{{ timingSummary }}</p>
             </section>
 
             <section class="mb-3">

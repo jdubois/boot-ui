@@ -257,6 +257,6 @@ public class LiveActivityCorrelator {
     }
 
     private static String normalizeSql(String sql) {
-        return sql == null ? "" : sql.replaceAll("\\s+", " ").trim();
+        return ActivitySql.normalize(sql);
     }
 }
