@@ -175,7 +175,7 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 ### Benchmark results
 
 Numbers collected on the BootUI sample app (Spring Boot 4, `dev`/H2 profile, Flyway/Liquibase disabled)
-on an Apple M3 Pro running Docker Desktop:
+on a GitHub Actions `ubuntu-latest` runner:
 
 | Image variant           | Spring-reported startup       | Wall-clock to `/actuator/health` | Image size |
 | ----------------------- | ----------------------------- | ------------------------------------- | ---------- |
