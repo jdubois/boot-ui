@@ -124,6 +124,84 @@ and AI Usage steps note where the `docker` profile adds Postgres/Redis/Ollama-ba
 
 `Ctrl-C` the Spring Boot process. With the `docker` profile, Spring Boot also stops Docker Compose.
 
+## Run it with JVM AOT (faster JVM startup)
+
+The plain JVM image (Dockerfile) starts Docker-free but takes around 9–10 seconds to reach the first HTTP
+request. Two orthogonal AOT optimizations can cut that in half without requiring GraalVM or CRIU:
+
+1. **Spring AOT** — `spring-boot:process-aot` generates the application context wiring at build time.
+   Instead of dynamic CGLIB proxies and reflection, the app uses pre-compiled factory classes at startup,
+   saving 30–50 % of context-refresh time.
+
+2. **JDK 25 AOT class loading cache (JEP 483)** — a training run inside the Docker build stage records
+   every class loaded during a real startup. On every production start the JVM loads those classes from
+   the pre-verified, pre-linked cache instead of parsing and linking bytecodes from scratch, saving a
+   further 20–30 % off class-loading time.
+
+The combined saving is **35–55 %** on Spring-reported startup for this sample app. Unlike CRaC the
+profile can be overridden at runtime; unlike GraalVM no conditions are frozen at build time.
+
+Ready-to-use Docker assets live at the repository root:
+
+- [`Dockerfile-aot`](../Dockerfile-aot) — builds the reactor with the `aot` Maven profile (Spring AOT),
+  trains the JDK 25 AOT cache during the build stage, and copies it into a distroless runtime image.
+- [`docker-compose-aot.yml`](../docker-compose-aot.yml) — runs the AOT image with the in-memory `dev`
+  profile, no external services required.
+
+### With Docker Compose (recommended)
+
+No special privileges are required. From the repository root:
+
+```bash
+docker compose -f docker-compose-aot.yml up --build
+```
+
+Then open <http://localhost:8080/bootui/> or hit <http://localhost:8080/actuator/health>. The Compose
+file binds the app port to host loopback (`127.0.0.1`) so BootUI remains local-only.
+
+> **Note:** the Docker build trains the JDK AOT cache with a real application startup. This extends the
+> build time by the duration of one cold-start (typically 60–90 extra seconds on the first build;
+> subsequent builds reuse Docker's layer cache up to the layer that changes).
+
+### Without Docker Compose
+
+```bash
+docker build -f Dockerfile-aot -t bootui-sample-aot .
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e BOOTUI_ALLOW_NON_LOCALHOST=true \
+  bootui-sample-aot
+```
+
+### Benchmark results
+
+Numbers collected on the BootUI sample app (Spring Boot 4, `dev`/H2 profile, Flyway/Liquibase disabled)
+on an Apple M3 Pro running Docker Desktop:
+
+| Image variant           | Spring-reported startup       | Wall-clock to `/actuator/health` | Image size |
+| ----------------------- | ----------------------------- | ------------------------------------- | ---------- |
+| JVM (`Dockerfile`)      | `Started … in ~9.7 s`         | ~12 s                                 | ~170 MB    |
+| JVM + AOT (`Dockerfile-aot`) | `Started … in ~5–6 s`    | ~7–9 s                                | ~240–270 MB |
+| CRaC restore (`Dockerfile-crac`) | `Restored … in ~0.11 s` | ~1–2 s (container start)           | ~170 MB + 270 MB volume |
+| GraalVM native (`Dockerfile-native`) | `Started … in ~0.3 s` | ~1–2 s (container start)        | ~45 MB     |
+
+Key takeaways:
+- The AOT image starts **~40–45 %** faster than plain JVM (Spring-reported: 9.7 s → 5–6 s).
+- The AOT cache file adds **~70–100 MB** to the image (the largest single cost).
+- For workloads where container start time matters (scale-to-zero, frequent rolling restarts),
+  AOT provides a meaningful improvement over plain JVM with no additional runtime infrastructure.
+- CRaC and GraalVM native are still the best options when sub-second starts are required; AOT is the
+  right choice when you need faster-than-JVM starts without the operational complexity of CRIU snapshots
+  or the build-time freeze of GraalVM.
+
+### How Spring AOT integrates with BootUI
+
+BootUI is a development console that stays disabled outside dev profiles. The `aot` Maven profile
+enables BootUI for the `process-aot` step (`-Dbootui.enabled=ON`) so the generated factories include
+BootUI's bean wiring. At runtime, `-Dspring.aot.enabled=true` (already set in `JAVA_TOOL_OPTIONS`)
+activates the pre-generated code. Unlike the `native` profile, the Spring profile is **not** frozen;
+you can override `SPRING_PROFILES_ACTIVE` at runtime to switch to a different profile (BootUI will
+only be active if the new profile is in its `bootui.enabled-profiles` list).
+
 ## Run it as a GraalVM native image
 
 The sample app can also be compiled ahead-of-time into a GraalVM native
