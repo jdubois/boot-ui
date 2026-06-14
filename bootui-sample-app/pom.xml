@@ -227,9 +227,11 @@
                                         Run process-aot under the "dev" profile so the JVM container
                                         uses H2 in-memory storage (no Docker services needed) and BootUI
                                         is enabled. Unlike the native image, the profile is NOT frozen
-                                        into the executable; you can override it at runtime with
-                                        -e SPRING_PROFILES_ACTIVE=... The AOT-generated code is simply
-                                        used instead of the dynamic path when spring.aot.enabled=true.
+                                        into the generated code; the Spring profile can still be changed
+                                        at container runtime via the SPRING_PROFILES_ACTIVE environment
+                                        variable. The AOT-generated code is activated at runtime with
+                                        SPRING_AOT_ENABLED=true (already set in JAVA_TOOL_OPTIONS in
+                                        Dockerfile-aot).
 
                                         Flyway and Liquibase are disabled so the process-aot fork exits
                                         quickly without touching the schema. Remove those flags if you
