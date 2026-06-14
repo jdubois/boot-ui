@@ -4,6 +4,7 @@ import java.util.List;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SampleCatalog {
@@ -33,4 +34,22 @@ public class SampleCatalog {
 
     @CacheEvict(cacheNames = "sample-products", allEntries = true)
     public void evictProducts() {}
+
+    /**
+     * Runs a live {@code count} query and then holds the JDBC connection for {@code delayMillis}
+     * inside a read-only transaction. Calling this concurrently checks out several HikariCP
+     * connections at once so the BootUI Database Connection Pools panel shows real activity.
+     */
+    @Transactional(readOnly = true)
+    public long countWithDelay(long delayMillis) {
+        long count = products.count();
+        if (delayMillis > 0) {
+            try {
+                Thread.sleep(delayMillis);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        return count;
+    }
 }
