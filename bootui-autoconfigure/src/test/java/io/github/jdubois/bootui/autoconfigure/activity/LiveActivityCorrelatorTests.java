@@ -250,6 +250,71 @@ class LiveActivityCorrelatorTests {
     }
 
     @Test
+    void correlatesSecurityExactlyByServingThreadAcrossConcurrentRequestsSharingPrincipal() {
+        // Two concurrent admin requests both raise AUTHORIZATION_FAILURE in the same window; only the
+        // event emitted on this request's serving thread (exec-1) belongs to it.
+        SecurityLogsController security = securityController(
+                securityEvent("AUTHORIZATION_FAILURE", "admin", START + 5),
+                securityEvent("AUTHORIZATION_FAILURE", "admin", START + 40));
+
+        RequestCorrelationRegistry requests = new RequestCorrelationRegistry(100);
+        requests.record(new RequestCorrelationRegistry.RequestCorrelation(
+                START, START + 100, "exec-1", "GET", "/secure/admin"));
+
+        SecurityEventCorrelationRegistry events = new SecurityEventCorrelationRegistry(100);
+        events.record(new SecurityEventCorrelationRegistry.SecurityEventCorrelation(
+                START + 5, "exec-1", "AUTHORIZATION_FAILURE", "admin"));
+        events.record(new SecurityEventCorrelationRegistry.SecurityEventCorrelation(
+                START + 40, "exec-2", "AUTHORIZATION_FAILURE", "admin"));
+
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(secureExchange("r1", BASE, "admin")),
+                null,
+                null,
+                null,
+                security,
+                requests,
+                events,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.security()).hasSize(1);
+        assertThat(profile.security().get(0).timestamp()).isEqualTo(START + 5);
+        assertThat(profile.security().get(0).threadMatched()).isTrue();
+        assertThat(profile.notes()).anyMatch(note -> note.contains("serving thread"));
+    }
+
+    @Test
+    void keepsSecurityEventsWhenServingThreadKnownButEventNotCaptured() {
+        // The serving thread is known but the security registry did not retain the event (UNKNOWN): keep
+        // it via the time-window match rather than dropping a real event.
+        SecurityLogsController security =
+                securityController(securityEvent("AUTHENTICATION_SUCCESS", "admin", START + 5));
+
+        RequestCorrelationRegistry requests = new RequestCorrelationRegistry(100);
+        requests.record(new RequestCorrelationRegistry.RequestCorrelation(
+                START, START + 100, "exec-1", "GET", "/secure/admin"));
+
+        SecurityEventCorrelationRegistry events = new SecurityEventCorrelationRegistry(100); // nothing captured
+
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(secureExchange("r1", BASE, "admin")),
+                null,
+                null,
+                null,
+                security,
+                requests,
+                events,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.security()).hasSize(1);
+        assertThat(profile.security().get(0).threadMatched()).isFalse();
+    }
+
+    @Test
     void correlatesSqlExactlyByServingThreadWhenNoTraceId() {
         // The request was handled on thread "exec-1" during [START, START+100].
         RequestCorrelationRegistry registry = new RequestCorrelationRegistry(100);
@@ -331,6 +396,18 @@ class LiveActivityCorrelatorTests {
             SecurityLogsController security,
             RequestCorrelationRegistry requestCorrelations,
             BootUiProperties properties) {
+        return correlator(requests, sql, exceptions, traces, security, requestCorrelations, null, properties);
+    }
+
+    private LiveActivityCorrelator correlator(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            TracesController traces,
+            SecurityLogsController security,
+            RequestCorrelationRegistry requestCorrelations,
+            SecurityEventCorrelationRegistry securityCorrelations,
+            BootUiProperties properties) {
         return new LiveActivityCorrelator(
                 provider(requests),
                 provider(sql),
@@ -338,6 +415,7 @@ class LiveActivityCorrelatorTests {
                 provider(security),
                 provider(traces),
                 provider(requestCorrelations),
+                provider(securityCorrelations),
                 properties);
     }
 

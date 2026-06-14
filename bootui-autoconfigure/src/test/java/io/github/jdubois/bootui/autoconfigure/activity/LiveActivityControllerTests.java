@@ -53,6 +53,7 @@ class LiveActivityControllerTests {
                 empty(SqlTraceRecorder.class),
                 empty(ExceptionStore.class),
                 empty(RequestCorrelationRegistry.class),
+                empty(SecurityEventCorrelationRegistry.class),
                 properties);
     }
 

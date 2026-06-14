@@ -265,7 +265,8 @@ function renderProfileReport() {
     lines.push('Security events:')
     for (const event of p.security) {
       const principal = event.principal ? ` · ${event.principal}` : ''
-      lines.push(`  ${event.type}${principal}`)
+      const match = event.threadMatched ? ' (exact)' : ''
+      lines.push(`  ${event.type}${principal}${match}`)
     }
   }
   if (p.notes && p.notes.length) {
@@ -681,7 +682,14 @@ function clearFilters() {
                 <code>{{ event.type }}</code>
                 <span v-if="event.principal" class="text-muted"> · {{ event.principal }}</span>
                 <span
-                  v-if="event.principalMatched"
+                  v-if="event.threadMatched"
+                  class="badge text-bg-success ms-1"
+                  title="Correlated exactly by the request's serving thread"
+                >
+                  exact
+                </span>
+                <span
+                  v-else-if="event.principalMatched"
                   class="badge text-bg-light ms-1"
                   title="Principal matches the request"
                 >

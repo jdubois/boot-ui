@@ -48,8 +48,10 @@ import org.springframework.beans.factory.ObjectProvider;
  *       time. Falls back to a time-window heuristic (flagged approximate) when the request's thread
  *       cannot be uniquely identified;</li>
  *   <li>time window + principal: Spring Security audit events recorded inside the request window,
- *       restricted to the request's principal when both are known. Audit events carry no trace id, so
- *       this is heuristic in the same way as SQL.</li>
+ *       restricted to the request's principal when both are known, and further pinned to the
+ *       request's serving thread when {@link SecurityEventCorrelationRegistry} captured the event on
+ *       it (so two concurrent requests sharing a principal cannot trade audit events). Audit events
+ *       carry no trace id, so this stays heuristic only when the serving thread is unknown.</li>
  * </ol>
  */
 public class LiveActivityCorrelator {
@@ -60,6 +62,7 @@ public class LiveActivityCorrelator {
     private final ObjectProvider<SecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
     private final ObjectProvider<RequestCorrelationRegistry> requestCorrelations;
+    private final ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations;
     private final BootUiProperties properties;
 
     public LiveActivityCorrelator(
@@ -69,6 +72,7 @@ public class LiveActivityCorrelator {
             ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
+            ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
@@ -76,6 +80,7 @@ public class LiveActivityCorrelator {
         this.securityLogs = securityLogs;
         this.traces = traces;
         this.requestCorrelations = requestCorrelations;
+        this.securityCorrelations = securityCorrelations;
         this.properties = properties;
     }
 
@@ -116,10 +121,18 @@ public class LiveActivityCorrelator {
                             : "Exceptions are matched by request method, path and time window.");
         }
 
-        List<RequestProfileSecurityDto> security = correlateSecurity(request, start, end);
+        SecurityCorrelation securityCorrelation = correlateSecurity(request, start, end);
+        List<RequestProfileSecurityDto> security = securityCorrelation.entries();
         if (!security.isEmpty()) {
-            notes.add("Security events are matched by time window"
-                    + (request.principal() == null ? "." : " and the request principal " + request.principal() + "."));
+            if (securityCorrelation.byThread()) {
+                notes.add("Security events are matched exactly by the request's serving thread; events emitted on "
+                        + "other threads (for example a concurrent request sharing the principal) are excluded.");
+            } else {
+                notes.add("Security events are matched by time window"
+                        + (request.principal() == null
+                                ? "."
+                                : " and the request principal " + request.principal() + "."));
+            }
         }
 
         TraceDetailDto trace = correlateTrace(request.traceId());
@@ -356,26 +369,37 @@ public class LiveActivityCorrelator {
 
     /**
      * Correlate Spring Security audit events to the request. Audit events carry no trace id, so the
-     * join is heuristic: an event is kept when it was recorded inside the request window (with a small
-     * slack for clock granularity) and, when both the request and the event name a principal, only
-     * when those principals match. This is what links, for example, the {@code AUTHORIZATION_FAILURE}
-     * raised while serving a secured endpoint to that very request.
+     * base join is heuristic: an event is kept when it was recorded inside the request window (with a
+     * small slack for clock granularity) and, when both the request and the event name a principal,
+     * only when those principals match. When the request's serving thread is uniquely known and
+     * {@link SecurityEventCorrelationRegistry} captured the audit event, the match is sharpened: events
+     * proven to have been emitted on another thread are dropped, and the remaining on-thread events are
+     * flagged as exact. This is what links, for example, the {@code AUTHORIZATION_FAILURE} raised while
+     * serving a secured endpoint to that very request, even under a concurrent request sharing the
+     * principal.
      */
-    private List<RequestProfileSecurityDto> correlateSecurity(HttpExchangeDto request, long start, long end) {
+    private SecurityCorrelation correlateSecurity(HttpExchangeDto request, long start, long end) {
         if (!properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS)) {
-            return List.of();
+            return SecurityCorrelation.empty();
         }
         SecurityLogsController controller = securityLogs.getIfAvailable();
         if (controller == null) {
-            return List.of();
+            return SecurityCorrelation.empty();
         }
         SecurityLogsReport report =
                 controller.logs(null, null, null, 0, properties.getActivity().getMaxEntries());
         if (!report.auditEventsPresent()) {
-            return List.of();
+            return SecurityCorrelation.empty();
         }
         String requestPrincipal = request.principal();
         long slack = 50L;
+        // The capture and the displayed event come from the same AuditEvent, so their timestamps are
+        // effectively identical; a tight slack keeps distinct events on different threads from colliding.
+        long threadSlack = 2L;
+        RequestCorrelation served = matchServingThread(request, start, end);
+        SecurityEventCorrelationRegistry registry =
+                securityCorrelations == null ? null : securityCorrelations.getIfAvailable();
+        boolean byThread = false;
         List<RequestProfileSecurityDto> matched = new ArrayList<>();
         for (SecurityLogEventDto event : report.events()) {
             long timestamp = parseEpochMillis(event.timestamp());
@@ -386,10 +410,30 @@ public class LiveActivityCorrelator {
             if (requestPrincipal != null && event.principal() != null && !principalMatched) {
                 continue;
             }
-            matched.add(new RequestProfileSecurityDto(event.type(), event.principal(), timestamp, principalMatched));
+            boolean threadMatched = false;
+            if (served != null && registry != null) {
+                SecurityEventCorrelationRegistry.ThreadMatch match =
+                        registry.classify(served.thread(), event.type(), timestamp, threadSlack);
+                if (match == SecurityEventCorrelationRegistry.ThreadMatch.FOREIGN) {
+                    continue;
+                }
+                if (match == SecurityEventCorrelationRegistry.ThreadMatch.OURS) {
+                    threadMatched = true;
+                    byThread = true;
+                }
+            }
+            matched.add(new RequestProfileSecurityDto(
+                    event.type(), event.principal(), timestamp, principalMatched, threadMatched));
         }
         matched.sort(Comparator.comparingLong(RequestProfileSecurityDto::timestamp));
-        return matched;
+        return new SecurityCorrelation(matched, byThread);
+    }
+
+    /** The security audit events correlated to a request, and whether the exact serving-thread tier fired. */
+    private record SecurityCorrelation(List<RequestProfileSecurityDto> entries, boolean byThread) {
+        static SecurityCorrelation empty() {
+            return new SecurityCorrelation(List.of(), false);
+        }
     }
 
     private TraceDetailDto correlateTrace(String traceId) {

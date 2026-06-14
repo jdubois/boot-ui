@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
+import io.github.jdubois.bootui.autoconfigure.activity.SecurityEventCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
@@ -463,6 +464,11 @@ public class BootUiAutoConfiguration {
     @Bean
     public RequestCorrelationRegistry bootUiRequestCorrelationRegistry(BootUiProperties properties) {
         return new RequestCorrelationRegistry(properties.getActivity().getMaxEntries());
+    }
+
+    @Bean
+    public SecurityEventCorrelationRegistry bootUiSecurityEventCorrelationRegistry(BootUiProperties properties) {
+        return new SecurityEventCorrelationRegistry(properties.getActivity().getMaxEntries());
     }
 
     @Bean

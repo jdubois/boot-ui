@@ -45,6 +45,35 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toHaveCount(0)
   })
 
+  test('correlates a security event to the request exactly by serving thread', async ({openView, page}) => {
+    // An authenticated, SQL-backed admin request publishes an AUTHENTICATION_SUCCESS audit event on
+    // the request's serving thread, so the profiler can pin it to this exact request rather than to
+    // any other concurrent request that happens to share the principal.
+    const secure = await page.request.get('/api/secure/products', {
+      headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
+    })
+    expect(secure.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+
+    const secureRow = page.locator('.activity-table tbody tr', {hasText: '/api/secure/products'}).first()
+    await expect(secureRow).toBeVisible({timeout: 15_000})
+
+    await secureRow.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+
+    const security = drawer.locator('section', {has: page.getByRole('heading', {name: 'Security events'})})
+    await expect(security).toBeVisible({timeout: 15_000})
+    await expect(security).toContainText('AUTHENTICATION_SUCCESS')
+    // Captured on the request's own serving thread, so the event is badged exact, not just principal.
+    await expect(security.getByText('exact', {exact: true})).toBeVisible()
+
+    await drawer.getByRole('button', {name: 'Close'}).click()
+    await expect(drawer).toHaveCount(0)
+  })
+
   test('pauses and resumes the live feed', async ({openView, page}) => {
     await openView('activity', 'Live Activity')
 

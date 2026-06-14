@@ -673,7 +673,9 @@ Features:
   join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window, further disambiguated by the
   request's serving thread when it is uniquely known), serving thread within the
   request window (SQL, which carries no trace id but runs on the request's worker thread), and time window plus principal
-  (Spring Security audit events). SQL is matched exactly by trace id when present, otherwise exactly by the request's
+  (Spring Security audit events, further pinned to the request's serving thread when BootUI captured the audit event on
+  it, so a concurrent request sharing the principal cannot trade events). SQL is matched exactly by trace id when
+  present, otherwise exactly by the request's
   serving thread; it falls back to an approximate time-window match only when the serving thread cannot be uniquely
   identified (concurrent identical requests or async execution). Repeated identical `SELECT`s above
   `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1.

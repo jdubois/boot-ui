@@ -99,7 +99,10 @@ trace is matched by trace id, exceptions are matched by request method, path, an
 request's serving thread is uniquely known, further disambiguated by that thread so a concurrent identical request
 cannot steal the occurrence — security audit events are
 matched by time window and the request principal (so an `AUTHENTICATION_SUCCESS` or `AUTHORIZATION_FAILURE` raised while
-serving a secured endpoint is linked to that very request), and SQL is matched
+serving a secured endpoint is linked to that very request) — and, like SQL, are pinned **exactly to the request's
+serving thread** when BootUI captured the audit event on it, so two concurrent requests sharing a principal no longer
+trade security events; an event proven to have fired on another thread is excluded and an on-thread one is badged
+**exact**. SQL is matched
 **exactly by trace id** when Micrometer Tracing is present (BootUI threads the active `traceId` from the SLF4J MDC onto
 each captured statement). When no trace id is available — the common local-dev case — SQL is still matched **exactly by
 the request's serving thread** within its handling window: a servlet request runs start-to-finish on one worker thread

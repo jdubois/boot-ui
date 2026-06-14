@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.listener.AuditApplicationEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
@@ -42,6 +43,7 @@ public class LiveActivityController {
 
     private final LiveActivityService service;
     private final LiveActivityCorrelator correlator;
+    private final SecurityEventCorrelationRegistry securityCorrelations;
     private final BootUiChangeStream changeStream;
     private final String selfPath;
 
@@ -55,10 +57,19 @@ public class LiveActivityController {
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
             ObjectProvider<ExceptionStore> exceptionStore,
             ObjectProvider<RequestCorrelationRegistry> requestCorrelations,
+            ObjectProvider<SecurityEventCorrelationRegistry> securityCorrelations,
             BootUiProperties properties) {
         this.service = new LiveActivityService(httpExchanges, sqlTrace, exceptions, securityLogs, health, properties);
         this.correlator = new LiveActivityCorrelator(
-                httpExchanges, sqlTrace, exceptions, securityLogs, traces, requestCorrelations, properties);
+                httpExchanges,
+                sqlTrace,
+                exceptions,
+                securityLogs,
+                traces,
+                requestCorrelations,
+                securityCorrelations,
+                properties);
+        this.securityCorrelations = securityCorrelations.getIfAvailable();
         this.changeStream = new BootUiChangeStream("activity");
         this.selfPath = properties.getPath();
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
@@ -107,9 +118,22 @@ public class LiveActivityController {
         }
     }
 
-    /** Signals whenever a security audit event is recorded so {@code SECURITY} rows appear live. */
+    /**
+     * Signals whenever a security audit event is recorded so {@code SECURITY} rows appear live, and
+     * captures the worker thread the event was published on. Spring Boot publishes this event
+     * synchronously on the request's serving thread, so recording {@code (thread, type, timestamp,
+     * principal)} here lets the profiler pin audit events to the exact request that produced them.
+     */
     @EventListener
     public void onAuditEvent(AuditApplicationEvent event) {
+        AuditEvent audit = event.getAuditEvent();
+        if (securityCorrelations != null && audit != null && audit.getTimestamp() != null) {
+            securityCorrelations.record(new SecurityEventCorrelationRegistry.SecurityEventCorrelation(
+                    audit.getTimestamp().toEpochMilli(),
+                    Thread.currentThread().getName(),
+                    audit.getType(),
+                    audit.getPrincipal()));
+        }
         changeStream.signal();
     }
 
