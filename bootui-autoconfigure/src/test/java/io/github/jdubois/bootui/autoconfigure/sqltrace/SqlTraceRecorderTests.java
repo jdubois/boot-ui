@@ -164,4 +164,28 @@ class SqlTraceRecorderTests {
         assertThat(recorder.recent()).isEmpty();
         assertThat(recorder.totalCaptured()).isEqualTo(1);
     }
+
+    @Test
+    void notifiesSubscribersOnRecordClearAndRecordingChange() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        java.util.concurrent.atomic.AtomicInteger notifications = new java.util.concurrent.atomic.AtomicInteger();
+        Runnable handle = recorder.subscribe(notifications::incrementAndGet);
+
+        record(recorder, Category.SELECT, "select", 0);
+        assertThat(notifications.get()).isEqualTo(1);
+
+        recorder.clear();
+        assertThat(notifications.get()).isEqualTo(2);
+
+        recorder.setRecording(false);
+        assertThat(notifications.get()).isEqualTo(3);
+        // No change in value -> no extra notification.
+        recorder.setRecording(false);
+        assertThat(notifications.get()).isEqualTo(3);
+
+        handle.run();
+        recorder.setRecording(true);
+        record(recorder, Category.SELECT, "select", 0);
+        assertThat(notifications.get()).isEqualTo(3);
+    }
 }

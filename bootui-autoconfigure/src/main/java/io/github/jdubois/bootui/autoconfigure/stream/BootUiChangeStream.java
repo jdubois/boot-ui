@@ -51,6 +51,10 @@ public final class BootUiChangeStream implements AutoCloseable {
     private final Object schedulerLock = new Object();
     private ScheduledExecutorService scheduler;
 
+    /** Test-only counter of coalesced flushes performed. */
+    private final java.util.concurrent.atomic.AtomicInteger flushCount =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     public BootUiChangeStream(String label) {
         this(label, DEFAULT_COALESCE_MILLIS);
     }
@@ -109,6 +113,7 @@ public final class BootUiChangeStream implements AutoCloseable {
 
     private void flush() {
         flushPending.set(false);
+        flushCount.incrementAndGet();
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event()
@@ -165,5 +170,9 @@ public final class BootUiChangeStream implements AutoCloseable {
         synchronized (schedulerLock) {
             return scheduler != null;
         }
+    }
+
+    int flushCount() {
+        return flushCount.get();
     }
 }
