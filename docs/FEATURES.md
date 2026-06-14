@@ -83,8 +83,11 @@ by type, severity, a free-text needle (path, status, SQL, or exception class), a
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
 table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
 minute, error rate, p50/p95 latency, SQL rate, the slowest recent endpoint, active exception count, health status, and
-heap usage computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`). Because the merged feed is genuinely
-event-driven, it refreshes over **Server-Sent Events** instead of fixed-interval polling: the browser subscribes to
+heap usage computed from the same buffers (sub-millisecond SQL is shown as `<1 ms`). Several KPI cards are themselves
+launchpads: the slowest-endpoint card opens **HTTP Exchanges** pre-filtered to that endpoint, while the
+active-exceptions, health, and heap-usage cards jump to the **Exceptions**, **Health**, and **Heap Dump** panels
+respectively. Because the merged feed is genuinely event-driven, it refreshes over **Server-Sent Events** instead of
+fixed-interval polling: the browser subscribes to
 `/bootui/api/activity/stream` and re-fetches whenever any source signals a change (a new request, SQL statement,
 exception, or security event), and the feed can be paused and resumed so a row you are inspecting does not scroll away.
 

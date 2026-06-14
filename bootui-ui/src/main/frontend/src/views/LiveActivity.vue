@@ -366,10 +366,19 @@ function clearFilters() {
           </div>
         </div>
         <div class="col-6 col-lg-3">
-          <div class="card h-100">
+          <component
+            :is="kpis.slowestEndpoint ? 'router-link' : 'div'"
+            class="card h-100 text-reset text-decoration-none"
+            :class="{'activity-kpi-link': kpis.slowestEndpoint}"
+            :to="kpis.slowestEndpoint ? {path: '/http-exchanges', query: {q: kpis.slowestEndpoint}} : undefined"
+            :title="kpis.slowestEndpoint ? `Open ${kpis.slowestEndpoint} in HTTP Exchanges` : null"
+          >
             <div class="card-body py-2">
-              <div class="text-muted small">Slowest endpoint</div>
-              <div class="fs-5 text-truncate" :title="kpis.slowestEndpoint ?? ''">
+              <div class="text-muted small">
+                Slowest endpoint
+                <i v-if="kpis.slowestEndpoint" class="bi bi-box-arrow-up-right ms-1"></i>
+              </div>
+              <div class="fs-5 text-truncate">
                 <template v-if="kpis.slowestEndpoint">
                   {{ kpis.slowestEndpointMs ?? '—' }} ms
                   <span class="text-muted small d-block text-truncate">{{ kpis.slowestEndpoint }}</span>
@@ -377,31 +386,52 @@ function clearFilters() {
                 <template v-else>—</template>
               </div>
             </div>
-          </div>
+          </component>
         </div>
         <div class="col-6 col-lg-3">
-          <div class="card h-100">
+          <router-link
+            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            :to="{path: '/exceptions'}"
+            title="Open the Exceptions panel"
+          >
             <div class="card-body py-2">
-              <div class="text-muted small">Active exceptions</div>
+              <div class="text-muted small">
+                Active exceptions
+                <i class="bi bi-box-arrow-up-right ms-1"></i>
+              </div>
               <div class="fs-5">{{ formatNumber(kpis.activeExceptionCount) }}</div>
             </div>
-          </div>
+          </router-link>
         </div>
         <div class="col-6 col-lg-3">
-          <div class="card h-100">
+          <router-link
+            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            :to="{path: '/health'}"
+            title="Open the Health panel"
+          >
             <div class="card-body py-2">
-              <div class="text-muted small">Health</div>
+              <div class="text-muted small">
+                Health
+                <i class="bi bi-box-arrow-up-right ms-1"></i>
+              </div>
               <div class="fs-5">{{ kpis.healthStatus ?? '—' }}</div>
             </div>
-          </div>
+          </router-link>
         </div>
         <div class="col-6 col-lg-3">
-          <div class="card h-100">
+          <router-link
+            class="card h-100 text-reset text-decoration-none activity-kpi-link"
+            :to="{path: '/heap-dump'}"
+            title="Open the Heap Dump panel"
+          >
             <div class="card-body py-2">
-              <div class="text-muted small">Heap used</div>
+              <div class="text-muted small">
+                Heap used
+                <i class="bi bi-box-arrow-up-right ms-1"></i>
+              </div>
               <div class="fs-5">{{ formatBytes(kpis.heapUsedBytes) }}</div>
             </div>
-          </div>
+          </router-link>
         </div>
       </div>
 
@@ -675,6 +705,18 @@ function clearFilters() {
 
 .activity-row-clickable {
   cursor: pointer;
+}
+
+.activity-kpi-link {
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.activity-kpi-link:hover,
+.activity-kpi-link:focus-visible {
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 0.15rem rgba(var(--bs-primary-rgb), 0.25);
 }
 
 .activity-table {

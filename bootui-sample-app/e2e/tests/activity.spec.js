@@ -93,4 +93,30 @@ test.describe('Live Activity view', () => {
     await page.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)
   })
+
+  test('links KPI cards to their dedicated panels', async ({openView, page}) => {
+    await page.request.get('/api/sample/products')
+
+    await openView('activity', 'Live Activity')
+    const kpis = page.locator('.activity-kpis')
+    await expect(kpis).toBeVisible({timeout: 15_000})
+
+    await kpis.getByTitle('Open the Health panel').click()
+    await expect(page).toHaveURL(/\/health/)
+
+    await openView('activity', 'Live Activity')
+    await page.locator('.activity-kpis').getByTitle('Open the Exceptions panel').click()
+    await expect(page).toHaveURL(/\/exceptions/)
+
+    await openView('activity', 'Live Activity')
+    await page.locator('.activity-kpis').getByTitle('Open the Heap Dump panel').click()
+    await expect(page).toHaveURL(/\/heap-dump/)
+
+    await openView('activity', 'Live Activity')
+    await page
+      .locator('.activity-kpis')
+      .getByTitle(/in HTTP Exchanges$/)
+      .click()
+    await expect(page).toHaveURL(/\/http-exchanges\?q=/)
+  })
 })
