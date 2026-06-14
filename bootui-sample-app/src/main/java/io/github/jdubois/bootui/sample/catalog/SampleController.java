@@ -29,8 +29,9 @@ public class SampleController {
 
     private final SampleSettings settings;
     private final SampleCatalog catalog;
-    private final MeterRegistry meterRegistry;
     private final ObservationRegistry observationRegistry;
+    private final Counter ordersProcessedCounter;
+    private final Timer orderDurationTimer;
 
     public SampleController(
             SampleSettings settings,
@@ -39,8 +40,13 @@ public class SampleController {
             ObservationRegistry observationRegistry) {
         this.settings = settings;
         this.catalog = catalog;
-        this.meterRegistry = meterRegistry;
         this.observationRegistry = observationRegistry;
+        this.ordersProcessedCounter = Counter.builder("sample.orders.processed")
+                .description("Sample orders processed by the BootUI demo metrics button")
+                .register(meterRegistry);
+        this.orderDurationTimer = Timer.builder("sample.orders.duration")
+                .description("Simulated sample order processing time")
+                .register(meterRegistry);
     }
 
     @GetMapping("/hello")
@@ -97,21 +103,15 @@ public class SampleController {
     @GetMapping("/metrics-burst")
     public Map<String, Object> metricsBurst(@RequestParam(name = "count", defaultValue = "5") int count) {
         int iterations = Math.max(1, Math.min(count, 50));
-        Counter counter = Counter.builder("sample.orders.processed")
-                .description("Sample orders processed by the BootUI demo metrics button")
-                .register(meterRegistry);
-        Timer timer = Timer.builder("sample.orders.duration")
-                .description("Simulated sample order processing time")
-                .register(meterRegistry);
         for (int i = 0; i < iterations; i++) {
-            timer.record(() -> {
+            orderDurationTimer.record(() -> {
                 try {
                     Thread.sleep(5);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                 }
             });
-            counter.increment();
+            ordersProcessedCounter.increment();
         }
         return Map.of(
                 "iterations",
@@ -119,11 +119,11 @@ public class SampleController {
                 "counter",
                 "sample.orders.processed",
                 "counterTotal",
-                counter.count(),
+                ordersProcessedCounter.count(),
                 "timer",
                 "sample.orders.duration",
                 "timerCount",
-                timer.count());
+                orderDurationTimer.count());
     }
 
     /**
@@ -175,7 +175,7 @@ public class SampleController {
             }
             CompletableFuture.allOf(futures).join();
         } finally {
-            executor.shutdown();
+            executor.shutdownNow();
         }
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
         return Map.of("queries", total, "elapsedMillis", elapsedMs);
