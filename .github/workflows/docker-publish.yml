@@ -1,9 +1,10 @@
 name: Publish Docker images
 
-# Builds the three sample-app container images from the root Dockerfiles and
+# Builds the four sample-app container images from the root Dockerfiles and
 # publishes them to Docker Hub as multi-arch images (linux/amd64 + linux/arm64):
 #
 #   Dockerfile         -> <user>/bootui-sample-app          (JVM image)
+#   Dockerfile-aot     -> <user>/bootui-sample-app-aot      (JVM + Spring AOT + JDK cache image)
 #   Dockerfile-crac    -> <user>/bootui-sample-app-crac     (CRaC image)
 #   Dockerfile-native  -> <user>/bootui-sample-app-native   (GraalVM native image)
 #
@@ -28,7 +29,7 @@ name: Publish Docker images
 #      job itself needs no Docker Hub secrets.
 #
 #   2. build - build, smoke-test and publish every image on every platform (a matrix
-#      of 3 images x 2 platforms = 6 jobs). Each job builds its single-platform image
+#      of 4 images x 2 platforms = 8 jobs). Each job builds its single-platform image
 #      once and loads it into the runner's local Docker daemon (load: true) to
 #      smoke-test it: the base Spring Boot app must be up (GET /actuator/health),
 #      BootUI's back end must be active (GET /bootui/api/panels) and the BootUI front
@@ -44,7 +45,7 @@ name: Publish Docker images
 #      fails its job, so the merge phase below never runs and no tag is ever applied.
 #
 #   3. merge - assemble the tagged multi-arch manifest list for each image (a matrix
-#      of 3 images) from the per-platform digests pushed in phase 2, applying the
+#      of 4 images) from the per-platform digests pushed in phase 2, applying the
 #      rolling `latest`, dated and short-SHA tags. Runs only if every build job
 #      succeeded.
 #
@@ -176,6 +177,7 @@ jobs:
       matrix:
         image:
           - bootui-sample-app
+          - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
         platform:
@@ -187,6 +189,14 @@ jobs:
             # Plain JVM image: no special privileges; ready within a few seconds.
             run_args: ''
             health_timeout: '120'
+          - image: bootui-sample-app-aot
+            dockerfile: Dockerfile-aot
+            # JVM + Spring AOT + JDK 25 AOT cache: no special privileges; starts
+            # faster than the plain JVM image (~40–45 % shorter startup). The JDK
+            # AOT cache training run happens at build time, so the container start
+            # is a normal unprivileged launch.
+            run_args: ''
+            health_timeout: '180'
           - image: bootui-sample-app-crac
             dockerfile: Dockerfile-crac
             # CRaC needs CRIU privileges and a checkpoint volume (see docker-compose-crac.yml).
@@ -427,6 +437,7 @@ jobs:
       matrix:
         image:
           - bootui-sample-app
+          - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
     steps:
@@ -504,7 +515,7 @@ jobs:
 
           cutoff=$(date -u -d "${MAX_AGE_DAYS} days ago" +%s)
 
-          for repo in bootui-sample-app bootui-sample-app-crac bootui-sample-app-native; do
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native; do
             echo "::group::Pruning ${DOCKERHUB_USERNAME}/${repo}"
             url="https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/tags/?page_size=100"
             while [ -n "$url" ] && [ "$url" != 'null' ]; do
