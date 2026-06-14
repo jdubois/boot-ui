@@ -192,6 +192,61 @@
             </dependencies>
         </profile>
         <!--
+            JVM AOT support (Spring AOT for JVM, used by Dockerfile-aot).
+
+            This module does not inherit spring-boot-starter-parent, so the
+            `process-aot` goal is not pre-bound. This profile binds it explicitly.
+            Activate it with `-Paot` to run Spring Boot's AOT processing at build
+            time so the repackaged jar contains the pre-generated AOT classes:
+
+                ./mvnw -Paot -DskipTests -pl bootui-sample-app -am package
+
+            At runtime, pass -Dspring.aot.enabled=true (or set the environment
+            variable SPRING_AOT_ENABLED=true) to activate the pre-generated code
+            instead of the default runtime reflection/dynamic-proxy path.
+
+            Dockerfile-aot uses this profile and additionally trains a JDK 25 AOT
+            class loading cache (JEP 483) during the Docker build, combining both
+            optimizations for the fastest possible JVM startup.
+        -->
+        <profile>
+            <id>aot</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>process-aot</id>
+                                <goals>
+                                    <goal>process-aot</goal>
+                                </goals>
+                                <configuration>
+                                    <!--
+                                        Run process-aot under the "dev" profile so the JVM container
+                                        uses H2 in-memory storage (no Docker services needed) and BootUI
+                                        is enabled. Unlike the native image, the profile is NOT frozen
+                                        into the executable; you can override it at runtime with
+                                        -e SPRING_PROFILES_ACTIVE=... The AOT-generated code is simply
+                                        used instead of the dynamic path when spring.aot.enabled=true.
+
+                                        Flyway and Liquibase are disabled so the process-aot fork exits
+                                        quickly without touching the schema. Remove those flags if you
+                                        want the generated code to include migration hints.
+                                    -->
+                                    <profiles>
+                                        <profile>dev</profile>
+                                    </profiles>
+                                    <jvmArguments>-Dbootui.enabled=ON -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false</jvmArguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!--
             GraalVM native image support.
 
             This module does not inherit spring-boot-starter-parent, so the

@@ -1,0 +1,211 @@
+# Multi-stage Dockerfile for a JVM + AOT image of the BootUI sample app.
+#
+# This image adds two complementary Ahead-of-Time (AOT) optimizations on top of
+# the standard JVM image (Dockerfile), combining them in a single build for the
+# fastest possible JVM-based startup without GraalVM or CRaC:
+#
+#   1. Spring AOT (Spring Boot process-aot, -Paot Maven profile)
+#      Spring Boot's AOT processing runs at build time and pre-generates the
+#      application context wiring — replacing dynamic reflection/CGLIB proxy
+#      creation with static factory code. At runtime, -Dspring.aot.enabled=true
+#      activates the generated code instead of the dynamic path.
+#      Result: 30–50 % reduction in Spring context-refresh time.
+#
+#   2. JDK 25 AOT class loading cache (JEP 483, -XX:AOTMode=record / -XX:AOTCache=)
+#      JDK 24 introduced a class loading and linking cache: a training run records
+#      all classes loaded during a real startup; subsequent runs read the pre-
+#      verified, pre-linked class data directly from the cache, bypassing most of
+#      the normal class-loading pipeline. The training run is done inside this
+#      build stage using the same jlink custom runtime that the final container
+#      uses, so the cache is guaranteed to be compatible.
+#      Result: 20–30 % reduction in class-loading / linking time on top of
+#      the Spring AOT saving.
+#
+# The two optimizations are orthogonal and additive. Combined, a typical Spring
+# Boot 4 app sees a 35–55 % shorter Spring-reported startup time compared with
+# the plain JVM image, with no change to the runtime API surface, no frozen
+# profile (unlike GraalVM), and no CRIU privileges (unlike CRaC).
+#
+# Trade-off — image size:
+#   The JDK AOT cache file (app.aot) adds roughly 50–150 MB to the image. For
+#   the BootUI sample app it is ~70–100 MB; the image therefore grows from
+#   ~170 MB (plain JVM) to ~240–270 MB. CRaC stores a similar-sized checkpoint
+#   in a named Docker volume outside the image itself; GraalVM native is the
+#   smallest option (~45 MB). See the benchmark table in
+#   bootui-sample-app/README.md for the full comparison.
+#
+# For a GraalVM native image, see Dockerfile-native.
+# For a JVM image using CRaC, see Dockerfile-crac.
+# For the plain JVM image (no AOT), see Dockerfile.
+#
+# Build and run:
+#   docker build -f Dockerfile-aot -t bootui-sample-app-aot .
+#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-aot
+#   # then open http://localhost:8080/bootui
+#
+# Or use docker-compose-aot.yml (docker compose -f docker-compose-aot.yml up --build).
+#
+# Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
+#   docker run --rm -p 8080:8080 \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+#     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
+#     bootui-sample-app-aot
+
+# ---------------------------------------------------------------------------
+# Build stage: compile the reactor with Spring AOT processing, explode the
+# Spring Boot jar into layers, assemble a minimal jlink runtime, and train the
+# JDK 25 AOT class loading cache. A glibc JDK (Ubuntu "noble") is used so the
+# frontend-maven-plugin's downloaded Node.js binaries (glibc-linked) run while
+# building the bundled Vue UI.
+# ---------------------------------------------------------------------------
+FROM eclipse-temurin:25-jdk-noble AS build
+
+WORKDIR /app
+
+# Install curl: the Maven wrapper uses it to bootstrap maven-wrapper.jar, and
+# the AOT training run's readiness poll uses it to wait for /actuator/health.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy the whole multi-module project (see .dockerignore for exclusions).
+COPY . .
+RUN chmod +x mvnw
+
+# Build the sample app with the `aot` Maven profile, which runs
+# spring-boot:process-aot to generate and compile the AOT factory/hints code
+# before spring-boot:repackage bundles it into the executable jar. Tests are
+# skipped to keep the build fast; the generated Spring AOT sources are compiled
+# and included in the final jar automatically by the plugin.
+RUN ./mvnw -Paot -DskipTests -pl bootui-sample-app -am clean package
+
+# Explode the repackaged Spring Boot jar into its layers (dependencies,
+# spring-boot-loader, snapshot-dependencies, application). These are copied
+# separately into the runtime stage so the large, rarely-changing dependency
+# layer is reused from cache across rebuilds, and the app runs exploded via the
+# JarLauncher rather than re-copying the whole fat jar.
+RUN cp bootui-sample-app/target/bootui-sample-app-*.jar app.jar && \
+    java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
+
+# ---------------------------------------------------------------------------
+# Assemble a minimal custom Java runtime with jlink. Identical module set to
+# the plain Dockerfile so both images behave identically at runtime.
+# ---------------------------------------------------------------------------
+RUN "$JAVA_HOME/bin/jlink" \
+      --add-modules java.base,java.logging,java.naming,java.management,java.management.rmi,java.instrument,java.sql,java.sql.rowset,java.transaction.xa,java.xml,java.xml.crypto,java.desktop,java.security.jgss,java.security.sasl,java.scripting,java.compiler,java.net.http,java.rmi,java.prefs,jdk.unsupported,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jfr,jdk.management,jdk.management.agent,jdk.attach,jdk.zipfs,jdk.charsets,jdk.net,jdk.security.auth \
+      --strip-debug --no-man-pages --no-header-files --compress=zip-6 \
+      --output /javaruntime
+
+# An empty, non-root-owned state directory copied into the runtime image so BootUI
+# can write its runtime state (config overrides under /app/.bootui) even though the
+# distroless base has no shell to `mkdir`/`chown` at build time. uid:gid 65532 is
+# the distroless "nonroot" user the final stage runs as.
+RUN mkdir -p /runtime-state/.bootui && chown -R 65532:65532 /runtime-state
+
+# ---------------------------------------------------------------------------
+# Merge the extracted layers into a flat training directory that mirrors the
+# runtime layout (all layers merged into /app). The JDK AOT cache training run
+# and the production container both run JarLauncher from this merged structure,
+# so the recorded class-loading patterns are identical.
+# ---------------------------------------------------------------------------
+RUN mkdir -p /app/training && \
+    cp -r /app/extracted/spring-boot-loader/. /app/training/ && \
+    cp -r /app/extracted/dependencies/. /app/training/ && \
+    cp -r /app/extracted/snapshot-dependencies/. /app/training/ && \
+    cp -r /app/extracted/application/. /app/training/
+
+# ---------------------------------------------------------------------------
+# Train the JDK 25 AOT class loading and linking cache (JEP 483).
+#
+# The training run starts the application for real using the same jlink runtime
+# and the same merged exploded structure that production will use, polls
+# /actuator/health until the app is ready, then sends SIGTERM so the JVM writes
+# the cache on a clean exit. Using the jlink runtime (rather than the full JDK)
+# ensures the cache is byte-for-byte compatible with what the runtime stage runs.
+#
+# -Dspring.aot.enabled=true activates the Spring AOT-generated code during
+# training so the recorded class-loading path already reflects the AOT startup
+# (not the slower dynamic path that would be replaced at runtime anyway).
+#
+# Environment variables mirror the runtime-stage ENV declarations below so the
+# training and production configurations are identical.
+# ---------------------------------------------------------------------------
+RUN cd /app/training && \
+    SPRING_PROFILES_ACTIVE=dev \
+    SPRING_FLYWAY_ENABLED=false \
+    SPRING_LIQUIBASE_ENABLED=false \
+    /javaruntime/bin/java \
+        -XX:AOTMode=record -XX:AOTCache=/app/app.aot \
+        -Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m \
+        -Dspring.aot.enabled=true \
+        org.springframework.boot.loader.launch.JarLauncher & \
+    APP_PID=$! ; \
+    echo "[aot-train] waiting for the app to start (up to 120 s) ..." ; \
+    READY=0 ; \
+    for i in $(seq 1 60); do \
+        sleep 2 ; \
+        if curl -sf http://localhost:8080/actuator/health >/dev/null 2>&1; then \
+            READY=1 ; \
+            echo "[aot-train] app ready after $((i * 2)) s — stopping to flush cache." ; \
+            break ; \
+        fi ; \
+    done ; \
+    if [ "$READY" -ne 1 ]; then \
+        echo "[aot-train] ERROR: app did not become healthy within 120 s" ; \
+        kill -9 "$APP_PID" 2>/dev/null || true ; \
+        exit 1 ; \
+    fi ; \
+    kill -SIGTERM "$APP_PID" ; \
+    wait "$APP_PID" ; \
+    echo "[aot-train] AOT cache written:" ; \
+    ls -lh /app/app.aot
+
+# ---------------------------------------------------------------------------
+# Runtime stage: Google's "distroless" glibc base — same base as Dockerfile.
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/base-debian12:nonroot
+
+# Custom Java runtime assembled by jlink above.
+ENV JAVA_HOME=/opt/java
+ENV PATH="$JAVA_HOME/bin:$PATH"
+COPY --from=build /javaruntime $JAVA_HOME
+
+WORKDIR /app
+
+# Bring in the non-root-owned state directory first so /app and /app/.bootui are
+# owned by the runtime user (uid 65532).
+COPY --from=build --chown=65532:65532 /runtime-state/ ./
+
+# Copy the exploded application layers, ordered least- to most-frequently
+# changing so Docker's layer cache is reused across rebuilds.
+COPY --from=build --chown=65532:65532 /app/extracted/dependencies/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/spring-boot-loader/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/snapshot-dependencies/ ./
+COPY --from=build --chown=65532:65532 /app/extracted/application/ ./
+
+# Copy the JDK AOT class loading cache trained above.
+COPY --from=build --chown=65532:65532 /app/app.aot ./app.aot
+
+USER nonroot
+
+# Run with the "dev" profile active. Same reasoning as Dockerfile.
+ENV SPRING_PROFILES_ACTIVE=dev
+
+# Disable the sample Flyway/Liquibase migrations by default for a faster
+# startup. Re-enable at runtime with -e SPRING_FLYWAY_ENABLED=true and
+# -e SPRING_LIQUIBASE_ENABLED=true to populate the BootUI Flyway/Liquibase panels.
+ENV SPRING_FLYWAY_ENABLED=false
+ENV SPRING_LIQUIBASE_ENABLED=false
+
+# JVM flags — same baseline as Dockerfile, extended with:
+#   -XX:AOTCache=/app/app.aot       use the JDK 25 AOT class loading cache
+#   -Dspring.aot.enabled=true       activate Spring AOT-generated factories
+#
+# The AOT cache makes the flags -XX:+AlwaysPreTouch and -XX:+UseCompactObjectHeaders
+# slightly less critical (class metadata is pre-linked), but they are kept for
+# consistency with the plain JVM image.
+ENV JAVA_TOOL_OPTIONS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCacheSize=240m -XX:MaxDirectMemorySize=10m -Xss512k -XX:+AlwaysPreTouch -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp -XX:AOTCache=/app/app.aot -Dspring.aot.enabled=true"
+
+EXPOSE 8080
+
+ENTRYPOINT ["/opt/java/bin/java", "org.springframework.boot.loader.launch.JarLauncher"]
