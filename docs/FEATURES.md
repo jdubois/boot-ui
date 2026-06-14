@@ -676,6 +676,14 @@ exists. The default buffer retains 200 exchanges and can be changed with `bootui
 that capacity requires an application restart. If the repository is unavailable, the panel shows a clear unavailable
 state instead of implying that no traffic has occurred.
 
+Because new exchanges are genuinely event-driven, the panel refreshes over **Server-Sent Events** instead of fixed-interval
+polling: the browser subscribes to `/bootui/api/http-exchanges/stream` and the server pushes a small coalesced notification
+the moment a request is recorded, prompting the panel to re-fetch (so all filtering, pagination, and masking still apply).
+Rather than adding a second servlet filter, BootUI taps the existing recording pipeline by decorating the
+`HttpExchangeRepository` — whether BootUI's own or an application-provided one — so each `add(...)` signals the stream. A
+burst of requests is folded into a single refresh, and when the auto-refresh toggle is off or the tab is hidden the stream
+is closed, falling back to the initial load when Server-Sent Events are unavailable.
+
 ![BootUI HTTP Exchanges panel](./images/bootui-http-exchanges.png)
 
 ### HTTP Probe

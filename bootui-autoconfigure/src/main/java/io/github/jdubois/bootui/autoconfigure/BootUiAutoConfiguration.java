@@ -30,6 +30,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
+import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -224,13 +225,25 @@ public class BootUiAutoConfiguration {
 
         private static final int HTTP_EXCHANGES_FILTER_ORDER = OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER - 101;
 
+        @Bean(destroyMethod = "close")
+        BootUiChangeStream bootUiHttpExchangesChangeStream() {
+            return new BootUiChangeStream("http-exchanges");
+        }
+
         @Bean
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
-        HttpExchangeRepository bootUiHttpExchangeRepository(BootUiProperties properties) {
+        HttpExchangeRepository bootUiHttpExchangeRepository(
+                BootUiProperties properties, BootUiChangeStream changeStream) {
             InMemoryHttpExchangeRepository repository = new InMemoryHttpExchangeRepository();
             repository.setCapacity(Math.max(1, properties.getHttpExchanges().getMaxExchanges()));
             repository.setReverse(true);
-            return repository;
+            return new NotifyingHttpExchangeRepository(repository, changeStream);
+        }
+
+        @Bean
+        static NotifyingHttpExchangeRepositoryBeanPostProcessor bootUiNotifyingHttpExchangeRepositoryBeanPostProcessor(
+                ObjectProvider<BootUiChangeStream> changeStreamProvider) {
+            return new NotifyingHttpExchangeRepositoryBeanPostProcessor(changeStreamProvider);
         }
 
         @Bean

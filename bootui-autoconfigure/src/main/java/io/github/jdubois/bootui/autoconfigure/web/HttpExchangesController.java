@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
@@ -22,10 +23,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/bootui/api/http-exchanges")
@@ -44,10 +47,12 @@ public class HttpExchangesController {
 
     private final BootUiSelfDataFilter selfDataFilter;
 
+    private final BootUiChangeStream changeStream;
+
     private final SecretMasker masker = new SecretMasker();
 
     public HttpExchangesController(ObjectProvider<HttpExchangeRepository> repository, BootUiProperties properties) {
-        this(repository, properties, BootUiSelfDataFilter.defaults(), new BootUiExposure(properties));
+        this(repository, properties, BootUiSelfDataFilter.defaults(), new BootUiExposure(properties), null);
     }
 
     @Autowired
@@ -55,11 +60,15 @@ public class HttpExchangesController {
             ObjectProvider<HttpExchangeRepository> repository,
             BootUiProperties properties,
             BootUiSelfDataFilter selfDataFilter,
-            BootUiExposure exposure) {
+            BootUiExposure exposure,
+            ObjectProvider<BootUiChangeStream> changeStreamProvider) {
         this.repository = repository;
         this.properties = properties;
         this.selfDataFilter = selfDataFilter;
         this.exposure = exposure;
+        this.changeStream = changeStreamProvider == null
+                ? new BootUiChangeStream("http-exchanges")
+                : changeStreamProvider.getIfAvailable(() -> new BootUiChangeStream("http-exchanges"));
     }
 
     @GetMapping
@@ -94,6 +103,16 @@ public class HttpExchangesController {
                 offset,
                 limit);
         return new HttpExchangesReport(visible.size(), recorded.size(), hiddenSelf, page.items(), page.page(), null);
+    }
+
+    /**
+     * Streams a coalesced {@code update} notification whenever a new HTTP exchange is recorded, so the
+     * browser can refresh live without polling. The push carries no data; the browser re-fetches the
+     * GET endpoint, preserving all filtering, pagination, and masking.
+     */
+    @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream() {
+        return changeStream.open();
     }
 
     private boolean isSelfExchange(HttpExchange exchange) {

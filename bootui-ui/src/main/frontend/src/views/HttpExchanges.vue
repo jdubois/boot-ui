@@ -3,7 +3,7 @@ import {computed, ref, watch} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 import {formatNumber} from '../utils/format.js'
-import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 
 const filter = ref('')
@@ -49,7 +49,11 @@ async function refreshExchanges() {
   }
 }
 
-const {autoRefresh, loading: refreshLoading, load: refreshNow} = useAutoRefresh(refreshExchanges)
+const {
+  autoRefresh,
+  loading: refreshLoading,
+  load: refreshNow
+} = useEventStreamRefresh('api/http-exchanges/stream', refreshExchanges)
 
 function formatTimestamp(timestamp) {
   if (!timestamp) return '—'

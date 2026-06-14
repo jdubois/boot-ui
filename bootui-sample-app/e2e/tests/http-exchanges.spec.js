@@ -28,4 +28,16 @@ test.describe('HTTP Exchanges view', () => {
     await expect(page.locator('table')).toContainText('/api/secure', {timeout: 15_000})
     await expect(page.locator('table')).toContainText('401')
   })
+
+  test('updates live over SSE when a new request is recorded', async ({openView, page}) => {
+    await openView('http-exchanges', 'HTTP Exchanges')
+
+    // Trigger a uniquely identifiable request only after the panel is already open, then assert it
+    // appears without any manual refresh — relying solely on the Server-Sent Events push.
+    const marker = `sse-live-${Date.now()}`
+    const apiResponse = await page.request.get(`/api/sample/hello?probe=${marker}`)
+    expect(apiResponse.ok()).toBeTruthy()
+
+    await expect(page.locator('table')).toContainText(marker, {timeout: 15_000})
+  })
 })
