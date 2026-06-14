@@ -56,7 +56,8 @@ public class LiveActivityController {
             ObjectProvider<ExceptionStore> exceptionStore,
             BootUiProperties properties) {
         this.service = new LiveActivityService(httpExchanges, sqlTrace, exceptions, securityLogs, health, properties);
-        this.correlator = new LiveActivityCorrelator(httpExchanges, sqlTrace, exceptions, traces, properties);
+        this.correlator =
+                new LiveActivityCorrelator(httpExchanges, sqlTrace, exceptions, securityLogs, traces, properties);
         this.changeStream = new BootUiChangeStream("activity");
         this.selfPath = properties.getPath();
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();

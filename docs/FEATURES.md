@@ -95,14 +95,17 @@ Every row is also a launchpad: clicking anywhere on a request row opens its prof
 that jumps to the dedicated panel with the originating record pre-filtered — requests open in **HTTP Exchanges**, SQL in
 **SQL Trace**, and exceptions in **Exceptions**. The per-request profiler drawer is a Symfony-style view that correlates
 that single request's signals using a tiered join that degrades gracefully and never fabricates data: the distributed
-trace is matched by trace id, exceptions are matched by request method, path, and time window, and SQL is matched
+trace is matched by trace id, exceptions are matched by request method, path, and time window, security audit events are
+matched by time window and the request principal (so an `AUTHENTICATION_SUCCESS` or `AUTHORIZATION_FAILURE` raised while
+serving a secured endpoint is linked to that very request), and SQL is matched
 **exactly by trace id** when Micrometer Tracing is present (BootUI threads the active `traceId` from the SLF4J MDC onto
 each captured statement). Only when no statement carries a matching trace id does SQL fall back to a time-window
 heuristic, which is then clearly labelled **approximate** in the drawer; identical repeated `SELECT`s above
 `bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. The drawer also shows the request's timing
 breakdown (time spent in SQL versus the rest), its auth/principal context, and the trace span list, can be dismissed with
 the **Escape** key (with focus trapped inside while open), and offers a **Copy profile** action that exports the
-already-masked correlated timeline (request + SQL + exceptions) as plain text to paste straight into a bug report.
+already-masked correlated timeline (request + SQL + exceptions + security events) as plain text to paste straight into a
+bug report.
 
 The panel is read-only and inherits BootUI's full safety model (loopback filter, Host allow-list, cross-site write
 defenses, value masking). The stream is capped by `bootui.activity.max-entries`, the slow-request threshold is

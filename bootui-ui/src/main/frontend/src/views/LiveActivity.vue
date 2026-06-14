@@ -260,6 +260,14 @@ function renderProfileReport() {
       if (ex.location) lines.push(`    at ${ex.location}`)
     }
   }
+  if (p.security && p.security.length) {
+    lines.push('')
+    lines.push('Security events:')
+    for (const event of p.security) {
+      const principal = event.principal ? ` · ${event.principal}` : ''
+      lines.push(`  ${event.type}${principal}`)
+    }
+  }
   if (p.notes && p.notes.length) {
     lines.push('')
     lines.push('Notes:')
@@ -657,6 +665,21 @@ function clearFilters() {
                 <code>{{ ex.exceptionClassName }}</code>
                 <span v-if="ex.message" class="text-muted">: {{ ex.message }}</span>
                 <span v-if="ex.location" class="d-block text-muted">{{ ex.location }}</span>
+              </div>
+            </section>
+
+            <section v-if="profile.security && profile.security.length" class="mb-3">
+              <h3 class="h6">Security events</h3>
+              <div v-for="(event, index) in profile.security" :key="index" class="small mb-1">
+                <code>{{ event.type }}</code>
+                <span v-if="event.principal" class="text-muted"> · {{ event.principal }}</span>
+                <span
+                  v-if="event.principalMatched"
+                  class="badge text-bg-light ms-1"
+                  title="Principal matches the request"
+                >
+                  principal
+                </span>
               </div>
             </section>
 

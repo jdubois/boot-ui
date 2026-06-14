@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
+import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
@@ -14,11 +15,16 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileExceptionDto;
+import io.github.jdubois.bootui.core.dto.RequestProfileSecurityDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileTimingDto;
+import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
+import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -37,6 +43,9 @@ import org.springframework.beans.factory.ObjectProvider;
  *       time window;</li>
  *   <li>time window (heuristic): SQL executions that completed inside the request window. SQL carries
  *       no trace id, so this can over- or under-match under concurrency and is flagged approximate.</li>
+ *   <li>time window + principal: Spring Security audit events recorded inside the request window,
+ *       restricted to the request's principal when both are known. Audit events carry no trace id, so
+ *       this is heuristic in the same way as SQL.</li>
  * </ol>
  */
 public class LiveActivityCorrelator {
@@ -44,6 +53,7 @@ public class LiveActivityCorrelator {
     private final ObjectProvider<HttpExchangesController> httpExchanges;
     private final ObjectProvider<SqlTraceController> sqlTrace;
     private final ObjectProvider<ExceptionsController> exceptions;
+    private final ObjectProvider<SecurityLogsController> securityLogs;
     private final ObjectProvider<TracesController> traces;
     private final BootUiProperties properties;
 
@@ -51,11 +61,13 @@ public class LiveActivityCorrelator {
             ObjectProvider<HttpExchangesController> httpExchanges,
             ObjectProvider<SqlTraceController> sqlTrace,
             ObjectProvider<ExceptionsController> exceptions,
+            ObjectProvider<SecurityLogsController> securityLogs,
             ObjectProvider<TracesController> traces,
             BootUiProperties properties) {
         this.httpExchanges = httpExchanges;
         this.sqlTrace = sqlTrace;
         this.exceptions = exceptions;
+        this.securityLogs = securityLogs;
         this.traces = traces;
         this.properties = properties;
     }
@@ -90,6 +102,12 @@ public class LiveActivityCorrelator {
             notes.add("Exceptions are matched by request method, path and time window.");
         }
 
+        List<RequestProfileSecurityDto> security = correlateSecurity(request, start, end);
+        if (!security.isEmpty()) {
+            notes.add("Security events are matched by time window"
+                    + (request.principal() == null ? "." : " and the request principal " + request.principal() + "."));
+        }
+
         TraceDetailDto trace = correlateTrace(request.traceId());
         if (trace != null) {
             notes.add("Trace matched by id " + request.traceId() + ".");
@@ -103,7 +121,7 @@ public class LiveActivityCorrelator {
                 new RequestProfileTimingDto(request.durationMs(), sqlMs, sql.size(), sqlPercent);
 
         return new RequestProfileDto(
-                true, null, request, sql, sqlGroups, sqlApproximate, requestExceptions, trace, timing, notes);
+                true, null, request, sql, sqlGroups, sqlApproximate, requestExceptions, security, trace, timing, notes);
     }
 
     private HttpExchangeDto findRequest(String requestId) {
@@ -256,6 +274,44 @@ public class LiveActivityCorrelator {
         return occurrence.timestamp() >= start - slack && occurrence.timestamp() <= end + slack;
     }
 
+    /**
+     * Correlate Spring Security audit events to the request. Audit events carry no trace id, so the
+     * join is heuristic: an event is kept when it was recorded inside the request window (with a small
+     * slack for clock granularity) and, when both the request and the event name a principal, only
+     * when those principals match. This is what links, for example, the {@code AUTHORIZATION_FAILURE}
+     * raised while serving a secured endpoint to that very request.
+     */
+    private List<RequestProfileSecurityDto> correlateSecurity(HttpExchangeDto request, long start, long end) {
+        if (!properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS)) {
+            return List.of();
+        }
+        SecurityLogsController controller = securityLogs.getIfAvailable();
+        if (controller == null) {
+            return List.of();
+        }
+        SecurityLogsReport report =
+                controller.logs(null, null, null, 0, properties.getActivity().getMaxEntries());
+        if (!report.auditEventsPresent()) {
+            return List.of();
+        }
+        String requestPrincipal = request.principal();
+        long slack = 50L;
+        List<RequestProfileSecurityDto> matched = new ArrayList<>();
+        for (SecurityLogEventDto event : report.events()) {
+            long timestamp = parseEpochMillis(event.timestamp());
+            if (timestamp < start - slack || timestamp > end + slack) {
+                continue;
+            }
+            boolean principalMatched = principalMatches(requestPrincipal, event.principal());
+            if (requestPrincipal != null && event.principal() != null && !principalMatched) {
+                continue;
+            }
+            matched.add(new RequestProfileSecurityDto(event.type(), event.principal(), timestamp, principalMatched));
+        }
+        matched.sort(Comparator.comparingLong(RequestProfileSecurityDto::timestamp));
+        return matched;
+    }
+
     private TraceDetailDto correlateTrace(String traceId) {
         if (traceId == null || traceId.isBlank() || !properties.isPanelEnabled(BootUiPanels.TRACES)) {
             return null;
@@ -286,6 +342,21 @@ public class LiveActivityCorrelator {
             return false;
         }
         return left.equalsIgnoreCase(right);
+    }
+
+    private static boolean principalMatches(String left, String right) {
+        return left != null && right != null && left.equalsIgnoreCase(right);
+    }
+
+    private static long parseEpochMillis(String timestamp) {
+        if (timestamp == null || timestamp.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Instant.parse(timestamp).toEpochMilli();
+        } catch (DateTimeParseException ex) {
+            return 0L;
+        }
     }
 
     private static String normalizeSql(String sql) {

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -10,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
+import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
@@ -19,6 +21,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
+import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
@@ -162,6 +166,32 @@ class LiveActivityCorrelatorTests {
         assertThat(profile.exceptions().get(0).exceptionClassName()).isEqualTo("ex-GET-/a");
     }
 
+    @Test
+    void correlatesSecurityEventsByTimeWindowAndPrincipal() {
+        SecurityLogsController security = securityController(
+                securityEvent("AUTHENTICATION_SUCCESS", "admin", START + 5), // in window, principal matches
+                securityEvent("AUTHORIZATION_FAILURE", "bob", START + 6), // in window, different principal
+                securityEvent("LOGOUT_SUCCESS", null, START + 7), // in window, no principal -> kept by time
+                securityEvent("AUTHENTICATION_SUCCESS", "admin", START + 9000)); // outside window
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(secureExchange("r1", BASE, "admin")),
+                null,
+                null,
+                null,
+                security,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.security()).hasSize(2);
+        assertThat(profile.security())
+                .extracting(dto -> dto.type())
+                .containsExactly("AUTHENTICATION_SUCCESS", "LOGOUT_SUCCESS");
+        assertThat(profile.security().get(0).principalMatched()).isTrue();
+        assertThat(profile.security().get(1).principalMatched()).isFalse();
+        assertThat(profile.notes()).anyMatch(note -> note.contains("Security events are matched"));
+    }
+
     // --- helpers ---
 
     private LiveActivityCorrelator correlator(
@@ -170,8 +200,23 @@ class LiveActivityCorrelatorTests {
             ExceptionsController exceptions,
             TracesController traces,
             BootUiProperties properties) {
+        return correlator(requests, sql, exceptions, traces, null, properties);
+    }
+
+    private LiveActivityCorrelator correlator(
+            HttpExchangesController requests,
+            SqlTraceController sql,
+            ExceptionsController exceptions,
+            TracesController traces,
+            SecurityLogsController security,
+            BootUiProperties properties) {
         return new LiveActivityCorrelator(
-                provider(requests), provider(sql), provider(exceptions), provider(traces), properties);
+                provider(requests),
+                provider(sql),
+                provider(exceptions),
+                provider(security),
+                provider(traces),
+                properties);
     }
 
     @SuppressWarnings("unchecked")
@@ -193,6 +238,23 @@ class LiveActivityCorrelatorTests {
         when(controller.exchanges(eq(null), eq(null), eq(null), eq(0), anyInt()))
                 .thenReturn(report);
         return controller;
+    }
+
+    private static SecurityLogsController securityController(SecurityLogEventDto... events) {
+        SecurityLogsController controller = mock(SecurityLogsController.class);
+        SecurityLogsReport report = new SecurityLogsReport(
+                true,
+                null,
+                1000,
+                List.of(),
+                List.of(events),
+                new PageMetadata(0, events.length, events.length, 1, 0, false));
+        when(controller.logs(any(), any(), any(), any(), any())).thenReturn(report);
+        return controller;
+    }
+
+    private static SecurityLogEventDto securityEvent(String type, String principal, long epochMillis) {
+        return new SecurityLogEventDto(Instant.ofEpochMilli(epochMillis).toString(), principal, type, List.of());
     }
 
     private static SqlTraceController sqlController(SqlTraceEntryDto... entries) {
@@ -252,6 +314,26 @@ class LiveActivityCorrelatorTests {
     private static HttpExchangeDto exchange(
             String id, Instant timestamp, String method, String path, int status, Long durationMs) {
         return exchange(id, timestamp, method, path, status, durationMs, null);
+    }
+
+    private static HttpExchangeDto secureExchange(String id, Instant timestamp, String principal) {
+        return new HttpExchangeDto(
+                id,
+                timestamp,
+                "GET",
+                "/secure/admin",
+                null,
+                "/secure/admin",
+                200,
+                "SUCCESS",
+                100L,
+                null,
+                null,
+                principal,
+                null,
+                null,
+                List.of(),
+                List.of());
     }
 
     private static HttpExchangeDto exchange(
