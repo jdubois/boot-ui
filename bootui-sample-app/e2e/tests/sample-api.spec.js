@@ -43,6 +43,15 @@ test.describe('Sample application REST API', () => {
 
     await page.getByRole('button', {name: 'Secure API as developer'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('HTTP 403')
+
+    await page.getByRole('button', {name: 'Generate metrics traffic'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText(/Recorded \d+ samples/)
+
+    await page.getByRole('button', {name: 'Make a multi-hop request'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText('Completed a multi-hop request')
+
+    await page.getByRole('button', {name: 'Fail authentication'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText('Authentication failed with HTTP 401')
   })
 
   test('GET /api/hello returns a simple HTTP probe greeting', async ({request}) => {
@@ -82,6 +91,48 @@ test.describe('Sample application REST API', () => {
     const names = products.map((p) => p.name)
     expect(names).toContain('Sample Console')
     expect(names).not.toContain('BootUI Starter')
+  })
+
+  test('GET /api/sample/metrics-burst records custom meters', async ({request}) => {
+    const response = await request.get('/api/sample/metrics-burst?count=3')
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(body.iterations).toBe(3)
+    expect(body.counter).toBe('sample.orders.processed')
+    expect(body.timer).toBe('sample.orders.duration')
+    expect(body.counterTotal).toBeGreaterThanOrEqual(3)
+  })
+
+  test('GET /api/sample/allocate allocates a bounded heap buffer', async ({request}) => {
+    const response = await request.get('/api/sample/allocate?mb=8')
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(body.allocatedMb).toBe(8)
+    expect(body.heapUsedMb).toBeGreaterThan(0)
+  })
+
+  test('GET /api/sample/slow sleeps for the requested bounded interval', async ({request}) => {
+    const response = await request.get('/api/sample/slow?ms=200')
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(body.sleptMillis).toBe(200)
+    expect(typeof body.thread).toBe('string')
+  })
+
+  test('GET /api/sample/pool-stress runs concurrent read-only queries', async ({request}) => {
+    const response = await request.get('/api/sample/pool-stress?queries=4')
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(body.queries).toBe(4)
+    expect(body.elapsedMillis).toBeGreaterThanOrEqual(0)
+  })
+
+  test('GET /api/sample/chained performs a multi-step request', async ({request}) => {
+    const response = await request.get('/api/sample/chained')
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(body.activeProducts).toBeGreaterThanOrEqual(0)
+    expect(body.searchMatches).toBeGreaterThanOrEqual(0)
   })
 
   test('/admin requires basic authentication with the ADMIN role', async ({request}) => {
