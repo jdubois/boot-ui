@@ -66,7 +66,8 @@ class PanelsControllerTests {
             BootUiPanels.SPRING,
             BootUiPanels.CRAC,
             BootUiPanels.SQL_TRACE,
-            BootUiPanels.MCP_SERVER);
+            BootUiPanels.MCP_SERVER,
+            BootUiPanels.ACTIVITY);
 
     @Test
     void panelsListsEverySidebarPanel() throws Exception {

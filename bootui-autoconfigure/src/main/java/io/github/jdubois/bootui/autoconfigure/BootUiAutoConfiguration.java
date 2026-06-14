@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
@@ -138,6 +139,7 @@ import tools.jackson.databind.ObjectMapper;
     ClaudeCodeController.class,
     GraalVmController.class,
     CracController.class,
+    LiveActivityController.class,
     SqlTraceController.class,
     ThreadDumpController.class,
     MemoryController.class,
@@ -169,6 +171,7 @@ public class BootUiAutoConfiguration {
             GitHubController.class.getName(),
             GraalVmController.class.getName(),
             CracController.class.getName(),
+            LiveActivityController.class.getName(),
             SqlTraceController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),

@@ -89,6 +89,7 @@ public class PanelsController {
                     BootUiPanels.PENTESTING,
                     BootUiPanels.SPRING,
                     BootUiPanels.MCP_SERVER,
+                    BootUiPanels.ACTIVITY,
                     BootUiPanels.VULNERABILITIES -> available();
             case BootUiPanels.JVM_TUNING ->
                 availability(
