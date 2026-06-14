@@ -1442,6 +1442,16 @@ const securityEndpoints = {
       roles: [],
       bestEffort: false,
       description: 'Protected sample endpoint.'
+    },
+    {
+      method: 'GET',
+      pattern: '/api/secure/products',
+      handler: 'HelloController#secureProducts',
+      chainIndex: 1,
+      rule: 'authenticated',
+      roles: [],
+      bestEffort: false,
+      description: 'Secured, SQL-backed sample endpoint.'
     }
   ]
 }
@@ -1787,7 +1797,7 @@ const security = {
     "These checks are review prompts, not verdicts, and should be validated against the application's threat model.",
   filterChains: [
     'Or [PathPattern [/bootui], PathPattern [/bootui/**], PathPattern [/bootui/api], PathPattern [/bootui/api/**]]',
-    'Or [PathPattern [/admin/**], PathPattern [/api/secure]]',
+    'Or [PathPattern [/admin/**], PathPattern [/api/secure], PathPattern [/api/secure/**]]',
     'any request'
   ],
   filterChainsAnalyzed: 3,

@@ -19,6 +19,7 @@ test.describe('Sample application REST API', () => {
     expect(body).toContain('GET /api/sample/products')
     expect(body).toContain('Create session data')
     expect(body).toContain('Secure API as admin')
+    expect(body).toContain('Secure SQL request as admin')
     expect(body).toContain('Ask Spring AI')
   })
 
@@ -40,6 +41,10 @@ test.describe('Sample application REST API', () => {
     await page.getByRole('button', {name: 'Secure API as admin'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('Admin access succeeded')
     await expect(page.locator('#sample-action-result')).toContainText('Secure Hello, world')
+
+    await page.getByRole('button', {name: 'Secure SQL request as admin'}).click()
+    await expect(page.locator('#sample-action-status')).toContainText(/ran a live SQL SELECT returning \d+ product/)
+    await expect(page.locator('#sample-action-result')).toContainText('BootUI Starter')
 
     await page.getByRole('button', {name: 'Secure API as developer'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('HTTP 403')
@@ -167,5 +172,25 @@ test.describe('Sample application REST API', () => {
     })
     expect(asAdmin.status()).toBe(200)
     expect(await asAdmin.text()).toBe('Secure Hello, world')
+  })
+
+  test('/api/secure/products requires the ADMIN role and returns a SQL-backed product list', async ({request}) => {
+    const anonymous = await request.get('/api/secure/products', {failOnStatusCode: false})
+    expect(anonymous.status()).toBe(401)
+
+    const asUser = await request.get('/api/secure/products', {
+      headers: {Authorization: 'Basic ' + Buffer.from('developer:developer').toString('base64')},
+      failOnStatusCode: false
+    })
+    expect(asUser.status()).toBe(403)
+
+    const asAdmin = await request.get('/api/secure/products', {
+      headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
+    })
+    expect(asAdmin.status()).toBe(200)
+    const products = await asAdmin.json()
+    expect(Array.isArray(products)).toBe(true)
+    expect(products.length).toBeGreaterThan(0)
+    expect(products.map((product) => product.name)).toContain('BootUI Starter')
   })
 })

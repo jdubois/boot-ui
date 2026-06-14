@@ -285,6 +285,11 @@
           <small>Inspect: Spring Security, Security Logs</small>
         </article>
         <article class="test-action">
+          <button class="button" id="secure-sql-button" type="button">Secure SQL request as admin</button>
+          <p>Calls <code>GET /api/secure/products</code> with <code>admin/admin</code> to run a secured, SQL-backed request.</p>
+          <small>Inspect: Live Activity, Spring Security, SQL Trace</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="secure-user-button" type="button">Secure API as developer</button>
           <p>Calls the same secured endpoint with <code>developer/developer</code> to produce a forbidden response.</p>
           <small>Inspect: Spring Security, Security Logs, Pentesting</small>
@@ -364,6 +369,7 @@
   const greetingButton = document.getElementById('greeting-button')
   const publicApiButton = document.getElementById('public-api-button')
   const secureAdminButton = document.getElementById('secure-admin-button')
+  const secureSqlButton = document.getElementById('secure-sql-button')
   const secureUserButton = document.getElementById('secure-user-button')
   const exceptionButton = document.getElementById('exception-button')
   const metricsBurstButton = document.getElementById('metrics-burst-button')
@@ -536,6 +542,23 @@
         throw new Error(text)
       }
       showSampleResult('Admin access succeeded', `${text}\n\nOpen Spring Security or Security Logs to inspect it.`)
+    })
+  )
+
+  secureSqlButton.addEventListener('click', () =>
+    runSampleAction(secureSqlButton, 'Calling secured SQL API as admin...', async () => {
+      const response = await fetch('/api/secure/products', {
+        headers: {Accept: 'application/json', Authorization: basicAuth('admin', 'admin')}
+      })
+      const products = await response.json()
+      if (!response.ok) {
+        throw new Error(`Secure SQL request failed with HTTP ${response.status}`)
+      }
+      const names = products.map(product => `- ${product.name} (${product.category})`).join('\n') || '(no rows)'
+      showSampleResult(
+        `Authenticated as admin and ran a live SQL SELECT returning ${products.length} product(s)`,
+        `${names}\n\nOpen BootUI Live Activity and profile this request: it links a Spring Security event to the SQL it ran.`
+      )
     })
   )
 

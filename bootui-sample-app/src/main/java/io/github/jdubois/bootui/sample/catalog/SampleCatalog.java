@@ -32,6 +32,17 @@ public class SampleCatalog {
         return products.searchByName(term).stream().map(ProductSummary::from).toList();
     }
 
+    /**
+     * Runs an uncached live {@code SELECT} so a secured (ROLE_ADMIN) request also produces SQL. This
+     * lets the BootUI Live Activity profiler show a single request correlated to both a Spring
+     * Security event and the SQL statements it executed.
+     */
+    public List<ProductSummary> securedCatalog() {
+        return products.findByActiveTrueOrderByNameAsc().stream()
+                .map(ProductSummary::from)
+                .toList();
+    }
+
     @CacheEvict(cacheNames = "sample-products", allEntries = true)
     public void evictProducts() {}
 
