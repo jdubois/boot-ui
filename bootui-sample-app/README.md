@@ -177,7 +177,7 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 Numbers collected on the BootUI sample app (Spring Boot 4, `dev`/H2 profile, Flyway/Liquibase disabled)
 on an Apple M3 Pro running Docker Desktop:
 
-| Image variant           | Spring-reported startup       | Wall-clock to `/actuator/health` 200 | Image size |
+| Image variant           | Spring-reported startup       | Wall-clock to `/actuator/health` | Image size |
 | ----------------------- | ----------------------------- | ------------------------------------- | ---------- |
 | JVM (`Dockerfile`)      | `Started … in ~9.7 s`         | ~12 s                                 | ~170 MB    |
 | JVM + AOT (`Dockerfile-aot`) | `Started … in ~5–6 s`    | ~7–9 s                                | ~240–270 MB |

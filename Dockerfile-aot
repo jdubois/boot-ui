@@ -27,12 +27,11 @@
 # profile (unlike GraalVM), and no CRIU privileges (unlike CRaC).
 #
 # Trade-off — image size:
-#   The JDK AOT cache file (app.aot) adds roughly 50–150 MB to the image. For
-#   the BootUI sample app it is ~70–100 MB; the image therefore grows from
-#   ~170 MB (plain JVM) to ~240–270 MB. CRaC stores a similar-sized checkpoint
-#   in a named Docker volume outside the image itself; GraalVM native is the
-#   smallest option (~45 MB). See the benchmark table in
-#   bootui-sample-app/README.md for the full comparison.
+#   The JDK AOT cache file (app.aot) adds roughly 70–100 MB to the image;
+#   the image therefore grows from ~170 MB (plain JVM) to ~240–270 MB. CRaC
+#   stores a similar-sized checkpoint in a named Docker volume outside the
+#   image itself; GraalVM native is the smallest option (~45 MB). See the
+#   benchmark table in bootui-sample-app/README.md for the full comparison.
 #
 # For a GraalVM native image, see Dockerfile-native.
 # For a JVM image using CRaC, see Dockerfile-crac.

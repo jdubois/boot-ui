@@ -196,7 +196,7 @@ jobs:
             # AOT cache training run happens at build time, so the container start
             # is a normal unprivileged launch.
             run_args: ''
-            health_timeout: '180'
+            health_timeout: '120'
           - image: bootui-sample-app-crac
             dockerfile: Dockerfile-crac
             # CRaC needs CRIU privileges and a checkpoint volume (see docker-compose-crac.yml).
