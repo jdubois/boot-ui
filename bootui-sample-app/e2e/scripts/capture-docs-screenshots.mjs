@@ -2778,7 +2778,7 @@ const activityReport = {
       type: 'SQL',
       timestamp: nowMillis - 1700,
       severity: 'OK',
-      summary: 'SELECT select * from products where active = ?',
+      summary: 'select * from products where active = ?',
       detail: null,
       durationMs: 18,
       correlationId: null,

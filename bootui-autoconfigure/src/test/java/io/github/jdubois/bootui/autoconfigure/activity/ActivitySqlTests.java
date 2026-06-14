@@ -29,4 +29,9 @@ class ActivitySqlTests {
         assertThat(ActivitySql.summarize("", "select 1")).isEqualTo("select 1");
         assertThat(ActivitySql.summarize(null, "select 1")).isEqualTo("select 1");
     }
+
+    @Test
+    void keepsPrefixWhenStatementShorterThanCategory() {
+        assertThat(ActivitySql.summarize("SELECT", "se")).isEqualTo("SELECT se");
+    }
 }

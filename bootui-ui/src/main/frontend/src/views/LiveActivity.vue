@@ -102,7 +102,7 @@ function rowClass(entry) {
 
 function formatDurationMs(durationMs) {
   if (durationMs == null) return ''
-  if (durationMs === 0) return '<1 ms'
+  if (durationMs < 1) return '<1 ms'
   if (durationMs < 1000) return `${durationMs} ms`
   return `${(durationMs / 1000).toFixed(2)} s`
 }

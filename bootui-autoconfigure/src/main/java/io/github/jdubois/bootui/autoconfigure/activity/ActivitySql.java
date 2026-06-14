@@ -24,7 +24,7 @@ final class ActivitySql {
         if (category == null || category.isBlank()) {
             return sql;
         }
-        if (sql.regionMatches(true, 0, category, 0, category.length())) {
+        if (sql.length() >= category.length() && sql.regionMatches(true, 0, category, 0, category.length())) {
             return sql;
         }
         return sql.isEmpty() ? category : category + " " + sql;
