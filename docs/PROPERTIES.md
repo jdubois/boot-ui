@@ -228,11 +228,20 @@ Panel settings are consistent across the UI and API:
 | `bootui.sql-trace.max-parameter-length`   | `200`   | Maximum retained length of a single captured parameter value.                                                                                |
 | `bootui.sql-trace.n-plus-one-threshold`   | `5`     | Number of times an identical `SELECT` must repeat within the buffer before it is flagged as a likely N+1 access pattern (minimum `2`).       |
 
-### Traces
+### Live Activity
 
-| Property                                     | Default   | Description                                                                                           |
-| -------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
-| `bootui.panels.traces.enabled`               | `true`    | Show the Traces panel and its retained trace data.                                                    |
+The Live Activity panel reuses the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs sources, so disabling any of
+those panels through their own `bootui.panels.*` toggles also removes them from the stream. The panel itself is
+read-only.
+
+| Property                                      | Default | Description                                                                                                       |
+| --------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.activity.enabled`              | `true`  | Show the Live Activity panel (merged stream and per-request profiler).                                           |
+| `bootui.activity.max-entries`                 | `200`   | Maximum number of merged stream entries returned per page after merging and sorting all sources.                 |
+| `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds above which a request is flagged as slow in the stream and KPI strip.                   |
+| `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request profile flags a potential N+1 pattern.  |
+
+### Traces
 | `bootui.panels.traces.read-only`             | `false`   | Disable clearing retained traces. OTLP ingestion remains controlled by `bootui.telemetry.enabled`.    |
 | `bootui.telemetry.enabled`                   | `true`    | Enables local in-memory trace capture and accepts OTLP/HTTP trace payloads at BootUI's OTLP endpoint. |
 | `bootui.telemetry.max-traces`                | `500`     | Maximum distinct traces retained in memory.                                                           |

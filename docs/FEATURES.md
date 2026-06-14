@@ -597,6 +597,36 @@ capture, is in-memory only, and is cleared on restart.
 
 ## Diagnostics
 
+### Live Activity
+
+The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
+application just did, plus a per-request profiler for drilling into any single request. It does not add any new
+instrumentation — instead it reuses BootUI's existing in-memory signal buffers by calling the same controllers that back
+the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is already masked, self-filtered, and
+bounded exactly as those panels are.
+
+The stream merges four signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
+(`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a colour-coded severity
+(`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed and slow rows are
+highlighted, adjacent identical entries are collapsed with an occurrence count to cut noise, and filter chips narrow the
+feed by type and severity. A KPI strip across the top summarises requests per minute, error rate, p50/p95 latency, SQL
+rate, active exception count, and heap usage computed from the same buffers. The live feed follows BootUI's
+visibility-aware auto-refresh and can be paused and resumed so a row you are inspecting does not scroll away.
+
+Clicking **Profile** on a request row opens a Symfony-style drawer that correlates that single request's signals using a
+tiered join that degrades gracefully and never fabricates data: the distributed trace is matched by trace id, exceptions
+are matched by request method, path, and time window, and SQL is associated by time window only. Because SQL statements
+carry no trace id, the SQL correlation is heuristic and is clearly labelled **approximate** in the drawer; identical
+repeated `SELECT`s above `bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. The drawer also shows the
+request's timing breakdown (time spent in SQL versus the rest), its auth/principal context, and the trace span list.
+
+The panel is read-only and inherits BootUI's full safety model (loopback filter, Host allow-list, cross-site write
+defenses, value masking). The stream is capped by `bootui.activity.max-entries`, the slow-request threshold is
+`bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
+`bootui.panels.*` toggles (a disabled source simply drops out of the stream).
+
+![BootUI Live Activity panel](./images/bootui-activity.png)
+
 ### Traces
 
 The Traces panel shows distributed tracing spans captured locally by the BootUI starter when telemetry and the Traces
