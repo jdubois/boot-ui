@@ -3,7 +3,9 @@ package io.github.jdubois.bootui.autoconfigure;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -114,6 +116,10 @@ public class BootUiProperties {
      * Dependency inventory and vulnerability scanning settings.
      */
     private Vulnerabilities vulnerabilities = new Vulnerabilities();
+    /**
+     * Kernel Insights panel settings (Inspektor Gadget integration).
+     */
+    private KernelInsights kernelInsights = new KernelInsights();
     /**
      * GitHub panel settings.
      */
@@ -354,6 +360,14 @@ public class BootUiProperties {
 
     public void setVulnerabilities(Vulnerabilities vulnerabilities) {
         this.vulnerabilities = vulnerabilities;
+    }
+
+    public KernelInsights getKernelInsights() {
+        return kernelInsights;
+    }
+
+    public void setKernelInsights(KernelInsights kernelInsights) {
+        this.kernelInsights = kernelInsights == null ? new KernelInsights() : kernelInsights;
     }
 
     public GitHub getGithub() {
@@ -664,6 +678,96 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+    }
+
+    public static class KernelInsights {
+
+        /**
+         * Allow the Kernel Insights panel to run Inspektor Gadget captures. When false the panel is
+         * unavailable and captures are refused.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Command or path used to invoke the Inspektor Gadget binary. A bare command name is resolved
+         * against {@code PATH}; a path-qualified value is used as-is.
+         */
+        private String igPath = "ig";
+
+        /**
+         * How long streaming gadgets (for example {@code trace_tcp}, {@code trace_dns}) are captured
+         * during a single scan.
+         */
+        private Duration captureDuration = Duration.ofSeconds(3);
+
+        /**
+         * Maximum number of events retained per gadget in a single capture.
+         */
+        private int maxEvents = 200;
+
+        /**
+         * Capture host-wide activity by passing {@code --host} to Inspektor Gadget. This is the
+         * default because it surfaces the development machine's own processes (including the host
+         * Spring application) rather than container-scoped traffic, and because it lets {@code ig}
+         * run when container enrichment is unavailable — for example inside Docker Desktop's Linux
+         * VM, where the container-detection hook cannot attach. Set to {@code false} to trace only
+         * container activity (requires a reachable container runtime).
+         */
+        private boolean hostMode = true;
+
+        /**
+         * Gadgets run during a capture, in order. Unknown gadget names are ignored.
+         */
+        private List<String> gadgets =
+                new ArrayList<>(List.of("trace_exec", "trace_tcp", "trace_dns", "snapshot_socket"));
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getIgPath() {
+            return igPath;
+        }
+
+        public void setIgPath(String igPath) {
+            this.igPath = igPath;
+        }
+
+        public Duration getCaptureDuration() {
+            return captureDuration;
+        }
+
+        public void setCaptureDuration(Duration captureDuration) {
+            this.captureDuration = captureDuration;
+        }
+
+        public int getMaxEvents() {
+            return maxEvents;
+        }
+
+        public void setMaxEvents(int maxEvents) {
+            this.maxEvents = maxEvents;
+        }
+
+        public boolean isHostMode() {
+            return hostMode;
+        }
+
+        public void setHostMode(boolean hostMode) {
+            this.hostMode = hostMode;
+        }
+
+        public List<String> getGadgets() {
+            return gadgets;
+        }
+
+        public void setGadgets(List<String> gadgets) {
+            this.gadgets = gadgets == null ? new ArrayList<>() : gadgets;
         }
     }
 

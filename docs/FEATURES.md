@@ -754,6 +754,40 @@ duration, and body. It is designed for quick route checks from inside the same l
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
 
+### Kernel Insights
+
+The Kernel Insights panel surfaces kernel-level observability for the running application using
+[Inspektor Gadget](https://inspektor-gadget.io), the eBPF-based tooling project. Where the rest of BootUI observes the
+application from inside the JVM, this panel looks at it from below — at the operating-system kernel — to show the process
+executions, outbound TCP connections, DNS lookups, and open sockets that the host actually produced. It is intended for
+local development on Linux, where the kernel view complements the in-process panels (for example, correlating a slow
+request with the DNS resolution and TCP connect that happened underneath it).
+
+Captures are strictly opt-in and user-initiated: nothing runs on page load. Clicking **Capture** shells out to the local
+Inspektor Gadget `ig` binary for a few seconds (`bootui.kernel-insights.capture-duration`, default 3s), runs a curated,
+high-signal set of gadgets (`trace_exec`, `trace_tcp`, `trace_dns`, `snapshot_socket`), and normalizes the raw,
+gadget-specific events into a stable shape grouped by category. Each captured event is mapped to a best-effort process
+(`comm`/`pid`), container, and one-line summary, with the remaining attributes available under a per-event details
+expander; the number of events per gadget is bounded by `bootui.kernel-insights.max-events` (default 200).
+
+Inspektor Gadget is eBPF-based, so the panel only runs on a Linux host with the `ig` binary present and sufficient
+privileges (BootUI never spawns a process just to determine availability — it checks the OS and locates the binary on
+`PATH`). On macOS, Windows, or a Linux host without `ig`, the panel degrades gracefully to a clear unavailable state that
+explains what is missing rather than implying there is no activity. The feature is gated by
+`bootui.kernel-insights.enabled` (default `true`, but still inert unless the environment supports it), the gadget set is
+configurable through `bootui.kernel-insights.gadgets`, and the binary location through `bootui.kernel-insights.ig-path`.
+Because the capture launches an external process it is treated as a state-changing action and honors the
+`bootui.panels.kernel-insights.read-only` toggle.
+
+By default captures run host-wide (`ig --host`, `bootui.kernel-insights.host-mode`), so the panel surfaces the
+development machine's own processes — including the host Spring application — rather than only container traffic, and so
+`ig` keeps working when container enrichment is unavailable. This also makes the panel usable from macOS or Windows by
+running BootUI **inside a Linux container**: Docker Desktop's Linux VM ships a BTF-enabled kernel, so a privileged
+container that bundles `ig` can attach eBPF even though the host OS cannot. The repository's `Dockerfile-kernel-insights`
+builds such an image (regular JRE base, `ig` on `PATH`, runs as root); run it with `--privileged --pid=host -v /:/host`
+to exercise the panel end to end. Set `host-mode` to `false` to trace only container activity (requires a reachable
+container runtime).
+
 ## Developer tools
 
 ### MCP Server

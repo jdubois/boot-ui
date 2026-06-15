@@ -1,0 +1,93 @@
+# Dockerfile for exercising the BootUI "Kernel Insights" panel (Inspektor Gadget / eBPF).
+#
+# eBPF cannot run on macOS or Windows directly, but Docker Desktop runs containers inside a real
+# Linux VM whose kernel ships BTF, so the Inspektor Gadget `ig` binary - and therefore this panel -
+# works there. This image is intentionally DIFFERENT from the hardened production `Dockerfile`
+# (distroless, non-root, no shell): kernel tracing needs the `ig` binary on PATH, a shell, and
+# elevated privileges, so this image uses a regular JRE base, bundles `ig`, and runs as root. Do not
+# use it as a production image.
+#
+# Build (Apple Silicon and Intel both work; TARGETARCH selects the matching ig build):
+#   docker build -f Dockerfile-kernel-insights -t bootui-kernel-insights .
+#
+# Run - privileged, sharing the host PID namespace and mounting the host so ig can attach eBPF and
+# read /proc. The panel captures host-wide activity (ig --host), which is BootUI's default:
+#   docker run --rm \
+#     --privileged --pid=host \
+#     -v /run:/run -v /:/host \
+#     -p 8080:8080 \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+#     bootui-kernel-insights
+#   # then open http://localhost:8080/bootui -> Diagnostics -> Kernel Insights -> Capture
+#
+# Notes:
+#   - --privileged + --pid=host + -v /:/host are required: ig mounts bpffs, attaches eBPF programs,
+#     and reads the host's PID 1 mount namespace. -v /run:/run lets ig enrich events with container
+#     metadata when a runtime is reachable; it is optional (captures still work without it, just
+#     without container names). Inside Docker Desktop the container-detection hook cannot attach, so
+#     ig logs a one-time "container-collection isn't available" warning and continues - this is
+#     expected and harmless in --host mode.
+#   - BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO lets the browser on the host reach BootUI through the
+#     published port (BootUI is loopback-only by default).
+#   - The first capture pulls the gadget OCI images from ghcr.io, so the container needs network
+#     access and the first scan is slower.
+
+ARG IG_VERSION=v0.53.1
+
+# ---------------------------------------------------------------------------
+# Build stage: compile the reactor, build the bundled Vue UI, and produce the
+# sample app fat jar. A glibc JDK (Ubuntu "noble") is used so the
+# frontend-maven-plugin's downloaded Node.js binaries run.
+# ---------------------------------------------------------------------------
+FROM eclipse-temurin:25-jdk-noble AS build
+
+WORKDIR /app
+
+# curl: the Maven wrapper downloads maven-wrapper.jar (not committed) and we fetch the ig binary.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download the Inspektor Gadget `ig` binary matching the build platform (arm64 on Apple Silicon,
+# amd64 on Intel). TARGETARCH is provided automatically by BuildKit and already uses ig's naming.
+ARG IG_VERSION
+ARG TARGETARCH
+RUN curl -fsSL \
+      "https://github.com/inspektor-gadget/inspektor-gadget/releases/download/${IG_VERSION}/ig-linux-${TARGETARCH}-${IG_VERSION}.tar.gz" \
+      -o /tmp/ig.tar.gz && \
+    tar -C /usr/local/bin -xzf /tmp/ig.tar.gz ig && \
+    rm /tmp/ig.tar.gz && \
+    /usr/local/bin/ig version
+
+# Build the sample app and its reactor dependencies (this also tests/builds the Vue UI).
+COPY . .
+RUN chmod +x mvnw && \
+    ./mvnw -B -ntp -DskipTests -pl bootui-sample-app -am clean package && \
+    cp bootui-sample-app/target/bootui-sample-app-*.jar /app/app.jar
+
+# ---------------------------------------------------------------------------
+# Runtime stage: a regular JRE base (shell + glibc, runs as root) so `ig` can be
+# invoked on PATH with the privileges eBPF needs. This is a developer/demo image,
+# not a hardened production one.
+# ---------------------------------------------------------------------------
+FROM eclipse-temurin:25-jre-noble
+
+# ca-certificates: ig pulls gadget OCI images over HTTPS; BootUI's OSV scan also uses HTTPS.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /usr/local/bin/ig /usr/local/bin/ig
+COPY --from=build /app/app.jar /app/app.jar
+
+WORKDIR /app
+
+# Run with the "dev" profile active so BootUI activates (its activation reads active profiles).
+ENV SPRING_PROFILES_ACTIVE=dev
+# Faster startup: skip the sample migrations by default (re-enable with the env vars below).
+ENV SPRING_FLYWAY_ENABLED=false
+ENV SPRING_LIQUIBASE_ENABLED=false
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

@@ -205,6 +205,7 @@ class PanelAccessFilterTests {
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
         requests.put("exceptions", new ActionRequest("DELETE", "/bootui/api/exceptions"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/http-probe"));
+        requests.put("kernel-insights", new ActionRequest("POST", "/bootui/api/kernel-insights/scan"));
         requests.put("architecture", new ActionRequest("POST", "/bootui/api/architecture/scan"));
         requests.put("vulnerabilities", new ActionRequest("POST", "/bootui/api/vulnerabilities/scan"));
         requests.put("devtools", new ActionRequest("POST", "/bootui/api/devtools/restart"));

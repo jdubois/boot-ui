@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.kernel.KernelInsightsSupport;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.core.dto.PanelDto;
@@ -139,6 +140,10 @@ public class PanelsController {
             case BootUiPanels.DEVTOOLS -> availability(devToolsPresent(), "Spring Boot DevTools not on the classpath");
             case BootUiPanels.DEV_SERVICES ->
                 availability(devServicesPresent(), "Docker Compose or Testcontainers not on the classpath");
+            case BootUiPanels.KERNEL_INSIGHTS ->
+                availability(
+                        KernelInsightsSupport.available(properties.getKernelInsights()),
+                        KernelInsightsSupport.unavailableReason(properties.getKernelInsights()));
             default -> null;
         };
     }

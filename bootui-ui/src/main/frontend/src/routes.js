@@ -16,6 +16,7 @@ const Liquibase = () => import('./views/Liquibase.vue')
 const Startup = () => import('./views/Startup.vue')
 const Scheduled = () => import('./views/Scheduled.vue')
 const HttpProbe = () => import('./views/HttpProbe.vue')
+const KernelInsights = () => import('./views/KernelInsights.vue')
 const Pentesting = () => import('./views/Pentesting.vue')
 const Architecture = () => import('./views/Architecture.vue')
 const RestApi = () => import('./views/RestApi.vue')
@@ -310,6 +311,12 @@ export const routes = [
     name: 'http-probe',
     component: HttpProbe,
     meta: {group: groups.diagnostics, icon: 'bi-send', title: 'HTTP Probe', shortcut: 'hp'}
+  },
+  {
+    path: '/kernel-insights',
+    name: 'kernel-insights',
+    component: KernelInsights,
+    meta: {group: groups.diagnostics, icon: 'bi-motherboard', title: 'Kernel Insights', shortcut: 'ki'}
   },
   {
     path: '/mcp-server',

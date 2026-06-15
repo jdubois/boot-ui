@@ -5,6 +5,8 @@
 **/.vite
 **/.eslintcache
 **/target
+.m2
+**/.m2
 .idea
 .vscode
 .DS_Store

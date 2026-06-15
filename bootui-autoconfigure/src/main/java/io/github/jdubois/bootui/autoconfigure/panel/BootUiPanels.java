@@ -50,6 +50,7 @@ public final class BootUiPanels {
     public static final String REST_API = "rest-api";
     public static final String PENTESTING = "pentesting";
     public static final String VULNERABILITIES = "vulnerabilities";
+    public static final String KERNEL_INSIGHTS = "kernel-insights";
     public static final String DEVTOOLS = "devtools";
     public static final String DEV_SERVICES = "dev-services";
     public static final String COPILOT = "copilot";
@@ -94,6 +95,7 @@ public final class BootUiPanels {
             new Panel(EXCEPTIONS, "Exceptions", true, "/exceptions"),
             new Panel(HTTP_EXCHANGES, "HTTP Exchanges", false, "/http-exchanges"),
             new Panel(HTTP_PROBE, "HTTP Probe", true, "/http-probe"),
+            new Panel(KERNEL_INSIGHTS, "Kernel Insights", true, "/kernel-insights"),
             new Panel(ARCHITECTURE, "Architecture", true, "/architecture"),
             new Panel(VULNERABILITIES, "Vulnerabilities", true, "/vulnerabilities"),
             new Panel(DEVTOOLS, "DevTools", true, "/devtools"),

@@ -82,6 +82,7 @@ Panel settings are consistent across the UI and API:
 | Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
+| Diagnostics     | Kernel Insights           | `kernel-insights`           | `bootui.panels.kernel-insights.enabled`           | `bootui.panels.kernel-insights.read-only` |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | DevTools                  | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
@@ -268,6 +269,19 @@ read-only.
 | ------------------------------------ | ------- | ---------------------------------------------- |
 | `bootui.panels.http-probe.enabled`   | `true`  | Show the HTTP Probe panel.                     |
 | `bootui.panels.http-probe.read-only` | `false` | Disable sending probe requests through BootUI. |
+
+### Kernel Insights
+
+| Property                                  | Default                                           | Description                                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.kernel-insights.enabled`   | `true`                                            | Show the Kernel Insights panel.                                                                                             |
+| `bootui.panels.kernel-insights.read-only` | `false`                                           | Disable the user-initiated kernel capture action while keeping the read-only status visible.                               |
+| `bootui.kernel-insights.enabled`          | `true`                                            | Allow Inspektor Gadget captures. Even when `true`, the panel stays unavailable unless the host is Linux with `ig` present. |
+| `bootui.kernel-insights.ig-path`          | `ig`                                              | Command or path used to invoke the Inspektor Gadget binary. A bare name is resolved against `PATH`.                        |
+| `bootui.kernel-insights.capture-duration` | `3s`                                              | How long streaming gadgets (for example `trace_tcp`, `trace_dns`) are captured during a single scan.                       |
+| `bootui.kernel-insights.max-events`       | `200`                                             | Maximum number of events retained per gadget in a single capture.                                                          |
+| `bootui.kernel-insights.host-mode`        | `true`                                            | Capture host-wide activity (`ig --host`). Surfaces the dev machine's own processes and lets `ig` run when container enrichment is unavailable (for example inside Docker Desktop). Set `false` to trace only container activity. |
+| `bootui.kernel-insights.gadgets`          | `trace_exec,trace_tcp,trace_dns,snapshot_socket` | Gadgets run during a capture, in order. Unknown gadget names are ignored.                                                  |
 
 ### Exceptions
 

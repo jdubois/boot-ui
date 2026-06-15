@@ -53,6 +53,7 @@ class PanelsControllerTests {
             BootUiPanels.EXCEPTIONS,
             BootUiPanels.HTTP_EXCHANGES,
             BootUiPanels.HTTP_PROBE,
+            BootUiPanels.KERNEL_INSIGHTS,
             BootUiPanels.ARCHITECTURE,
             BootUiPanels.VULNERABILITIES,
             BootUiPanels.DEVTOOLS,

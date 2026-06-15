@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.kernel.KernelInsightsController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
@@ -115,6 +116,7 @@ import tools.jackson.databind.ObjectMapper;
     ScheduledController.class,
     HttpProbeService.class,
     HttpProbeController.class,
+    KernelInsightsController.class,
     PentestingController.class,
     HeapDumpController.class,
     ArchitectureController.class,
@@ -181,6 +183,7 @@ public class BootUiAutoConfiguration {
             HttpExchangesController.class.getName(),
             HttpSessionsController.class.getName(),
             HttpProbeController.class.getName(),
+            KernelInsightsController.class.getName(),
             HeapDumpController.class.getName(),
             LoggersController.class.getName(),
             MappingsController.class.getName(),
