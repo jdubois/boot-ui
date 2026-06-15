@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **BootUI's live panels no longer delay graceful shutdown.** The Server-Sent Events panels (Live Activity, Exceptions,
+  SQL Trace, Security Logs, Log Tail, Copilot, Claude Code) open an `SseEmitter` with no timeout, which counts as an
+  active request. Their emitter cleanup ran from a bean-destruction (`@PreDestroy`) hook — too late, because Spring Boot
+  4's default graceful shutdown waits for in-flight requests *before* beans are destroyed, so every JVM stop blocked
+  until the `spring.lifecycle.timeout-per-shutdown-phase` timeout (30s by default). BootUI now completes these streams on
+  `ContextClosedEvent`, which fires before the web server's graceful-shutdown lifecycle, so the application stops
+  promptly again.
+
 ## [1.5.0] - 2026-06-15
 
 Feature release headlined by a new **Live Activity** panel — a diagnostics "home base" that merges BootUI's already

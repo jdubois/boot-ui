@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -145,6 +147,23 @@ public abstract class AgentSessionController {
         if (unsubscribe != null) {
             unsubscribe.run();
         }
+    }
+
+    /**
+     * Completes any open activity streams when the context starts closing.
+     *
+     * <p>Runs on {@link ContextClosedEvent}, which is published before the web server's
+     * graceful-shutdown lifecycle waits for in-flight requests. An {@code SseEmitter(0L)} never
+     * completes on its own, so without this the server would block until the graceful-shutdown timeout
+     * on every stop (and a Spring Boot DevTools restart would leave the discarded context pinned behind
+     * the dangling stream).
+     */
+    @EventListener(ContextClosedEvent.class)
+    void shutdown() {
+        for (SseEmitter emitter : emitters) {
+            emitter.complete();
+        }
+        emitters.clear();
     }
 
     // exposed only for testing

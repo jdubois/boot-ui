@@ -12,12 +12,12 @@ import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
-import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.listener.AuditApplicationEvent;
+import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -95,12 +95,17 @@ public class LiveActivityController {
     }
 
     /**
-     * Releases the change stream's scheduler thread and SSE emitters, and detaches the source listeners,
-     * when the context shuts down. This keeps a Spring Boot DevTools restart from leaking a
-     * {@code bootui-activity-stream} daemon thread (and, through it, the discarded application context and
-     * its class loader) on every live reload.
+     * Completes any open SSE streams and detaches the merged source listeners when the context starts
+     * closing.
+     *
+     * <p>Runs on {@link ContextClosedEvent} rather than {@code @PreDestroy}: the event is published
+     * before the web server's graceful-shutdown lifecycle waits for in-flight requests, whereas
+     * {@code @PreDestroy} runs during later bean destruction. An {@code SseEmitter(0L)} never completes
+     * on its own, so cleaning up at destroy time would let graceful shutdown block until its timeout on
+     * every stop. Doing it here also keeps a Spring Boot DevTools restart from leaking the
+     * {@code bootui-activity-stream} daemon thread (and the discarded context's class loader behind it).
      */
-    @PreDestroy
+    @EventListener(ContextClosedEvent.class)
     void shutdown() {
         unsubscribers.forEach(Runnable::run);
         unsubscribers.clear();

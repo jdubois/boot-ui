@@ -7,11 +7,12 @@ import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
-import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -56,11 +57,16 @@ public class SqlTraceController {
     }
 
     /**
-     * Releases the change stream's scheduler thread and SSE emitters, and detaches the recorder listener,
-     * when the context shuts down so a Spring Boot DevTools restart does not leak the
+     * Completes any open SSE streams and detaches the recorder listener when the context starts closing.
+     *
+     * <p>Runs on {@link ContextClosedEvent} rather than {@code @PreDestroy}: the event is published
+     * before the web server's graceful-shutdown lifecycle waits for in-flight requests, whereas
+     * {@code @PreDestroy} runs during later bean destruction. An {@code SseEmitter(0L)} never completes
+     * on its own, so cleaning up at destroy time would let graceful shutdown block until its timeout on
+     * every stop. Doing it here also keeps a Spring Boot DevTools restart from leaking the
      * {@code bootui-sql-trace-stream} daemon thread (and the discarded context behind it).
      */
-    @PreDestroy
+    @EventListener(ContextClosedEvent.class)
     void shutdown() {
         if (recorderUnsubscribe != null) {
             recorderUnsubscribe.run();
