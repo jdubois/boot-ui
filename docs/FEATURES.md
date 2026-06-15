@@ -676,7 +676,11 @@ capture, is in-memory only, and is cleared on restart.
 
 The Traces panel shows distributed tracing spans captured locally by the BootUI starter when telemetry and the Traces
 panel are enabled. The starter contributes the tracing dependencies and sampling default needed for local development, so
-the host application does not need manual `management.*` tracing properties. BootUI also keeps an embedded OTLP/HTTP
+the host application does not need manual `management.*` tracing properties. Because that default raises sampling to
+100% (`management.tracing.sampling.probability=1.0`), the OpenTelemetry SDK and Micrometer Tracing span/propagation code
+runs on every request; to keep that from flooding the console when the host's root logger is at `DEBUG`, BootUI also
+pins `logging.level.io.opentelemetry` and `logging.level.io.micrometer.tracing` to `INFO` as overridable defaults (set
+either key yourself to opt back in). BootUI also keeps an embedded OTLP/HTTP
 receiver at `/bootui/api/otlp/v1/traces` so cooperating local services can export spans into the same in-memory store.
 The list shows the most recent traces with service name, the HTTP request path each trace served (falling back to the
 root span name when no path attribute is present), status, duration, and span count; opening a trace
