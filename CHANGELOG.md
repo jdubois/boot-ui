@@ -668,6 +668,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
+[1.5.0]: https://github.com/jdubois/boot-ui/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/jdubois/boot-ui/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/jdubois/boot-ui/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/jdubois/boot-ui/compare/v1.1.0...v1.2.0
