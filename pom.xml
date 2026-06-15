@@ -55,7 +55,7 @@
         <testcontainers.version>1.21.4</testcontainers.version>
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
-        <frontend-maven-plugin.version>2.0.0</frontend-maven-plugin.version>
+        <frontend-maven-plugin.version>2.0.1</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.10.0</central-publishing-maven-plugin.version>
         <native-build-tools-plugin.version>1.1.1</native-build-tools-plugin.version>
         <archunit.version>1.4.2</archunit.version>
