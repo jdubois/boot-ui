@@ -117,12 +117,8 @@ public class LiveActivityService {
                 securityCorrelations == null ? null : securityCorrelations.getIfAvailable();
 
         List<ActivityEntryDto> all = new ArrayList<>();
-        if (requests != null) {
-            for (HttpExchangeDto exchange : requests.exchanges()) {
-                RequestAnchor anchor = anchorsById.get(exchange.id());
-                all.add(toRequestEntry(exchange, anchor == null ? null : anchor.thread()));
-            }
-        }
+        // Build SQL, exception and security entries first so we know which requests carry a correlated
+        // security event (and the principal it ran as) before we build the request entries themselves.
         if (sql != null) {
             for (SqlTraceEntryDto entry : sql.entries()) {
                 all.add(toSqlEntry(entry, matchSqlParent(entry, anchors)));
@@ -133,10 +129,25 @@ public class LiveActivityService {
                 all.add(toExceptionEntry(group, matchExceptionParent(group, anchors)));
             }
         }
+        Map<String, String> securedByRequest = new HashMap<>();
         if (security != null) {
             int index = 0;
             for (SecurityLogEventDto event : security.events()) {
-                all.add(toSecurityEntry(event, index++, matchSecurityParent(event, anchors, securityRegistry)));
+                String parentId = matchSecurityParent(event, anchors, securityRegistry);
+                if (parentId != null) {
+                    String principal = event.principal() == null ? "" : event.principal();
+                    securedByRequest.merge(
+                            parentId, principal, (existing, next) -> existing.isBlank() ? next : existing);
+                }
+                all.add(toSecurityEntry(event, index++, parentId));
+            }
+        }
+        if (requests != null) {
+            for (HttpExchangeDto exchange : requests.exchanges()) {
+                RequestAnchor anchor = anchorsById.get(exchange.id());
+                String securedPrincipal =
+                        securedByRequest.containsKey(exchange.id()) ? securedByRequest.get(exchange.id()) : null;
+                all.add(toRequestEntry(exchange, anchor == null ? null : anchor.thread(), securedPrincipal));
             }
         }
 
@@ -236,7 +247,7 @@ public class LiveActivityService {
         return report;
     }
 
-    private ActivityEntryDto toRequestEntry(HttpExchangeDto exchange, String servingThread) {
+    private ActivityEntryDto toRequestEntry(HttpExchangeDto exchange, String servingThread, String securedPrincipal) {
         long timestamp =
                 exchange.timestamp() == null ? 0L : exchange.timestamp().toEpochMilli();
         int status = exchange.status();
@@ -267,7 +278,8 @@ public class LiveActivityService {
                 status,
                 servingThread,
                 true,
-                null);
+                null,
+                securedPrincipal);
     }
 
     private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry, String parentId) {
@@ -296,7 +308,8 @@ public class LiveActivityService {
                 null,
                 entry.thread(),
                 false,
-                parentId);
+                parentId,
+                null);
     }
 
     private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group, String parentId) {
@@ -320,7 +333,8 @@ public class LiveActivityService {
                 null,
                 group.lastThread(),
                 false,
-                parentId);
+                parentId,
+                null);
     }
 
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index, String parentId) {
@@ -343,7 +357,8 @@ public class LiveActivityService {
                 null,
                 null,
                 false,
-                parentId);
+                parentId,
+                null);
     }
 
     /**

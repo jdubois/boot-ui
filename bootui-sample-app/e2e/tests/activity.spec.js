@@ -102,6 +102,23 @@ test.describe('Live Activity view', () => {
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
   })
 
+  test('marks an authenticated request with a lock and the principal tag', async ({openView, page}) => {
+    // A correlated security event flags the request row as authenticated: a lock icon plus a grey pill
+    // carrying the caller's principal, so a secured call and who made it are obvious at a glance.
+    const secure = await page.request.get('/api/secure/products', {
+      headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
+    })
+    expect(secure.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+
+    const secureRow = page.locator('.activity-table tbody tr', {hasText: '/api/secure/products'}).first()
+    await expect(secureRow).toBeVisible({timeout: 15_000})
+
+    await expect(secureRow.locator('i.bi-lock-fill')).toBeVisible()
+    await expect(secureRow.locator('.activity-principal-tag')).toContainText('admin')
+  })
+
   test('pauses and resumes the live feed', async ({openView, page}) => {
     await openView('activity', 'Live Activity')
 

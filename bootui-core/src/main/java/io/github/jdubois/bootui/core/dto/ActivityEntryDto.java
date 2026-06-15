@@ -24,6 +24,9 @@ package io.github.jdubois.bootui.core.dto;
  * @param profileable whether a per-request profile can be requested for this entry
  * @param parentId id of the {@code REQUEST} entry this entry is correlated to (so the UI can nest it
  *     under that request), or {@code null} when the entry has no precise request correlation
+ * @param securedPrincipal for a {@code REQUEST} entry that had a correlated Spring Security audit
+ *     event, the principal it ran as (empty string when the principal is unknown); {@code null} when
+ *     the request was not secured or for non-request entries
  */
 public record ActivityEntryDto(
         String id,
@@ -39,4 +42,5 @@ public record ActivityEntryDto(
         Integer status,
         String thread,
         boolean profileable,
-        String parentId) {}
+        String parentId,
+        String securedPrincipal) {}

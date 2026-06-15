@@ -66,16 +66,16 @@ export const routes = [
     meta: {group: groups.overview, icon: 'bi-speedometer2', title: 'Overview', shortcut: 'ov'}
   },
   {
-    path: '/github',
-    name: 'github',
-    component: GitHub,
-    meta: {group: groups.overview, icon: 'bi-github', title: 'GitHub', shortcut: 'gh'}
-  },
-  {
     path: '/activity',
     name: 'activity',
     component: LiveActivity,
     meta: {group: groups.overview, icon: 'bi-broadcast', title: 'Live Activity', shortcut: 'la'}
+  },
+  {
+    path: '/github',
+    name: 'github',
+    component: GitHub,
+    meta: {group: groups.overview, icon: 'bi-github', title: 'GitHub', shortcut: 'gh'}
   },
   {
     path: '/architecture',

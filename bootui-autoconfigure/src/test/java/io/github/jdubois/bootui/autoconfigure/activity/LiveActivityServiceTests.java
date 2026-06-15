@@ -209,6 +209,32 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void marksSecuredRequestWithCorrelatedPrincipal() {
+        long ts = BASE.plusMillis(1015).toEpochMilli();
+        SecurityEventCorrelationRegistry securityCorrelations = new SecurityEventCorrelationRegistry(10);
+        securityCorrelations.record(new SecurityEventCorrelationRegistry.SecurityEventCorrelation(
+                ts, "worker-7", "AUTHENTICATION_SUCCESS", "alice"));
+        RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
+        requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
+                BASE.plusMillis(1000).toEpochMilli(), BASE.plusMillis(1030).toEpochMilli(), "worker-7", "GET", "/a"));
+        LiveActivityService service = service(
+                requests(
+                        exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L),
+                        exchange("r2", BASE.plusMillis(2000), "GET", "/b", 200, 5L)),
+                null,
+                null,
+                security(securityEvent("AUTHENTICATION_SUCCESS", "alice", ts)),
+                null,
+                requestCorrelations,
+                securityCorrelations,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+        assertThat(securedPrincipalOf(report, "r1")).isEqualTo("alice");
+        assertThat(securedPrincipalOf(report, "r2")).isNull();
+    }
+
+    @Test
     void leavesUncorrelatedSignalsTopLevel() {
         LiveActivityService service = service(
                 requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),
@@ -231,6 +257,14 @@ class LiveActivityServiceTests {
                 .findFirst()
                 .orElseThrow()
                 .parentId();
+    }
+
+    private static String securedPrincipalOf(LiveActivityReport report, String entryId) {
+        return report.entries().stream()
+                .filter(e -> e.id().equals(entryId))
+                .findFirst()
+                .orElseThrow()
+                .securedPrincipal();
     }
 
     private LiveActivityService service(

@@ -38,35 +38,6 @@ gracefully when optional infrastructure is missing.
 
 ![BootUI Overview panel](./images/bootui-overview.png)
 
-## GitHub
-
-The GitHub panel sits directly under Overview and summarizes the current project's GitHub state from the local `origin`
-remote. It uses BootUI's standard auto-refresh control with a one-minute interval while the tab is visible; the initial
-refresh and each interval are bounded and blocked by the panel's read-only settings.
-
-The panel shows repository metadata and an eight-card summary grid with click-through detail drawers for open pull
-requests, open issues, the latest GitHub Actions executions, quotas, Copilot usage report availability, and the three
-security signals. The open-issues drawer summarizes the label/staleness buckets and then lists the bounded set of open
-issues returned by the refresh, linking each to its issue page with its author, labels, comment count, and last-updated
-time (pull requests returned by the issues endpoint are excluded). GitHub Actions execution rows link to the matching
-run, show the workflow, branch, event, status, and
-duration, and mirror the recent-run list from the GitHub Actions page. The workflow failure count only considers the
-latest execution for each workflow and branch, so older failures drop out once a later run fixes that workflow on that
-branch; security signal drawers link to the matching GitHub alert pages.
-The quota card shows the lowest remaining quota percentage with a red-to-green threshold palette. The quota drawer is
-hidden by default, renders every resource returned by GitHub's `/rate_limit` response dynamically,
-highlights resources with 10% or less remaining or at quota, then adds best-effort cards for repository or owner quotas
-such as Actions cache, artifacts, and Actions billing when the credential can access those endpoints. Copilot usage uses
-GitHub's organization report metadata endpoint when available; BootUI shows the report window and link count only, without
-downloading or exposing signed report URLs.
-
-Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, or an existing `gh auth token` login. The
-token is never sent to the browser, persisted by BootUI, or included in warnings; without a token, public repositories use
-GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
-safety threshold that skips optional sections before exhausting the core API quota.
-
-![BootUI GitHub panel](./images/bootui-github.png)
-
 ## Live Activity
 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
@@ -77,8 +48,10 @@ bounded exactly as those panels are.
 
 The stream merges four signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
 (`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a colour-coded severity
-(`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed and slow rows are
-highlighted, adjacent identical entries are collapsed with an occurrence count to cut noise, and the feed can be narrowed
+(`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
+slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
+latency badge so you can see at a glance *how* slow a request was, adjacent identical entries are collapsed with an
+occurrence count to cut noise, and the feed can be narrowed
 by type, severity, a free-text needle (path, status, SQL, or exception class), and an **errors-only** quick toggle — the
 chosen filters are persisted in the browser so they survive a reload. A small **requests-over-time** sparkline above the
 table makes spikes and error bursts (drawn in red) visible at a glance. A KPI strip across the top summarises requests per
@@ -93,7 +66,10 @@ exception, or security event), and the feed can be paused and resumed so a row y
 When the feed is unfiltered, correlated signals are **nested chronologically under the request that produced them**: the
 SQL statements, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
 request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
-(expanded by default), so one click reveals exactly what a single request did, in order. Signals that cannot be tied to a
+(expanded by default), so one click reveals exactly what a single request did, in order. Requests that triggered a
+security event are flagged as **authenticated** — a lock icon plus a grey pill naming the caller's principal — so a
+secured call and who made it are obvious without opening the profiler, and the nested child rows are shaded a distinct
+grey so they read clearly as belonging to the request above them. Signals that cannot be tied to a
 request stay top-level, and applying any filter or free-text search flattens the feed again so the query spans every
 signal.
 
@@ -128,6 +104,35 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 `bootui.panels.*` toggles (a disabled source simply drops out of the stream).
 
 ![BootUI Live Activity panel](./images/bootui-activity.png)
+
+## GitHub
+
+The GitHub panel sits in the Overview group and summarizes the current project's GitHub state from the local `origin`
+remote. It uses BootUI's standard auto-refresh control with a one-minute interval while the tab is visible; the initial
+refresh and each interval are bounded and blocked by the panel's read-only settings.
+
+The panel shows repository metadata and an eight-card summary grid with click-through detail drawers for open pull
+requests, open issues, the latest GitHub Actions executions, quotas, Copilot usage report availability, and the three
+security signals. The open-issues drawer summarizes the label/staleness buckets and then lists the bounded set of open
+issues returned by the refresh, linking each to its issue page with its author, labels, comment count, and last-updated
+time (pull requests returned by the issues endpoint are excluded). GitHub Actions execution rows link to the matching
+run, show the workflow, branch, event, status, and
+duration, and mirror the recent-run list from the GitHub Actions page. The workflow failure count only considers the
+latest execution for each workflow and branch, so older failures drop out once a later run fixes that workflow on that
+branch; security signal drawers link to the matching GitHub alert pages.
+The quota card shows the lowest remaining quota percentage with a red-to-green threshold palette. The quota drawer is
+hidden by default, renders every resource returned by GitHub's `/rate_limit` response dynamically,
+highlights resources with 10% or less remaining or at quota, then adds best-effort cards for repository or owner quotas
+such as Actions cache, artifacts, and Actions billing when the credential can access those endpoints. Copilot usage uses
+GitHub's organization report metadata endpoint when available; BootUI shows the report window and link count only, without
+downloading or exposing signed report URLs.
+
+Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, or an existing `gh auth token` login. The
+token is never sent to the browser, persisted by BootUI, or included in warnings; without a token, public repositories use
+GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
+safety threshold that skips optional sections before exhausting the core API quota.
+
+![BootUI GitHub panel](./images/bootui-github.png)
 
 ## Advisors
 

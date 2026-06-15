@@ -3,8 +3,8 @@ import {expect, test} from './fixtures.js'
 
 const allPanelLinks = [
   {id: 'overview', title: 'Overview', heading: /^Overview/},
-  {id: 'github', title: 'GitHub', heading: /^GitHub/},
   {id: 'activity', title: 'Live Activity', heading: /Live Activity/},
+  {id: 'github', title: 'GitHub', heading: /^GitHub/},
   {id: 'health', title: 'Health', heading: /^Health/},
   {id: 'http-sessions', title: 'HTTP Sessions', heading: /^HTTP Sessions/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},

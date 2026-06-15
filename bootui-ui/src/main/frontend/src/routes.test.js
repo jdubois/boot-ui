@@ -7,8 +7,8 @@ describe('routes', () => {
   it('keeps the sidebar order aligned with the documented feature order', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
       'Overview',
-      'GitHub',
       'Live Activity',
+      'GitHub',
       'Architecture',
       'REST API',
       'Spring',

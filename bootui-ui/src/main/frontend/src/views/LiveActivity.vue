@@ -163,9 +163,32 @@ function severityBadgeClass(severity) {
 }
 
 function rowClass(entry) {
+  if (entry.type === 'REQUEST') {
+    if (entry.severity === 'ERROR') return 'table-danger'
+    const level = slowLevel(entry)
+    if (level > 0) return `activity-slow-${level}`
+    if (entry.severity === 'WARN') return 'table-warning'
+    return ''
+  }
   if (entry.severity === 'ERROR') return 'table-danger'
   if (entry.severity === 'SLOW' || entry.severity === 'WARN') return 'table-warning'
   return ''
+}
+
+// Graduated latency heat for HTTP requests: 100/200/500/1000 ms map to four levels that the row and
+// duration badge colour from yellow to bright red, so slow requests stand out by how slow they are.
+function slowLevel(entry) {
+  if (entry.type !== 'REQUEST' || entry.durationMs == null) return 0
+  const ms = entry.durationMs
+  if (ms >= 1000) return 4
+  if (ms >= 500) return 3
+  if (ms >= 200) return 2
+  if (ms >= 100) return 1
+  return 0
+}
+
+function latencyBadgeClass(entry) {
+  return `activity-lat-${slowLevel(entry)}`
 }
 
 function formatDurationMs(durationMs) {
@@ -587,7 +610,18 @@ function clearFilters() {
                   >
                     <i :class="['bi', isCollapsed(entry.id) ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
                   </button>
+                  <i
+                    v-if="entry.securedPrincipal != null"
+                    class="bi bi-lock-fill text-secondary me-1"
+                    title="Authenticated request"
+                  ></i>
                   <span>{{ entry.summary }}</span>
+                  <span
+                    v-if="entry.securedPrincipal"
+                    class="badge rounded-pill text-bg-light ms-2 activity-principal-tag"
+                    :title="`Authenticated as ${entry.securedPrincipal}`"
+                    ><i class="bi bi-person me-1"></i>{{ entry.securedPrincipal }}</span
+                  >
                   <span v-if="entry.count > 1" class="badge rounded-pill text-bg-light ms-2">×{{ entry.count }}</span>
                   <span
                     v-if="hasChildren(entry)"
@@ -597,7 +631,12 @@ function clearFilters() {
                   >
                   <span v-if="entry.detail" class="d-block text-muted small">{{ entry.detail }}</span>
                 </td>
-                <td class="text-end text-nowrap small">{{ formatDurationMs(entry.durationMs) }}</td>
+                <td class="text-end text-nowrap small">
+                  <span v-if="slowLevel(entry) > 0" :class="['badge', latencyBadgeClass(entry)]">{{
+                    formatDurationMs(entry.durationMs)
+                  }}</span>
+                  <template v-else>{{ formatDurationMs(entry.durationMs) }}</template>
+                </td>
                 <td class="text-end text-nowrap" @click.stop>
                   <router-link
                     v-if="entryLink(entry)"
@@ -620,7 +659,7 @@ function clearFilters() {
               <tr
                 v-for="child in hasChildren(entry) && !isCollapsed(entry.id) ? entry.children : []"
                 :key="child.id"
-                :class="[rowClass(child), 'activity-child-row']"
+                :class="['activity-child-row']"
               >
                 <td class="text-nowrap small">{{ formatClockTime(child.timestamp) }}</td>
                 <td class="text-nowrap activity-child-type">
@@ -843,7 +882,7 @@ function clearFilters() {
 }
 
 .activity-col-type {
-  width: 7rem;
+  width: 8.5rem;
 }
 
 .activity-col-severity {
@@ -880,15 +919,58 @@ function clearFilters() {
 }
 
 .activity-child-row > td {
-  background-color: var(--bs-tertiary-bg, rgba(0, 0, 0, 0.025));
+  background-color: var(--bs-secondary-bg);
+  color: var(--bs-secondary-color);
+  border-top-color: transparent;
 }
 
 .activity-child-row > td:first-child {
-  box-shadow: inset 0.25rem 0 0 var(--bs-border-color);
+  box-shadow: inset 0.2rem 0 0 var(--bs-primary-border-subtle, var(--bs-primary));
 }
 
 .activity-child-type {
-  padding-left: 1.5rem;
+  padding-left: 0.75rem;
+}
+
+.activity-principal-tag {
+  font-weight: 500;
+}
+
+/* Latency heat: shared yellow-to-red ramp used for both the row tint and the duration badge. */
+.activity-slow-1 > td {
+  background-color: rgba(255, 193, 7, 0.16);
+}
+
+.activity-slow-2 > td {
+  background-color: rgba(253, 126, 20, 0.2);
+}
+
+.activity-slow-3 > td {
+  background-color: rgba(220, 53, 69, 0.22);
+}
+
+.activity-slow-4 > td {
+  background-color: rgba(176, 0, 32, 0.32);
+}
+
+.activity-lat-1 {
+  color: #664d03;
+  background-color: #ffe69c;
+}
+
+.activity-lat-2 {
+  color: #fff;
+  background-color: #fd7e14;
+}
+
+.activity-lat-3 {
+  color: #fff;
+  background-color: #dc3545;
+}
+
+.activity-lat-4 {
+  color: #fff;
+  background-color: #b00020;
 }
 
 .activity-text-filter {
