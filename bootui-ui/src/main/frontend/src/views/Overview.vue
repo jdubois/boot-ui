@@ -5,8 +5,6 @@ import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {overallScore, scoreBandLabel, scoreBandTone, scoreFromSeverityCounts} from '../utils/scannerScore.js'
 import ScannerScoreCard from './components/ScannerScoreCard.vue'
-import OverviewHealthCard from './components/OverviewHealthCard.vue'
-import OverviewMemoryCard from './components/OverviewMemoryCard.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const injectedPanels = inject('panels', null)
@@ -306,15 +304,6 @@ onActivated(refreshScores)
           <i class="bi bi-github me-1"></i>
           BootUI GitHub project
         </a>
-      </div>
-    </div>
-
-    <div class="row gx-3 gy-4 mb-4">
-      <div class="col-lg-4">
-        <OverviewHealthCard />
-      </div>
-      <div class="col-lg-8">
-        <OverviewMemoryCard />
       </div>
     </div>
 

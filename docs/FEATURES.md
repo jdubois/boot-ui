@@ -18,11 +18,9 @@ application. Set
 
 The Overview panel is the BootUI landing page and acts as a guided "understand your app in minutes" dashboard rather than
 a static summary. It opens with a hero banner and quick links to the running application's homepage and the BootUI GitHub
-project, followed by two live cards: a Health card that polls the Actuator health status and a Memory card that renders
-the current JVM memory breakdown (heap, metaspace, code cache, direct memory, and thread stacks). Both cards auto-refresh
-while the tab is visible.
+project.
 
-Below the live cards is an on-demand security & health scoring dashboard. An overall score out of 100 summarizes the
+Below the hero is an on-demand security & health scoring dashboard. An overall score out of 100 summarizes the
 application's posture, with a qualitative band (Good at 80+, Needs attention at 50+, At risk below 50) and a breakdown of
 how much each scanner deducted from a perfect score. A single "Run all scanners" button triggers every available scanner,
 or each scanner card can be run individually.
