@@ -32,6 +32,22 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
 
     public static final String TRACING_SAMPLING_PROBABILITY = "1.0";
 
+    /**
+     * Log level BootUI applies (as an overridable default) to the tracing libraries it drives at full
+     * sampling. Raising {@link #TRACING_SAMPLING_PROBABILITY} to {@code 1.0} runs the OpenTelemetry SDK
+     * and Micrometer Tracing span/propagation machinery on every request, so when the host has the root
+     * logger at {@code DEBUG} those libraries flood the console with low-value lines (for example
+     * {@code Invalid TraceId in B3 header: null}, {@code Will propagate new baggage context}, and
+     * {@code Ignoring setStatus() description since status is not ERROR}). Pinning these specific
+     * loggers to {@code INFO} silences that DEBUG chatter while leaving the host's other loggers
+     * untouched; the host can still opt back in by setting the matching {@code logging.level.*} key.
+     */
+    public static final String TRACING_LOG_LEVEL = "INFO";
+
+    public static final Map<String, String> TRACING_LOG_LEVEL_DEFAULTS = Map.of(
+            "logging.level.io.opentelemetry", TRACING_LOG_LEVEL,
+            "logging.level.io.micrometer.tracing", TRACING_LOG_LEVEL);
+
     private static final Map<String, Object> ACTUATOR_DEFAULTS = Map.of(
             "management.endpoints.web.exposure.include",
             REQUIRED_ENDPOINTS,
@@ -53,6 +69,7 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
         Map<String, Object> defaults = new LinkedHashMap<>(ACTUATOR_DEFAULTS);
         if (telemetryEnabled(environment) && tracesPanelEnabled(environment)) {
             defaults.put(TRACING_SAMPLING_PROBABILITY_PROPERTY, TRACING_SAMPLING_PROBABILITY);
+            defaults.putAll(TRACING_LOG_LEVEL_DEFAULTS);
         }
 
         // Only contribute defaults the host has not already configured through any property source,
@@ -86,6 +103,8 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
             case "management.endpoints.web.exposure.include" -> REQUIRED_ENDPOINTS.equals(normalized);
             case "management.endpoint.health.show-details" -> "always".equalsIgnoreCase(normalized);
             case TRACING_SAMPLING_PROBABILITY_PROPERTY -> TRACING_SAMPLING_PROBABILITY.equals(normalized);
+            case "logging.level.io.opentelemetry", "logging.level.io.micrometer.tracing" ->
+                TRACING_LOG_LEVEL.equalsIgnoreCase(normalized);
             default -> false;
         };
     }

@@ -28,8 +28,26 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
         assertThat(env.getProperty(
                         BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
                 .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY);
+        assertThat(env.getProperty("logging.level.io.opentelemetry"))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_LOG_LEVEL);
+        assertThat(env.getProperty("logging.level.io.micrometer.tracing"))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_LOG_LEVEL);
         assertThat(env.getPropertySources().contains(DefaultPropertiesPropertySource.NAME))
                 .isTrue();
+    }
+
+    @Test
+    void keepsHostConfiguredTracingLogLevels() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("logging.level.io.opentelemetry", "DEBUG");
+
+        processor.postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("logging.level.io.opentelemetry")).isEqualTo("DEBUG");
+        // The other tracing logger the host did not set still gets BootUI's quiet default.
+        assertThat(env.getProperty("logging.level.io.micrometer.tracing"))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_LOG_LEVEL);
     }
 
     @Test
@@ -63,6 +81,8 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
         assertThat(env.getProperty(
                         BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
                 .isNull();
+        assertThat(env.getProperty("logging.level.io.opentelemetry")).isNull();
+        assertThat(env.getProperty("logging.level.io.micrometer.tracing")).isNull();
     }
 
     @Test
@@ -78,6 +98,8 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
         assertThat(env.getProperty(
                         BootUiActuatorDefaultsEnvironmentPostProcessor.TRACING_SAMPLING_PROBABILITY_PROPERTY))
                 .isNull();
+        assertThat(env.getProperty("logging.level.io.opentelemetry")).isNull();
+        assertThat(env.getProperty("logging.level.io.micrometer.tracing")).isNull();
     }
 
     @Test
