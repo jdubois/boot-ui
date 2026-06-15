@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **BootUI no longer breaks Spring Cloud bootstrap startup.** When a host application used Spring Cloud Config / the
+  legacy bootstrap context (`spring-cloud-starter-bootstrap`) with BootUI active (for example under the `dev` profile),
+  the application crashed at startup with
+  `MissingWebServerFactoryBeanException: No qualifying bean of type 'ServletWebServerFactory' available`. BootUI's
+  command-line support forces a servlet web type so the console can be served, but it was also applying that to Spring
+  Cloud's transient, non-web **bootstrap** application context, which has no `ServletWebServerFactory`. BootUI now
+  detects the bootstrap context (via Spring Cloud's `"bootstrap"` marker property source) and leaves it untouched, while
+  still forcing the servlet web type on the main application.
+
 ## [1.5.1] - 2026-06-15
 
 Patch release that fixes a graceful-shutdown regression introduced by 1.5.0's move to Server-Sent Events: BootUI's live

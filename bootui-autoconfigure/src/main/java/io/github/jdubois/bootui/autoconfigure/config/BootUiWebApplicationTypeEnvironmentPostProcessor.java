@@ -36,6 +36,16 @@ import org.springframework.util.ClassUtils;
  * explicitly configured as reactive, or that have no embedded servlet container
  * on the classpath. The behaviour can be disabled with
  * {@code bootui.force-web=false}.</p>
+ *
+ * <p>It also skips the transient, non-web Spring Cloud <em>bootstrap</em>
+ * application context. Spring Cloud's {@code BootstrapApplicationListener} builds
+ * that context with {@code WebApplicationType.NONE} and marks its environment with
+ * a property source named {@code "bootstrap"}. Forcing a servlet web type there
+ * would make the bootstrap context try to start a web server it has no
+ * {@code ServletWebServerFactory} for, failing with
+ * {@code MissingWebServerFactoryBeanException}. Detecting that marker property
+ * source mirrors Spring Cloud's own re-entrancy check and needs no Spring Cloud
+ * dependency.</p>
  */
 public class BootUiWebApplicationTypeEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
@@ -47,6 +57,13 @@ public class BootUiWebApplicationTypeEnvironmentPostProcessor implements Environ
     static final String WEB_APPLICATION_TYPE_PROPERTY = "spring.main.web-application-type";
 
     static final String PROPERTY_SOURCE_NAME = "bootui-web-application-type";
+
+    /**
+     * Spring Cloud marks its transient, non-web bootstrap context with a property source of this name
+     * (mirrors {@code BootstrapApplicationListener.BOOTSTRAP_PROPERTY_SOURCE_NAME}). Referenced by string
+     * so BootUI needs no Spring Cloud dependency.
+     */
+    static final String BOOTSTRAP_PROPERTY_SOURCE_NAME = "bootstrap";
 
     private static final String DISPATCHER_SERVLET_CLASS = "org.springframework.web.servlet.DispatcherServlet";
 
@@ -68,6 +85,12 @@ public class BootUiWebApplicationTypeEnvironmentPostProcessor implements Environ
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         if (!environment.getProperty(FORCE_WEB_PROPERTY, Boolean.class, true)) {
+            return;
+        }
+        if (isSpringCloudBootstrapContext(environment)) {
+            // Spring Cloud's bootstrap context is a transient, non-web context with no
+            // ServletWebServerFactory; forcing servlet there fails the whole application
+            // with MissingWebServerFactoryBeanException. Leave it alone.
             return;
         }
         ClassLoader classLoader = application.getClassLoader();
@@ -95,6 +118,10 @@ public class BootUiWebApplicationTypeEnvironmentPostProcessor implements Environ
         log.info("BootUI is active in a non-web application; forcing servlet web mode (" + WEB_APPLICATION_TYPE_PROPERTY
                 + "=servlet) so the BootUI console can be served. Set " + FORCE_WEB_PROPERTY
                 + "=false to disable this.");
+    }
+
+    private boolean isSpringCloudBootstrapContext(ConfigurableEnvironment environment) {
+        return environment.getPropertySources().contains(BOOTSTRAP_PROPERTY_SOURCE_NAME);
     }
 
     private boolean isReactive(WebApplicationType current, String configuredType) {
