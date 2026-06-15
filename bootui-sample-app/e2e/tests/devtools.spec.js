@@ -96,6 +96,8 @@ test.describe('DevTools view', () => {
     await expect(liveReloadCard).toContainText('No browsers are connected to the LiveReload server')
 
     await page.getByRole('button', {name: /Trigger LiveReload/}).click()
-    await expect(page.locator('.alert-warning')).toContainText('no browsers are connected')
+    await expect(page.locator('.alert-warning', {hasText: 'LiveReload command sent'})).toContainText(
+      'no browsers are connected'
+    )
   })
 })
