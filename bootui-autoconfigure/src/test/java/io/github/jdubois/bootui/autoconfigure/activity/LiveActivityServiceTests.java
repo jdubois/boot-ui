@@ -235,6 +235,32 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void doesNotMarkRequestSecuredWhenCorrelatedPrincipalIsBlank() {
+        long ts = BASE.plusMillis(1015).toEpochMilli();
+        SecurityEventCorrelationRegistry securityCorrelations = new SecurityEventCorrelationRegistry(10);
+        securityCorrelations.record(new SecurityEventCorrelationRegistry.SecurityEventCorrelation(
+                ts, "worker-7", "AUTHORIZATION_FAILURE", ""));
+        RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
+        requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
+                BASE.plusMillis(1000).toEpochMilli(), BASE.plusMillis(1030).toEpochMilli(), "worker-7", "GET", "/a"));
+        LiveActivityService service = service(
+                requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 403, 30L)),
+                null,
+                null,
+                security(securityEvent("AUTHORIZATION_FAILURE", "", ts)),
+                null,
+                requestCorrelations,
+                securityCorrelations,
+                new BootUiProperties());
+
+        // The event correlates to the request (so it still nests), but a blank principal must not flag
+        // the request as authenticated.
+        LiveActivityReport report = service.report(null, null, 0, 0);
+        assertThat(parentOf(report, "sec-0")).isEqualTo("r1");
+        assertThat(securedPrincipalOf(report, "r1")).isNull();
+    }
+
+    @Test
     void leavesUncorrelatedSignalsTopLevel() {
         LiveActivityService service = service(
                 requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),

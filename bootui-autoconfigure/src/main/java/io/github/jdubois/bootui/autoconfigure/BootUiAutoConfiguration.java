@@ -463,7 +463,11 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public RequestCorrelationRegistry bootUiRequestCorrelationRegistry(BootUiProperties properties) {
-        return new RequestCorrelationRegistry(properties.getActivity().getMaxEntries());
+        // This registry feeds exact thread-based correlation, not the display list, so it is sized well
+        // above the page cap: a single page load records many static-resource requests, and undersizing
+        // it would evict an API request's correlation before the feed or profiler reads it back.
+        int capacity = Math.max(properties.getActivity().getMaxEntries() * 4, 512);
+        return new RequestCorrelationRegistry(capacity);
     }
 
     @Bean

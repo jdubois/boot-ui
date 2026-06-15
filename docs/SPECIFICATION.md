@@ -668,9 +668,9 @@ Features:
   method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
   that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
   precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
-  event also carries a `securedPrincipal` (the caller's principal, possibly empty when unknown; null when the request had
-  no correlated security event), so the client can flag it as authenticated with a lock icon and a principal tag without
-  opening the profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
+  event also carries a `securedPrincipal` (the caller's principal; null when the request had no
+  correlated security event naming a principal), so the client can flag it as authenticated with a
+  lock icon and a principal tag without opening the profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
   100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
 - A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
   exception count, SQL/min, slowest query, health status, and heap usage.

@@ -22,7 +22,6 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -42,15 +41,6 @@ public class LiveActivityService {
 
     /** Maximum characters of a SQL statement shown inline in a stream summary. */
     private static final int SQL_SUMMARY_LENGTH = 120;
-
-    /** Slack (ms) applied to a request window when attributing correlated signals to it. */
-    private static final long MATCH_SLACK_MS = 50L;
-
-    /**
-     * Tight slack (ms) for pinning a security audit event to a serving thread: the capture and the
-     * displayed event come from the same {@code AuditEvent}, so their timestamps are effectively equal.
-     */
-    private static final long SECURITY_THREAD_SLACK_MS = 2L;
 
     static final String TYPE_REQUEST = "REQUEST";
     static final String TYPE_SQL = "SQL";
@@ -134,10 +124,11 @@ public class LiveActivityService {
             int index = 0;
             for (SecurityLogEventDto event : security.events()) {
                 String parentId = matchSecurityParent(event, anchors, securityRegistry);
-                if (parentId != null) {
-                    String principal = event.principal() == null ? "" : event.principal();
-                    securedByRequest.merge(
-                            parentId, principal, (existing, next) -> existing.isBlank() ? next : existing);
+                String principal = event.principal();
+                // Only a non-blank principal marks the request as authenticated; a correlated event
+                // with no principal (e.g. an anonymous failure) must not flag a misleading lock icon.
+                if (parentId != null && principal != null && !principal.isBlank()) {
+                    securedByRequest.putIfAbsent(parentId, principal);
                 }
                 all.add(toSecurityEntry(event, index++, parentId));
             }
@@ -145,9 +136,8 @@ public class LiveActivityService {
         if (requests != null) {
             for (HttpExchangeDto exchange : requests.exchanges()) {
                 RequestAnchor anchor = anchorsById.get(exchange.id());
-                String securedPrincipal =
-                        securedByRequest.containsKey(exchange.id()) ? securedByRequest.get(exchange.id()) : null;
-                all.add(toRequestEntry(exchange, anchor == null ? null : anchor.thread(), securedPrincipal));
+                all.add(toRequestEntry(
+                        exchange, anchor == null ? null : anchor.thread(), securedByRequest.get(exchange.id())));
             }
         }
 
@@ -338,7 +328,7 @@ public class LiveActivityService {
     }
 
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index, String parentId) {
-        long timestamp = parseEpochMillis(event.timestamp());
+        long timestamp = ActivitySql.parseEpochMillis(event.timestamp());
         String type = event.type() == null ? "" : event.type();
         String upper = type.toUpperCase(Locale.ROOT);
         String severity = upper.contains("FAILURE") || upper.contains("DENIED") ? SEVERITY_WARN : SEVERITY_OK;
@@ -455,14 +445,14 @@ public class LiveActivityService {
         if (registry == null) {
             return null;
         }
-        long ts = parseEpochMillis(event.timestamp());
+        long ts = ActivitySql.parseEpochMillis(event.timestamp());
         String type = event.type();
         String found = null;
         for (RequestAnchor anchor : anchors) {
             if (anchor.thread() == null || !covers(anchor, ts)) {
                 continue;
             }
-            if (registry.classify(anchor.thread(), type, ts, SECURITY_THREAD_SLACK_MS)
+            if (registry.classify(anchor.thread(), type, ts, ActivitySql.SECURITY_THREAD_SLACK_MS)
                     == SecurityEventCorrelationRegistry.ThreadMatch.OURS) {
                 if (found != null) {
                     return null;
@@ -487,7 +477,8 @@ public class LiveActivityService {
     }
 
     private static boolean covers(RequestAnchor anchor, long timestamp) {
-        return timestamp >= anchor.start() - MATCH_SLACK_MS && timestamp <= anchor.end() + MATCH_SLACK_MS;
+        return timestamp >= anchor.start() - ActivitySql.WINDOW_SLACK_MS
+                && timestamp <= anchor.end() + ActivitySql.WINDOW_SLACK_MS;
     }
 
     /**
@@ -633,17 +624,6 @@ public class LiveActivityService {
             return value;
         }
         return value.substring(0, SQL_SUMMARY_LENGTH) + "…";
-    }
-
-    private static long parseEpochMillis(String timestamp) {
-        if (timestamp == null || timestamp.isBlank()) {
-            return 0L;
-        }
-        try {
-            return Instant.parse(timestamp).toEpochMilli();
-        } catch (DateTimeParseException ex) {
-            return 0L;
-        }
     }
 
     private static String blankToNull(String value) {

@@ -2769,24 +2769,40 @@ const activityReport = {
   available: true,
   entries: [
     {
+      id: 'act-req-4',
+      type: 'REQUEST',
+      timestamp: nowMillis - 800,
+      severity: 'OK',
+      summary: 'GET /api/sample/search → 200',
+      detail: null,
+      durationMs: 340,
+      correlationId: null,
+      method: 'GET',
+      path: '/api/sample/search',
+      status: 200,
+      thread: 'http-nio-8080-exec-4',
+      profileable: true
+    },
+    {
       id: activityRequestId,
       type: 'REQUEST',
       timestamp: nowMillis - 1500,
       severity: 'SLOW',
       summary: 'GET /api/sample/products → 200',
-      detail: 'as alice',
+      detail: null,
       durationMs: 1240,
       correlationId: traceId,
       method: 'GET',
       path: '/api/sample/products',
       status: 200,
       thread: 'http-nio-8080-exec-3',
-      profileable: true
+      profileable: true,
+      securedPrincipal: 'alice'
     },
     {
       id: 'act-sql-1',
       type: 'SQL',
-      timestamp: nowMillis - 1700,
+      timestamp: nowMillis - 1450,
       severity: 'OK',
       summary: 'select * from products where active = ?',
       detail: null,
@@ -2796,7 +2812,24 @@ const activityReport = {
       path: null,
       status: null,
       thread: 'http-nio-8080-exec-3',
-      profileable: false
+      profileable: false,
+      parentId: activityRequestId
+    },
+    {
+      id: 'act-sec-prod',
+      type: 'SECURITY',
+      timestamp: nowMillis - 1400,
+      severity: 'OK',
+      summary: 'AUTHENTICATION_SUCCESS · alice',
+      detail: null,
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'http-nio-8080-exec-3',
+      profileable: false,
+      parentId: activityRequestId
     },
     {
       id: 'act-exc-1',
@@ -2811,7 +2844,8 @@ const activityReport = {
       path: '/api/sample/boom',
       status: null,
       thread: 'http-nio-8080-exec-2',
-      profileable: false
+      profileable: false,
+      parentId: 'act-req-2'
     },
     {
       id: 'act-req-2',
@@ -2859,7 +2893,7 @@ const activityReport = {
       profileable: true
     }
   ],
-  typeCounts: {REQUEST: 3, SQL: 1, EXCEPTION: 1, SECURITY: 1},
+  typeCounts: {REQUEST: 4, SQL: 1, EXCEPTION: 1, SECURITY: 2},
   kpis: {
     requestsPerMinute: 42.5,
     errorRatePercent: 12.5,

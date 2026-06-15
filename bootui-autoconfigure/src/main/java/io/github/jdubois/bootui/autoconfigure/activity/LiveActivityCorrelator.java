@@ -24,8 +24,6 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
-import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -93,10 +91,13 @@ public class LiveActivityCorrelator {
 
         long start = request.timestamp() == null ? 0L : request.timestamp().toEpochMilli();
         long end = request.durationMs() == null ? start : start + request.durationMs();
+        // Resolve the serving thread once: a servlet request runs on a single worker thread, so the
+        // same correlation sharpens SQL, exception, and security matching without re-scanning thrice.
+        RequestCorrelation served = matchServingThread(request, start, end);
 
         List<String> notes = new ArrayList<>();
 
-        SqlCorrelation sqlCorrelation = correlateSql(request, start, end);
+        SqlCorrelation sqlCorrelation = correlateSql(request, start, end, served);
         List<SqlTraceEntryDto> sql = sqlCorrelation.entries();
         boolean sqlApproximate = sqlCorrelation.approximate();
         if (!sql.isEmpty()) {
@@ -111,7 +112,7 @@ public class LiveActivityCorrelator {
         }
         List<SqlTraceGroupDto> sqlGroups = groupSql(sql);
 
-        ExceptionCorrelation exceptionCorrelation = correlateExceptions(request, start, end);
+        ExceptionCorrelation exceptionCorrelation = correlateExceptions(request, start, end, served);
         List<RequestProfileExceptionDto> requestExceptions = exceptionCorrelation.entries();
         if (!requestExceptions.isEmpty()) {
             notes.add(
@@ -121,7 +122,7 @@ public class LiveActivityCorrelator {
                             : "Exceptions are matched by request method, path and time window.");
         }
 
-        SecurityCorrelation securityCorrelation = correlateSecurity(request, start, end);
+        SecurityCorrelation securityCorrelation = correlateSecurity(request, start, end, served);
         List<RequestProfileSecurityDto> security = securityCorrelation.entries();
         if (!security.isEmpty()) {
             if (securityCorrelation.byThread()) {
@@ -187,7 +188,7 @@ public class LiveActivityCorrelator {
      *
      * The returned {@link SqlCorrelation#approximate()} flag drives the visible "approximate" badge.
      */
-    private SqlCorrelation correlateSql(HttpExchangeDto request, long start, long end) {
+    private SqlCorrelation correlateSql(HttpExchangeDto request, long start, long end, RequestCorrelation served) {
         if (!properties.isPanelEnabled(BootUiPanels.SQL_TRACE)) {
             return SqlCorrelation.empty();
         }
@@ -214,14 +215,12 @@ public class LiveActivityCorrelator {
             }
         }
 
-        RequestCorrelation served = matchServingThread(request, start, end);
         if (served != null) {
-            long slack = 50L;
             List<SqlTraceEntryDto> byThread = new ArrayList<>();
             for (SqlTraceEntryDto entry : report.entries()) {
                 if (served.thread().equals(entry.thread())
-                        && entry.timestamp() >= served.startMillis() - slack
-                        && entry.timestamp() <= served.endMillis() + slack) {
+                        && entry.timestamp() >= served.startMillis() - ActivitySql.WINDOW_SLACK_MS
+                        && entry.timestamp() <= served.endMillis() + ActivitySql.WINDOW_SLACK_MS) {
                     byThread.add(entry);
                 }
             }
@@ -290,7 +289,8 @@ public class LiveActivityCorrelator {
         return groups;
     }
 
-    private ExceptionCorrelation correlateExceptions(HttpExchangeDto request, long start, long end) {
+    private ExceptionCorrelation correlateExceptions(
+            HttpExchangeDto request, long start, long end, RequestCorrelation served) {
         if (!properties.isPanelEnabled(BootUiPanels.EXCEPTIONS)) {
             return ExceptionCorrelation.empty();
         }
@@ -310,7 +310,6 @@ public class LiveActivityCorrelator {
         // concurrent request. Web occurrences always carry the throwing thread, and log-sourced
         // occurrences (no request path) are already excluded by occurrenceMatches, so a non-null
         // serving thread lets us keep exactly the occurrences thrown on this request's thread.
-        RequestCorrelation served = matchServingThread(request, start, end);
         String servingThread = served == null ? null : served.thread();
 
         List<RequestProfileExceptionDto> matched = new ArrayList<>();
@@ -363,8 +362,8 @@ public class LiveActivityCorrelator {
             return false;
         }
         // Allow a small slack around the window for clock granularity between capture sources.
-        long slack = 50L;
-        return occurrence.timestamp() >= start - slack && occurrence.timestamp() <= end + slack;
+        return occurrence.timestamp() >= start - ActivitySql.WINDOW_SLACK_MS
+                && occurrence.timestamp() <= end + ActivitySql.WINDOW_SLACK_MS;
     }
 
     /**
@@ -378,7 +377,8 @@ public class LiveActivityCorrelator {
      * serving a secured endpoint to that very request, even under a concurrent request sharing the
      * principal.
      */
-    private SecurityCorrelation correlateSecurity(HttpExchangeDto request, long start, long end) {
+    private SecurityCorrelation correlateSecurity(
+            HttpExchangeDto request, long start, long end, RequestCorrelation served) {
         if (!properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS)) {
             return SecurityCorrelation.empty();
         }
@@ -392,18 +392,13 @@ public class LiveActivityCorrelator {
             return SecurityCorrelation.empty();
         }
         String requestPrincipal = request.principal();
-        long slack = 50L;
-        // The capture and the displayed event come from the same AuditEvent, so their timestamps are
-        // effectively identical; a tight slack keeps distinct events on different threads from colliding.
-        long threadSlack = 2L;
-        RequestCorrelation served = matchServingThread(request, start, end);
         SecurityEventCorrelationRegistry registry =
                 securityCorrelations == null ? null : securityCorrelations.getIfAvailable();
         boolean byThread = false;
         List<RequestProfileSecurityDto> matched = new ArrayList<>();
         for (SecurityLogEventDto event : report.events()) {
-            long timestamp = parseEpochMillis(event.timestamp());
-            if (timestamp < start - slack || timestamp > end + slack) {
+            long timestamp = ActivitySql.parseEpochMillis(event.timestamp());
+            if (timestamp < start - ActivitySql.WINDOW_SLACK_MS || timestamp > end + ActivitySql.WINDOW_SLACK_MS) {
                 continue;
             }
             boolean principalMatched = principalMatches(requestPrincipal, event.principal());
@@ -412,8 +407,8 @@ public class LiveActivityCorrelator {
             }
             boolean threadMatched = false;
             if (served != null && registry != null) {
-                SecurityEventCorrelationRegistry.ThreadMatch match =
-                        registry.classify(served.thread(), event.type(), timestamp, threadSlack);
+                SecurityEventCorrelationRegistry.ThreadMatch match = registry.classify(
+                        served.thread(), event.type(), timestamp, ActivitySql.SECURITY_THREAD_SLACK_MS);
                 if (match == SecurityEventCorrelationRegistry.ThreadMatch.FOREIGN) {
                     continue;
                 }
@@ -470,17 +465,6 @@ public class LiveActivityCorrelator {
 
     private static boolean principalMatches(String left, String right) {
         return left != null && right != null && left.equalsIgnoreCase(right);
-    }
-
-    private static long parseEpochMillis(String timestamp) {
-        if (timestamp == null || timestamp.isBlank()) {
-            return 0L;
-        }
-        try {
-            return Instant.parse(timestamp).toEpochMilli();
-        } catch (DateTimeParseException ex) {
-            return 0L;
-        }
     }
 
     private static String normalizeSql(String sql) {
