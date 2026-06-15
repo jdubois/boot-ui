@@ -227,9 +227,10 @@ Playwright coverage aligned across these nine groups (current order):
 - New browser-facing behavior usually needs a stable DTO, controller tests where practical, Vue route/view updates,
   `docs/FEATURES.md` updates, and an e2e spec in `bootui-sample-app/e2e/tests/` when the UI or sample app behavior
   changes.
-- Feature screenshots in `docs/images/bootui-*.png` should stay at the current 1600x900 px size so the feature page
-  remains visually consistent. When adding or refreshing screenshots, seed the sample app or local state with realistic
-  non-sensitive sample data that demonstrates how the panel works instead of capturing empty/default states.
+- Feature screenshots in `docs/images/bootui-*.webp` should stay at the current 1600x900 px size so the feature page
+  remains visually consistent. They are captured as PNG and re-encoded to WebP (quality 80) by the screenshot script to
+  keep the documentation site lightweight. When adding or refreshing screenshots, seed the sample app or local state with
+  realistic non-sensitive sample data that demonstrates how the panel works instead of capturing empty/default states.
   **Always scroll to the top before capturing** — reset both the window and the `.bootui-workspace` scroll container
   (`page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('.bootui-workspace')?.scrollTo(0, 0) })`) after
   the prepare step and before `page.screenshot()`. The main content scrolls inside `.bootui-workspace` (not the

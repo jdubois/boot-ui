@@ -34,7 +34,7 @@ contributes a score derived from open security alerts. The overall score is the 
 scored, and only scanners whose panels are available for the current application are shown, so the dashboard degrades
 gracefully when optional infrastructure is missing.
 
-![BootUI Overview panel](./images/bootui-overview.png)
+![BootUI Overview panel](./images/bootui-overview.webp)
 
 ## Live Activity
 
@@ -101,7 +101,7 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 `bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
 `bootui.panels.*` toggles (a disabled source simply drops out of the stream).
 
-![BootUI Live Activity panel](./images/bootui-activity.png)
+![BootUI Live Activity panel](./images/bootui-activity.webp)
 
 ## GitHub
 
@@ -130,7 +130,7 @@ token is never sent to the browser, persisted by BootUI, or included in warnings
 GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
 safety threshold that skips optional sections before exhausting the core API quota.
 
-![BootUI GitHub panel](./images/bootui-github.png)
+![BootUI GitHub panel](./images/bootui-github.webp)
 
 ## Advisors
 
@@ -178,7 +178,7 @@ violating rules, sorted by severity and violation count. See
 > `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
 > application is detected to be running as a native image.
 
-![BootUI Architecture panel](./images/bootui-architecture.png)
+![BootUI Architecture panel](./images/bootui-architecture.webp)
 
 ### REST API
 
@@ -203,7 +203,7 @@ each one inspects.
 > `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
 > application is detected to be running as a native image.
 
-![BootUI REST API panel](./images/bootui-rest-api.png)
+![BootUI REST API panel](./images/bootui-rest-api.webp)
 
 ### Spring
 
@@ -218,7 +218,7 @@ wired runtime context instead. The report is a heuristic review prompt, not a ve
 intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
 catalogue and remediation links.
 
-![BootUI Spring panel](./images/bootui-spring.png)
+![BootUI Spring panel](./images/bootui-spring.webp)
 
 ### Hibernate
 
@@ -229,7 +229,7 @@ generators, collection fetch pagination, unsafe cascades, cache misconfiguration
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Hibernate panel](./images/bootui-hibernate.png)
+![BootUI Hibernate panel](./images/bootui-hibernate.webp)
 
 ### Memory
 
@@ -240,7 +240,7 @@ thread deadlocks, and collection bloat. It complements the raw Live Memory and T
 expose. The scan is on demand and caches the last report; new rules are added as small, focused classes in the `memory`
 package. See [MEMORY-CHECKS.md](MEMORY-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Memory panel](./images/bootui-memory.png)
+![BootUI Memory panel](./images/bootui-memory.webp)
 
 ### Security
 
@@ -253,7 +253,7 @@ resource-server validation, and configuration hygiene. The report is framed as a
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
 [SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Security panel](./images/bootui-security.png)
+![BootUI Security panel](./images/bootui-security.webp)
 
 ### Pentesting
 
@@ -270,7 +270,7 @@ Each hygiene check is registered with a stable identifier, OWASP 2025 category, 
 new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
 full catalogue of checks and what each one inspects.
 
-![BootUI Pentesting panel](./images/bootui-pentesting.png)
+![BootUI Pentesting panel](./images/bootui-pentesting.webp)
 
 ### Vulnerabilities
 
@@ -278,7 +278,7 @@ The Vulnerabilities panel shows dependency inventory and local OSV vulnerability
 vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
 ordered by severity first, with dependencies and advisories alphabetized within the same severity.
 
-![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.png)
+![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.webp)
 
 ## Runtime
 
@@ -290,7 +290,7 @@ infrastructure is clear, and shows setup guidance instead of a healthy-looking s
 is not available. When Actuator health is present but only Spring Boot's default indicators are reported, it keeps the
 live statuses visible and shows guidance for adding application or dependency health contributors.
 
-![BootUI Health panel](./images/bootui-health.png)
+![BootUI Health panel](./images/bootui-health.webp)
 
 ### HTTP Sessions
 
@@ -305,14 +305,14 @@ Clear and destroy actions are confirmation-gated and disabled by global or per-p
 attributes from the selected session while keeping it valid; destroy invalidates the selected session. When the app is
 not running on embedded Tomcat, the panel shows an unavailable state instead of guessing at container internals.
 
-![BootUI HTTP Sessions panel](./images/bootui-http-sessions.png)
+![BootUI HTTP Sessions panel](./images/bootui-http-sessions.webp)
 
 ### Metrics
 
 The Metrics panel browses Micrometer meters exposed by Actuator. You can inspect meter descriptions, base units, tags,
 available measurements, and render a local live chart for a selected metric/tag combination.
 
-![BootUI Metrics panel](./images/bootui-metrics.png)
+![BootUI Metrics panel](./images/bootui-metrics.webp)
 
 ### Live Memory
 
@@ -320,7 +320,7 @@ The Live Memory panel summarizes current live JVM heap and non-heap usage plus m
 the running process metrics so you can spot high heap pressure, non-heap growth, and pool-level saturation without the
 JVM sizing controls mixed into the view.
 
-![BootUI Live Memory panel](./images/bootui-live-memory.png)
+![BootUI Live Memory panel](./images/bootui-live-memory.webp)
 
 ### JVM Tuning
 
@@ -342,7 +342,7 @@ non-heap caps remain visible in the snippet and sizing notes because they still 
 > **Not available in GraalVM native images.** JVM heap, GC, and flag tuning does not apply to a native executable;
 > the panel is automatically hidden when the application is detected to be running as a native image.
 
-![BootUI JVM Tuning panel](./images/bootui-jvm-tuning.png)
+![BootUI JVM Tuning panel](./images/bootui-jvm-tuning.webp)
 
 ### Heap Dump
 
@@ -357,7 +357,7 @@ default: it only summarizes class names and sizes (never object values), all cap
 mutating `POST` requests that are blocked when the panel is read-only, and downloading the raw `.hprof` file is disabled
 unless explicitly enabled via configuration. Use it on a local JVM only, and treat any exported dump as sensitive.
 
-![BootUI Heap Dump panel](./images/bootui-heap-dump.png)
+![BootUI Heap Dump panel](./images/bootui-heap-dump.webp)
 
 ### Threads
 
@@ -373,7 +373,7 @@ metadata-only exposure. The raw text thread dump is offered as a confirmation-ga
 the panel is read-only. The panel stays loopback-only and fails closed, showing an explained unavailable state instead
 of disappearing when thread information cannot be read.
 
-![BootUI Threads panel](./images/bootui-threads.png)
+![BootUI Threads panel](./images/bootui-threads.webp)
 
 ### Startup Timeline
 
@@ -383,7 +383,7 @@ installs a `BufferingApplicationStartup` by default so the panel has data withou
 `bootui.startup.enabled=false` or tune the retained step count with `bootui.startup.capacity`. If startup data is still
 unavailable, the panel shows an empty state instead of failing.
 
-![BootUI Startup Timeline panel](./images/bootui-startup-timeline.png)
+![BootUI Startup Timeline panel](./images/bootui-startup-timeline.webp)
 
 ### GraalVM
 
@@ -428,7 +428,7 @@ inspects.
 > to help you *prepare* an application for native-image compilation; once the application is already running as a native
 > executable the advisor has no purpose, and the panel is automatically hidden.
 
-![BootUI GraalVM panel](./images/bootui-graalvm.png)
+![BootUI GraalVM panel](./images/bootui-graalvm.webp)
 
 ### CRaC
 
@@ -459,7 +459,7 @@ overwrite a file BootUI did not generate. This shares the same source-tree write
 > mutually exclusive with native executables; the panel is automatically hidden when the application is detected to be
 > running as a native image.
 
-![BootUI CRaC panel](./images/bootui-crac.png)
+![BootUI CRaC panel](./images/bootui-crac.webp)
 
 ## Configuration
 
@@ -471,7 +471,7 @@ active profiles, and masked values. It can create, update, and delete local runt
 tables load in bounded server-side pages for search, source, and override-only filters. The override property-name
 picker limits its datalist suggestions while narrowing against the full metadata catalog as you type.
 
-![BootUI Configuration panel](./images/bootui-configuration.png)
+![BootUI Configuration panel](./images/bootui-configuration.webp)
 
 ### Profile Diff
 
@@ -479,7 +479,7 @@ The Profile Diff panel compares profile-specific property sources and values. It
 changes between local development profiles while still routing browser-visible names and values through BootUI's secret
 masking rules.
 
-![BootUI Profile Diff panel](./images/bootui-profile-diff.png)
+![BootUI Profile Diff panel](./images/bootui-profile-diff.webp)
 
 ### Loggers
 
@@ -487,7 +487,7 @@ The Loggers panel lists runtime logger configuration from Actuator. It shows con
 server-side search, and can update or clear logger levels without restarting the application. Large logger lists load in
 bounded pages while filtering still searches the full logger set.
 
-![BootUI Loggers panel](./images/bootui-loggers.png)
+![BootUI Loggers panel](./images/bootui-loggers.webp)
 
 ### Beans
 
@@ -496,7 +496,7 @@ bean names and types, plus classifications such as application, Spring framework
 own beans are hidden by default; when self-data filtering is disabled they are classified separately as BootUI beans.
 Large bean lists load in bounded pages so the initial payload stays small while filters still apply to the full bean set.
 
-![BootUI Beans panel](./images/bootui-beans.png)
+![BootUI Beans panel](./images/bootui-beans.webp)
 
 ### Conditions
 
@@ -505,7 +505,7 @@ and unconditional classes so you can see why an auto-configuration applied or wh
 load in bounded pages, and filtering runs on the server so the browser does not need the full report before narrowing
 results.
 
-![BootUI Conditions panel](./images/bootui-conditions.png)
+![BootUI Conditions panel](./images/bootui-conditions.webp)
 
 ### Mappings
 
@@ -514,7 +514,7 @@ produces/consumes metadata so the running application's web surface is visible w
 Large mapping lists load through a stable, paged BootUI DTO, and the filter continues to search every discovered route
 on the server.
 
-![BootUI Mappings panel](./images/bootui-mappings.png)
+![BootUI Mappings panel](./images/bootui-mappings.webp)
 
 ## Database
 
@@ -527,7 +527,7 @@ uninitialized pools. A local live chart polls bounded snapshots of active, idle,
 seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
 pools.
 
-![BootUI Database Connection Pools panel](./images/bootui-database-connection-pools.png)
+![BootUI Database Connection Pools panel](./images/bootui-database-connection-pools.webp)
 
 ### SQL Trace
 
@@ -566,14 +566,14 @@ or the tab is hidden the stream is closed, and the panel falls back to its initi
 > native executable. If a proxy ever cannot be created (for example an interface set that was not registered), wrapping
 > still fails open and the `DataSource` is left untraced rather than breaking application startup.
 
-![BootUI SQL Trace panel](./images/bootui-sql-trace.png)
+![BootUI SQL Trace panel](./images/bootui-sql-trace.webp)
 
 ### Spring Data
 
 The Spring Data panel inspects Spring Data repositories. It shows repository interfaces, domain types, ID types, and query
 methods, and degrades to a clear empty state when Spring Data is not present or no repositories are registered.
 
-![BootUI Spring Data panel](./images/bootui-data.png)
+![BootUI Spring Data panel](./images/bootui-data.webp)
 
 ### Flyway
 
@@ -589,7 +589,7 @@ Flyway's own `clean-disabled=false` setting. Spring Modulith module-aware entrie
 module-specific history tables are managed by Spring Modulith's migration strategy. The panel degrades to a clear empty
 state when Flyway is not on the classpath or no `Flyway` beans are present.
 
-![BootUI Flyway panel](./images/bootui-flyway.png)
+![BootUI Flyway panel](./images/bootui-flyway.webp)
 
 ### Liquibase
 
@@ -603,7 +603,7 @@ for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.
 fails closed per bean when its history cannot be read and degrades to a clear empty state when Liquibase is not on the
 classpath or no `SpringLiquibase` beans are present.
 
-![BootUI Liquibase panel](./images/bootui-liquibase.png)
+![BootUI Liquibase panel](./images/bootui-liquibase.webp)
 
 ## Security
 
@@ -612,7 +612,7 @@ classpath or no `SpringLiquibase` beans are present.
 The Spring Security panel inspects Spring Security filter chains and provides best-effort endpoint rule explanations. It is
 meant to explain local security wiring without exposing credentials or replacing a full security audit.
 
-![BootUI Spring Security panel](./images/bootui-spring-security.png)
+![BootUI Spring Security panel](./images/bootui-spring-security.webp)
 
 ### Security Logs
 
@@ -625,7 +625,7 @@ summarizes retained event counts by type, refreshes live over **Server-Sent Even
 and masks sensitive event data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to
 `500`; if audit support is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
-![BootUI Security Logs panel](./images/bootui-security-logs.png)
+![BootUI Security Logs panel](./images/bootui-security-logs.webp)
 
 ## Services
 
@@ -634,7 +634,7 @@ and masks sensitive event data before rendering. Responses are bounded by `bootu
 The Scheduled Tasks panel lists scheduled jobs registered with Spring scheduling infrastructure. It shows task type and
 trigger metadata so background activity is visible during local development.
 
-![BootUI Scheduled Tasks panel](./images/bootui-scheduled-tasks.png)
+![BootUI Scheduled Tasks panel](./images/bootui-scheduled-tasks.webp)
 
 ### Spring Cache
 
@@ -643,7 +643,7 @@ implementations, safe local sizes, Micrometer cache metrics when registered, and
 and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser
 confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
-![BootUI Spring Cache panel](./images/bootui-spring-cache.png)
+![BootUI Spring Cache panel](./images/bootui-spring-cache.webp)
 
 ### AI Usage
 
@@ -666,7 +666,7 @@ windows, spans, and attributes
 are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from BootUI's local telemetry
 capture, is in-memory only, and is cleared on restart.
 
-![BootUI AI Usage panel](./images/bootui-ai.png)
+![BootUI AI Usage panel](./images/bootui-ai.webp)
 
 ## Diagnostics
 
@@ -695,14 +695,14 @@ tracing is merely empty. The in-memory trace buffer is bounded by `bootui.teleme
 caps to keep misconfigured local exporters from overflowing the UI. Trace data is reset on application restart or via
 the panel's clear action.
 
-![BootUI Traces panel](./images/bootui-traces.png)
+![BootUI Traces panel](./images/bootui-traces.webp)
 
 ### Log Tail
 
 The Log Tail panel reads recent local application logs and streams new log events from the running process. It is
 intended for quick local diagnosis without leaving the BootUI console.
 
-![BootUI Log Tail panel](./images/bootui-log-tail.png)
+![BootUI Log Tail panel](./images/bootui-log-tail.webp)
 
 ### Exceptions
 
@@ -730,7 +730,7 @@ surfaced, and stack frames carry only class/method/file/line information. The in
 panel's clear action. The panel can be disabled with `bootui.panels.exceptions.enabled=false`, and clearing honors the
 panel's read-only setting.
 
-![BootUI Exceptions panel](./images/bootui-exceptions.png)
+![BootUI Exceptions panel](./images/bootui-exceptions.webp)
 
 ### HTTP Exchanges
 
@@ -745,14 +745,14 @@ exists. The default buffer retains 200 exchanges and can be changed with `bootui
 that capacity requires an application restart. If the repository is unavailable, the panel shows a clear unavailable
 state instead of implying that no traffic has occurred.
 
-![BootUI HTTP Exchanges panel](./images/bootui-http-exchanges.png)
+![BootUI HTTP Exchanges panel](./images/bootui-http-exchanges.webp)
 
 ### HTTP Probe
 
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers,
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
 
-![BootUI HTTP Probe panel](./images/bootui-http-probe.png)
+![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
 
 ## Developer tools
 
@@ -810,7 +810,7 @@ running app:
 
 See [docs/PROPERTIES.md](./PROPERTIES.md) for the `bootui.mcp.*` settings.
 
-![BootUI MCP Server panel](./images/bootui-mcp-server.png)
+![BootUI MCP Server panel](./images/bootui-mcp-server.webp)
 
 ### DevTools
 
@@ -819,7 +819,7 @@ are shown only when available and require explicit confirmation before execution
 the LiveReload server is not running, the panel shows a tip to set `spring.devtools.livereload.enabled=true` (Spring
 Boot 4 disables LiveReload by default).
 
-![BootUI DevTools panel](./images/bootui-devtools.png)
+![BootUI DevTools panel](./images/bootui-devtools.webp)
 
 ### Dev Services
 
@@ -836,7 +836,7 @@ warnings in the panel.
 > own logs will surface them in this panel. This is consistent with BootUI being a local-only, loopback-restricted
 > developer console.
 
-![BootUI Dev Services panel](./images/bootui-dev-services.png)
+![BootUI Dev Services panel](./images/bootui-dev-services.webp)
 
 ### Copilot
 
@@ -862,7 +862,7 @@ live data panels, while the backend watches the directory through a Java NIO `Wa
 [copilot-mission-control](https://github.com/DanWahlin/copilot-mission-control), which pioneered this dashboarding of
 Copilot CLI session state.
 
-![BootUI Copilot panel](./images/bootui-copilot.png)
+![BootUI Copilot panel](./images/bootui-copilot.webp)
 
 ### Claude Code
 
@@ -880,4 +880,4 @@ sidebar dims the panel when no Claude Code projects directory is found. Data is 
 under `~/.claude/`. Because Claude Code writes sessions inside per-project subdirectories, BootUI refreshes this panel
 through the shared visibility-aware auto-refresh polling used by the other live data panels.
 
-![BootUI Claude Code panel](./images/bootui-claude-code.png)
+![BootUI Claude Code panel](./images/bootui-claude-code.webp)

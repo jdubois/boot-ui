@@ -1,3 +1,19 @@
+/*
+ * Subset of Bootstrap Icons (Apache-2.0) containing only the glyphs used below,
+ * self-hosted to avoid shipping the full ~134 KB icon font and its unused CSS.
+ * Glyphs: chevron-right f285, hdd-network f40d, search f52a, shield-lock f538,
+ *         sliders f56b, window-sidebar f61f, activity f66b, cup-hot-fill f7ea.
+ * To regenerate after changing the icons used in this file:
+ *   pyftsubset bootstrap-icons.woff2 \
+ *     --unicodes=<comma-separated codepoints> \
+ *     --flavor=woff2 --output-file=bootstrap-icons-subset.woff2
+ */
+@font-face {
+  font-family: bootstrap-icons;
+  font-display: swap;
+  src: url('./bootstrap-icons-subset.woff2') format('woff2');
+}
+
 :root {
   color-scheme: light;
   --bootui-green: #198754;
