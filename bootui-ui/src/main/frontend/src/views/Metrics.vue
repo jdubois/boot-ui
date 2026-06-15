@@ -335,7 +335,7 @@ const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh
                     </td>
                     <td>
                       <span v-for="measurement in sample.measurements" :key="measurement.statistic" class="me-3">
-                        <span class="text-muted">{{ measurement.statistic }}</span>
+                        <span class="text-muted me-1">{{ measurement.statistic }}</span>
                         <code>{{ formatNumber(measurement.value) }}</code>
                       </span>
                     </td>
