@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, onMounted, ref} from 'vue'
+import {useRoute} from 'vue-router'
 import {formatClockTime, formatRelative, formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -129,6 +130,14 @@ function requestLabel(item) {
 }
 
 const {autoRefresh, loading, load} = useEventStreamRefresh('api/exceptions/stream', fetchExceptions)
+
+const route = useRoute()
+onMounted(() => {
+  const prefill = route?.query?.q
+  if (typeof prefill === 'string' && prefill) {
+    filter.value = prefill
+  }
+})
 </script>
 
 <template>

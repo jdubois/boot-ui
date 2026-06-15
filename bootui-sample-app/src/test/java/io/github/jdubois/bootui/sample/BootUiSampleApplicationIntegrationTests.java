@@ -481,6 +481,19 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void securedSqlEndpointRequiresAdminRoleAndReturnsProducts() {
+        ResponseEntity<String> withoutCredentials = getString("/api/secure/products");
+        assertThat(withoutCredentials.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> asDeveloper = getStringWithBasicAuth("/api/secure/products", "developer", "developer");
+        assertThat(asDeveloper.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        ResponseEntity<String> asAdmin = getStringWithBasicAuth("/api/secure/products", "admin", "admin");
+        assertThat(asAdmin.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(asAdmin.getBody()).startsWith("[").contains("\"name\"").contains("\"category\"");
+    }
+
+    @Test
     void dataEndpointFindsSampleJpaRepository() {
         ResponseEntity<Map> response = getMap("/bootui/api/data/repositories");
 

@@ -648,6 +648,56 @@ Acceptance criteria:
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`.
 - The panel is read-only and returns a stable unavailable DTO when no `HttpExchangeRepository` is available.
 
+### 5.14.2 Live Activity Panel
+
+Purpose: provide one diagnostics "home base" that merges BootUI's already-captured signals into a single
+reverse-chronological activity stream, plus a Symfony-style per-request profiler for drilling into a single request.
+
+Data sources:
+
+- Reuses the existing HTTP Exchanges, SQL Trace, Exceptions, Security Logs, and Health controllers/DTOs. The panel adds
+  no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
+  bounds are inherited unchanged from each source panel.
+
+Features:
+
+- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries normalized to a common shape (timestamp, type,
+  severity, one-line summary, optional duration and correlation id), sorted newest-first and capped by
+  `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
+  `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
+  method/path), so the client can nest correlated SQL, exceptions, and security events chronologically under the request
+  that produced them; the server list stays flat (KPIs, filters, and the sparkline are unaffected) and entries without a
+  precise request correlation have a null `parentId`. A `REQUEST` entry that was correlated to a Spring Security audit
+  event also carries a `securedPrincipal` (the caller's principal; null when the request had no
+  correlated security event naming a principal), so the client can flag it as authenticated with a
+  lock icon and a principal tag without opening the profiler. The client also tints `REQUEST` rows on a graduated yellow-to-red latency heat scale (crossing
+  100, 200, 500, and 1000 ms) so slower requests stand out by how slow they are.
+- A KPI strip computed from the same buffers: requests/min, error rate, p50/p95 latency, slowest endpoint, active
+  exception count, SQL/min, slowest query, health status, and heap usage.
+- Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
+  nesting of correlated children under their request (expanded by default; any active filter or free-text search
+  flattens the feed so the query spans every signal), and a
+  pause/resume control over a live feed pushed by **Server-Sent Events** (`GET /bootui/api/activity/stream`): the server
+  emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
+- A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's signals with a tiered
+  join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window, further disambiguated by the
+  request's serving thread when it is uniquely known), serving thread within the
+  request window (SQL, which carries no trace id but runs on the request's worker thread), and time window plus principal
+  (Spring Security audit events, further pinned to the request's serving thread when BootUI captured the audit event on
+  it, so a concurrent request sharing the principal cannot trade events). SQL is matched exactly by trace id when
+  present, otherwise exactly by the request's
+  serving thread; it falls back to an approximate time-window match only when the serving thread cannot be uniquely
+  identified (concurrent identical requests or async execution). Repeated identical `SELECT`s above
+  `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1.
+
+Acceptance criteria:
+
+- The panel is read-only and inherits the loopback filter, Host allow-list, cross-site write defenses, and value masking
+  from the underlying sources.
+- Sources that are absent or disabled (through their own `bootui.panels.*` toggles) simply drop out of the stream; when
+  no source is available the panel returns a stable unavailable report.
+- SQL↔request correlation is presented as approximate and never fabricates trace-id links that do not exist.
+
 ### 5.15 Profile Diff Panel
 
 Purpose: show which properties are contributed by active profile-specific property sources.
@@ -1159,6 +1209,9 @@ Initial endpoints:
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | GET/POST | Local-only MCP JSON-RPC 2.0 endpoint and status (served only while the server is enabled) |
+| `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`) |
+| `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
+| `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
 
 ### 6.5 Configuration properties
 

@@ -1,5 +1,6 @@
 <script setup>
-import {computed, ref, watch} from 'vue'
+import {computed, onMounted, ref, watch} from 'vue'
+import {useRoute} from 'vue-router'
 import PanelHeader from './components/PanelHeader.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
 import {formatNumber} from '../utils/format.js'
@@ -128,6 +129,14 @@ function isExpanded(id) {
 }
 
 watch([filter, method, statusClass], scheduleReload)
+
+const route = useRoute()
+onMounted(() => {
+  const prefill = route?.query?.q
+  if (typeof prefill === 'string' && prefill) {
+    filter.value = prefill
+  }
+})
 </script>
 
 <template>

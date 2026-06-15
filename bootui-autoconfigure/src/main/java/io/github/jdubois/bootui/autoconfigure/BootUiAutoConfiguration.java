@@ -1,5 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
+import io.github.jdubois.bootui.autoconfigure.activity.SecurityEventCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
@@ -138,6 +142,7 @@ import tools.jackson.databind.ObjectMapper;
     ClaudeCodeController.class,
     GraalVmController.class,
     CracController.class,
+    LiveActivityController.class,
     SqlTraceController.class,
     ThreadDumpController.class,
     MemoryController.class,
@@ -169,6 +174,7 @@ public class BootUiAutoConfiguration {
             GitHubController.class.getName(),
             GraalVmController.class.getName(),
             CracController.class.getName(),
+            LiveActivityController.class.getName(),
             SqlTraceController.class.getName(),
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
@@ -456,6 +462,20 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
+    public RequestCorrelationRegistry bootUiRequestCorrelationRegistry(BootUiProperties properties) {
+        // This registry feeds exact thread-based correlation, not the display list, so it is sized well
+        // above the page cap: a single page load records many static-resource requests, and undersizing
+        // it would evict an API request's correlation before the feed or profiler reads it back.
+        int capacity = Math.max(properties.getActivity().getMaxEntries() * 4, 512);
+        return new RequestCorrelationRegistry(capacity);
+    }
+
+    @Bean
+    public SecurityEventCorrelationRegistry bootUiSecurityEventCorrelationRegistry(BootUiProperties properties) {
+        return new SecurityEventCorrelationRegistry(properties.getActivity().getMaxEntries());
+    }
+
+    @Bean
     public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
@@ -522,6 +542,17 @@ public class BootUiAutoConfiguration {
         registration.addUrlPatterns(properties.getApiPath() + "/*");
         registration.setOrder(Integer.MIN_VALUE + 1);
         registration.setName("bootUiPanelAccessFilter");
+        return registration;
+    }
+
+    @Bean
+    public FilterRegistrationBean<RequestCorrelationFilter> bootUiRequestCorrelationFilterRegistration(
+            RequestCorrelationRegistry registry, BootUiProperties properties) {
+        FilterRegistrationBean<RequestCorrelationFilter> registration =
+                new FilterRegistrationBean<>(new RequestCorrelationFilter(registry, properties.getPath()));
+        registration.addUrlPatterns("/*");
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
+        registration.setName("bootUiRequestCorrelationFilter");
         return registration;
     }
 

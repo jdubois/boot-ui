@@ -53,7 +53,7 @@ class SecurityConfiguration {
     @Bean
     @Order(2)
     SecurityFilterChain adminSecurity(HttpSecurity http) throws Exception {
-        return http.securityMatcher("/admin/**", "/api/secure")
+        return http.securityMatcher("/admin/**", "/api/secure", "/api/secure/**")
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().hasRole("ADMIN"))
                 .httpBasic(withDefaults())
                 .build();

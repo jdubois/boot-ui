@@ -158,6 +158,10 @@ public class BootUiProperties {
      * Local MCP (Model Context Protocol) server settings.
      */
     private Mcp mcp = new Mcp();
+    /**
+     * Live Activity panel settings (merged activity stream and per-request profiler).
+     */
+    private Activity activity = new Activity();
 
     public Mode getEnabled() {
         return enabled;
@@ -438,6 +442,14 @@ public class BootUiProperties {
 
     public void setMcp(Mcp mcp) {
         this.mcp = mcp == null ? new Mcp() : mcp;
+    }
+
+    public Activity getActivity() {
+        return activity;
+    }
+
+    public void setActivity(Activity activity) {
+        this.activity = activity == null ? new Activity() : activity;
     }
 
     /**
@@ -1402,6 +1414,58 @@ public class BootUiProperties {
 
         public void setMaxResults(int maxResults) {
             this.maxResults = maxResults;
+        }
+    }
+
+    /**
+     * Settings for the read-only Live Activity panel, which merges BootUI's existing in-memory
+     * signal buffers (HTTP exchanges, SQL trace, exceptions, security events) into one
+     * reverse-chronological stream and offers a Symfony-style per-request profile. All data is
+     * sourced through the existing controllers, so masking, self-filtering and buffer bounds are
+     * inherited; these settings only tune presentation and correlation heuristics.
+     */
+    public static class Activity {
+
+        /**
+         * Maximum number of normalized entries returned in a single activity-stream page after
+         * merging and sorting all sources.
+         */
+        private int maxEntries = 200;
+
+        /**
+         * Threshold in milliseconds above which a request is flagged as slow in the stream and KPI
+         * strip.
+         */
+        private long requestSlowThresholdMs = 1000;
+
+        /**
+         * Number of identical normalized SELECT statements correlated to a single request above
+         * which an N+1 hint is surfaced in the per-request profile.
+         */
+        private int nPlusOneThreshold = 5;
+
+        public int getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(int maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public long getRequestSlowThresholdMs() {
+            return requestSlowThresholdMs;
+        }
+
+        public void setRequestSlowThresholdMs(long requestSlowThresholdMs) {
+            this.requestSlowThresholdMs = requestSlowThresholdMs;
+        }
+
+        public int getNPlusOneThreshold() {
+            return nPlusOneThreshold;
+        }
+
+        public void setNPlusOneThreshold(int nPlusOneThreshold) {
+            this.nPlusOneThreshold = nPlusOneThreshold;
         }
     }
 }

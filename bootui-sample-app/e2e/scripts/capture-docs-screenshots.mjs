@@ -50,6 +50,7 @@ const panelOrder = [
   ['scheduled', 'Scheduled Tasks'],
   ['spring-cache', 'Spring Cache'],
   ['ai', 'AI Usage'],
+  ['activity', 'Live Activity'],
   ['traces', 'Traces'],
   ['log-tail', 'Log Tail'],
   ['exceptions', 'Exceptions'],
@@ -1441,6 +1442,16 @@ const securityEndpoints = {
       roles: [],
       bestEffort: false,
       description: 'Protected sample endpoint.'
+    },
+    {
+      method: 'GET',
+      pattern: '/api/secure/products',
+      handler: 'HelloController#secureProducts',
+      chainIndex: 1,
+      rule: 'authenticated',
+      roles: [],
+      bestEffort: false,
+      description: 'Secured, SQL-backed sample endpoint.'
     }
   ]
 }
@@ -1786,7 +1797,7 @@ const security = {
     "These checks are review prompts, not verdicts, and should be validated against the application's threat model.",
   filterChains: [
     'Or [PathPattern [/bootui], PathPattern [/bootui/**], PathPattern [/bootui/api], PathPattern [/bootui/api/**]]',
-    'Or [PathPattern [/admin/**], PathPattern [/api/secure]]',
+    'Or [PathPattern [/admin/**], PathPattern [/api/secure], PathPattern [/api/secure/**]]',
     'any request'
   ],
   filterChainsAnalyzed: 3,
@@ -2752,6 +2763,212 @@ const sqlTrace = {
   warnings: []
 }
 
+const activityRequestId = 'act-req-1'
+
+const activityReport = {
+  available: true,
+  entries: [
+    {
+      id: 'act-req-4',
+      type: 'REQUEST',
+      timestamp: nowMillis - 800,
+      severity: 'OK',
+      summary: 'GET /api/sample/search → 200',
+      detail: null,
+      durationMs: 340,
+      correlationId: null,
+      method: 'GET',
+      path: '/api/sample/search',
+      status: 200,
+      thread: 'http-nio-8080-exec-4',
+      profileable: true
+    },
+    {
+      id: activityRequestId,
+      type: 'REQUEST',
+      timestamp: nowMillis - 1500,
+      severity: 'SLOW',
+      summary: 'GET /api/sample/products → 200',
+      detail: null,
+      durationMs: 1240,
+      correlationId: traceId,
+      method: 'GET',
+      path: '/api/sample/products',
+      status: 200,
+      thread: 'http-nio-8080-exec-3',
+      profileable: true,
+      securedPrincipal: 'alice'
+    },
+    {
+      id: 'act-sql-1',
+      type: 'SQL',
+      timestamp: nowMillis - 1450,
+      severity: 'OK',
+      summary: 'select * from products where active = ?',
+      detail: null,
+      durationMs: 18,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'http-nio-8080-exec-3',
+      profileable: false,
+      parentId: activityRequestId
+    },
+    {
+      id: 'act-sec-prod',
+      type: 'SECURITY',
+      timestamp: nowMillis - 1400,
+      severity: 'OK',
+      summary: 'AUTHENTICATION_SUCCESS · alice',
+      detail: null,
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: 'http-nio-8080-exec-3',
+      profileable: false,
+      parentId: activityRequestId
+    },
+    {
+      id: 'act-exc-1',
+      type: 'EXCEPTION',
+      timestamp: nowMillis - 2200,
+      severity: 'ERROR',
+      summary: 'java.lang.IllegalStateException: Sample failure for the BootUI Exceptions panel demo',
+      detail: 'SampleController.java:63 ×3',
+      durationMs: null,
+      correlationId: null,
+      method: 'GET',
+      path: '/api/sample/boom',
+      status: null,
+      thread: 'http-nio-8080-exec-2',
+      profileable: false,
+      parentId: 'act-req-2'
+    },
+    {
+      id: 'act-req-2',
+      type: 'REQUEST',
+      timestamp: nowMillis - 2300,
+      severity: 'ERROR',
+      summary: 'GET /api/sample/boom → 500',
+      detail: null,
+      durationMs: 22,
+      correlationId: null,
+      method: 'GET',
+      path: '/api/sample/boom',
+      status: 500,
+      thread: 'http-nio-8080-exec-2',
+      profileable: true
+    },
+    {
+      id: 'act-sec-1',
+      type: 'SECURITY',
+      timestamp: nowMillis - 3100,
+      severity: 'WARN',
+      summary: 'AUTHENTICATION_FAILURE · bob',
+      detail: null,
+      durationMs: null,
+      correlationId: null,
+      method: null,
+      path: null,
+      status: null,
+      thread: null,
+      profileable: false
+    },
+    {
+      id: 'act-req-3',
+      type: 'REQUEST',
+      timestamp: nowMillis - 4200,
+      severity: 'OK',
+      summary: 'GET /api/sample/hello → 200',
+      detail: null,
+      durationMs: 8,
+      correlationId: null,
+      method: 'GET',
+      path: '/api/sample/hello',
+      status: 200,
+      thread: 'http-nio-8080-exec-1',
+      profileable: true
+    }
+  ],
+  typeCounts: {REQUEST: 4, SQL: 1, EXCEPTION: 1, SECURITY: 2},
+  kpis: {
+    requestsPerMinute: 42.5,
+    errorRatePercent: 12.5,
+    p50LatencyMs: 14,
+    p95LatencyMs: 1240,
+    slowestEndpoint: '/api/sample/products',
+    slowestEndpointMs: 1240,
+    activeExceptionCount: 2,
+    sqlPerMinute: 18.0,
+    slowestQueryMs: 18,
+    healthStatus: 'UP',
+    heapUsedBytes: 268_435_456,
+    heapMaxBytes: 1_073_741_824
+  },
+  sources: ['HTTP Exchanges', 'SQL Trace', 'Exceptions', 'Security Logs'],
+  warnings: []
+}
+
+const activityProfile = {
+  available: true,
+  unavailableReason: null,
+  request: {
+    id: activityRequestId,
+    timestamp: new Date(nowMillis - 1500).toISOString(),
+    method: 'GET',
+    path: '/api/sample/products',
+    query: 'category=tools',
+    uri: '/api/sample/products?category=tools',
+    status: 200,
+    statusFamily: '2xx',
+    durationMs: 1240,
+    responseSizeBytes: 1864,
+    remoteAddress: '127.0.0.1',
+    principal: 'alice',
+    sessionId: 'session-a1b2',
+    traceId,
+    requestHeaders: [],
+    responseHeaders: []
+  },
+  sql: [
+    sqlTraceEntry(11, 5, sqlSelectProductsActive, 'SELECT', 18, true, null, 'conn-1', 2),
+    sqlTraceEntry(12, 30, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2),
+    sqlTraceEntry(13, 60, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2),
+    sqlTraceEntry(14, 90, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2),
+    sqlTraceEntry(15, 120, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2),
+    sqlTraceEntry(16, 150, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2)
+  ],
+  sqlGroups: [
+    {
+      sql: sqlSelectProductById,
+      category: 'SELECT',
+      executions: 5,
+      totalDurationMillis: 30,
+      maxDurationMillis: 6,
+      potentialNPlusOne: true
+    },
+    {
+      sql: sqlSelectProductsActive,
+      category: 'SELECT',
+      executions: 1,
+      totalDurationMillis: 18,
+      maxDurationMillis: 18,
+      potentialNPlusOne: false
+    }
+  ],
+  sqlCorrelationApproximate: true,
+  exceptions: [],
+  trace: traceDetail,
+  timing: {totalMs: 1240, sqlMs: 48, sqlCount: 6, sqlPercent: 3.87},
+  notes: [
+    'SQL is correlated by time window only (statements carry no trace id), so it may include or miss statements under concurrent requests.',
+    `Trace matched by id ${traceId}.`
+  ]
+}
+
 const screenshots = [
   [
     'overview',
@@ -2851,6 +3068,7 @@ const screenshots = [
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
   ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
+  ['activity', 'Live Activity', 'bootui-activity.png', waitForText('GET /api/sample/products')],
   ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
   [
@@ -3338,6 +3556,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'traces') return fulfillJson(route, traceReport)
   if (endpoint === `traces/${traceId}`) return fulfillJson(route, traceDetail)
   if (endpoint === 'exceptions') return fulfillJson(route, exceptions)
+  if (endpoint === 'activity') return fulfillJson(route, activityReport)
+  if (endpoint === `activity/request/${activityRequestId}`) return fulfillJson(route, activityProfile)
   if (endpoint.startsWith('exceptions/'))
     return fulfillJson(route, exceptionDetail(endpoint.slice('exceptions/'.length)))
   if (endpoint === 'ai/overview') return fulfillJson(route, aiOverview)
