@@ -1,7 +1,5 @@
 import {nextTick, onMounted, onUnmounted, watch} from 'vue'
 import {defineClientConfig, onContentUpdated, useRoute} from 'vuepress/client'
-import 'bootstrap/dist/css/bootstrap.min.css'
-import 'bootstrap-icons/font/bootstrap-icons.css'
 import './styles/index.css'
 import ScreenshotCarousel from './components/ScreenshotCarousel.vue'
 

@@ -1,12 +1,12 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
-import overviewImage from '../../images/bootui-overview.png'
-import activityImage from '../../images/bootui-activity.png'
-import githubImage from '../../images/bootui-github.png'
-import jvmTuningImage from '../../images/bootui-jvm-tuning.png'
-import heapDumpImage from '../../images/bootui-heap-dump.png'
-import graalvmImage from '../../images/bootui-graalvm.png'
-import copilotImage from '../../images/bootui-copilot.png'
+import overviewImage from '../../images/bootui-overview.webp'
+import activityImage from '../../images/bootui-activity.webp'
+import githubImage from '../../images/bootui-github.webp'
+import jvmTuningImage from '../../images/bootui-jvm-tuning.webp'
+import heapDumpImage from '../../images/bootui-heap-dump.webp'
+import graalvmImage from '../../images/bootui-graalvm.webp'
+import copilotImage from '../../images/bootui-copilot.webp'
 
 const slides = [
   {
@@ -144,7 +144,18 @@ onBeforeUnmount(stopAutoplay)
         aria-label="Previous panel"
         @click="previous"
       >
-        <i class="bi bi-chevron-left" aria-hidden="true"></i>
+        <svg
+          class="bootui-carousel-icon"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"
+          />
+        </svg>
       </button>
       <button
         type="button"
@@ -152,7 +163,18 @@ onBeforeUnmount(stopAutoplay)
         aria-label="Next panel"
         @click="next"
       >
-        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+        <svg
+          class="bootui-carousel-icon"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708"
+          />
+        </svg>
       </button>
 
       <div class="bootui-carousel-caption" aria-live="polite">
@@ -229,13 +251,17 @@ onBeforeUnmount(stopAutoplay)
   background: var(--bootui-surface);
   color: var(--bootui-text);
   box-shadow: var(--bootui-shadow-sm);
-  font-size: 1.25rem;
   cursor: pointer;
   opacity: 0.92;
   transition:
     background 160ms ease,
     color 160ms ease,
     opacity 160ms ease;
+}
+
+.bootui-carousel-icon {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .bootui-carousel-control:hover {
@@ -319,7 +345,11 @@ onBeforeUnmount(stopAutoplay)
   .bootui-carousel-control {
     width: 2.25rem;
     height: 2.25rem;
-    font-size: 1rem;
+  }
+
+  .bootui-carousel-icon {
+    width: 0.95rem;
+    height: 0.95rem;
   }
 }
 

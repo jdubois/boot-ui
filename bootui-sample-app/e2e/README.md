@@ -89,7 +89,8 @@ npm test
 ## Documentation screenshots
 
 The documentation screenshots under `../../docs/images/` are generated from the
-Vue app with deterministic mocked API responses:
+Vue app with deterministic mocked API responses and written as WebP (quality 80,
+1600x900) to keep the documentation site lightweight:
 
 ```bash
 npm run screenshots

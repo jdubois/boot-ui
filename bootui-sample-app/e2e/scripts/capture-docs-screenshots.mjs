@@ -3,6 +3,7 @@ import {spawn} from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
+import sharp from 'sharp'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const e2eDir = path.resolve(__dirname, '..')
@@ -2973,7 +2974,7 @@ const screenshots = [
   [
     'overview',
     'Overview',
-    'bootui-overview.png',
+    'bootui-overview.webp',
     async (page) => {
       await page.getByText('Understand your Spring Boot app').waitFor()
       await page.getByRole('button', {name: /Run all scanners/}).click()
@@ -2981,12 +2982,12 @@ const screenshots = [
       await page.getByText('1 security alert(s)').waitFor()
     }
   ],
-  ['github', 'GitHub', 'bootui-github.png', waitForText('Open pull requests')],
-  ['health', 'Health', 'bootui-health.png', waitForText('Component tree')],
+  ['github', 'GitHub', 'bootui-github.webp', waitForText('Open pull requests')],
+  ['health', 'Health', 'bootui-health.webp', waitForText('Component tree')],
   [
     'http-sessions',
     'HTTP Sessions',
-    'bootui-http-sessions.png',
+    'bootui-http-sessions.webp',
     async (page) => {
       await page.getByText('session-a1b2...').waitFor()
       await page
@@ -2999,37 +3000,37 @@ const screenshots = [
   [
     'metrics',
     'Metrics',
-    'bootui-metrics.png',
+    'bootui-metrics.webp',
     async (page) => {
       await page.getByText('jvm.memory.used').first().waitFor()
       await page.waitForTimeout(2300)
     }
   ],
-  ['live-memory', 'Live Memory', 'bootui-live-memory.png', waitForText('Memory Pools')],
-  ['jvm-tuning', 'JVM Tuning', 'bootui-jvm-tuning.png', waitForText('Bare metal JVM calculator')],
+  ['live-memory', 'Live Memory', 'bootui-live-memory.webp', waitForText('Memory Pools')],
+  ['jvm-tuning', 'JVM Tuning', 'bootui-jvm-tuning.webp', waitForText('Bare metal JVM calculator')],
   [
     'heap-dump',
     'Heap Dump',
-    'bootui-heap-dump.png',
+    'bootui-heap-dump.webp',
     async (page) => {
       await page.getByText('Top classes by retained size').waitFor()
       await page.getByText('java.lang.String').first().waitFor()
     }
   ],
-  ['threads', 'Threads', 'bootui-threads.png', waitForText('http-nio-8080-exec-1')],
-  ['startup', 'Startup Timeline', 'bootui-startup-timeline.png', waitForText('spring.context.refresh')],
-  ['graalvm', 'GraalVM', 'bootui-graalvm.png', waitForText('Reflective constructor access needs metadata')],
-  ['crac', 'CRaC', 'bootui-crac.png', waitForText('Open resources held in fields must be released at checkpoint')],
-  ['config', 'Configuration', 'bootui-configuration.png', waitForText('sample.greeting')],
-  ['profile-diff', 'Profile Diff', 'bootui-profile-diff.png', waitForText('classpath:/application-dev.properties')],
-  ['loggers', 'Loggers', 'bootui-loggers.png', waitForText('io.github.jdubois.bootui')],
-  ['beans', 'Beans', 'bootui-beans.png', waitForText('sampleController')],
-  ['conditions', 'Conditions', 'bootui-conditions.png', waitForText('BootUiAutoConfiguration')],
-  ['mappings', 'Mappings', 'bootui-mappings.png', waitForText('/api/sample/products')],
+  ['threads', 'Threads', 'bootui-threads.webp', waitForText('http-nio-8080-exec-1')],
+  ['startup', 'Startup Timeline', 'bootui-startup-timeline.webp', waitForText('spring.context.refresh')],
+  ['graalvm', 'GraalVM', 'bootui-graalvm.webp', waitForText('Reflective constructor access needs metadata')],
+  ['crac', 'CRaC', 'bootui-crac.webp', waitForText('Open resources held in fields must be released at checkpoint')],
+  ['config', 'Configuration', 'bootui-configuration.webp', waitForText('sample.greeting')],
+  ['profile-diff', 'Profile Diff', 'bootui-profile-diff.webp', waitForText('classpath:/application-dev.properties')],
+  ['loggers', 'Loggers', 'bootui-loggers.webp', waitForText('io.github.jdubois.bootui')],
+  ['beans', 'Beans', 'bootui-beans.webp', waitForText('sampleController')],
+  ['conditions', 'Conditions', 'bootui-conditions.webp', waitForText('BootUiAutoConfiguration')],
+  ['mappings', 'Mappings', 'bootui-mappings.webp', waitForText('/api/sample/products')],
   [
     'database-connection-pools',
     'Database Connection Pools',
-    'bootui-database-connection-pools.png',
+    'bootui-database-connection-pools.webp',
     async (page) => {
       await page.getByText('HikariPool-1').first().waitFor()
       await page.getByText('jdbc:postgresql://localhost:5432/bootui_sample').waitFor()
@@ -3039,7 +3040,7 @@ const screenshots = [
   [
     'sql-trace',
     'SQL Trace',
-    'bootui-sql-trace.png',
+    'bootui-sql-trace.webp',
     async (page) => {
       await page.getByText('Most frequent statements').waitFor()
       await page.getByText('possible N+1').waitFor()
@@ -3050,31 +3051,31 @@ const screenshots = [
   [
     'data',
     'Spring Data',
-    'bootui-data.png',
+    'bootui-data.webp',
     async (page) => {
       await page.getByText('ProductRepository').waitFor()
       await page.getByRole('button', {name: /ProductRepository/}).click()
       await page.getByText('findByActiveTrueOrderByNameAsc').waitFor()
     }
   ],
-  ['hibernate', 'Hibernate', 'bootui-hibernate.png', waitForText('FetchType.EAGER')],
-  ['flyway', 'Flyway', 'bootui-flyway.png', waitForText('V3__add_catalog_tags.sql')],
-  ['liquibase', 'Liquibase', 'bootui-liquibase.png', waitForText('003-add-location')],
-  ['spring-security', 'Spring Security', 'bootui-spring-security.png', waitForText('/api/sample/hello')],
-  ['security-logs', 'Security Logs', 'bootui-security-logs.png', waitForText('AUTHENTICATION_SUCCESS')],
-  ['security', 'Security', 'bootui-security.png', waitForText('SEC-ACT-002')],
-  ['pentesting', 'Pentesting', 'bootui-pentesting.png', waitForText('Missing hardening response headers')],
-  ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.png', waitForText('GHSA-example-001')],
-  ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.png', waitForText('EchoScheduler.echo')],
-  ['spring-cache', 'Spring Cache', 'bootui-spring-cache.png', waitForText('sample-products')],
-  ['ai', 'AI Usage', 'bootui-ai.png', waitForText('Token usage')],
-  ['activity', 'Live Activity', 'bootui-activity.png', waitForText('GET /api/sample/products')],
-  ['traces', 'Traces', 'bootui-traces.png', waitForText('POST /api/chat')],
-  ['log-tail', 'Log Tail', 'bootui-log-tail.png', waitForText('Started BootUI sample application')],
+  ['hibernate', 'Hibernate', 'bootui-hibernate.webp', waitForText('FetchType.EAGER')],
+  ['flyway', 'Flyway', 'bootui-flyway.webp', waitForText('V3__add_catalog_tags.sql')],
+  ['liquibase', 'Liquibase', 'bootui-liquibase.webp', waitForText('003-add-location')],
+  ['spring-security', 'Spring Security', 'bootui-spring-security.webp', waitForText('/api/sample/hello')],
+  ['security-logs', 'Security Logs', 'bootui-security-logs.webp', waitForText('AUTHENTICATION_SUCCESS')],
+  ['security', 'Security', 'bootui-security.webp', waitForText('SEC-ACT-002')],
+  ['pentesting', 'Pentesting', 'bootui-pentesting.webp', waitForText('Missing hardening response headers')],
+  ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.webp', waitForText('GHSA-example-001')],
+  ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.webp', waitForText('EchoScheduler.echo')],
+  ['spring-cache', 'Spring Cache', 'bootui-spring-cache.webp', waitForText('sample-products')],
+  ['ai', 'AI Usage', 'bootui-ai.webp', waitForText('Token usage')],
+  ['activity', 'Live Activity', 'bootui-activity.webp', waitForText('GET /api/sample/products')],
+  ['traces', 'Traces', 'bootui-traces.webp', waitForText('POST /api/chat')],
+  ['log-tail', 'Log Tail', 'bootui-log-tail.webp', waitForText('Started BootUI sample application')],
   [
     'exceptions',
     'Exceptions',
-    'bootui-exceptions.png',
+    'bootui-exceptions.webp',
     async (page) => {
       await page.getByText('IllegalStateException').first().waitFor()
       await page.getByRole('button', {name: 'Open'}).first().click()
@@ -3084,7 +3085,7 @@ const screenshots = [
   [
     'http-exchanges',
     'HTTP Exchanges',
-    'bootui-http-exchanges.png',
+    'bootui-http-exchanges.webp',
     async (page) => {
       await page.getByText('/api/sample/products').waitFor()
       await page
@@ -3097,24 +3098,24 @@ const screenshots = [
   [
     'http-probe',
     'HTTP Probe',
-    'bootui-http-probe.png',
+    'bootui-http-probe.webp',
     async (page) => {
       await page.getByPlaceholder('/api/sample/hello').fill('/api/sample/products')
       await page.getByRole('button', {name: 'Send'}).click()
       await page.getByText('200 OK').waitFor()
     }
   ],
-  ['architecture', 'Architecture', 'bootui-architecture.png', waitForText('Packages should be free of cycles')],
-  ['rest-api', 'REST API', 'bootui-rest-api.png', waitForText("Don't expose JPA entities in responses")],
-  ['spring', 'Spring', 'bootui-spring.png', waitForText('Prefer RestClient over RestTemplate')],
-  ['memory', 'Memory', 'bootui-memory.png', waitForText('Old generation is near its maximum')],
-  ['mcp-server', 'MCP Server', 'bootui-mcp-server.png', waitForText('Client configuration')],
-  ['devtools', 'DevTools', 'bootui-devtools.png', waitForText('Trigger LiveReload')],
-  ['dev-services', 'Dev Services', 'bootui-dev-services.png', waitForText('postgres')],
+  ['architecture', 'Architecture', 'bootui-architecture.webp', waitForText('Packages should be free of cycles')],
+  ['rest-api', 'REST API', 'bootui-rest-api.webp', waitForText("Don't expose JPA entities in responses")],
+  ['spring', 'Spring', 'bootui-spring.webp', waitForText('Prefer RestClient over RestTemplate')],
+  ['memory', 'Memory', 'bootui-memory.webp', waitForText('Old generation is near its maximum')],
+  ['mcp-server', 'MCP Server', 'bootui-mcp-server.webp', waitForText('Client configuration')],
+  ['devtools', 'DevTools', 'bootui-devtools.webp', waitForText('Trigger LiveReload')],
+  ['dev-services', 'Dev Services', 'bootui-dev-services.webp', waitForText('postgres')],
   [
     'copilot',
     'Copilot',
-    'bootui-copilot.png',
+    'bootui-copilot.webp',
     async (page) => {
       await page.getByText('Copilot activity overview').waitFor()
       await page.getByText('session-bootui-2026-001').first().click()
@@ -3124,7 +3125,7 @@ const screenshots = [
   [
     'claude-code',
     'Claude Code',
-    'bootui-claude-code.png',
+    'bootui-claude-code.webp',
     async (page) => {
       await page.getByText('Claude Code activity overview').waitFor()
       await page.getByText(claudeCodeSessionId).first().click()
@@ -3473,11 +3474,12 @@ try {
       document.querySelector('.bootui-workspace')?.scrollTo(0, 0)
     })
     await page.waitForTimeout(250)
-    await page.screenshot({
-      path: path.join(imagesDir, fileName),
+    const pngBuffer = await page.screenshot({
       fullPage: false,
       animations: 'disabled'
     })
+    const webpBuffer = await sharp(pngBuffer).webp({quality: 80, effort: 6}).toBuffer()
+    await fs.writeFile(path.join(imagesDir, fileName), webpBuffer)
     console.log(`Captured ${fileName}`)
   }
 } finally {
