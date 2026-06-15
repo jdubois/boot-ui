@@ -25,7 +25,7 @@ features:
 footer: Apache-2.0 Licensed | BootUI
 ---
 
-![BootUI overview](./images/bootui-overview.webp)
+<ScreenshotCarousel />
 
 ## Start here
 

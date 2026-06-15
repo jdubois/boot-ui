@@ -609,19 +609,13 @@ body {
   display: contents;
 }
 
-.vp-home > [vp-content] > div > p:first-child {
+.vp-home > [vp-content] > div > .bootui-home-carousel {
   order: 3;
   width: 100%;
   margin: 2rem 0 0;
 }
 
-.vp-home > [vp-content] > div > p:first-child img[src*='bootui-overview'] {
-  width: 100%;
-  margin: 0;
-  box-shadow: var(--bootui-shadow-md);
-}
-
-.vp-home > [vp-content] > div > :not(p:first-child) {
+.vp-home > [vp-content] > div > :not(.bootui-home-carousel) {
   order: 4;
 }
 
