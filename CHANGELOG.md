@@ -7,6 +7,58 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-15
+
+Feature release headlined by a new **Live Activity** panel — a diagnostics "home base" that merges BootUI's already
+captured signals into one reverse-chronological stream and adds a Symfony-style per-request profiler — and a move to
+**Server-Sent Events** for the event-driven panels so they update the moment something happens instead of polling on a
+timer. It also adds keyboard shortcuts and number-key navigation to the command palette, a fourth Ahead-of-Time
+sample-app Docker image (Spring AOT + JDK AOT cache), simplifies the Overview panel, upgrades the sample app to Spring AI
+2.0.0 GA, and quiets the tracing libraries' DEBUG noise.
+
+### Added
+
+- **Live Activity panel** — a new Overview panel that is the diagnostics home base: one reverse-chronological stream of
+  everything the application just did plus a per-request profiler. It adds no new instrumentation, instead reusing the
+  controllers and DTOs that back the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every value is
+  already masked, self-filtered, and bounded. The stream merges `REQUEST`, `SQL`, `EXCEPTION`, and `SECURITY` entries
+  with a colour-coded severity, a latency heat scale, a requests-over-time sparkline, a KPI strip (requests/min, error
+  rate, p50/p95 latency, SQL rate, slowest endpoint, active exceptions, health, heap), and client-side filters that
+  persist in the browser. Correlated SQL, exceptions, and security events are nested chronologically under the request
+  that produced them — pinned by trace id, by the request's serving thread, or by method/path — and the per-request
+  profiler correlates one request's signals with a tiered join that degrades gracefully and labels approximate matches
+  rather than fabricating links, flags likely N+1 access patterns, and offers a **Copy profile** action. The merged feed
+  is pushed over **Server-Sent Events** (`GET /bootui/api/activity/stream`) and can be paused and resumed. The panel is
+  read-only and inherits BootUI's full safety model. Configurable under `bootui.activity.*` (#388).
+- **Server-Sent Events live updates** for the Exceptions, SQL Trace, and Security Logs panels. Each panel subscribes to a
+  per-panel `/stream` endpoint and re-fetches the moment a signal is captured (or the buffer is cleared or
+  paused/resumed) instead of polling on a fixed interval. The push carries no data — masking, truncation, and
+  value-exposure rules still apply through the regular endpoint — bursts are coalesced into a single refresh, the stream
+  is closed when the auto-refresh toggle is off or the tab is hidden, and the panels fall back to their initial load when
+  Server-Sent Events are unavailable (#386).
+- **Command palette keyboard shortcuts and number-key navigation** — each panel now has a two-letter shortcut that the
+  palette matches and displays, and the unfiltered palette can be navigated with the number keys `1`–`9` (#381).
+- **AOT-optimized sample-app Docker image** (`Dockerfile-aot`, `docker-compose-aot.yml`, published as
+  `jdubois/bootui-sample-app-aot`) — a fourth startup-optimization option that combines Spring AOT processing with a JDK
+  AOT (Ahead-of-Time) cache on the plain JVM image for significantly faster startup, documented in
+  [`docs/TRY-SAMPLE-APP.md`](docs/TRY-SAMPLE-APP.md) (#383, #387).
+- Sample-app **action-lab buttons** that exercise more BootUI panels for richer demos and integration coverage (#389).
+- New `bootui.activity.*` configuration properties, catalogued in [`docs/PROPERTIES.md`](docs/PROPERTIES.md).
+
+### Changed
+
+- **Simplified the Overview panel** by removing the live Health and Memory cards. The panel now opens with the hero
+  banner and quick links and leads straight into the on-demand security & health scoring dashboard; the dedicated Health,
+  Live Memory, and Heap Dump panels (also reachable from the Live Activity KPI strip) remain the home for that detail
+  (#396).
+- **Quieted the tracing libraries' DEBUG noise at full sampling.** Because BootUI raises
+  `management.tracing.sampling.probability` to `1.0` for local development, the OpenTelemetry SDK and Micrometer Tracing
+  span/propagation code runs on every request and floods the console with low-value lines when the host's root logger is
+  at `DEBUG`. BootUI now pins `logging.level.io.opentelemetry` and `logging.level.io.micrometer.tracing` to `INFO` as
+  overridable defaults while the Traces panel is active; set either key yourself to opt back in (#394).
+- Upgraded the sample app to **Spring AI 2.0.0 GA** (from `2.0.0-RC1`) (#378).
+- Bumped `esbuild` from `0.28.0` to `0.28.1` (#380).
+
 ### Fixed
 
 - **`NoSuchMethodError` opening the Configuration or MCP Server panel on older Jackson 3** — `ConfigMetadataCatalog` now
@@ -14,6 +66,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which was only added in jackson-databind 3.1. Host applications whose classpath resolves an earlier Jackson 3 (for
   example 3.0.x dragged in by a transitive dependency) no longer crash `ConfigController` start-up with
   `java.lang.NoSuchMethodError: 'java.lang.Object tools.jackson.databind.ObjectMapper.treeToValue(...)'` (#384).
+- **SQL Trace no longer fails under Spring Boot DevTools' class-loader split.** When DevTools loads the application on its
+  restart class loader, the data source's own loader (the base loader, where the driver/pool jar lives) cannot see
+  BootUI's `SqlTracedDataSource` marker, so creating the JDBC tracing proxy threw. BootUI now defines the proxy with its
+  own class loader — a descendant of the data source's that can see both the marker and the JDK's JDBC interfaces — so
+  SQL tracing keeps working during DevTools-powered development (#395).
+- Updated the Claude Code panel icon (#392).
+- Fixed the documentation site's home-page `<title>` tag (#382) and a duplicate `@vuepress/plugin-markdown-tab` warning
+  during the docs build (#379).
 
 ## [1.4.0] - 2026-06-12
 
