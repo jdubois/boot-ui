@@ -22,6 +22,7 @@ let reconnectTimer = null
 
 const restartReady = computed(() => status.value?.restartAvailable && !status.value?.restartPending)
 const liveReloadReady = computed(() => status.value?.liveReloadAvailable)
+const liveReloadConnections = computed(() => status.value?.liveReloadConnections ?? 0)
 const liveReloadDisabled = computed(
   () =>
     !!status.value &&
@@ -55,7 +56,7 @@ async function triggerLiveReload() {
       await load()
       return
     }
-    flash(result.message || 'LiveReload triggered.', 'success')
+    flash(result.message || 'LiveReload triggered.', result.status === 'triggered' ? 'success' : 'warning')
     await load()
   } catch (e) {
     flash(formatLoadError(e, 'Could not trigger LiveReload'), 'danger')
@@ -182,6 +183,22 @@ onUnmounted(clearReconnectTimer)
                 >LiveReload port: <code>{{ status.liveReloadPort }}</code></span
               >
               <span v-else>{{ status.liveReloadUnavailableReason || 'No LiveReload port reported.' }}</span>
+              <span v-if="liveReloadReady"
+                >&nbsp;&middot; Connected clients: <code>{{ liveReloadConnections }}</code></span
+              >
+            </div>
+
+            <div
+              v-if="liveReloadReady && liveReloadConnections === 0"
+              class="alert alert-warning small d-flex align-items-start gap-2 py-2 px-3 mb-3"
+              role="note"
+            >
+              <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+              <div>
+                No browsers are connected to the LiveReload server, so triggering a reload has no visible effect. Spring
+                Boot does not inject <code>livereload.js</code>: install the LiveReload browser extension and reload the
+                page you want to refresh so it connects, then trigger again.
+              </div>
             </div>
 
             <div

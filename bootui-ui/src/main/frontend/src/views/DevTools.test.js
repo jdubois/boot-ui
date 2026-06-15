@@ -14,6 +14,7 @@ function devToolsStatus() {
     restartUnavailableReason: 'Spring Boot DevTools is not on the classpath.',
     liveReloadAvailable: false,
     liveReloadPort: null,
+    liveReloadConnections: 0,
     liveReloadUnavailableReason: 'Spring Boot DevTools is not on the classpath.'
   }
 }
@@ -78,5 +79,68 @@ describe('DevTools', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('spring.devtools.livereload.enabled=true')
+  })
+
+  it('warns when LiveReload is available but no browsers are connected', async () => {
+    const status = {
+      ...devToolsStatus(),
+      liveReloadAvailable: true,
+      liveReloadPort: 35729,
+      liveReloadConnections: 0,
+      liveReloadUnavailableReason: null
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(status)))
+
+    wrapper = mount(DevTools)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Connected clients:')
+    expect(wrapper.text()).toContain('No browsers are connected to the LiveReload server')
+  })
+
+  it('does not warn when LiveReload clients are connected', async () => {
+    const status = {
+      ...devToolsStatus(),
+      liveReloadAvailable: true,
+      liveReloadPort: 35729,
+      liveReloadConnections: 2,
+      liveReloadUnavailableReason: null
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(status)))
+
+    wrapper = mount(DevTools)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Connected clients:')
+    expect(wrapper.text()).not.toContain('No browsers are connected to the LiveReload server')
+  })
+
+  it('flashes a warning when triggering LiveReload reaches no connected clients', async () => {
+    const status = {
+      ...devToolsStatus(),
+      liveReloadAvailable: true,
+      liveReloadPort: 35729,
+      liveReloadConnections: 0,
+      liveReloadUnavailableReason: null
+    }
+    const fetchMock = vi.fn().mockImplementation((url) => {
+      if (url === 'api/devtools/livereload') {
+        return Promise.resolve(
+          jsonResponse({action: 'livereload', status: 'no_clients', message: 'no browsers are connected'})
+        )
+      }
+      return Promise.resolve(jsonResponse(status))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(DevTools)
+    await flushPromises()
+
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    const banner = wrapper.findAll('.alert').find((alert) => alert.find('.btn-close').exists())
+    expect(banner.classes()).toContain('alert-warning')
+    expect(banner.text()).toContain('no browsers are connected')
   })
 })
