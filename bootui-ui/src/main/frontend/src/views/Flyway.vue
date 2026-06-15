@@ -102,7 +102,7 @@ onMounted(load)
 
 <template>
   <div>
-    <PanelHeader icon="bi-arrow-up-right-circle" title="Flyway migrations" :error="error" />
+    <PanelHeader icon="bi-database-up" title="Flyway migrations" :error="error" />
 
     <FlashBanner :message="banner" @dismiss="clear" />
 

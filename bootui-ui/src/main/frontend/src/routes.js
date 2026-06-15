@@ -243,7 +243,7 @@ export const routes = [
     path: '/flyway',
     name: 'flyway',
     component: Flyway,
-    meta: {group: groups.database, icon: 'bi-arrow-up-right-circle', title: 'Flyway', shortcut: 'fw'}
+    meta: {group: groups.database, icon: 'bi-database-up', title: 'Flyway', shortcut: 'fw'}
   },
   {
     path: '/liquibase',
