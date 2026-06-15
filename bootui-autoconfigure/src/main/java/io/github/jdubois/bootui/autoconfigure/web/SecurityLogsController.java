@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogDataDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogTypeSummaryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
+import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -109,6 +110,16 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
     @Override
     public void onApplicationEvent(AuditApplicationEvent event) {
         changeStream.signal();
+    }
+
+    /**
+     * Releases the change stream's scheduler thread and SSE emitters when the context shuts down so a
+     * Spring Boot DevTools restart does not leak the {@code bootui-security-logs-stream} daemon thread
+     * (and the discarded context behind it) on every live reload.
+     */
+    @PreDestroy
+    void shutdown() {
+        changeStream.close();
     }
 
     @ExceptionHandler({DateTimeParseException.class, IllegalArgumentException.class})

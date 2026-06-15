@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.ExceptionFrameDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
+import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
@@ -49,6 +50,8 @@ public class ExceptionsController {
 
     private final BootUiChangeStream changeStream;
 
+    private Runnable storeUnsubscribe;
+
     @Autowired
     public ExceptionsController(
             ObjectProvider<ExceptionStore> storeProvider, BootUiProperties properties, BootUiExposure exposure) {
@@ -58,8 +61,22 @@ public class ExceptionsController {
         this.changeStream = new BootUiChangeStream("exceptions");
         ExceptionStore store = storeProvider.getIfAvailable();
         if (store != null) {
-            store.subscribe(changeStream::signal);
+            this.storeUnsubscribe = store.subscribe(changeStream::signal);
         }
+    }
+
+    /**
+     * Releases the change stream's scheduler thread and SSE emitters, and detaches the store listener,
+     * when the context shuts down so a Spring Boot DevTools restart does not leak the
+     * {@code bootui-exceptions-stream} daemon thread (and the discarded context behind it).
+     */
+    @PreDestroy
+    void shutdown() {
+        if (storeUnsubscribe != null) {
+            storeUnsubscribe.run();
+            storeUnsubscribe = null;
+        }
+        changeStream.close();
     }
 
     ExceptionsController(ObjectProvider<ExceptionStore> storeProvider, BootUiProperties properties) {

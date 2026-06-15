@@ -9,6 +9,7 @@ import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,10 +62,47 @@ final class SqlTracingProxies {
         if (dataSource instanceof SqlTracedDataSource) {
             return dataSource;
         }
+        DataSource target = unwrapForeignTracedProxy(dataSource);
         return (DataSource) Proxy.newProxyInstance(
-                dataSourceProxyClassLoader(dataSource),
-                DATA_SOURCE_INTERFACES,
-                new DataSourceHandler(dataSource, recorder));
+                dataSourceProxyClassLoader(target), DATA_SOURCE_INTERFACES, new DataSourceHandler(target, recorder));
+    }
+
+    /**
+     * Returns the real pool behind a BootUI tracing proxy that was built by a <em>different</em> class
+     * loader, or the argument unchanged when it is not such a proxy.
+     *
+     * <p>Under Spring Boot DevTools a data source preserved across a restart (for example a
+     * {@code @RestartScope} pool kept so an in-memory database keeps its rows) can still be a tracing
+     * proxy created by the previous {@code RestartClassLoader}. Its {@link SqlTracedDataSource} marker is
+     * a different {@link Class} than this loader's, so the {@code instanceof} guard in {@link #wrap} misses
+     * it. Wrapping it again would nest a second proxy over the stale one — double-counting every statement
+     * and pinning the old class loader in memory — so we unwrap back to the genuine pool and re-wrap that
+     * with the current recorder instead. Detection is by interface <em>name</em> so it is class-loader
+     * agnostic; unwrapping uses the JDBC {@code unwrap} contract the proxy already delegates to its target,
+     * and falls back to the proxy unchanged if that throws.</p>
+     */
+    private static DataSource unwrapForeignTracedProxy(DataSource dataSource) {
+        if (!isForeignTracedProxy(dataSource)) {
+            return dataSource;
+        }
+        try {
+            DataSource unwrapped = dataSource.unwrap(DataSource.class);
+            return unwrapped != null ? unwrapped : dataSource;
+        } catch (SQLException | RuntimeException ex) {
+            return dataSource;
+        }
+    }
+
+    private static boolean isForeignTracedProxy(DataSource dataSource) {
+        if (dataSource instanceof SqlTracedDataSource || !Proxy.isProxyClass(dataSource.getClass())) {
+            return false;
+        }
+        for (Class<?> iface : dataSource.getClass().getInterfaces()) {
+            if (SqlTracedDataSource.class.getName().equals(iface.getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

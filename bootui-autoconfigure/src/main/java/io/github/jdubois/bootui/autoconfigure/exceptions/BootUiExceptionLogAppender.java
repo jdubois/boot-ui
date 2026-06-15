@@ -60,6 +60,20 @@ public class BootUiExceptionLogAppender extends AppenderBase<ILoggingEvent> {
         return null;
     }
 
+    /**
+     * Detaches this appender from the (JVM-global) Logback {@link LoggerContext} and stops it. Invoked
+     * as the bean's destroy method so a Spring Boot DevTools restart does not leave the appender — and,
+     * through it, the discarded {@link ExceptionStore} and its class loader — pinned by the surviving
+     * {@code LoggerContext}, and so the new context's store is wired in cleanly on the next start.
+     */
+    public void uninstall() {
+        ILoggerFactory factory = LoggerFactory.getILoggerFactory();
+        if (factory instanceof LoggerContext context) {
+            context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).detachAppender(this);
+        }
+        stop();
+    }
+
     @Override
     protected void append(ILoggingEvent event) {
         IThrowableProxy proxy = event.getThrowableProxy();

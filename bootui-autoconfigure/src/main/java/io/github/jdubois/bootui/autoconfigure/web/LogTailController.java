@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -76,6 +77,20 @@ public class LogTailController {
     private void cleanup(SseEmitter emitter, Runnable unsubscribe) {
         emitters.remove(emitter);
         unsubscribe.run();
+    }
+
+    /**
+     * Completes any open log-tail streams and detaches the shared Logback appender when the context
+     * shuts down, so a Spring Boot DevTools restart does not leave dead SSE subscribers attached to the
+     * surviving {@code LoggerContext} (and the old context pinned behind them) on every live reload.
+     */
+    @PreDestroy
+    void shutdown() {
+        for (SseEmitter emitter : emitters) {
+            emitter.complete();
+        }
+        emitters.clear();
+        appender.uninstall();
     }
 
     private void sendLog(SseEmitter emitter, LogLineDto line) throws IOException {
