@@ -41,6 +41,7 @@ Panel settings are consistent across the UI and API:
 | Group           | Panel                     | Panel id                    | Enable property                                   | Read-only property                        |
 | --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |
 | Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
+| Overview        | Live Activity             | `activity`                  | `bootui.panels.activity.enabled`                  | Not applicable; view-only.                |
 | Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
 | Advisors        | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
 | Advisors        | REST API                  | `rest-api`                  | `bootui.panels.rest-api.enabled`                  | `bootui.panels.rest-api.read-only`        |
