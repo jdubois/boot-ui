@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-06-15
+
+Patch release that fixes a graceful-shutdown regression introduced by 1.5.0's move to Server-Sent Events: BootUI's live
+panels no longer hold the JVM open until the configured shutdown timeout.
+
 ### Fixed
 
 - **BootUI's live panels no longer delay graceful shutdown.** The Server-Sent Events panels (Live Activity, Exceptions,
@@ -678,6 +683,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
+[1.5.1]: https://github.com/jdubois/boot-ui/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/jdubois/boot-ui/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/jdubois/boot-ui/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/jdubois/boot-ui/compare/v1.2.0...v1.3.0
