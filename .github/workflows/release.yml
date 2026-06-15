@@ -60,7 +60,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Prepare release commit and tag
+      - name: Prepare release version
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -131,19 +131,7 @@ jobs:
             ./mvnw -B -ntp -Prelease clean verify -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
           fi
 
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git add pom.xml */pom.xml README.md docs/SETUP.md \
-              package.json package-lock.json \
-              bootui-ui/src/main/frontend/package.json bootui-ui/src/main/frontend/package-lock.json \
-              bootui-sample-app/e2e/package.json bootui-sample-app/e2e/package-lock.json
-            git commit -m "Release $TAG"
-          else
-            echo "Project files already declare version $VERSION; tagging current HEAD."
-          fi
-
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-          git push origin "$TAG"
+          echo "Prepared release $TAG (version $VERSION) in the working tree; deferring the commit, tag, and push until the artifacts are verified on Maven Central."
 
           echo "PREPARED_TAG=$TAG" >> "$GITHUB_ENV"
 
@@ -205,11 +193,150 @@ jobs:
             -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}" \
             -Dgpg.passphrase="${MAVEN_GPG_PASSPHRASE}"
 
+      - name: Wait for Maven Central availability
+        if: env.CENTRAL_AUTO_PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+
+          VERSION="$(./mvnw -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          BASE="https://repo1.maven.org/maven2/com/julien-dubois/bootui"
+
+          # The artifacts a consumer needs to resolve the starter: the parent POM and every
+          # published module JAR (the bootui-ui JAR carries the bundled Vue UI resources).
+          ARTIFACTS=(
+            "bootui-parent/${VERSION}/bootui-parent-${VERSION}.pom"
+            "bootui-core/${VERSION}/bootui-core-${VERSION}.jar"
+            "bootui-autoconfigure/${VERSION}/bootui-autoconfigure-${VERSION}.jar"
+            "bootui-ui/${VERSION}/bootui-ui-${VERSION}.jar"
+            "bootui-spring-boot-starter/${VERSION}/bootui-spring-boot-starter-${VERSION}.jar"
+          )
+
+          # Sonatype Central -> Maven Central propagation can lag behind a successful
+          # autoPublish, so poll until every file is downloadable (or time out).
+          DEADLINE=$(( SECONDS + 45 * 60 ))
+          for artifact in "${ARTIFACTS[@]}"; do
+            url="${BASE}/${artifact}"
+            echo "Waiting for ${url}"
+            until curl -fsI "$url" >/dev/null 2>&1; do
+              if (( SECONDS > DEADLINE )); then
+                echo "::error::Timed out waiting for ${url} to become available on Maven Central"
+                exit 1
+              fi
+              sleep 20
+            done
+            echo "Available: ${artifact}"
+          done
+
+          echo "All BootUI ${VERSION} artifacts are available on Maven Central."
+
+      - name: Smoke test published artifacts
+        if: env.CENTRAL_AUTO_PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+
+          VERSION="$(./mvnw -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          echo "Smoke-testing BootUI ${VERSION} by running the sample app against the published artifacts."
+
+          # Drop the locally built/installed BootUI artifacts so the sample app is forced to
+          # resolve them from Maven Central, exercising exactly what consumers download.
+          rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"
+
+          LOG="$(mktemp)"
+          # No -am (do not rebuild the reactor modules) and no -o (must download from Central).
+          # fork=false keeps the app in the Maven JVM so killing this PID stops it cleanly.
+          ./mvnw -ntp -pl bootui-sample-app -Dmaven.test.skip=true \
+            -Dspring-boot.run.fork=false \
+            spring-boot:run -Dspring-boot.run.profiles=dev > "$LOG" 2>&1 &
+          APP_PID=$!
+          cleanup() { kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          BASE_URL="http://localhost:8080/bootui/"
+          body=""
+          ready=""
+          DEADLINE=$(( SECONDS + 300 ))
+          while (( SECONDS <= DEADLINE )); do
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "::error::The sample app exited before BootUI became available."
+              cat "$LOG"
+              exit 1
+            fi
+            body="$(curl -fsSL -H 'X-Forwarded-For: 127.0.0.1' "$BASE_URL" 2>/dev/null || true)"
+            if printf '%s' "$body" | grep -q 'id="app"'; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+
+          if [[ -z "$ready" ]]; then
+            echo "::error::BootUI did not serve its UI at ${BASE_URL} within the timeout."
+            cat "$LOG"
+            exit 1
+          fi
+
+          if ! printf '%s' "$body" | grep -q '<title>BootUI</title>'; then
+            echo "::error::BootUI index.html did not contain the expected <title>BootUI</title> marker."
+            printf '%s\n' "$body"
+            exit 1
+          fi
+
+          asset="$(printf '%s' "$body" | grep -oE 'assets/[A-Za-z0-9._-]+\.js' | head -n 1)"
+          if [[ -z "$asset" ]]; then
+            echo "::error::Could not find a bundled UI asset reference in BootUI index.html."
+            printf '%s\n' "$body"
+            exit 1
+          fi
+
+          echo "Verifying the bundled UI asset ${asset} is served."
+          curl -fsSL -o /dev/null -H 'X-Forwarded-For: 127.0.0.1' "http://localhost:8080/bootui/${asset}"
+
+          echo "BootUI ${VERSION} served its UI from the Maven Central artifacts successfully."
+
+      - name: Commit, tag, and push release
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        run: |
+          set -euo pipefail
+
+          TAG="${PREPARED_TAG:?PREPARED_TAG was not set by the prepare step}"
+
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add pom.xml */pom.xml README.md docs/SETUP.md \
+              package.json package-lock.json \
+              bootui-ui/src/main/frontend/package.json bootui-ui/src/main/frontend/package-lock.json \
+              bootui-sample-app/e2e/package.json bootui-sample-app/e2e/package-lock.json
+            git commit -m "Release $TAG"
+          else
+            echo "Project files already declare the released version; tagging current HEAD."
+          fi
+
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+          git push origin "$TAG"
+
       - name: Redeploy documentation site
+        if: env.CENTRAL_AUTO_PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # The release commit is pushed to main with GITHUB_TOKEN, which does not
           # trigger the Pages workflow. Dispatch it explicitly so the docs site
-          # rebuilds with the released version's setup instructions.
+          # rebuilds with the released version's setup instructions - only now that the
+          # artifacts are live on Maven Central and the smoke test has passed.
           gh workflow run pages.yml --ref main
+
+      - name: Manual publish reminder
+        if: env.CENTRAL_AUTO_PUBLISH != 'true'
+        run: |
+          cat <<'EOF'
+          Auto-publish was disabled, so the deployment was uploaded to the Sonatype Central
+          Portal but the artifacts are NOT yet public on Maven Central.
+
+          To keep the documented version in lockstep with what is downloadable, this run skipped
+          the Maven Central availability wait, the published-artifact smoke test, and the
+          documentation-site redeploy.
+
+          Finish the release by publishing the deployment in the Central Portal, then run the
+          "pages.yml" workflow (from the Actions tab) so the documentation site advertises the
+          new version.
+          EOF
