@@ -62,7 +62,26 @@ final class SqlTracingProxies {
             return dataSource;
         }
         return (DataSource) Proxy.newProxyInstance(
-                classLoader(dataSource), DATA_SOURCE_INTERFACES, new DataSourceHandler(dataSource, recorder));
+                dataSourceProxyClassLoader(dataSource),
+                DATA_SOURCE_INTERFACES,
+                new DataSourceHandler(dataSource, recorder));
+    }
+
+    /**
+     * Picks a class loader able to see every interface in {@link #DATA_SOURCE_INTERFACES}, including
+     * BootUI's own {@link SqlTracedDataSource} marker. Under Spring Boot DevTools the data source is
+     * loaded by the base class loader (its driver/pool lives in a jar) while BootUI's classes live in the
+     * child {@code RestartClassLoader}, so the data source's own loader cannot see
+     * {@code SqlTracedDataSource} and {@link Proxy#newProxyInstance} fails. BootUI's loader is always a
+     * descendant of (or equal to) the data source's loader and can still see the standard JDBC interfaces
+     * (they come from the JDK), so it is a valid loader for all three proxy interfaces.
+     */
+    private static ClassLoader dataSourceProxyClassLoader(DataSource dataSource) {
+        ClassLoader bootUiLoader = SqlTracingProxies.class.getClassLoader();
+        if (bootUiLoader != null) {
+            return bootUiLoader;
+        }
+        return classLoader(dataSource);
     }
 
     private static ClassLoader classLoader(Object target) {

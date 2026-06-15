@@ -216,6 +216,39 @@ class SqlTracingProxiesTests {
         verify(ds).close();
     }
 
+    @Test
+    void wrapsDataSourceWhoseClassLoaderCannotSeeBootUiMarker() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        // Reproduces Spring Boot DevTools: the data source class is loaded by a parent loader (its
+        // driver/pool jar) that cannot see SqlTracedDataSource, which lives in the child RestartClassLoader
+        // alongside BootUI's classes. Building the proxy with the data source's own loader used to fail with
+        // "SqlTracedDataSource ... is not visible from class loader" because that interface was invisible.
+        DataSource isolated = newDataSourceWithoutBootUiVisibility();
+        assertThat(loaderSees(isolated.getClass().getClassLoader(), SqlTracedDataSource.class.getName()))
+                .isFalse();
+
+        DataSource traced = SqlTracingProxies.wrap(isolated, recorder);
+
+        assertThat(traced).isInstanceOf(SqlTracedDataSource.class);
+        assertThat(traced.getConnection()).isNull();
+    }
+
+    private static DataSource newDataSourceWithoutBootUiVisibility() throws Exception {
+        ClassLoader isolated = new BootUiBlindClassLoader();
+        Class<?> type = Class.forName(IsolatedTestDataSource.class.getName(), true, isolated);
+        assertThat(type.getClassLoader()).isSameAs(isolated);
+        return (DataSource) type.getDeclaredConstructor().newInstance();
+    }
+
+    private static boolean loaderSees(ClassLoader loader, String className) {
+        try {
+            Class.forName(className, false, loader);
+            return true;
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
     private static void assertThatNoCloseFailure(AutoCloseable closeable) {
         try {
             closeable.close();
@@ -226,4 +259,49 @@ class SqlTracingProxiesTests {
 
     /** A {@link DataSource} that is also {@link Closeable}, like Hikari's pool, for the delegation test. */
     private interface CloseableDataSource extends DataSource, Closeable {}
+
+    /**
+     * Loads {@link IsolatedTestDataSource} itself (defining it from the test classpath bytes) while
+     * delegating only to the JDK platform loader, so the resulting data source class cannot see any BootUI
+     * type. This mirrors how DevTools keeps third-party jars in the base loader, separate from BootUI's
+     * classes in the child {@code RestartClassLoader}.
+     */
+    private static final class BootUiBlindClassLoader extends ClassLoader {
+
+        private final ClassLoader source = SqlTracingProxiesTests.class.getClassLoader();
+
+        BootUiBlindClassLoader() {
+            super(ClassLoader.getPlatformClassLoader());
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (name.equals(IsolatedTestDataSource.class.getName())) {
+                synchronized (getClassLoadingLock(name)) {
+                    Class<?> loaded = findLoadedClass(name);
+                    if (loaded == null) {
+                        loaded = defineFromSource(name);
+                    }
+                    if (resolve) {
+                        resolveClass(loaded);
+                    }
+                    return loaded;
+                }
+            }
+            return super.loadClass(name, resolve);
+        }
+
+        private Class<?> defineFromSource(String name) throws ClassNotFoundException {
+            String resource = name.replace('.', '/') + ".class";
+            try (java.io.InputStream in = source.getResourceAsStream(resource)) {
+                if (in == null) {
+                    throw new ClassNotFoundException(name);
+                }
+                byte[] bytes = in.readAllBytes();
+                return defineClass(name, bytes, 0, bytes.length);
+            } catch (java.io.IOException ex) {
+                throw new ClassNotFoundException(name, ex);
+            }
+        }
+    }
 }
