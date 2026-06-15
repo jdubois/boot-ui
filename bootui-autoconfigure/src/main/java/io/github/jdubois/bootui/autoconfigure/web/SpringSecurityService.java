@@ -301,7 +301,6 @@ class SpringSecurityService {
      * its {@link Object#toString() toString()} when it is a well-known type, so role
      * and authority names can be reported.
      */
-    @SuppressWarnings("unchecked")
     private SpringSecurityEndpointDto classifyRule(
             String method,
             String pattern,
@@ -310,8 +309,7 @@ class SpringSecurityService {
             SecurityFilterChain chain,
             AuthorizationFilter authFilter,
             ExplainRequest request) {
-        AuthorizationManager<HttpServletRequest> manager =
-                (AuthorizationManager<HttpServletRequest>) authFilter.getAuthorizationManager();
+        AuthorizationManager<HttpServletRequest> manager = authFilter.getAuthorizationManager();
 
         boolean anonymousGranted = simulate(manager, anonymousAuth(), request);
         if (anonymousGranted) {
