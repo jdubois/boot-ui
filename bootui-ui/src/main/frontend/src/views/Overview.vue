@@ -262,7 +262,14 @@ const overallContributions = computed(() => {
     .sort((a, b) => a.deduction - b.deduction)
 })
 
+// A run-all-scanners nudge toward the MCP Server panel: with the MCP server enabled,
+// an AI agent can read these same scan results and act on them. Only surfaced when the
+// panel is available, and dismissible so it stays a temporary tip.
+const mcpServerVisible = computed(() => panelAvailable('mcp-server'))
+const showMcpTip = ref(false)
+
 async function runAll() {
+  if (mcpServerVisible.value) showMcpTip.value = true
   const tasks = visibleScanners.value
     .filter((def) => scanners[def.id].state !== 'running')
     .map((def) => runScanner(def))
@@ -309,6 +316,22 @@ onActivated(refreshScores)
 
     <div class="row gx-3 gy-4 mb-4">
       <div class="col-12">
+        <div v-if="showMcpTip" class="alert alert-info d-flex align-items-start gap-2 mb-3 mcp-tip" role="alert">
+          <i class="bi bi-lightbulb-fill flex-shrink-0 mt-1" aria-hidden="true"></i>
+          <div class="flex-grow-1">
+            <strong>Tip:</strong>
+            Enable the
+            <router-link to="/mcp-server" class="alert-link">BootUI MCP Server</router-link>
+            to give your AI agent direct access to these scan results — so it can investigate and fix the issues for you
+            automatically.
+          </div>
+          <button
+            type="button"
+            class="btn-close flex-shrink-0"
+            aria-label="Dismiss tip"
+            @click="showMcpTip = false"
+          ></button>
+        </div>
         <div class="card overall-card">
           <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center gap-4">
             <div class="flex-shrink-0 min-w-0">

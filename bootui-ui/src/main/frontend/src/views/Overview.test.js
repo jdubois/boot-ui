@@ -164,6 +164,56 @@ describe('Overview', () => {
     expect(wrapper.text()).toContain('9 of 9 scanners scored')
   })
 
+  it('surfaces a dismissible MCP Server tip after running all scanners', async () => {
+    stubFetch({
+      'api/architecture/scan': severityReport([]),
+      'api/hibernate/scan': severityReport([]),
+      'api/vulnerabilities/scan': severityReport([]),
+      'api/pentesting/scan': severityReport([]),
+      'api/github/refresh': githubReport({alerts: 0})
+    })
+    const wrapper = mountOverview({
+      panels: [
+        {id: 'architecture', available: true},
+        {id: 'mcp-server', available: true}
+      ]
+    })
+    await flushPromises()
+
+    // The tip is not shown before the scanners are run.
+    expect(wrapper.find('.mcp-tip').exists()).toBe(false)
+
+    const runAll = wrapper.findAll('button').find((b) => b.text().includes('Run all scanners'))
+    await runAll.trigger('click')
+    await flushPromises()
+
+    const tip = wrapper.find('.mcp-tip')
+    expect(tip.exists()).toBe(true)
+    expect(tip.text()).toContain('BootUI MCP Server')
+
+    await tip.find('.btn-close').trigger('click')
+    expect(wrapper.find('.mcp-tip').exists()).toBe(false)
+  })
+
+  it('hides the MCP Server tip when the panel is unavailable', async () => {
+    stubFetch({
+      'api/architecture/scan': severityReport([])
+    })
+    const wrapper = mountOverview({
+      panels: [
+        {id: 'architecture', available: true},
+        {id: 'mcp-server', available: false}
+      ]
+    })
+    await flushPromises()
+
+    const runAll = wrapper.findAll('button').find((b) => b.text().includes('Run all scanners'))
+    await runAll.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.mcp-tip').exists()).toBe(false)
+  })
+
   it('shows a connect button for GitHub and excludes it from the score until authenticated', async () => {
     stubFetch({
       'api/github/refresh': githubReport({connected: false, authenticated: false})

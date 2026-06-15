@@ -23,7 +23,8 @@ project.
 Below the hero is an on-demand security & health scoring dashboard. An overall score out of 100 summarizes the
 application's posture, with a qualitative band (Good at 80+, Needs attention at 50+, At risk below 50) and a breakdown of
 how much each scanner deducted from a perfect score. A single "Run all scanners" button triggers every available scanner,
-or each scanner card can be run individually.
+or each scanner card can be run individually. After a run-all, a dismissible tip points to the MCP Server panel, since
+enabling the BootUI MCP Server lets an AI agent read these same scan results and fix the findings for you.
 
 Each scanner card shows its own 0–100 score, status, and severity counts. The severity-based scanners are Architecture, Memory,
 REST API, Spring, Hibernate, Security, Pentesting, and Vulnerabilities; scores start at 100
