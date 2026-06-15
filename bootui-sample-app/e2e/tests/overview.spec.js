@@ -49,6 +49,23 @@ test.describe('Overview view', () => {
     }
   })
 
+  test('reveals an MCP Server tip after running all scanners', async ({openView, page}) => {
+    await openView('overview', 'Overview')
+
+    const overall = page.locator('.overall-card').first()
+    await expect(page.locator('.mcp-tip')).toHaveCount(0)
+
+    await overall.getByRole('button', {name: /Run all scanners/}).click()
+
+    const tip = page.locator('.mcp-tip')
+    await expect(tip).toBeVisible()
+    await expect(tip).toContainText('BootUI MCP Server')
+    await expect(tip.getByRole('link', {name: 'BootUI MCP Server'})).toHaveAttribute('href', /#\/mcp-server$/)
+
+    await tip.getByRole('button', {name: 'Dismiss tip'}).click()
+    await expect(tip).toHaveCount(0)
+  })
+
   test('hero links to the BootUI GitHub project', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
