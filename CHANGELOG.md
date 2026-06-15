@@ -5,6 +5,16 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`NoSuchMethodError` opening the Configuration or MCP Server panel on older Jackson 3** — `ConfigMetadataCatalog` now
+  binds to the stable `ObjectMapper.treeToValue(TreeNode, Class)` overload instead of `treeToValue(JsonNode, Class)`,
+  which was only added in jackson-databind 3.1. Host applications whose classpath resolves an earlier Jackson 3 (for
+  example 3.0.x dragged in by a transitive dependency) no longer crash `ConfigController` start-up with
+  `java.lang.NoSuchMethodError: 'java.lang.Object tools.jackson.databind.ObjectMapper.treeToValue(...)'` (#384).
+
 ## [1.4.0] - 2026-06-12
 
 Feature release headlined by three new panels — a **SQL Trace** panel that records executed SQL through a hand-written

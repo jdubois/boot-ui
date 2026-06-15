@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.*;
+import tools.jackson.core.TreeNode;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -104,7 +105,11 @@ final class ConfigMetadataCatalog {
         if (node == null || node.isNull()) {
             return null;
         }
-        return objectMapper.treeToValue(node, Object.class);
+        // Bind to the stable treeToValue(TreeNode, Class) overload (present in every Jackson 3
+        // release). The treeToValue(JsonNode, Class) overload was only added in jackson-databind
+        // 3.1, so calling it directly throws NoSuchMethodError when a transitive dependency pulls
+        // an older Jackson 3 (e.g. 3.0.x from Spring Boot 4.0) onto the classpath.
+        return objectMapper.treeToValue((TreeNode) node, Object.class);
     }
 
     ConfigPropertySuggestionDto get(String name) {
