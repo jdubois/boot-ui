@@ -140,11 +140,16 @@ to stage for manual publishing instead.
 To prepare and publish a release, run the **Release** GitHub Actions workflow
 from the branch you want to release, usually `main`, and enter the target version
 without the leading `v`, for example `1.0.0`. The workflow updates all Maven
-module versions, refreshes the documentation dependency examples, optionally verifies
-with the `release` Maven profile, commits the release, creates an annotated
-`v1.0.0` tag, pushes the branch plus tag, and publishes to Maven Central in the
-same run. The selected branch must allow `github-actions[bot]` to push the
-release commit and tag.
+module versions and refreshes the documentation dependency examples in the working
+tree, optionally verifies with the `release` Maven profile, and publishes to Maven
+Central. It then waits until every published artifact is downloadable from Maven
+Central, smoke-tests the release by running the sample app against the published
+starter and confirming the BootUI console is served, and **only then** commits the
+release, creates an annotated `v1.0.0` tag, pushes the branch plus tag, and
+redeploys the documentation site. Deferring the version bump and the docs rebuild
+until after the JARs are live keeps the documented install version in lockstep with
+what consumers can actually download. The selected branch must allow
+`github-actions[bot]` to push the release commit and tag.
 
 The same workflow (`.github/workflows/release.yml`) also runs on manually pushed
 `v*` tags, or manually with an empty version when the selected ref is already
@@ -159,7 +164,11 @@ secrets before running it:
 | `MAVEN_GPG_PASSPHRASE`   | Passphrase for the GPG private key               |
 
 Manual runs publish automatically by default; disable `auto_publish` when you
-want to review and publish the deployment in the Central Portal.
+want to review and publish the deployment in the Central Portal. With
+`auto_publish` disabled the workflow cannot confirm the artifacts are live, so it
+skips the Maven Central availability wait, the published-artifact smoke test, and
+the documentation-site redeploy — finish the release by publishing the deployment
+in the Portal and then running the `pages.yml` workflow.
 
 ## Submitting a change
 
