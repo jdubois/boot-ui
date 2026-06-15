@@ -26,7 +26,7 @@ class SecretMaskerCustomPatternsTests {
 
     @Test
     void customPatternsReplaceDefaults() {
-        SecretMasker masker = new SecretMasker((Set<String>) Set.of("custom-pattern"));
+        SecretMasker masker = new SecretMasker(Set.of("custom-pattern"));
         assertThat(masker.isSecret("app.custom-pattern")).isTrue();
         // default patterns are no longer in effect
         assertThat(masker.isSecret("spring.datasource.password")).isFalse();

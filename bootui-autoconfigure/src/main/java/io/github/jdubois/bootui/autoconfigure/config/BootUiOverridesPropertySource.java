@@ -23,9 +23,8 @@ public class BootUiOverridesPropertySource extends MapPropertySource {
         super(NAME, new LinkedHashMap<>());
     }
 
-    @SuppressWarnings("unchecked")
     public Map<String, Object> mutableSource() {
-        return (Map<String, Object>) getSource();
+        return getSource();
     }
 
     public void put(String name, Object value) {

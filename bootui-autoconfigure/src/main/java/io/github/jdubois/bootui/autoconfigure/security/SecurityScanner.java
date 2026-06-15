@@ -309,12 +309,11 @@ final class SecurityScanner {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static AuthorizationManager<HttpServletRequest> authorizationManager(List<Filter> filters) {
         for (Filter filter : filters) {
             if (filter instanceof AuthorizationFilter authorizationFilter) {
                 try {
-                    return (AuthorizationManager<HttpServletRequest>) authorizationFilter.getAuthorizationManager();
+                    return authorizationFilter.getAuthorizationManager();
                 } catch (RuntimeException | LinkageError ex) {
                     return null;
                 }
