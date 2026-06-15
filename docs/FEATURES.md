@@ -819,6 +819,11 @@ are shown only when available and require explicit confirmation before execution
 the LiveReload server is not running, the panel shows a tip to set `spring.devtools.livereload.enabled=true` (Spring
 Boot 4 disables LiveReload by default).
 
+The LiveReload card also reports how many browsers are currently connected to the LiveReload server. Triggering a reload
+only reaches those connected clients — Spring Boot does not inject `livereload.js`, so a browser needs the LiveReload
+extension (or the script) to connect on port 35729. When no clients are connected the panel warns that triggering has no
+visible effect, and the trigger action returns that warning instead of a misleading success.
+
 ![BootUI DevTools panel](./images/bootui-devtools.png)
 
 ### Dev Services

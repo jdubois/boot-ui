@@ -9,4 +9,5 @@ public record DevToolsStatus(
         boolean restartPending,
         boolean liveReloadAvailable,
         Integer liveReloadPort,
+        int liveReloadConnections,
         String liveReloadUnavailableReason) {}

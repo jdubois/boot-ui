@@ -7,6 +7,7 @@ import jakarta.annotation.PreDestroy;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,6 +29,8 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
 
     private static final String OPTIONAL_LIVE_RELOAD_SERVER_CLASS =
             "org.springframework.boot.devtools.autoconfigure.OptionalLiveReloadServer";
+
+    private static final int DEFAULT_LIVE_RELOAD_PORT = 35729;
 
     private final ApplicationContext applicationContext;
 
@@ -54,6 +57,7 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
                 restartPending.get(),
                 liveReload.available(),
                 liveReload.port(),
+                liveReload.connections(),
                 liveReload.reason());
     }
 
@@ -66,11 +70,25 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
         try {
             Method triggerReload = liveReload.target().getClass().getMethod("triggerReload");
             triggerReload.invoke(liveReload.target());
-            return new DevToolsActionResult(
-                    "livereload", "triggered", "LiveReload notification sent to connected browsers.");
         } catch (ReflectiveOperationException ex) {
             throw new DevToolsException("Could not trigger Spring Boot DevTools LiveReload", unwrap(ex));
         }
+        int connections = liveReload.connections();
+        if (connections <= 0) {
+            int port = liveReload.port() == null ? DEFAULT_LIVE_RELOAD_PORT : liveReload.port();
+            return new DevToolsActionResult(
+                    "livereload",
+                    "no_clients",
+                    "LiveReload command sent, but no browsers are connected on port " + port
+                            + ", so nothing reloaded. Spring Boot does not inject livereload.js: install the LiveReload"
+                            + " browser extension and reload the page you want to refresh so it connects, then trigger"
+                            + " again.");
+        }
+        return new DevToolsActionResult(
+                "livereload",
+                "triggered",
+                "LiveReload command sent to " + connections + " connected client" + (connections == 1 ? "" : "s")
+                        + ".");
     }
 
     @Override
@@ -165,22 +183,40 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
                 return LiveReloadHandle.unavailable(null);
             }
             Object bean = beans.values().iterator().next();
-            return new LiveReloadHandle(bean, liveReloadPort(bean), null);
+            Object server = liveReloadServer(bean);
+            return new LiveReloadHandle(bean, liveReloadPort(server), connectionCount(server), null);
         } catch (ReflectiveOperationException | LinkageError ex) {
             return LiveReloadHandle.unavailable("Spring Boot DevTools LiveReload server is not available.");
         }
     }
 
-    private Integer liveReloadPort(Object bean) {
-        Object target = liveReloadServer(bean);
-        if (target == null) {
+    private Integer liveReloadPort(Object server) {
+        if (server == null) {
             return null;
         }
         try {
-            Method getPort = target.getClass().getMethod("getPort");
-            return (Integer) getPort.invoke(target);
+            Method getPort = server.getClass().getMethod("getPort");
+            return (Integer) getPort.invoke(server);
         } catch (ReflectiveOperationException ex) {
             return null;
+        }
+    }
+
+    private int connectionCount(Object server) {
+        if (server == null) {
+            return 0;
+        }
+        try {
+            Field connections = server.getClass().getDeclaredField("connections");
+            connections.setAccessible(true);
+            if (connections.get(server) instanceof Collection<?> collection) {
+                synchronized (collection) {
+                    return collection.size();
+                }
+            }
+            return 0;
+        } catch (ReflectiveOperationException ex) {
+            return 0;
         }
     }
 
@@ -214,10 +250,10 @@ public class DefaultDevToolsBridge implements DevToolsBridge {
         }
     }
 
-    private record LiveReloadHandle(Object target, Integer port, String reason) {
+    private record LiveReloadHandle(Object target, Integer port, int connections, String reason) {
 
         static LiveReloadHandle unavailable(String reason) {
-            return new LiveReloadHandle(null, null, reason);
+            return new LiveReloadHandle(null, null, 0, reason);
         }
 
         boolean available() {

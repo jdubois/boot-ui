@@ -17,7 +17,7 @@ class DevToolsControllerTests {
     @Test
     void reportsDevToolsStatus() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                        new DevToolsStatus(true, null, false, true, 35729, null),
+                        new DevToolsStatus(true, null, false, true, 35729, 2, null),
                         new DevToolsActionResult("livereload", "triggered", "ok"),
                         new DevToolsActionResult("restart", "scheduled", "ok"))))
                 .build();
@@ -27,14 +27,15 @@ class DevToolsControllerTests {
                 .andExpect(jsonPath("$.restartAvailable").value(true))
                 .andExpect(jsonPath("$.restartPending").value(false))
                 .andExpect(jsonPath("$.liveReloadAvailable").value(true))
-                .andExpect(jsonPath("$.liveReloadPort").value(35729));
+                .andExpect(jsonPath("$.liveReloadPort").value(35729))
+                .andExpect(jsonPath("$.liveReloadConnections").value(2));
     }
 
     @Test
     void triggersLiveReloadWhenAvailable() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                        new DevToolsStatus(true, null, false, true, 35729, null),
-                        new DevToolsActionResult("livereload", "triggered", "LiveReload notification sent."),
+                        new DevToolsStatus(true, null, false, true, 35729, 1, null),
+                        new DevToolsActionResult("livereload", "triggered", "LiveReload command sent to 1 client."),
                         new DevToolsActionResult("restart", "scheduled", "ok"))))
                 .build();
 
@@ -45,9 +46,23 @@ class DevToolsControllerTests {
     }
 
     @Test
+    void reportsNoClientsWhenNoBrowsersConnected() throws Exception {
+        MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
+                        new DevToolsStatus(true, null, false, true, 35729, 0, null),
+                        new DevToolsActionResult("livereload", "no_clients", "no browsers are connected"),
+                        new DevToolsActionResult("restart", "scheduled", "ok"))))
+                .build();
+
+        mvc.perform(post("/bootui/api/devtools/livereload"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("no_clients"))
+                .andExpect(jsonPath("$.message").value("no browsers are connected"));
+    }
+
+    @Test
     void returnsConflictWhenLiveReloadUnavailable() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                        new DevToolsStatus(false, "no restart", false, false, null, "no livereload"),
+                        new DevToolsStatus(false, "no restart", false, false, null, 0, "no livereload"),
                         new DevToolsActionResult("livereload", "unavailable", "no livereload"),
                         new DevToolsActionResult("restart", "unavailable", "no restart"))))
                 .build();
@@ -61,7 +76,7 @@ class DevToolsControllerTests {
     @Test
     void restartRequiresConfirmation() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                        new DevToolsStatus(true, null, false, true, 35729, null),
+                        new DevToolsStatus(true, null, false, true, 35729, 0, null),
                         new DevToolsActionResult("livereload", "triggered", "ok"),
                         new DevToolsActionResult("restart", "scheduled", "ok"))))
                 .build();
@@ -76,7 +91,7 @@ class DevToolsControllerTests {
     @Test
     void schedulesRestartWhenConfirmed() throws Exception {
         MockMvc mvc = standaloneSetup(new DevToolsController(new StubDevToolsBridge(
-                        new DevToolsStatus(true, null, false, true, 35729, null),
+                        new DevToolsStatus(true, null, false, true, 35729, 0, null),
                         new DevToolsActionResult("livereload", "triggered", "ok"),
                         new DevToolsActionResult("restart", "scheduled", "Restart scheduled."))))
                 .build();
