@@ -92,8 +92,9 @@ BootUI's panels are served by Spring MVC and require a servlet web application. 
 an embedded servlet container, BootUI also supports non-web (command-line) applications: when BootUI is active and the
 host is configured as non-web (`spring.main.web-application-type=none`), the starter forces a servlet web application so
 the console can be served. This only happens while BootUI is active (development contexts by default), never overrides an
-explicitly reactive application, and never runs without an embedded servlet container on the classpath. It can be
-disabled with `bootui.force-web=false`.
+explicitly reactive application, never runs without an embedded servlet container on the classpath, and never touches
+Spring Cloud's transient non-web bootstrap context (detected via its `"bootstrap"` marker property source) so Spring
+Cloud Config apps still start. It can be disabled with `bootui.force-web=false`.
 
 ### 4.2 URL
 

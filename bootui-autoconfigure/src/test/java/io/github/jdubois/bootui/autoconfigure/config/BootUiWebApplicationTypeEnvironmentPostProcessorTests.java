@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
@@ -11,6 +12,7 @@ import org.springframework.boot.logging.DeferredLog;
 import org.springframework.boot.logging.DeferredLogFactory;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.context.WebApplicationContext;
@@ -21,6 +23,9 @@ class BootUiWebApplicationTypeEnvironmentPostProcessorTests {
             BootUiWebApplicationTypeEnvironmentPostProcessor.WEB_APPLICATION_TYPE_PROPERTY;
 
     private static final String SOURCE_NAME = BootUiWebApplicationTypeEnvironmentPostProcessor.PROPERTY_SOURCE_NAME;
+
+    private static final String BOOTSTRAP_SOURCE_NAME =
+            BootUiWebApplicationTypeEnvironmentPostProcessor.BOOTSTRAP_PROPERTY_SOURCE_NAME;
 
     private final BootUiWebApplicationTypeEnvironmentPostProcessor processor =
             new BootUiWebApplicationTypeEnvironmentPostProcessor(noOpLogFactory());
@@ -87,6 +92,22 @@ class BootUiWebApplicationTypeEnvironmentPostProcessorTests {
     void doesNotForceWhenDisabledByForceWebProperty() {
         MockEnvironment environment =
                 new MockEnvironment().withProperty("bootui.enabled", "ON").withProperty("bootui.force-web", "false");
+
+        processor.postProcessEnvironment(environment, applicationWithWebType(WebApplicationType.NONE));
+
+        assertThat(environment.getPropertySources().contains(SOURCE_NAME)).isFalse();
+    }
+
+    @Test
+    void doesNotForceInSpringCloudBootstrapContext() {
+        // Spring Cloud's BootstrapApplicationListener marks the transient bootstrap environment with a
+        // "bootstrap" property source and builds it as a non-web context; forcing servlet there crashes
+        // the application with MissingWebServerFactoryBeanException (see issue #405).
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("bootui.enabled", "ON").withProperty(TYPE_PROPERTY, "none");
+        environment
+                .getPropertySources()
+                .addFirst(new MapPropertySource(BOOTSTRAP_SOURCE_NAME, Map.of(TYPE_PROPERTY, "none")));
 
         processor.postProcessEnvironment(environment, applicationWithWebType(WebApplicationType.NONE));
 

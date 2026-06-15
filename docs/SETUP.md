@@ -207,6 +207,11 @@ Because BootUI only activates in development contexts by default, this never aff
 already servlet web apps, or that are explicitly configured as reactive, are left untouched. To opt out and keep your
 application's web-application type exactly as declared, set `bootui.force-web=false`.
 
+BootUI never forces the web type on Spring Cloud's transient **bootstrap** application context (the early, non-web
+context created by `spring-cloud-starter-bootstrap` for Spring Cloud Config). That context has no embedded web server,
+so forcing it would crash startup with `MissingWebServerFactoryBeanException`; BootUI detects it and leaves it alone,
+then forces the servlet web type on your main application as usual.
+
 ## Running inside a Docker container
 
 BootUI works when your application runs inside a container, but its loopback-only safety filter needs a small opt-in
