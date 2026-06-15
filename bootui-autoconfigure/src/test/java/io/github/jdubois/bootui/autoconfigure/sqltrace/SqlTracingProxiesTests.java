@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Captured
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
 import java.io.Closeable;
+import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -240,6 +241,69 @@ class SqlTracingProxiesTests {
         return (DataSource) type.getDeclaredConstructor().newInstance();
     }
 
+    @Test
+    void unwrapsAndRewrapsAForeignClassLoaderTracedProxy() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        // Reproduces a DataSource preserved across a Spring Boot DevTools restart (e.g. via @RestartScope):
+        // it is already a BootUI tracing proxy, but built by the *previous* RestartClassLoader, so its
+        // SqlTracedDataSource marker is a different Class than this loader's and instanceof misses it.
+        DataSource realPool = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement st = mock(Statement.class);
+        when(realPool.getConnection()).thenReturn(conn);
+        when(realPool.unwrap(DataSource.class)).thenReturn(realPool);
+        when(conn.createStatement()).thenReturn(st);
+        when(st.execute("select 1")).thenReturn(true);
+
+        DataSource foreign = newForeignTracedProxy(realPool);
+        assertThat(foreign).isNotInstanceOf(SqlTracedDataSource.class);
+
+        DataSource traced = SqlTracingProxies.wrap(foreign, recorder);
+
+        // Re-wrapped with THIS loader's marker (so it is recognised next time), over the real pool rather
+        // than nested over the stale foreign proxy — which would double-count and pin the old class loader.
+        assertThat(traced).isInstanceOf(SqlTracedDataSource.class);
+        assertThat(proxyTarget(traced)).isSameAs(realPool);
+
+        // And it still traces: a statement executed through it is recorded exactly once.
+        try (Connection c = traced.getConnection()) {
+            c.createStatement().execute("select 1");
+        }
+        assertThat(recorder.recent()).hasSize(1);
+    }
+
+    private static DataSource newForeignTracedProxy(DataSource realTarget) throws Exception {
+        ForeignMarkerClassLoader loader = new ForeignMarkerClassLoader();
+        Class<?> foreignMarker = Class.forName(SqlTracedDataSource.class.getName(), true, loader);
+        assertThat(foreignMarker).isNotSameAs(SqlTracedDataSource.class);
+        Class<?>[] interfaces = {DataSource.class, foreignMarker};
+        return (DataSource) Proxy.newProxyInstance(loader, interfaces, (proxy, method, args) -> {
+            if (method.getDeclaringClass() == Object.class) {
+                return switch (method.getName()) {
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == (args == null ? null : args[0]);
+                    case "toString" -> "ForeignTracedProxy";
+                    default -> null;
+                };
+            }
+            return method.invoke(realTarget, args);
+        });
+    }
+
+    private static Object proxyTarget(Object proxy) throws Exception {
+        Object handler = Proxy.getInvocationHandler(proxy);
+        for (Class<?> type = handler.getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                java.lang.reflect.Field field = type.getDeclaredField("target");
+                field.setAccessible(true);
+                return field.get(handler);
+            } catch (NoSuchFieldException ignored) {
+                // Walk up to the DelegatingHandler superclass that declares the field.
+            }
+        }
+        throw new NoSuchFieldException("target");
+    }
+
     private static boolean loaderSees(ClassLoader loader, String className) {
         try {
             Class.forName(className, false, loader);
@@ -277,6 +341,51 @@ class SqlTracingProxiesTests {
         @Override
         protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
             if (name.equals(IsolatedTestDataSource.class.getName())) {
+                synchronized (getClassLoadingLock(name)) {
+                    Class<?> loaded = findLoadedClass(name);
+                    if (loaded == null) {
+                        loaded = defineFromSource(name);
+                    }
+                    if (resolve) {
+                        resolveClass(loaded);
+                    }
+                    return loaded;
+                }
+            }
+            return super.loadClass(name, resolve);
+        }
+
+        private Class<?> defineFromSource(String name) throws ClassNotFoundException {
+            String resource = name.replace('.', '/') + ".class";
+            try (java.io.InputStream in = source.getResourceAsStream(resource)) {
+                if (in == null) {
+                    throw new ClassNotFoundException(name);
+                }
+                byte[] bytes = in.readAllBytes();
+                return defineClass(name, bytes, 0, bytes.length);
+            } catch (java.io.IOException ex) {
+                throw new ClassNotFoundException(name, ex);
+            }
+        }
+    }
+
+    /**
+     * Defines its own copy of {@link SqlTracedDataSource} from the test classpath bytes while delegating
+     * everything else (including {@link DataSource}) to the test class loader. The locally-defined marker is
+     * a distinct {@link Class} with the same name, so a proxy built against it mimics a tracing proxy left
+     * behind by a previous DevTools {@code RestartClassLoader}.
+     */
+    private static final class ForeignMarkerClassLoader extends ClassLoader {
+
+        private final ClassLoader source = SqlTracingProxiesTests.class.getClassLoader();
+
+        ForeignMarkerClassLoader() {
+            super(SqlTracingProxiesTests.class.getClassLoader());
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (name.equals(SqlTracedDataSource.class.getName())) {
                 synchronized (getClassLoadingLock(name)) {
                     Class<?> loaded = findLoadedClass(name);
                     if (loaded == null) {

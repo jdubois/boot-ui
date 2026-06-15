@@ -52,6 +52,20 @@ public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
         return null;
     }
 
+    /**
+     * Detaches this appender from the (JVM-global) Logback {@link LoggerContext} and stops it, so a
+     * Spring Boot DevTools restart does not leave the appender — and the discarded context's stream
+     * subscribers behind it — pinned by the surviving {@code LoggerContext} on every live reload.
+     */
+    public void uninstall() {
+        ILoggerFactory factory = LoggerFactory.getILoggerFactory();
+        if (factory instanceof LoggerContext context) {
+            context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).detachAppender(this);
+        }
+        subscribers.clear();
+        stop();
+    }
+
     @Override
     protected void append(ILoggingEvent event) {
         LogLineDto line = new LogLineDto(

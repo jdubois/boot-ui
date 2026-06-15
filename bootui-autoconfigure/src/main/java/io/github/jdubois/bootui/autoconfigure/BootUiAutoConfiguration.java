@@ -300,7 +300,7 @@ public class BootUiAutoConfiguration {
         @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
         static class LogbackExceptionCaptureConfiguration {
 
-            @Bean
+            @Bean(destroyMethod = "uninstall")
             BootUiExceptionLogAppender bootUiExceptionLogAppender(ExceptionStore store) {
                 return BootUiExceptionLogAppender.install(store);
             }

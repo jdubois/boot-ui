@@ -12,6 +12,9 @@ import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import jakarta.annotation.PreDestroy;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.listener.AuditApplicationEvent;
@@ -45,6 +48,7 @@ public class LiveActivityController {
     private final LiveActivityCorrelator correlator;
     private final SecurityEventCorrelationRegistry securityCorrelations;
     private final BootUiChangeStream changeStream;
+    private final List<Runnable> unsubscribers = new ArrayList<>();
     private final String selfPath;
 
     public LiveActivityController(
@@ -82,12 +86,25 @@ public class LiveActivityController {
         this.selfPath = properties.getPath();
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
         if (recorder != null) {
-            recorder.subscribe(changeStream::signal);
+            unsubscribers.add(recorder.subscribe(changeStream::signal));
         }
         ExceptionStore store = exceptionStore.getIfAvailable();
         if (store != null) {
-            store.subscribe(changeStream::signal);
+            unsubscribers.add(store.subscribe(changeStream::signal));
         }
+    }
+
+    /**
+     * Releases the change stream's scheduler thread and SSE emitters, and detaches the source listeners,
+     * when the context shuts down. This keeps a Spring Boot DevTools restart from leaking a
+     * {@code bootui-activity-stream} daemon thread (and, through it, the discarded application context and
+     * its class loader) on every live reload.
+     */
+    @PreDestroy
+    void shutdown() {
+        unsubscribers.forEach(Runnable::run);
+        unsubscribers.clear();
+        changeStream.close();
     }
 
     @GetMapping

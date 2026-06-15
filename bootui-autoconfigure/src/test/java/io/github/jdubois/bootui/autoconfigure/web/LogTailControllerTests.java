@@ -209,4 +209,19 @@ class LogTailControllerTests {
                 .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].thread")
                         .value("shape-thread"));
     }
+
+    // ── DevTools restart lifecycle ────────────────────────────────────────────
+
+    @Test
+    void uninstallDetachesAppenderFromLoggerContext() {
+        BootUiLogAppender appender = BootUiLogAppender.install();
+        assertThat(BootUiLogAppender.find()).isSameAs(appender);
+
+        appender.uninstall();
+
+        // Detached from the JVM-global LoggerContext so a DevTools restart does not leak the old
+        // context's subscribers; install() re-creates it on the next start.
+        assertThat(BootUiLogAppender.find()).isNull();
+        assertThat(appender.isStarted()).isFalse();
+    }
 }

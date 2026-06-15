@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
@@ -38,6 +39,7 @@ public class SqlTraceController {
     private final ObjectProvider<DataSource> dataSourceProvider;
     private final BootUiExposure exposure;
     private final BootUiChangeStream changeStream;
+    private Runnable recorderUnsubscribe;
 
     public SqlTraceController(
             ObjectProvider<SqlTraceRecorder> recorderProvider,
@@ -49,8 +51,22 @@ public class SqlTraceController {
         this.changeStream = new BootUiChangeStream("sql-trace");
         SqlTraceRecorder recorder = recorderProvider.getIfAvailable();
         if (recorder != null) {
-            recorder.subscribe(changeStream::signal);
+            this.recorderUnsubscribe = recorder.subscribe(changeStream::signal);
         }
+    }
+
+    /**
+     * Releases the change stream's scheduler thread and SSE emitters, and detaches the recorder listener,
+     * when the context shuts down so a Spring Boot DevTools restart does not leak the
+     * {@code bootui-sql-trace-stream} daemon thread (and the discarded context behind it).
+     */
+    @PreDestroy
+    void shutdown() {
+        if (recorderUnsubscribe != null) {
+            recorderUnsubscribe.run();
+            recorderUnsubscribe = null;
+        }
+        changeStream.close();
     }
 
     @GetMapping
