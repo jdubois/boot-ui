@@ -63,6 +63,21 @@ class CopilotControllerTests {
     }
 
     @Test
+    void contextCloseCompletesOpenStreams(@TempDir Path tempDir) {
+        BootUiProperties props = propertiesFor(tempDir);
+        CopilotController controller = new CopilotController(storeFor(props), props);
+
+        controller.stream();
+        controller.stream();
+        assertThat(controller.emittersForTesting()).hasSize(2);
+
+        // Completing emitters on ContextClosedEvent (before the web server's graceful-shutdown
+        // lifecycle waits) is what stops an SseEmitter(0L) from blocking shutdown until its timeout.
+        controller.shutdown();
+        assertThat(controller.emittersForTesting()).isEmpty();
+    }
+
+    @Test
     void sessionsReturnsUnavailableWhenDirectoryMissing(@TempDir Path tempDir) throws Exception {
         Path missing = tempDir.resolve("does-not-exist");
         BootUiProperties props = propertiesFor(missing);

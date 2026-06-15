@@ -1,12 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
-import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -81,10 +82,17 @@ public class LogTailController {
 
     /**
      * Completes any open log-tail streams and detaches the shared Logback appender when the context
-     * shuts down, so a Spring Boot DevTools restart does not leave dead SSE subscribers attached to the
-     * surviving {@code LoggerContext} (and the old context pinned behind them) on every live reload.
+     * starts closing.
+     *
+     * <p>Runs on {@link ContextClosedEvent} rather than {@code @PreDestroy}: the event is published
+     * before the web server's graceful-shutdown lifecycle waits for in-flight requests, whereas
+     * {@code @PreDestroy} runs during later bean destruction. An {@code SseEmitter(0L)} never completes
+     * on its own, so cleaning up at destroy time would let graceful shutdown block until its timeout on
+     * every stop. Doing it here also keeps a Spring Boot DevTools restart from leaving dead SSE
+     * subscribers attached to the surviving {@code LoggerContext} (and the old context pinned behind
+     * them) on every live reload.
      */
-    @PreDestroy
+    @EventListener(ContextClosedEvent.class)
     void shutdown() {
         for (SseEmitter emitter : emitters) {
             emitter.complete();

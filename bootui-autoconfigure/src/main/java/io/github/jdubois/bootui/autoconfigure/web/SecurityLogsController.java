@@ -9,7 +9,6 @@ import io.github.jdubois.bootui.core.dto.SecurityLogDataDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogTypeSummaryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
-import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -25,6 +24,8 @@ import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.listener.AuditApplicationEvent;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.ApplicationListener;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -113,11 +114,16 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
     }
 
     /**
-     * Releases the change stream's scheduler thread and SSE emitters when the context shuts down so a
-     * Spring Boot DevTools restart does not leak the {@code bootui-security-logs-stream} daemon thread
-     * (and the discarded context behind it) on every live reload.
+     * Completes any open SSE streams when the context starts closing.
+     *
+     * <p>Runs on {@link ContextClosedEvent} rather than {@code @PreDestroy}: the event is published
+     * before the web server's graceful-shutdown lifecycle waits for in-flight requests, whereas
+     * {@code @PreDestroy} runs during later bean destruction. An {@code SseEmitter(0L)} never completes
+     * on its own, so cleaning up at destroy time would let graceful shutdown block until its timeout on
+     * every stop. Doing it here also keeps a Spring Boot DevTools restart from leaking the
+     * {@code bootui-security-logs-stream} daemon thread (and the discarded context behind it).
      */
-    @PreDestroy
+    @EventListener(ContextClosedEvent.class)
     void shutdown() {
         changeStream.close();
     }

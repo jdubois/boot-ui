@@ -10,11 +10,12 @@ import io.github.jdubois.bootui.core.dto.ExceptionFrameDto;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
-import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -66,11 +67,16 @@ public class ExceptionsController {
     }
 
     /**
-     * Releases the change stream's scheduler thread and SSE emitters, and detaches the store listener,
-     * when the context shuts down so a Spring Boot DevTools restart does not leak the
+     * Completes any open SSE streams and detaches the store listener when the context starts closing.
+     *
+     * <p>Runs on {@link ContextClosedEvent} rather than {@code @PreDestroy}: the event is published
+     * before the web server's graceful-shutdown lifecycle waits for in-flight requests, whereas
+     * {@code @PreDestroy} runs during later bean destruction. An {@code SseEmitter(0L)} never completes
+     * on its own, so cleaning up at destroy time would let graceful shutdown block until its timeout on
+     * every stop. Doing it here also keeps a Spring Boot DevTools restart from leaking the
      * {@code bootui-exceptions-stream} daemon thread (and the discarded context behind it).
      */
-    @PreDestroy
+    @EventListener(ContextClosedEvent.class)
     void shutdown() {
         if (storeUnsubscribe != null) {
             storeUnsubscribe.run();
