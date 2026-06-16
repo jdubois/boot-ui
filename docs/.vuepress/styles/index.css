@@ -768,6 +768,10 @@ html[data-theme='dark'] [vp-content] code {
   color: var(--bootui-green);
 }
 
+[vp-content] div[class*='language-'] .token.number {
+  color: #c9a3c9;
+}
+
 .vp-tabs {
   overflow: hidden;
   border-color: var(--bootui-border);
