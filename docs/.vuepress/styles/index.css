@@ -769,6 +769,11 @@ html[data-theme='dark'] [vp-content] code {
 }
 
 [vp-content] div[class*='language-'] .token.number {
+  color: #8250df;
+}
+
+html.dark [vp-content] div[class*='language-'] .token.number,
+html[data-theme='dark'] [vp-content] div[class*='language-'] .token.number {
   color: #c9a3c9;
 }
 
