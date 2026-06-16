@@ -15,12 +15,12 @@
   "dependencies": {
     "bootstrap": "5.3.8",
     "bootstrap-icons": "1.13.1",
-    "vue": "3.5.35",
+    "vue": "3.5.38",
     "vue-router": "5.1.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.7",
-    "@vue/server-renderer": "3.5.35",
+    "@vue/server-renderer": "3.5.38",
     "@vue/test-utils": "2.4.11",
     "fonteditor-core": "2.6.3",
     "jsdom": "29.1.1",
