@@ -809,7 +809,8 @@ running app:
 }
 ```
 
-See [docs/PROPERTIES.md](./PROPERTIES.md) for the `bootui.mcp.*` settings.
+See [docs/PROPERTIES.md](./PROPERTIES.md) for the `bootui.mcp.*` settings, and [AI agents](./AI-AGENTS.md) for an
+end-to-end agent workflow and how BootUI pairs with [Coffilot](https://github.com/jdubois/coffilot).
 
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)
 

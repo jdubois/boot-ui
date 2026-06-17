@@ -48,8 +48,7 @@ export default defineUserConfig({
       {text: 'Setup', link: toDocLink('SETUP.md')},
       {text: 'Features', link: toDocLink('FEATURES.md')},
       {text: 'Properties', link: toDocLink('PROPERTIES.md')},
-      {text: 'Specification', link: toDocLink('SPECIFICATION.md')},
-      {text: 'Roadmap', link: toDocLink('PLAN.md')}
+      {text: 'AI agents', link: toDocLink('AI-AGENTS.md')}
     ],
     sidebar: createDocsSidebar()
   })

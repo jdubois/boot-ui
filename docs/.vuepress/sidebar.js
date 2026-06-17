@@ -10,6 +10,7 @@ const coreDocs = [
   'SETUP.md',
   'FEATURES.md',
   'PROPERTIES.md',
+  'AI-AGENTS.md',
   'REPOSITORY.md',
   'SPECIFICATION.md',
   'PLAN.md'

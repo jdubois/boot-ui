@@ -17,8 +17,16 @@ Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 | Setup | <https://www.julien-dubois.com/boot-ui/setup> |
 | Features | <https://www.julien-dubois.com/boot-ui/features> |
 | Properties | <https://www.julien-dubois.com/boot-ui/properties> |
+| AI agents | <https://www.julien-dubois.com/boot-ui/ai-agents> |
 | Sample app | <https://www.julien-dubois.com/boot-ui/try-sample-app> |
 | Repository docs | <https://www.julien-dubois.com/boot-ui/repository> |
+
+## Use with AI agents
+
+BootUI exposes a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server so AI coding agents
+(GitHub Copilot, Claude Code, …) can run its advisors and read runtime diagnostics while fixing your code. It also pairs
+with [Coffilot](https://github.com/jdubois/coffilot), a GitHub Copilot canvas extension that builds, runs, and scans your
+app from the GitHub Copilot App's side panel. See the [AI agents guide](https://www.julien-dubois.com/boot-ui/ai-agents).
 
 ## Project resources
 

@@ -35,6 +35,7 @@ footer: Apache-2.0 Licensed | BootUI
 | Add BootUI to a Spring Boot 4 app | [Setup](SETUP.md) |
 | Explore every panel | [Features](FEATURES.md) |
 | Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
+| Drive BootUI from an AI coding agent | [AI agents](AI-AGENTS.md) |
 
 ## How BootUI works
 
