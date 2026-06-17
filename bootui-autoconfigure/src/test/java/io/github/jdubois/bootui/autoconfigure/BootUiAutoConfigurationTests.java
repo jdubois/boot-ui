@@ -40,6 +40,8 @@ import org.springframework.boot.actuate.security.AuthenticationAuditListener;
 import org.springframework.boot.actuate.security.AuthorizationAuditListener;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
+import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.servlet.actuate.web.exchanges.HttpExchangesFilter;
 import org.springframework.boot.servlet.filter.OrderedFilter;
@@ -47,6 +49,7 @@ import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webmvc.autoconfigure.DispatcherServletAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.SpringProperties;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
@@ -495,6 +498,22 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void backsOffWhenApplicationContributesItsOwnHttpExchangeRepositoryFromLaterAutoConfiguration() {
+        runner.withConfiguration(AutoConfigurations.of(ApplicationHttpExchangeRepositoryAutoConfiguration.class))
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(HttpExchangeRepository.class);
+                    assertThat(context.getBeanNamesForType(HttpExchangeRepository.class))
+                            .containsExactly("applicationHttpExchangeRepository");
+                    assertThat(context).hasSingleBean(HttpExchangesFilter.class);
+                    assertThat(context.getBean(HttpExchangesFilter.class))
+                            .extracting("repository")
+                            .isSameAs(context.getBean(HttpExchangeRepository.class));
+                });
+    }
+
+    @Test
     void optionalClasspathPanelsAreRegisteredWhenDependenciesArePresent() {
         runner.withPropertyValues("bootui.enabled=ON")
                 .run(context -> assertThat(context)
@@ -600,5 +619,14 @@ class BootUiAutoConfigurationTests {
                 null,
                 null,
                 Duration.ofMillis(1));
+    }
+
+    @AutoConfiguration(after = BootUiAutoConfiguration.class)
+    static class ApplicationHttpExchangeRepositoryAutoConfiguration {
+
+        @Bean
+        HttpExchangeRepository applicationHttpExchangeRepository() {
+            return new InMemoryHttpExchangeRepository();
+        }
     }
 }

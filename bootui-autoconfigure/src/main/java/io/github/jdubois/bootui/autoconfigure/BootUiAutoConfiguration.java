@@ -43,6 +43,7 @@ import org.springframework.aot.AotDetector;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesProperties;
@@ -230,6 +231,8 @@ public class BootUiAutoConfiguration {
 
         private static final int HTTP_EXCHANGES_FILTER_ORDER = OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER - 101;
 
+        private static final String BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN = "bootUiHttpExchangeRepository";
+
         @Bean
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
         HttpExchangeRepository bootUiHttpExchangeRepository(BootUiProperties properties) {
@@ -237,6 +240,35 @@ public class BootUiAutoConfiguration {
             repository.setCapacity(Math.max(1, properties.getHttpExchanges().getMaxExchanges()));
             repository.setReverse(true);
             return repository;
+        }
+
+        /**
+         * Drops BootUI's fallback repository when the application also contributes its own
+         * {@link HttpExchangeRepository}.
+         *
+         * <p>BootUI runs {@code @AutoConfigureBefore} the standard HTTP exchange auto-configurations,
+         * so the {@link ConditionalOnMissingBean} guard on {@link #bootUiHttpExchangeRepository} cannot
+         * detect a repository contributed by a configuration ordered after BootUI (such as the
+         * application's own auto-configuration). That would otherwise leave two repositories in the
+         * context and break single-bean injection &mdash; both BootUI's recording filter and Spring
+         * Boot's own {@code httpExchangesEndpoint}. Reconciling as a {@link BeanFactoryPostProcessor}
+         * runs after every bean definition has been registered, regardless of ordering, and before any
+         * bean is instantiated, so the application's repository always wins.</p>
+         */
+        @Bean
+        static BeanFactoryPostProcessor bootUiHttpExchangeRepositoryDeduplicator() {
+            return beanFactory -> {
+                if (!(beanFactory instanceof BeanDefinitionRegistry registry)
+                        || !registry.containsBeanDefinition(BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN)) {
+                    return;
+                }
+                for (String name : beanFactory.getBeanNamesForType(HttpExchangeRepository.class, true, false)) {
+                    if (!BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN.equals(name)) {
+                        registry.removeBeanDefinition(BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN);
+                        return;
+                    }
+                }
+            };
         }
 
         @Bean
