@@ -7,6 +7,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-06-17
+
+Patch release fixing a startup crash for applications that contribute their own `HttpExchangeRepository`, polishing two
+panels (Metrics measurement spacing and the Flyway sidebar icon), and adding a guide for driving BootUI from local AI
+coding agents.
+
+### Added
+
+- **AI agents guide** ([`docs/AI-AGENTS.md`](docs/AI-AGENTS.md)) covering how to drive BootUI from local AI coding agents
+  over the Model Context Protocol (MCP): connecting an agent to BootUI's MCP server so it can consult the running
+  application before proposing a fix and verify it afterwards, a worked Hibernate-findings example, and how BootUI pairs
+  with [Coffilot](https://github.com/jdubois/coffilot) to build, run, and scan an app from the GitHub Copilot App's side
+  panel (#423).
+
+### Fixed
+
+- **BootUI no longer crashes applications that contribute their own `HttpExchangeRepository`.** BootUI registers a
+  fallback in-memory `HttpExchangeRepository` guarded by `@ConditionalOnMissingBean`, but runs `@AutoConfigureBefore` the
+  standard HTTP-exchange auto-configurations. When the host application supplied its own repository from a configuration
+  ordered after BootUI (for example its own auto-configuration), the condition could not see it yet, so BootUI created
+  its fallback as well — leaving two repositories that broke single-bean injection into BootUI's recording filter and
+  Spring Boot's own `httpExchangesEndpoint`, crashing the context at startup. BootUI now reconciles the repositories in a
+  `BeanFactoryPostProcessor` that runs after every bean definition is registered (regardless of ordering) and before any
+  bean is instantiated, dropping its fallback whenever another `HttpExchangeRepository` is present so exactly one remains
+  — the application's own — which BootUI's filter and HTTP Exchanges panel then use transparently (#422).
+- **Corrected the Flyway panel icon** in the sidebar and panel header so it no longer reuses an unrelated glyph (#412).
+- **Restored the spacing between the statistic label and value** in the Metrics panel's per-sample measurements, which
+  had run together without a gap (#410).
+
 ## [1.5.1] - 2026-06-15
 
 Patch release with two fixes: BootUI's live panels no longer hold the JVM open until the configured shutdown timeout
@@ -692,6 +721,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
+[1.5.2]: https://github.com/jdubois/boot-ui/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/jdubois/boot-ui/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/jdubois/boot-ui/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/jdubois/boot-ui/compare/v1.3.0...v1.4.0
