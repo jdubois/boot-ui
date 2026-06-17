@@ -1,7 +1,7 @@
 {
   "name": "bootui-sample-app-e2e",
   "private": true,
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Playwright end-to-end integration tests that exercise the BootUI console and the sample Spring Boot application from a real browser.",
   "type": "module",
   "scripts": {
