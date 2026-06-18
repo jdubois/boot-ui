@@ -959,3 +959,14 @@ html[data-theme='dark'] [vp-content] code {
     transition-duration: 0.01ms !important;
   }
 }
+
+[vp-content] h1,
+[vp-content] h2,
+[vp-content] h3,
+[vp-content] h4,
+[vp-content] h5,
+[vp-content] h6 {
+  margin-top: 1.5rem;
+  padding-top: 0;
+  scroll-margin-top: calc(1rem + var(--header-offset));
+}
