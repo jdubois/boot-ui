@@ -7,7 +7,7 @@ and runtime diagnostics in the browser, BootUI can expose the very same, already
 editor or chat.
 
 This page explains how to connect an agent to BootUI's MCP server, walks through a concrete example (fixing Hibernate
-findings), and shows how BootUI pairs with [Coffilot](https://github.com/jdubois/coffilot) to build, run, and scan your
+findings), and shows how BootUI pairs with [Coffilot](https://www.julien-dubois.com/coffilot/) to build, run, and scan your
 app from the GitHub Copilot App's side panel.
 
 ## Why use BootUI from an agent
@@ -108,7 +108,7 @@ under the *Diagnostic checks* section (for example [Hibernate checks](HIBERNATE-
 
 ## Coffilot: BootUI in the GitHub Copilot App's side panel
 
-[Coffilot](https://github.com/jdubois/coffilot) is a GitHub Copilot **canvas extension** that turns a Maven- or
+[Coffilot](https://www.julien-dubois.com/coffilot/) is a GitHub Copilot **canvas extension** that turns a Maven- or
 Gradle-based Java / Spring Boot / Quarkus project into an interactive console inside the GitHub Copilot App's side panel.
 You can **build, test, package, and run** your app, watch **live JVM metrics**, and — when something breaks — push the
 failure straight back to the agent with **Fix with Copilot**, all without leaving the chat.
@@ -130,13 +130,13 @@ is the rich data source and advisor engine behind it.
 
 ### A typical Coffilot + BootUI loop
 
-1. Add the [BootUI starter](SETUP.md) to your app and install Coffilot from its repository
-   (`https://github.com/jdubois/coffilot`).
+1. Add the [BootUI starter](SETUP.md) to your app and install Coffilot from its website
+   (`https://www.julien-dubois.com/coffilot/`).
 2. In a Copilot session, open the **Coffilot** canvas and **Run** your app (pick a module and run profile).
 3. Once the app is up, Coffilot detects BootUI and shows rich metrics plus the advisor-scan panel.
 4. Enable the MCP server from Coffilot and click **Register with Copilot** so the agent can call the BootUI scan tools.
 5. Run a scan (or ask the agent to), let the agent fix the findings, then re-run and re-scan from the same panel to
    verify.
 
-See the [Coffilot repository](https://github.com/jdubois/coffilot) for installation details and the full capability
+See the [Coffilot website](https://www.julien-dubois.com/coffilot/) for installation details and the full capability
 matrix.
