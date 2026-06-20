@@ -106,7 +106,7 @@ async function downloadDump() {
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(url)
-  } catch (e) {
+  } catch (_) {
     downloadError.value = 'Could not download the thread dump.'
   } finally {
     downloading.value = false
