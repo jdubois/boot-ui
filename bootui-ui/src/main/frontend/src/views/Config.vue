@@ -191,7 +191,7 @@ async function saveCreate() {
     nextTick(() => newNameInput.value?.focus())
     return
   }
-  if (!/^[A-Za-z0-9._\-\[\]]+$/.test(name)) {
+  if (!/^[A-Za-z0-9._\-[\]]+$/.test(name)) {
     newRowError.value = 'Use letters, digits, dots, dashes, underscores or brackets only.'
     return
   }
