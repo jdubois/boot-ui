@@ -8,7 +8,6 @@ const filter = ref('')
 const classification = ref('')
 
 const {
-  data,
   error,
   items: visibleBeans,
   load,
