@@ -71,7 +71,6 @@ const categories = [
 
 const sessions = computed(() => sessionList.value?.sessions ?? [])
 const available = computed(() => sessionList.value?.available !== false)
-const unavailableReason = computed(() => sessionList.value?.unavailableReason)
 const sessionStateDir = computed(() => sessionList.value?.sessionStateDir)
 const explorerReturned = computed(() => sessionList.value?.returned ?? sessions.value.length)
 const explorerTotal = computed(() => sessionList.value?.total ?? sessions.value.length)
