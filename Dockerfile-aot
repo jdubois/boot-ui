@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+#
 # Multi-stage Dockerfile for a JVM + AOT image of the BootUI sample app.
 #
 # This image adds two complementary Ahead-of-Time (AOT) optimizations on top of
@@ -76,7 +78,15 @@ RUN chmod +x mvnw
 # before spring-boot:repackage bundles it into the executable jar. Tests are
 # skipped to keep the build fast; the generated Spring AOT sources are compiled
 # and included in the final jar automatically by the plugin.
-RUN ./mvnw -Paot -DskipTests -pl bootui-sample-app -am clean package
+#
+# The Maven local repository (~/.m2, which also caches the frontend-maven-plugin's
+# Node.js/npm archive downloads under com/github/eirslett) and the npm package
+# cache (~/.npm) are kept in BuildKit cache mounts so they are reused across
+# rebuilds rather than re-downloaded every time. These caches live in the builder,
+# not in the image. (Requires BuildKit, the default in modern Docker.)
+RUN --mount=type=cache,target=/root/.m2 \
+    --mount=type=cache,target=/root/.npm \
+    ./mvnw -Paot -DskipTests -pl bootui-sample-app -am clean package
 
 # Explode the repackaged Spring Boot jar into its layers (dependencies,
 # spring-boot-loader, snapshot-dependencies, application). These are copied

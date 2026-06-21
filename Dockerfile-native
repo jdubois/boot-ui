@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+#
 # Multi-stage Dockerfile for a GraalVM native image of the BootUI sample app.
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into
@@ -44,7 +46,17 @@ ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC"
 # The `native` profile (declared in bootui-sample-app/pom.xml) runs Spring
 # Boot's process-aot goal, downloads GraalVM reachability metadata and then
 # compiles the native image during the `package` phase (build-native).
-RUN ./mvnw -Pnative -DskipTests -pl bootui-sample-app -am clean package
+#
+# The Maven local repository (~/.m2, which also caches the frontend-maven-plugin's
+# Node.js/npm archive downloads under com/github/eirslett) and the npm package
+# cache (~/.npm) are kept in BuildKit cache mounts so they are reused across
+# rebuilds rather than re-downloaded every time. (The native-image compilation
+# itself is not cached.) These caches live in the builder, not in the image, and
+# require BuildKit, the default in modern Docker. The GraalVM build image runs as
+# root, so the Maven/npm home is /root.
+RUN --mount=type=cache,target=/root/.m2 \
+    --mount=type=cache,target=/root/.npm \
+    ./mvnw -Pnative -DskipTests -pl bootui-sample-app -am clean package
 
 # Move the native executable to a known path (the native-maven-plugin names it
 # after the module artifactId, i.e. bootui-sample-app).

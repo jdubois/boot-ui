@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+#
 # Multi-stage Dockerfile for a CRaC (Coordinated Restore at Checkpoint) image of
 # the BootUI sample app.
 #
@@ -52,7 +54,15 @@ RUN chmod +x mvnw
 # Build the sample app and its reactor dependencies. The sample app binds the
 # spring-boot-maven-plugin "repackage" goal, so this produces a runnable Spring
 # Boot jar (with BOOT-INF and a Main-Class) alongside the thin *.jar.original.
-RUN ./mvnw -Pcrac -DskipTests -pl bootui-sample-app -am clean package
+#
+# The Maven local repository (~/.m2, which also caches the frontend-maven-plugin's
+# Node.js/npm archive downloads under com/github/eirslett) and the npm package
+# cache (~/.npm) are kept in BuildKit cache mounts so they are reused across
+# rebuilds rather than re-downloaded every time. These caches live in the builder,
+# not in the image. (Requires BuildKit, the default in modern Docker.)
+RUN --mount=type=cache,target=/root/.m2 \
+    --mount=type=cache,target=/root/.npm \
+    ./mvnw -Pcrac -DskipTests -pl bootui-sample-app -am clean package
 
 # Runtime stage with a CRaC-enabled JDK (BellSoft Liberica with CRaC support).
 FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc

@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+#
 # Multi-stage Dockerfile for a JVM image of the BootUI sample app.
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into
@@ -64,8 +66,16 @@ RUN apt-get update && \
 COPY . .
 RUN chmod +x mvnw
 
-# Build the sample app and its reactor dependencies.
-RUN ./mvnw -DskipTests -pl bootui-sample-app -am clean package
+# Build the sample app and its reactor dependencies. The Maven local repository
+# (~/.m2) and the npm package cache (~/.npm) are kept in BuildKit cache mounts so
+# they survive across rebuilds instead of being re-downloaded on every build. The
+# ~/.m2 mount also covers the frontend-maven-plugin's Node.js and npm archive
+# downloads, which it caches under ~/.m2/repository/com/github/eirslett. These
+# caches live in the builder, not in the image, so they add nothing to the final
+# image size. (Requires BuildKit, the default in modern Docker.)
+RUN --mount=type=cache,target=/root/.m2 \
+    --mount=type=cache,target=/root/.npm \
+    ./mvnw -DskipTests -pl bootui-sample-app -am clean package
 
 # Explode the repackaged Spring Boot jar into its layers (dependencies,
 # spring-boot-loader, snapshot-dependencies, application). These are copied
