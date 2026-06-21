@@ -556,6 +556,13 @@ jobs:
         # server-side safety net, so nothing pushed or pulled within the window can be removed
         # even by mistake. Runs after the tag deletion above, so a manifest list freshly
         # orphaned by that step is itself untagged and swept here too.
+        #
+        # The namespaces images / delete-images API is only available to Docker Pro and Team
+        # plans and is authenticated with a Bearer token (not the JWT scheme the older
+        # /v2/repositories tags API accepts). On a Free plan Docker Hub returns 403/404 for it,
+        # so this step degrades gracefully: it logs a warning and skips rather than failing the
+        # whole publish pipeline. Untagged manifests then have to be removed manually from the
+        # Docker Hub UI (or by upgrading the plan).
         env:
           DRY_RUN: ${{ github.event.inputs.prune_dry_run || 'false' }}
         run: |
@@ -582,7 +589,22 @@ jobs:
             digests=()
             url="https://hub.docker.com/v2/namespaces/${DOCKERHUB_USERNAME}/repositories/${repo}/images?status=inactive&currently_tagged=false&active_from=${active_from}&ordering=last_activity&page_size=100"
             while [ -n "$url" ] && [ "$url" != 'null' ]; do
-              resp=$(curl -fsS -H "Authorization: JWT ${token}" "$url")
+              # Capture the HTTP status (no -f) so a plan-gated 403/404 can be skipped gracefully.
+              body=$(mktemp)
+              status=$(curl -sS -o "$body" -w '%{http_code}' -H "Authorization: Bearer ${token}" "$url")
+              resp=$(cat "$body")
+              rm -f "$body"
+              if [ "$status" = '403' ] || [ "$status" = '404' ]; then
+                echo "::warning::Docker Hub returned HTTP ${status} for the image-management API. Untagged-manifest pruning requires a Docker Pro or Team plan; skipping. Untagged per-platform manifests must be removed manually from the Docker Hub UI."
+                echo "::endgroup::"
+                # Plan entitlement is account-wide, so the remaining repositories would fail too.
+                exit 0
+              fi
+              if [ "$status" != '200' ]; then
+                echo "Unexpected HTTP ${status} from the Docker Hub images API:" >&2
+                echo "$resp" >&2
+                exit 1
+              fi
               while read -r digest; do
                 [ -n "$digest" ] && digests+=("$digest")
               done < <(echo "$resp" | jq -r '
@@ -613,7 +635,7 @@ jobs:
                 --argjson manifests "$manifests" \
                 '{dry_run: $dry_run, active_from: $active_from, manifests: $manifests}')
               echo "Deleting batch of ${#batch[@]} manifest(s)..."
-              curl -fsS -X POST -H "Authorization: JWT ${token}" -H 'Content-Type: application/json' \
+              curl -fsS -X POST -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' \
                 -d "$payload" \
                 "https://hub.docker.com/v2/namespaces/${DOCKERHUB_USERNAME}/delete-images" \
                 | jq '.'
