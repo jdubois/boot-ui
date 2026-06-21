@@ -10,7 +10,7 @@ const report = ref({steps: []})
 const filter = ref('')
 const selectedDurationBand = ref('all')
 const expandedStepIds = ref(new Set())
-const error = ref('')
+const error = ref(null)
 const lastFetched = ref(null)
 
 const durationBands = [
@@ -76,7 +76,7 @@ function buildTree(steps) {
 }
 
 async function fetchStartup() {
-  error.value = ''
+  error.value = null
 
   try {
     const res = await apiFetch('api/startup')

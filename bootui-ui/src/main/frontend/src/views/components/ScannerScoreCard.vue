@@ -34,7 +34,7 @@ const SEVERITY_TONES = {
 }
 
 const topSeverities = computed(() =>
-  [...(props.severityCounts || [])]
+  /** @type {Array<{severity: string, count: number}>} */ ([...(props.severityCounts || [])])
     .filter((entry) => Number(entry?.count) > 0)
     .sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity))
 )

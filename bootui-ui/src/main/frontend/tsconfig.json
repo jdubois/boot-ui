@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "esnext",
+    "skipLibCheck": true,
+    "strict": false,
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.js", "src/**/*.vue"],
+  "exclude": ["src/**/*.test.js", "node_modules", "dist"]
+}
