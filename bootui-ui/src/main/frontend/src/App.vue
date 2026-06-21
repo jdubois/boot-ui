@@ -53,7 +53,7 @@ function openCommandPalette() {
   commandPaletteRef.value?.focusInput()
 }
 
-watch(sidebarCollapsed, (v) => localStorage.setItem('bootui.sidebar.collapsed', v))
+watch(sidebarCollapsed, (v) => localStorage.setItem('bootui.sidebar.collapsed', String(v)))
 
 watch(
   () => route.name,
@@ -261,7 +261,9 @@ async function loadShellData() {
     return
   }
 
-  const descriptions = failures.map(({result, context}) => describeLoadError(result.reason, context))
+  const descriptions = failures.map(({result, context}) =>
+    describeLoadError(/** @type {PromiseRejectedResult} */ (result).reason, context)
+  )
   shellError.value = descriptions.find((description) => description.serverUnreachable) || descriptions[0]
 }
 
@@ -376,7 +378,7 @@ watch(
   activeNavigationGroupKey,
   (groupKey) => {
     if (groupKey) {
-      expandedGroups[groupKey] = true
+      expandedGroups[/** @type {string} */ (groupKey)] = true
     }
   },
   {immediate: true}

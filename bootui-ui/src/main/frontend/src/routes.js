@@ -57,6 +57,7 @@ export const groups = {
   developerTools: 'developer-tools'
 }
 
+/** @type {import('vue-router').RouteRecordRaw[]} */
 export const routes = [
   {path: '/', redirect: '/overview'},
   {

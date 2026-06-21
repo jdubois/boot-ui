@@ -1,5 +1,9 @@
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
+/**
+ * @param {RequestInfo | URL} input
+ * @param {RequestInit} [init]
+ */
 export async function apiFetch(input, init = {}) {
   const options = {...init}
   const method = (options.method || 'GET').toUpperCase()

@@ -2,6 +2,7 @@ import {fileURLToPath} from 'node:url'
 import path from 'node:path'
 import {defineConfig} from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import checker from 'vite-plugin-checker'
 import {generateBootstrapIconsSubset} from './scripts/generate-icon-subset.mjs'
 
 const frontendRoot = path.dirname(fileURLToPath(import.meta.url))
@@ -46,7 +47,7 @@ export default defineConfig(({command}) => ({
       }
     }
   },
-  plugins: [vue(), bootstrapIconsSubsetPlugin()],
+  plugins: [vue(), bootstrapIconsSubsetPlugin(), checker({vueTsc: true})],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
