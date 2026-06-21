@@ -493,7 +493,7 @@ jobs:
         run: docker buildx imagetools inspect "${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}"
 
   prune:
-    name: Prune tags and untagged manifests older than one week
+    name: Prune Docker Hub tags (and untagged manifests when enabled)
     runs-on: ubuntu-latest
     # Prune only after a successful merge, so old daily images are removed only once
     # fresh ones have replaced them - never pruning a repository down to a stale
@@ -550,19 +550,22 @@ jobs:
         # phase stitches those digests into the tagged multi-arch manifest list. Deleting a
         # tag above only removes the tag pointer - Docker Hub never garbage-collects the
         # untagged per-platform child manifests, and the tags API does not even list them,
-        # so they would otherwise accumulate forever. Sweep them here via the images API
-        # (currently_tagged=false returns only untagged manifests) and the bulk delete-images
-        # endpoint. active_from is the same cutoff and is passed to delete-images as a
-        # server-side safety net, so nothing pushed or pulled within the window can be removed
-        # even by mistake. Runs after the tag deletion above, so a manifest list freshly
-        # orphaned by that step is itself untagged and swept here too.
+        # so they accumulate. This step sweeps them via the images API (currently_tagged=false
+        # returns only untagged manifests) and the bulk delete-images endpoint. active_from is
+        # the same cutoff and is passed to delete-images as a server-side safety net, so nothing
+        # pushed or pulled within the window can be removed even by mistake.
         #
-        # The namespaces images / delete-images API is only available to Docker Pro and Team
-        # plans and is authenticated with a Bearer token (not the JWT scheme the older
-        # /v2/repositories tags API accepts). On a Free plan Docker Hub returns 403/404 for it,
-        # so this step degrades gracefully: it logs a warning and skips rather than failing the
-        # whole publish pipeline. Untagged manifests then have to be removed manually from the
-        # Docker Hub UI (or by upgrading the plan).
+        # IMPORTANT - this is OPT-IN and disabled by default. The images / delete-images API it
+        # uses is only available to Docker Pro and Team plans (it returns 403/404 on Free) and
+        # uses Bearer auth, not the JWT scheme the older /v2/repositories tags API accepts. On
+        # the Free plan there is no safe automated way to reclaim untagged-manifest storage:
+        # deleting a tag does not free the underlying manifest, and the only Free operation that
+        # does - deleting the whole repository - would also reset these public images' stars and
+        # pull counts and make them unavailable during each rebuild. So the step runs only when
+        # the repository variable DOCKERHUB_UNTAGGED_PRUNE is set to 'true' (do that after
+        # upgrading to a Pro/Team plan). If it is enabled on a plan that lacks the API it still
+        # degrades gracefully - it warns and skips rather than failing the publish pipeline.
+        if: vars.DOCKERHUB_UNTAGGED_PRUNE == 'true'
         env:
           DRY_RUN: ${{ github.event.inputs.prune_dry_run || 'false' }}
         run: |
