@@ -9,7 +9,6 @@ import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
-import SpinnerButton from './components/SpinnerButton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
