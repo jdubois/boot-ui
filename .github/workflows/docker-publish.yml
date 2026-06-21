@@ -51,9 +51,12 @@ name: Publish Docker images
 #
 #   4. prune - delete dated/SHA tags older than one week from each repository (the
 #      rolling `latest` tag is always kept) so old daily images do not accumulate,
-#      since Docker Hub has no built-in retention policy. Runs only after a successful
-#      merge, so old tags are pruned only once fresh images have actually replaced
-#      them.
+#      since Docker Hub has no built-in retention policy. Deleting a tag only removes the
+#      tag pointer, so this phase then also sweeps the now-orphaned, untagged per-platform
+#      child manifests that every build pushes by digest (the merge phase stitches those
+#      digests into the tagged manifest list, but Docker Hub never garbage-collects them and
+#      the tags API does not even list them). Runs only after a successful merge, so old
+#      images are pruned only once fresh ones have actually replaced them.
 #
 # Multi-arch is produced by building each image once per platform on a *native* runner
 # (amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm) rather than under QEMU emulation:
@@ -78,6 +81,11 @@ on:
     # window at the start of each hour, so a ':00' cron is unreliable.
     - cron: '17 7 * * *'
   workflow_dispatch:
+    inputs:
+      prune_dry_run:
+        description: 'Preview untagged-manifest pruning without deleting (dry run)'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -485,7 +493,7 @@ jobs:
         run: docker buildx imagetools inspect "${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}"
 
   prune:
-    name: Prune tags older than one week
+    name: Prune tags and untagged manifests older than one week
     runs-on: ubuntu-latest
     # Prune only after a successful merge, so old daily images are removed only once
     # fresh ones have replaced them - never pruning a repository down to a stale
@@ -533,6 +541,82 @@ jobs:
                 fi
               done < <(echo "$resp" | jq -r '.results[] | "\(.name) \(.last_updated)"')
               url=$(echo "$resp" | jq -r '.next')
+            done
+            echo "::endgroup::"
+          done
+
+      - name: Delete untagged manifests older than ${{ env.MAX_AGE_DAYS }} days
+        # The build phase pushes each per-platform image by digest (untagged); the merge
+        # phase stitches those digests into the tagged multi-arch manifest list. Deleting a
+        # tag above only removes the tag pointer - Docker Hub never garbage-collects the
+        # untagged per-platform child manifests, and the tags API does not even list them,
+        # so they would otherwise accumulate forever. Sweep them here via the images API
+        # (currently_tagged=false returns only untagged manifests) and the bulk delete-images
+        # endpoint. active_from is the same cutoff and is passed to delete-images as a
+        # server-side safety net, so nothing pushed or pulled within the window can be removed
+        # even by mistake. Runs after the tag deletion above, so a manifest list freshly
+        # orphaned by that step is itself untagged and swept here too.
+        env:
+          DRY_RUN: ${{ github.event.inputs.prune_dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          # Exchange the access token for a short-lived Docker Hub API JWT.
+          token=$(curl -fsS -H 'Content-Type: application/json' \
+            -d "{\"username\": \"${DOCKERHUB_USERNAME}\", \"password\": \"${DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login | jq -r '.token')
+          if [ -z "$token" ] || [ "$token" = 'null' ]; then
+            echo 'Failed to authenticate to the Docker Hub API.' >&2
+            exit 1
+          fi
+
+          # Untagged manifests last active (pushed or pulled) before this moment are pruned.
+          active_from=$(date -u -d "${MAX_AGE_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
+
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native; do
+            echo "::group::Sweeping untagged manifests in ${DOCKERHUB_USERNAME}/${repo}"
+
+            # Collect the digests of untagged, inactive manifests older than the cutoff.
+            # The status / currently_tagged filters are applied again client-side so the
+            # sweep stays correct even if a paginated 'next' URL drops a query parameter.
+            digests=()
+            url="https://hub.docker.com/v2/namespaces/${DOCKERHUB_USERNAME}/repositories/${repo}/images?status=inactive&currently_tagged=false&active_from=${active_from}&ordering=last_activity&page_size=100"
+            while [ -n "$url" ] && [ "$url" != 'null' ]; do
+              resp=$(curl -fsS -H "Authorization: JWT ${token}" "$url")
+              while read -r digest; do
+                [ -n "$digest" ] && digests+=("$digest")
+              done < <(echo "$resp" | jq -r '
+                .results[]
+                | select(.status == "inactive")
+                | select([.tags[]? | select(.is_current)] | length == 0)
+                | .digest')
+              url=$(echo "$resp" | jq -r '.next')
+            done
+
+            if [ "${#digests[@]}" -eq 0 ]; then
+              echo "No untagged manifests older than ${MAX_AGE_DAYS} days."
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "Found ${#digests[@]} untagged manifest(s) to delete (dry_run=${DRY_RUN})."
+
+            # Docker Hub caps each delete-images request at 25 manifests, so batch them.
+            for ((i = 0; i < ${#digests[@]}; i += 25)); do
+              batch=("${digests[@]:i:25}")
+              manifests=$(printf '%s\n' "${batch[@]}" \
+                | jq -R --arg repo "$repo" 'select(length > 0) | {repository: $repo, digest: .}' \
+                | jq -s '.')
+              payload=$(jq -n \
+                --argjson dry_run "$DRY_RUN" \
+                --arg active_from "$active_from" \
+                --argjson manifests "$manifests" \
+                '{dry_run: $dry_run, active_from: $active_from, manifests: $manifests}')
+              echo "Deleting batch of ${#batch[@]} manifest(s)..."
+              curl -fsS -X POST -H "Authorization: JWT ${token}" -H 'Content-Type: application/json' \
+                -d "$payload" \
+                "https://hub.docker.com/v2/namespaces/${DOCKERHUB_USERNAME}/delete-images" \
+                | jq '.'
             done
             echo "::endgroup::"
           done
