@@ -4,6 +4,8 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import HttpExchanges from './HttpExchanges.vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 
+vi.mock('vue-router', () => ({useRoute: () => ({query: {}})}))
+
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
