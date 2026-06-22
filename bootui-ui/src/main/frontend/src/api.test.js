@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {apiFetch} from './api.js'
+import {apiFetch, getJson} from './api.js'
 
 function clearXsrfCookie() {
   document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'
@@ -86,5 +86,35 @@ describe('apiFetch', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(fetch).toHaveBeenNthCalledWith(1, 'api/overview', {cache: 'no-store'})
     expect(fetch.mock.calls[1][1]).toEqual({method: 'PUT'})
+  })
+})
+
+describe('getJson', () => {
+  beforeEach(() => {
+    clearXsrfCookie()
+  })
+
+  afterEach(() => {
+    clearXsrfCookie()
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the parsed JSON body on a successful response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{"value":42}', {status: 200})))
+    )
+
+    await expect(getJson('api/health')).resolves.toEqual({value: 42})
+    expect(fetch).toHaveBeenCalledWith('api/health', {})
+  })
+
+  it('throws with the HTTP status on a non-OK response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('nope', {status: 503})))
+    )
+
+    await expect(getJson('api/health')).rejects.toThrow('HTTP 503')
   })
 })

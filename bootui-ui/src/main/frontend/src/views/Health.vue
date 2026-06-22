@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import HealthNode from './HealthNode.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -14,9 +14,7 @@ const lastFetched = ref(null)
 async function fetchHealth() {
   error.value = null
   try {
-    const res = await apiFetch('api/health')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    root.value = await res.json()
+    root.value = await getJson('api/health')
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load health')

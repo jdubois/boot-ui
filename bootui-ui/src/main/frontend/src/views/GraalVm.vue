@@ -1,6 +1,6 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
@@ -126,9 +126,7 @@ function scanTime() {
 
 async function loadReport() {
   try {
-    const res = await apiFetch('api/graalvm')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/graalvm')
     error.value = null
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load GraalVM readiness report')
@@ -181,9 +179,7 @@ async function runScan() {
   loading.value = true
   startProgressPolling()
   try {
-    const res = await apiFetch(`api/graalvm/scan?includeDependencies=${includeDependencies.value}`, {method: 'POST'})
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson(`api/graalvm/scan?includeDependencies=${includeDependencies.value}`, {method: 'POST'})
     error.value = null
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to run GraalVM readiness checks')

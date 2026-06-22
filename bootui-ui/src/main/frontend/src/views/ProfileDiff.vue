@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -15,9 +15,7 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const res = await apiFetch('api/profile-diff')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
+    data.value = await getJson('api/profile-diff')
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load profile diff')

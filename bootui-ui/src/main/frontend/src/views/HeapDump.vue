@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -96,9 +96,7 @@ async function loadReport(options = {}) {
     if (smartFilter.value) params.set('smartFilter', smartFilter.value)
     const qs = params.toString()
     const url = qs ? 'api/heap-dump?' + qs : 'api/heap-dump'
-    const res = await apiFetch(url)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    const next = await res.json()
+    const next = await getJson(url)
     if (requestId !== reportRequestId) return
     report.value = next
     error.value = null

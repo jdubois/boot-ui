@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {formatDuration, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -27,9 +27,7 @@ const lastFetched = ref(null)
 async function fetchTraces() {
   error.value = null
   try {
-    const res = await apiFetch('api/traces')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/traces')
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load traces')
@@ -41,9 +39,7 @@ async function openTrace(traceId) {
   detail.value = null
   detailLoading.value = true
   try {
-    const res = await apiFetch('api/traces/' + traceId)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    detail.value = await res.json()
+    detail.value = await getJson('api/traces/' + traceId)
   } catch (e) {
     show(formatLoadError(e, 'Could not load trace'), 'danger')
   } finally {

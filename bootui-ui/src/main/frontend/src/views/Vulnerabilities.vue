@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -105,9 +105,7 @@ function scanTime() {
 
 async function loadDependencies() {
   try {
-    const res = await apiFetch('api/vulnerabilities')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
+    data.value = await getJson('api/vulnerabilities')
     error.value = null
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load dependencies')
@@ -121,9 +119,7 @@ async function scanDependencies() {
   }
   loading.value = true
   try {
-    const res = await apiFetch('api/vulnerabilities/scan', {method: 'POST'})
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
+    data.value = await getJson('api/vulnerabilities/scan', {method: 'POST'})
     if (data.value.vulnerable > 0) {
       vulnerableOnly.value = true
     }

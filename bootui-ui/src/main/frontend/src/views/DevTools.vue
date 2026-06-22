@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, onUnmounted, ref} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -33,9 +33,7 @@ const autoRefreshEnabled = computed(() => !restarting.value)
 
 async function fetchStatus() {
   try {
-    const res = await apiFetch('api/devtools')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    status.value = await res.json()
+    status.value = await getJson('api/devtools')
     lastFetched.value = Date.now()
   } catch (e) {
     flash(formatLoadError(e, 'Could not load DevTools status'), 'danger')

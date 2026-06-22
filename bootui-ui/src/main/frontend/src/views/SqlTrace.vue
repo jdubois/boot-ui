@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
@@ -28,9 +28,7 @@ const expanded = ref(new Set())
 async function fetchReport() {
   error.value = null
   try {
-    const res = await apiFetch('api/sql-trace')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/sql-trace')
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load SQL trace')

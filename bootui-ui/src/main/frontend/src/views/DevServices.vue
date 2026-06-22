@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -25,9 +25,7 @@ async function fetchReport(options = {}) {
     actionMessage.value = null
   }
   try {
-    const res = await apiFetch('api/dev-services')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/dev-services')
     lastFetched.value = Date.now()
     syncSelectedService()
   } catch (e) {

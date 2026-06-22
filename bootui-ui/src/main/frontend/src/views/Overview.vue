@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, inject, onActivated, onMounted, reactive, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
@@ -136,9 +136,7 @@ async function runScanner(def) {
   state.state = 'running'
   state.error = null
   try {
-    const res = await apiFetch(def.endpoint, {method: 'POST'})
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    const report = await res.json()
+    const report = await getJson(def.endpoint, {method: 'POST'})
     if (token !== requestTokens[def.id]) return
     applyReport(state, report)
   } catch (e) {
@@ -202,9 +200,7 @@ async function connectGithub() {
   github.state = 'running'
   github.error = null
   try {
-    const res = await apiFetch('api/github/refresh', {method: 'POST'})
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    const report = await res.json()
+    const report = await getJson('api/github/refresh', {method: 'POST'})
     github.available = report.available !== false
     github.connected = report.connected === true
     github.authenticated = report.credential?.authenticated === true

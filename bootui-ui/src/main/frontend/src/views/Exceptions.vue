@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatRelative, formatNumber, shortName} from '../utils/format.js'
@@ -31,9 +31,7 @@ const lastFetched = ref(null)
 async function fetchExceptions() {
   error.value = null
   try {
-    const res = await apiFetch('api/exceptions')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/exceptions')
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load exceptions')
@@ -45,9 +43,7 @@ async function openException(id) {
   detail.value = null
   detailLoading.value = true
   try {
-    const res = await apiFetch('api/exceptions/' + encodeURIComponent(id))
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    detail.value = await res.json()
+    detail.value = await getJson('api/exceptions/' + encodeURIComponent(id))
   } catch (e) {
     show(formatLoadError(e, 'Could not load exception detail'), 'danger')
   } finally {
