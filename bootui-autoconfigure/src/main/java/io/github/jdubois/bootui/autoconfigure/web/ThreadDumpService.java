@@ -222,7 +222,7 @@ public class ThreadDumpService {
         List<ThreadStateCountDto> stateCounts = stateTally.entrySet().stream()
                 .map(entry -> new ThreadStateCountDto(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparing(ThreadStateCountDto::state))
-                .collect(Collectors.toList());
+                .toList();
 
         List<Long> deadlockedIds = deadlocked.stream().sorted().toList();
 
