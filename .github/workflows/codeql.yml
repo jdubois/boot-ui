@@ -33,7 +33,7 @@ jobs:
             echo "::notice::Code scanning is not enabled or unavailable for this repository; skipping CodeQL analysis."
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.code-scanning.outputs.enabled == 'true'
 
       - name: Set up JDK 17
