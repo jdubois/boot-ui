@@ -1,7 +1,7 @@
 <script setup>
 import {getJson} from '../api.js'
 import {computed, ref} from 'vue'
-import HealthNode from './HealthNode.vue'
+import HealthNode from './components/HealthNode.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {describeLoadError} from '../utils/loadError.js'
