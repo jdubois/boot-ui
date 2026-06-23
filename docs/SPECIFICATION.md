@@ -1226,7 +1226,7 @@ Initial properties:
 
 | Property                                     | Default                                 | Description                                                                                       |
 | -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `bootui.enabled`                             | `AUTO`                                  | Enables BootUI. Values: `AUTO`, `ON`, `OFF`.                                                      |
+| `bootui.enabled`                             | `AUTO`                                  | Enables BootUI. Values: `AUTO`, `ON`, `OFF` (YAML parses `ON`/`OFF` as booleans, so `true`/`yes` and `false`/`no` are accepted too). |
 | `bootui.path`                                | `/bootui`                               | UI base path used by the banner and safety filter; `/bootui` is the supported route.              |
 | `bootui.api-path`                            | `/bootui/api`                           | Internal API base path used by the safety filter; controllers currently serve `/bootui/api/**`.   |
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |

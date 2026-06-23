@@ -17,7 +17,7 @@ Panel settings are consistent across the UI and API:
 
 | Property                         | Default                                 | Description                                                                                                                     |
 | -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `bootui.enabled`                 | `AUTO`                                  | Activation mode. `AUTO` activates only for configured local profiles or DevTools; `ON` forces BootUI on; `OFF` forces it off.   |
+| `bootui.enabled`                 | `AUTO`                                  | Activation mode. `AUTO` activates only for configured local profiles or DevTools; `ON` forces BootUI on; `OFF` forces it off. In YAML, `ON`/`OFF` are parsed as booleans, so `true`/`yes` and `false`/`no` are accepted as `ON`/`OFF`. |
 | `bootui.enabled-profiles`        | `dev,local`                             | Profiles that activate BootUI when `bootui.enabled=AUTO`.                                                                       |
 | `bootui.disabled-profiles`       | `prod,production`                       | Profiles that force BootUI off unless `bootui.enabled=ON`.                                                                      |
 | `bootui.force-web`               | `true`                                  | While BootUI is active, force a non-web (command-line) application into a servlet web application so the console can be served. No effect on apps that are already servlet web apps or explicitly reactive. Set to `false` to leave the host's web-application type untouched. |

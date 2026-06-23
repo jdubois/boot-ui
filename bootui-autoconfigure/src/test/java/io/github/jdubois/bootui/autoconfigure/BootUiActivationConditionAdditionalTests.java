@@ -8,6 +8,9 @@ import java.nio.file.Path;
 import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
@@ -186,26 +189,41 @@ class BootUiActivationConditionAdditionalTests {
     }
 
     @Test
-    void invalidEnabledValueFailsClosedWithNoActiveProfile() {
+    void yesValueActivatesAsYamlBooleanTrue() {
         MockEnvironment env = new MockEnvironment();
+        // YAML parses `bootui.enabled: yes` as the boolean true; either form must enable BootUI.
         env.setProperty("bootui.enabled", "YES");
 
         BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
 
-        assertThat(activation.enabled()).isFalse();
-        assertThat(activation.reason()).contains("invalid bootui.enabled");
+        assertThat(activation.enabled()).isTrue();
+        assertThat(activation.reason()).contains("ON");
     }
 
     @Test
-    void invalidEnabledValueFailsClosedEvenWithDevProfile() {
+    void trueValueActivatesAsYamlBooleanTrue() {
         MockEnvironment env = new MockEnvironment();
         env.setActiveProfiles("dev");
+        // YAML parses `bootui.enabled: ON` as the boolean true, delivered to the environment as "true".
         env.setProperty("bootui.enabled", "TRUE");
 
         BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
 
+        assertThat(activation.enabled()).isTrue();
+        assertThat(activation.reason()).contains("ON");
+    }
+
+    @Test
+    void falseValueDisablesAsYamlBooleanFalse() {
+        MockEnvironment env = new MockEnvironment();
+        env.setActiveProfiles("dev");
+        // YAML parses `bootui.enabled: OFF`/`no` as the boolean false, delivered as "false".
+        env.setProperty("bootui.enabled", "FALSE");
+
+        BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
+
         assertThat(activation.enabled()).isFalse();
-        assertThat(activation.reason()).contains("TRUE");
+        assertThat(activation.reason()).contains("OFF");
     }
 
     @Test
@@ -225,7 +243,7 @@ class BootUiActivationConditionAdditionalTests {
 
         BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
 
-        // The condition uppercases the raw value, so the reason contains the uppercased form.
+        // The condition reports the raw supplied value verbatim in the reason.
         assertThat(activation.reason()).containsIgnoringCase("bogus");
     }
 
@@ -252,5 +270,40 @@ class BootUiActivationConditionAdditionalTests {
         BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
 
         assertThat(activation.enabled()).isTrue();
+    }
+
+    /**
+     * Regression test for #447: YAML parses {@code bootui.enabled: ON} as the boolean {@code true},
+     * which previously reached the condition as the string {@code "true"} and was rejected as an
+     * invalid value, silently disabling BootUI. Drive the value through the real
+     * {@link YamlPropertySourceLoader} to prove the documented YAML switch activates BootUI.
+     */
+    @Test
+    void yamlEnabledOnActivates() throws Exception {
+        StandardEnvironment env = environmentFromYaml("bootui:\n  enabled: ON\n");
+
+        BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
+
+        assertThat(activation.enabled()).isTrue();
+        assertThat(activation.reason()).contains("ON");
+    }
+
+    @Test
+    void yamlEnabledOffDisables() throws Exception {
+        StandardEnvironment env = environmentFromYaml("bootui:\n  enabled: OFF\n");
+        env.setActiveProfiles("dev");
+
+        BootUiActivation activation = BootUiActivationCondition.resolve(env, classLoader);
+
+        assertThat(activation.enabled()).isFalse();
+        assertThat(activation.reason()).contains("OFF");
+    }
+
+    private static StandardEnvironment environmentFromYaml(String yaml) throws java.io.IOException {
+        StandardEnvironment env = new StandardEnvironment();
+        new YamlPropertySourceLoader()
+                .load("test-yaml", new ByteArrayResource(yaml.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .forEach(source -> env.getPropertySources().addFirst(source));
+        return env;
     }
 }
