@@ -12,13 +12,14 @@ import org.springframework.util.ClassUtils;
  *
  * <p>BootUI activates only when at least one of these is true:
  * <ul>
- *     <li>{@code bootui.enabled=ON}</li>
+ *     <li>{@code bootui.enabled=ON} (also {@code true}/{@code yes}; in YAML {@code ON} is parsed as
+ *         a boolean, so it arrives as {@code true})</li>
  *     <li>An active profile is present in {@code bootui.enabled-profiles}</li>
  *     <li>{@code spring-boot-devtools} is on the classpath</li>
  * </ul>
  * and none of these is true:
  * <ul>
- *     <li>{@code bootui.enabled=OFF}</li>
+ *     <li>{@code bootui.enabled=OFF} (also {@code false}/{@code no})</li>
  *     <li>An active profile is present in {@code bootui.disabled-profiles}</li>
  * </ul>
  */
@@ -27,7 +28,8 @@ public class BootUiActivationCondition implements Condition {
     public static final String DEVTOOLS_CLASS = "org.springframework.boot.devtools.restart.RestartScope";
 
     public static BootUiActivation resolve(Environment environment, ClassLoader classLoader) {
-        String mode = environment.getProperty("bootui.enabled", "AUTO").trim().toUpperCase(Locale.ROOT);
+        String rawMode = environment.getProperty("bootui.enabled", "AUTO").trim();
+        String mode = normalizeMode(rawMode);
         List<String> warnings = new ArrayList<>();
         Collection<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());
 
@@ -37,7 +39,7 @@ public class BootUiActivationCondition implements Condition {
                 listProperty(environment, "bootui.enabled-profiles", BootUiDefaults.ENABLED_PROFILES);
 
         if (!List.of("AUTO", "ON", "OFF").contains(mode)) {
-            return new BootUiActivation(false, "Disabled: invalid bootui.enabled value '" + mode + "'", warnings);
+            return new BootUiActivation(false, "Disabled: invalid bootui.enabled value '" + rawMode + "'", warnings);
         }
 
         for (String profile : disabledProfiles) {
@@ -76,6 +78,26 @@ public class BootUiActivationCondition implements Condition {
 
         return new BootUiActivation(
                 false, "Disabled: no enabled profile and devtools is not on the classpath", warnings);
+    }
+
+    /**
+     * Normalizes a configured {@code bootui.enabled} value to a canonical {@code AUTO}/{@code ON}/
+     * {@code OFF} token.
+     *
+     * <p>YAML treats {@code on}/{@code off}/{@code yes}/{@code no}/{@code true}/{@code false} as
+     * booleans, so {@code bootui.enabled: ON} is delivered to the {@link Environment} as the string
+     * {@code "true"}. To keep the documented {@code ON}/{@code OFF} switch working in YAML (and to
+     * stay consistent with Spring's relaxed binding of the {@code Mode} enum used everywhere else),
+     * boolean-ish values are mapped onto {@code ON}/{@code OFF}. Genuinely unknown values are passed
+     * through unchanged so they still fail closed.</p>
+     */
+    private static String normalizeMode(String rawMode) {
+        String mode = rawMode.toUpperCase(Locale.ROOT);
+        return switch (mode) {
+            case "ON", "TRUE", "YES" -> "ON";
+            case "OFF", "FALSE", "NO" -> "OFF";
+            default -> mode;
+        };
     }
 
     private static List<String> listProperty(Environment env, String key, List<String> defaults) {

@@ -72,6 +72,12 @@ bootui.enabled=OFF
 `prod` and `production` profiles disable BootUI unless `bootui.enabled=ON` is set. Invalid `bootui.enabled` values fail
 closed and keep BootUI disabled.
 
+::: tip YAML users
+In `application.yml`, YAML parses `ON`/`OFF` (and `yes`/`no`/`true`/`false`) as booleans, so
+`bootui.enabled: ON` arrives as `true`. BootUI accepts these: `ON`/`true`/`yes` enable it and
+`OFF`/`false`/`no` disable it, so the documented `bootui.enabled: ON` works unquoted in YAML.
+:::
+
 ## 4) Open BootUI
 
 Nice job! BootUI is now configured 🚀
@@ -297,7 +303,7 @@ subnet over the broad `172.16.0.0/12`, and keep it limited to trusted local/dev 
 
 | Symptom                      | Check                                                                                                                                   |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `/bootui` returns 404        | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`.                                                             |
+| `/bootui` returns 404        | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`. In `application.yml`, `bootui.enabled: ON` is valid — YAML parses it as a boolean, which BootUI accepts as `ON`. |
 | BootUI is disabled in `prod` | This is intentional; only `bootui.enabled=ON` can force activation with a disabled profile.                                             |
 | Command-line app now stays up | Expected: BootUI starts a servlet server so the console is reachable. Set `bootui.force-web=false` to keep the app non-web.              |
 | Browser is rejected          | BootUI accepts loopback callers and fails closed for everything else. Inside a container, set `bootui.trust-container-gateway=AUTO` to auto-detect and trust the default gateway `/32` (the SNAT source of published-port traffic) — no subnet needed on any Docker flavor, and the Host + CSRF protections stay on. For a custom proxy/bridge or LAN access, add that source range to `bootui.trusted-proxies` instead — `172.16.0.0/12` on Linux Docker Engine, `192.168.65.0/24` on Docker Desktop (macOS/Windows) — plus the hostname you browse with to `bootui.allowed-hosts`. Use `bootui.allow-non-localhost=true` only as a blunt last resort on a trusted local network. |
