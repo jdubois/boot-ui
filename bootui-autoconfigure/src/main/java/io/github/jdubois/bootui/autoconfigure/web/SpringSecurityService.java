@@ -161,7 +161,7 @@ class SpringSecurityService {
         FilterChainProxy proxy = filterChainProxyProvider.getIfAvailable();
         boolean springSecurityPresent = proxy != null;
         List<RequestMappingInfoHandlerMapping> handlerMappings =
-                handlerMappingProvider.stream().collect(Collectors.toList());
+                handlerMappingProvider.stream().toList();
         if (handlerMappings.isEmpty()) {
             return new SpringSecurityEndpointsReport(springSecurityPresent, false, 0, List.of());
         }
@@ -406,7 +406,7 @@ class SpringSecurityService {
 
     private Authentication authenticatedAuth(List<String> authorities) {
         List<SimpleGrantedAuthority> granted =
-                authorities.stream().map(SimpleGrantedAuthority::new).collect(Collectors.toList());
+                authorities.stream().map(SimpleGrantedAuthority::new).toList();
         return UsernamePasswordAuthenticationToken.authenticated("bootui-explain", "n/a", granted);
     }
 
@@ -495,7 +495,7 @@ class SpringSecurityService {
     }
 
     private List<String> filterNames(List<? extends jakarta.servlet.Filter> filters) {
-        return filters.stream().map(f -> f.getClass().getSimpleName()).collect(Collectors.toList());
+        return filters.stream().map(f -> f.getClass().getSimpleName()).toList();
     }
 
     private boolean hasFilter(SecurityFilterChain chain, String simpleClassName) {
@@ -507,11 +507,11 @@ class SpringSecurityService {
         List<String> providerTypes = authenticationProviderProvider.stream()
                 .map(p -> p.getClass().getName())
                 .sorted()
-                .collect(Collectors.toList());
+                .toList();
         List<String> udsTypes = userDetailsServiceProvider.stream()
                 .map(u -> u.getClass().getName())
                 .sorted()
-                .collect(Collectors.toList());
+                .toList();
         // spring.security.user.name is a username, not a secret; expose it to help
         // developers identify the auto-generated user when no custom UserDetailsService
         // is configured. Never read spring.security.user.password.

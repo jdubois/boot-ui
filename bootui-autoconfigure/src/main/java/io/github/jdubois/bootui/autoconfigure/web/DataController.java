@@ -45,7 +45,7 @@ public class DataController {
                 .map(this::toSummary)
                 .sorted(Comparator.comparing(
                         RepositoryDto::repositoryInterface, Comparator.nullsLast(String::compareTo)))
-                .collect(Collectors.toList());
+                .toList();
         return new RepositoriesReport(true, summaries.size(), summaries);
     }
 
