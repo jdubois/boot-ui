@@ -1,6 +1,6 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
@@ -106,9 +106,7 @@ function scanTime() {
 
 async function loadReport() {
   try {
-    const res = await apiFetch('api/crac')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/crac')
     error.value = null
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load CRaC readiness report')
@@ -122,9 +120,7 @@ async function runScan() {
   }
   loading.value = true
   try {
-    const res = await apiFetch('api/crac/scan', {method: 'POST'})
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/crac/scan', {method: 'POST'})
     error.value = null
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to run CRaC readiness checks')

@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
@@ -14,9 +14,7 @@ const lastFetched = ref(null)
 async function fetchReport() {
   error.value = null
   try {
-    const res = await apiFetch('api/scheduled')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/scheduled')
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load scheduled tasks')

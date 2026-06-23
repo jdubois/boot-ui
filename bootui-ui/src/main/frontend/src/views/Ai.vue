@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -91,9 +91,7 @@ async function openChat(spanId) {
   detail.value = null
   detailLoading.value = true
   try {
-    const res = await apiFetch('api/ai/chats/' + spanId)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    detail.value = await res.json()
+    detail.value = await getJson('api/ai/chats/' + spanId)
   } catch (e) {
     detail.value = {error: formatLoadError(e, 'Unable to load AI chat details')}
   } finally {

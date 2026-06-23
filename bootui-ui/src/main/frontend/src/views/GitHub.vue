@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {formatNumber, formatRelative} from '../utils/format.js'
 import {formatBytes} from '../utils/memoryReport.js'
@@ -45,9 +45,7 @@ const unavailable = computed(() => data.value?.available === false)
 async function fetchDashboard() {
   const liveRefresh = !readOnly.value
   try {
-    const res = await apiFetch(liveRefresh ? 'api/github/refresh' : 'api/github', liveRefresh ? {method: 'POST'} : {})
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
+    data.value = await getJson(liveRefresh ? 'api/github/refresh' : 'api/github', liveRefresh ? {method: 'POST'} : {})
     lastFetched.value = data.value?.refreshedAt ?? Date.now()
     error.value = null
   } catch (e) {

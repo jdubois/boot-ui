@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -40,9 +40,7 @@ async function loadEndpoints() {
   endpointsLoading.value = true
   endpointsError.value = null
   try {
-    const res = await apiFetch('api/spring-security/endpoints')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    endpoints.value = await res.json()
+    endpoints.value = await getJson('api/spring-security/endpoints')
   } catch (e) {
     endpointsError.value = formatLoadError(e, 'Unable to load secured endpoints')
   } finally {

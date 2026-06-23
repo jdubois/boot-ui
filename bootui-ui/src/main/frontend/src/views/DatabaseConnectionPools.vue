@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, ref, watch} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -78,9 +78,7 @@ async function fetchPools() {
   if (!endpointAvailable.value) return
   error.value = null
   try {
-    const res = await apiFetch('api/database-connection-pools/pools')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/database-connection-pools/pools')
     lastUpdated.value = Date.now()
     if (!pools.value.length) {
       selectedName.value = ''

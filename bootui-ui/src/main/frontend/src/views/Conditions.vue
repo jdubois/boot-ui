@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -44,9 +44,7 @@ async function load(options = {}) {
   targetLoading.value = true
   error.value = null
   try {
-    const res = await apiFetch(buildUrl(append ? entries.value.length : 0))
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    const next = await res.json()
+    const next = await getJson(buildUrl(append ? entries.value.length : 0))
     if (id !== requestId) return
     data.value =
       append && data.value

@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import {computed, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
@@ -336,9 +336,7 @@ function bucketWindowLabel(bucket, granularity) {
 }
 
 async function loadDashboard() {
-  const res = await apiFetch(`${panelConfig.value.apiBase}/dashboard`)
-  if (!res.ok) throw new Error('HTTP ' + res.status)
-  dashboard.value = await res.json()
+  dashboard.value = await getJson(`${panelConfig.value.apiBase}/dashboard`)
 }
 
 async function loadSessions(window = activeSessionWindow.value) {
@@ -349,9 +347,7 @@ async function loadSessions(window = activeSessionWindow.value) {
     params.set('until', window.until)
     url += `?${params.toString()}`
   }
-  const res = await apiFetch(url)
-  if (!res.ok) throw new Error('HTTP ' + res.status)
-  sessionList.value = await res.json()
+  sessionList.value = await getJson(url)
 }
 
 async function refreshSessions(window = activeSessionWindow.value) {
@@ -422,9 +418,7 @@ async function loadDetail(sessionId) {
   }
   detailLoading.value = true
   try {
-    const res = await apiFetch(`${panelConfig.value.apiBase}/sessions/${encodeURIComponent(sessionId)}`)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    detail.value = await res.json()
+    detail.value = await getJson(`${panelConfig.value.apiBase}/sessions/${encodeURIComponent(sessionId)}`)
     rawById.value = {}
     error.value = null
   } catch (e) {

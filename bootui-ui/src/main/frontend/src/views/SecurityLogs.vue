@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
@@ -42,9 +42,7 @@ async function fetchLogs(reset = false) {
     if (type.value.trim()) params.set('type', type.value.trim())
     const after = selectedAfter()
     if (after) params.set('after', after)
-    const res = await apiFetch('api/security-logs?' + params)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    report.value = await res.json()
+    report.value = await getJson('api/security-logs?' + params)
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load Security Logs')

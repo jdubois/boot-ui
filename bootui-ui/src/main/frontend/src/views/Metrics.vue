@@ -1,5 +1,5 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -120,9 +120,7 @@ function changeStatistic(event) {
 
 async function fetchMetrics() {
   try {
-    const res = await apiFetch('api/metrics')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    data.value = await res.json()
+    data.value = await getJson('api/metrics')
     error.value = null
     if (!selectedName.value && data.value.meters.length) {
       resetSelection(preferredInitialMeter(data.value.meters))
@@ -156,9 +154,7 @@ async function loadDetail() {
     for (const tag of selectedTags.value) {
       params.append('tag', tag)
     }
-    const res = await apiFetch(`api/metrics/detail?${params}`)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    detail.value = await res.json()
+    detail.value = await getJson(`api/metrics/detail?${params}`)
     if (!detail.value.measurements.some((measurement) => measurement.statistic === selectedStatistic.value)) {
       selectedStatistic.value = detail.value.measurements[0]?.statistic || ''
       resetHistory()
