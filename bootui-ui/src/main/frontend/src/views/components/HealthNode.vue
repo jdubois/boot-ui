@@ -1,5 +1,5 @@
 <script setup>
-import {isPlainObject} from '../utils/format.js'
+import {isPlainObject} from '../../utils/format.js'
 import HealthDetails from './HealthDetails.vue'
 
 defineProps({

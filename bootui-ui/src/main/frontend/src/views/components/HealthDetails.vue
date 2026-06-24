@@ -1,5 +1,5 @@
 <script setup>
-import {formatBytes, isPlainObject} from '../utils/format.js'
+import {formatBytes, isPlainObject} from '../../utils/format.js'
 
 defineProps({
   value: {required: false, default: null}
