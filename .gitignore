@@ -39,6 +39,9 @@ dist/
 # BootUI runtime persistence (local developer overrides)
 .bootui/
 
+# Impeccable hook local cache
+.impeccable/
+
 # Local env
 .env
 *.env.local
