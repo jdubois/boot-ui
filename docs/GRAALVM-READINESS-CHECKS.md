@@ -70,7 +70,7 @@ native-image configuration.
 - It is **not a replacement for the [GraalVM tracing agent](https://www.graalvm.org/latest/reference-manual/native-image/metadata/AutomaticMetadataCollection/)
   or an actual native-image build**. Static analysis cannot see reflection driven by runtime data, so the checks are
   heuristic review prompts, and the generated metadata is a scaffold to review and complete — not a finished file.
-- It does not analyse third-party dependency bytecode for readiness; for dependencies it only reports whether classpath
+- It does not analyze third-party dependency bytecode for readiness; for dependencies it only reports whether classpath
   JARs ship bundled reachability metadata JSON or native-image build arguments.
 - It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
 - Spring-managed beans are already covered by Spring AOT, so findings that overlap with Spring's own AOT processing may

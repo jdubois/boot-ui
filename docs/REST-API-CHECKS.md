@@ -27,7 +27,7 @@ without an extra application dependency. The panel is available only when:
 - a base package is resolvable from the running application.
 
 Every rule catches `RuntimeException` and `LinkageError` and degrades to a `SKIPPED`/`ERROR` outcome so one
-unresolvable class never aborts the scan, and the scanner degrades to a stable "scanned, nothing to analyse" report when
+unresolvable class never aborts the scan, and the scanner degrades to a stable "scanned, nothing to analyze" report when
 no controllers can be imported.
 
 ## What BootUI does not do

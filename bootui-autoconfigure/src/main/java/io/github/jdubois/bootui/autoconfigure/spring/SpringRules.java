@@ -124,7 +124,7 @@ final class DuplicateObjectMapperRule extends AbstractSpringRule {
                 "Detects more than one Jackson JSON mapper bean (Jackson 2 ObjectMapper or the Jackson 3"
                         + " JsonMapper that Spring Boot 4 auto-configures) with none marked @Primary, which can"
                         + " lead to inconsistent JSON (de)serialization depending on which one is injected.",
-                "Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customise the"
+                "Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customize the"
                         + " auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.",
                 "https://docs.spring.io/spring-boot/reference/features/json.html"));
     }

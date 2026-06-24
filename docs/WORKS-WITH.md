@@ -2,9 +2,9 @@
 
 BootUI is one of three projects by [Julien Dubois](https://www.julien-dubois.com) that share a single Java workflow —
 from scaffolding an application, to observing it from the inside, to driving its build and run lifecycle from Copilot.
-Each owns one colour in a shared **circle of color**:
+Each owns one color in a shared **circle of color**:
 
-| Colour        | Project                                               | Role                                                                                        |
+| Color         | Project                                               | Role                                                                                        |
 | ------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | 🟢 Green      | BootUI (this site)                                    | An in-app developer console served by the running Spring Boot app over `/bootui/`.          |
 | 🔵 Blue       | [Coffilot](https://www.julien-dubois.com/coffilot/)   | A Copilot canvas extension that builds, tests, runs and debugs the app from the side panel. |

@@ -46,7 +46,7 @@ the HTTP Exchanges, SQL Trace, Exceptions, and Security Logs panels, so every va
 bounded exactly as those panels are.
 
 The stream merges four signal types into one feed: requests (`REQUEST`), SQL statements (`SQL`), exceptions
-(`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a colour-coded severity
+(`EXCEPTION`), and security events (`SECURITY`). Each row carries a timestamp, a type icon, a color-coded severity
 (`OK`, `SLOW`, `WARN`, `ERROR`), a one-line summary, and a duration where applicable; failed rows are highlighted and
 slow requests are tinted on a graduated yellow-to-red heat scale (crossing 100, 200, 500, and 1000 ms) with a matching
 latency badge so you can see at a glance *how* slow a request was, adjacent identical entries are collapsed with an
@@ -66,9 +66,9 @@ When the feed is unfiltered, correlated signals are **nested chronologically und
 SQL statements, exceptions, and security events that BootUI can pin precisely to a request — by trace id, by the
 request's serving thread, or by request method and path — are folded into a collapsible group beneath that request row
 (expanded by default), so one click reveals exactly what a single request did, in order. Requests that triggered a
-security event are flagged as **authenticated** — a lock icon plus a grey pill naming the caller's principal — so a
+security event are flagged as **authenticated** — a lock icon plus a gray pill naming the caller's principal — so a
 secured call and who made it are obvious without opening the profiler, and the nested child rows are shaded a distinct
-grey so they read clearly as belonging to the request above them. Signals that cannot be tied to a
+gray so they read clearly as belonging to the request above them. Signals that cannot be tied to a
 request stay top-level, and applying any filter or free-text search flattens the feed again so the query spans every
 signal.
 
@@ -214,7 +214,7 @@ The Spring panel runs an explicit, read-only scan of the host application's runn
 environment, performance and concurrency (including virtual threads), web/HTTP settings, and Actuator/management exposure.
 Because it runs inside the
 already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
-complements the Architecture panel, which statically analyses compiled bytecode with ArchUnit, by inspecting the live,
+complements the Architecture panel, which statically analyzes compiled bytecode with ArchUnit, by inspecting the live,
 wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
 intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
 catalogue and remediation links.
