@@ -7,6 +7,43 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-25
+
+Feature release headlined by **idle memory reclamation** — BootUI now releases its live diagnostic buffers and pauses
+recording while the console sits idle — alongside a fix for a YAML activation gotcha that could silently disable BootUI
+and a restore of the Spring Security panel's collapsible sections.
+
+### Added
+
+- **Idle memory reclamation for the live diagnostic buffers.** BootUI fills several bounded in-memory buffers from the
+  host application's own traffic — ingested OTLP traces/spans, the SQL trace, and the request/security correlation
+  windows. In development that traffic keeps flowing even when nobody has the console open, so the buffers sat at their
+  steady-state size for no observable benefit. Once the console has been idle for `bootui.free-on-idle.timeout`
+  (default `5m`), BootUI now releases those buffers' retained data and pauses recording into them, then refills them from
+  live traffic on the next console request. A `ConsoleActivityFilter` registered just after the safety filters marks the
+  console active on any trusted-local `/bootui` request (UI load, API poll, or stream open), so an open console never
+  reclaims while a genuinely unused one does. The Exceptions and Log Tail buffers are deliberately retained so a recent
+  error stays visible when the console is opened, the idle gate is kept separate from any user-facing pause toggle so
+  resuming never overrides an explicit pause, and the whole behavior is dev-only and fully disabled with
+  `bootui.free-on-idle.enabled=false` (#452).
+- **Ecosystem page on the documentation site** ([`docs/WORKS-WITH.md`](docs/WORKS-WITH.md)) that tells the shared-Java
+  workflow story across BootUI, [Coffilot](https://www.julien-dubois.com/coffilot/), and
+  [Dr JSkill](https://www.julien-dubois.com/dr-jskill/), reachable from a new "Ecosystem" navbar entry (#432).
+
+### Fixed
+
+- **`bootui.enabled: ON` / `OFF` in YAML no longer silently disables BootUI.** YAML parses the unquoted `ON` as the
+  boolean `true`, which reached `BootUiActivationCondition` as the string `"true"`, was rejected as an invalid value, and
+  turned BootUI off — so `/bootui` fell through to the static-resource handler and 404'd with
+  `NoResourceFoundException`. The activation condition now normalizes boolean-ish values (`TRUE`/`YES` → `ON`,
+  `FALSE`/`NO` → `OFF`), matching Spring's relaxed enum binding used for BootUI's other `Mode` properties; unknown values
+  still fail closed (#447, #448).
+- **Restored the collapsible accordion in the Spring Security panel.** Bootstrap's collapse JavaScript was never
+  imported, so clicking the panel's accordion section headers did nothing; BootUI now bundles `bootstrap/js/dist/collapse`
+  and the sections expand and collapse again (#431).
+- **Corrected the heading-anchor scroll offset on the documentation site** so deep links and in-page anchors no longer
+  land with the target heading hidden behind the fixed navbar (#426).
+
 ## [1.5.2] - 2026-06-17
 
 Patch release fixing a startup crash for applications that contribute their own `HttpExchangeRepository`, polishing two
@@ -721,6 +758,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
+[1.6.0]: https://github.com/jdubois/boot-ui/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/jdubois/boot-ui/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/jdubois/boot-ui/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/jdubois/boot-ui/compare/v1.4.0...v1.5.0
