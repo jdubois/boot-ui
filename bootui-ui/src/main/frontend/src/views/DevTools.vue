@@ -50,7 +50,7 @@ async function triggerLiveReload() {
     const res = await apiFetch('api/devtools/livereload', {method: 'POST'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      flash(result.message || result.error || 'HTTP ' + res.status, 'warning')
+      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
       await load()
       return
     }
@@ -80,7 +80,7 @@ async function restart() {
     })
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      flash(result.message || result.error || 'HTTP ' + res.status, 'warning')
+      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
       await load()
       return
     }

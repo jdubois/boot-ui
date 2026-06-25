@@ -44,7 +44,7 @@ export function useServerPagedList(endpoint, itemsKey, queryParams, options = {}
     error.value = null
     try {
       const res = await apiFetch(buildUrl(currentItems.length))
-      if (!res.ok) throw new Error('HTTP ' + res.status)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const next = await res.json()
       if (id !== requestId) return
       data.value =

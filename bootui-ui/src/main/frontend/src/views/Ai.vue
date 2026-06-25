@@ -27,9 +27,9 @@ async function fetchAiUsage() {
   try {
     const [ovRes, tsRes] = await Promise.all([
       apiFetch('api/ai/overview'),
-      apiFetch('api/ai/tokens?minutes=' + windowMinutes.value)
+      apiFetch(`api/ai/tokens?minutes=${windowMinutes.value}`)
     ])
-    if (!ovRes.ok) throw new Error('HTTP ' + ovRes.status)
+    if (!ovRes.ok) throw new Error(`HTTP ${ovRes.status}`)
     overview.value = await ovRes.json()
     if (tsRes.ok) {
       series.value = await tsRes.json()
@@ -91,7 +91,7 @@ async function openChat(spanId) {
   detail.value = null
   detailLoading.value = true
   try {
-    detail.value = await getJson('api/ai/chats/' + spanId)
+    detail.value = await getJson(`api/ai/chats/${spanId}`)
   } catch (e) {
     detail.value = {error: formatLoadError(e, 'Unable to load AI chat details')}
   } finally {
@@ -147,7 +147,7 @@ const filteredChats = computed(() => {
     if (modelFilter.value && c.requestModel !== modelFilter.value) return false
     if (statusFilter.value && c.statusCode !== statusFilter.value) return false
     if (q) {
-      const hay = ((c.requestModel || '') + ' ' + (c.provider || '') + ' ' + (c.spanId || '')).toLowerCase()
+      const hay = `${c.requestModel || ''} ${c.provider || ''} ${c.spanId || ''}`.toLowerCase()
       if (!hay.includes(q)) return false
     }
     return true
@@ -219,7 +219,7 @@ const miniTimeline = computed(() => {
           y: baseY,
           h: barH,
           color: '#0d6efd',
-          title: (tc.name || 'tool') + ' ' + (tc.durationNanos / 1_000_000).toFixed(1) + 'ms'
+          title: `${tc.name || 'tool'} ${(tc.durationNanos / 1_000_000).toFixed(1)}ms`
         })
       }
     }
@@ -234,7 +234,7 @@ const miniTimeline = computed(() => {
           y: baseY,
           h: barH,
           color: '#fd7e14',
-          title: (vo.operation || 'vector') + ' ' + (vo.durationNanos / 1_000_000).toFixed(1) + 'ms'
+          title: `${vo.operation || 'vector'} ${(vo.durationNanos / 1_000_000).toFixed(1)}ms`
         })
       }
     }
@@ -281,7 +281,7 @@ const tooltipData = ref(null)
 const chartContainerRef = ref(null)
 
 async function loadTokenSeries() {
-  const res = await apiFetch('api/ai/tokens?minutes=' + windowMinutes.value)
+  const res = await apiFetch(`api/ai/tokens?minutes=${windowMinutes.value}`)
   if (res.ok) series.value = await res.json()
 }
 

@@ -42,7 +42,7 @@ async function fetchLogs(reset = false) {
     if (type.value.trim()) params.set('type', type.value.trim())
     const after = selectedAfter()
     if (after) params.set('after', after)
-    report.value = await getJson('api/security-logs?' + params)
+    report.value = await getJson(`api/security-logs?${params}`)
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load Security Logs')

@@ -26,7 +26,7 @@ async function load() {
       springSecurityPresent.value = false
       return
     }
-    if (!res.ok) throw new Error('HTTP ' + res.status)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     report.value = await res.json()
     if (!report.value.springSecurityPresent) {
       springSecurityPresent.value = false
@@ -53,14 +53,14 @@ async function explain() {
   explainResult.value = null
   try {
     const params = new URLSearchParams({method: explainMethod.value, path: explainPath.value})
-    const res = await apiFetch('api/spring-security/explain?' + params)
+    const res = await apiFetch(`api/spring-security/explain?${params}`)
     if (res.ok) {
       explainResult.value = await res.json()
     } else {
       explainResult.value = {
         matched: false,
         bestEffort: false,
-        matcherDescription: 'Error: HTTP ' + res.status,
+        matcherDescription: `Error: HTTP ${res.status}`,
         filters: []
       }
     }

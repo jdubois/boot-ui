@@ -239,13 +239,13 @@ const activeNavigationGroupKey = computed(() => {
 
 async function loadOverview() {
   const res = await fetch('api/overview')
-  if (!res.ok) throw new Error('HTTP ' + res.status)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
   overview.value = await res.json()
 }
 
 async function loadPanels() {
   const res = await fetch('api/panels')
-  if (!res.ok) throw new Error('HTTP ' + res.status)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
   panels.value = await res.json()
 }
 

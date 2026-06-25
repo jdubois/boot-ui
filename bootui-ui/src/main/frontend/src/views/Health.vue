@@ -72,13 +72,11 @@ const statusMessage = computed(() => {
   if (healthUnavailable.value) return root.value.unavailableReason || 'Actuator health data is unavailable'
   if (root.value.guidanceReason) return root.value.guidanceReason
   if (problemNodes.value.length) {
-    return (
-      problemNodes.value.length + ' component' + (problemNodes.value.length === 1 ? ' needs' : 's need') + ' attention'
-    )
+    return `${problemNodes.value.length} component${problemNodes.value.length === 1 ? ' needs' : 's need'} attention`
   }
   if (root.value.status === 'UP') return 'All reported components are healthy'
   if (root.value.status === 'UNKNOWN') return 'Health endpoint did not report component details'
-  return 'Application health is ' + root.value.status
+  return `Application health is ${root.value.status}`
 })
 </script>
 
