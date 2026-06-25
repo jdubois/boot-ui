@@ -4,7 +4,7 @@ The Spring panel runs a fixed, on-demand ruleset against the host application's 
 
 Because the advisor runs inside the *started* application, it focuses on "started but suboptimal" states: settings that let the app boot yet deviate from production best practices. Conditions that would prevent startup entirely are out of scope. The checks are heuristic review prompts; the right remediation still depends on the application's requirements and deployment topology.
 
-This advisor is complementary to the **Architecture** panel: Architecture statically analyses compiled bytecode with ArchUnit, whereas the Spring Advisor inspects the live, wired runtime context.
+This advisor is complementary to the **Architecture** panel: Architecture statically analyzes compiled bytecode with ArchUnit, whereas the Spring Advisor inspects the live, wired runtime context.
 
 ## Availability and bounds
 
@@ -40,7 +40,7 @@ The panel is always available (a Spring application context always exists). Bean
 
 - **Severity**: LOW
 - **Detects**: Detects more than one Jackson JSON mapper bean (Jackson 2 ObjectMapper or the Jackson 3 JsonMapper that Spring Boot 4 auto-configures) with none marked @Primary, which can lead to inconsistent JSON (de)serialization depending on which one is injected.
-- **Recommendation**: Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customise the auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.
+- **Recommendation**: Keep a single primary JSON mapper. With Jackson 3 (the Spring Boot 4 default) customize the auto-configured mapper via a JsonMapperBuilderCustomizer, or mark one bean @Primary.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/json.html>
 
 ### SPRING-WIRING-004 - Multiple TaskExecutor beans need a primary
@@ -67,7 +67,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WIRING-007 - Prefer RestClient over RestTemplate
 
 - **Severity**: LOW
-- **Detects**: A RestTemplate bean is defined. RestTemplate is in maintenance mode; Spring Boot 4 favours the fluent, modern RestClient for synchronous HTTP access.
+- **Detects**: A RestTemplate bean is defined. RestTemplate is in maintenance mode; Spring Boot 4 favors the fluent, modern RestClient for synchronous HTTP access.
 - **Recommendation**: Migrate RestTemplate usage to RestClient (RestClient.create() or an injected RestClient.Builder). Keep RestTemplate only where a dependency still requires it.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/integration/rest-clients.html>
 
@@ -83,7 +83,7 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-CONFIG-001 - Consider lazy initialization for large contexts
 
 - **Severity**: INFO
-- **Detects**: A large bean context is initialised eagerly. Lazy initialization can shorten startup for development, tests, and short-lived or serverless workloads.
+- **Detects**: A large bean context is initialized eagerly. Lazy initialization can shorten startup for development, tests, and short-lived or serverless workloads.
 - **Recommendation**: Evaluate spring.main.lazy-initialization=true, weighing the trade-offs: wiring errors surface on first use instead of at startup, the first request to each bean pays an initialization cost, and it interacts with AOT/native processing. Keep beans that must start eagerly (listeners, schedulers) annotated @Lazy(false).
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/spring-application.html>
 

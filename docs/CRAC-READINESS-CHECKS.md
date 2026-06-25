@@ -49,7 +49,7 @@ imported bytecode. They still trigger only on demand and never open, close, or c
   only inspects the running process and the application's bytecode.
 - It is **not a replacement for an actual checkpoint/restore run on a CRaC-enabled JDK**. Static analysis cannot see
   resources acquired through runtime data, so the checks are heuristic review prompts.
-- It does not analyse third-party dependency bytecode; it inspects only the application's own base-package classes.
+- It does not analyze third-party dependency bytecode; it inspects only the application's own base-package classes.
 - It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
 
 ## Severity scale

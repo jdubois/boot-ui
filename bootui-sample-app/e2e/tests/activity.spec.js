@@ -103,7 +103,7 @@ test.describe('Live Activity view', () => {
   })
 
   test('marks an authenticated request with a lock and the principal tag', async ({openView, page}) => {
-    // A correlated security event flags the request row as authenticated: a lock icon plus a grey pill
+    // A correlated security event flags the request row as authenticated: a lock icon plus a gray pill
     // carrying the caller's principal, so a secured call and who made it are obvious at a glance.
     const secure = await page.request.get('/api/secure/products', {
       headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}

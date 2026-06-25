@@ -176,7 +176,7 @@ function rowClass(entry) {
 }
 
 // Graduated latency heat for HTTP requests: 100/200/500/1000 ms map to four levels that the row and
-// duration badge colour from yellow to bright red, so slow requests stand out by how slow they are.
+// duration badge color from yellow to bright red, so slow requests stand out by how slow they are.
 function slowLevel(entry) {
   if (entry.type !== 'REQUEST' || entry.durationMs == null) return 0
   const ms = entry.durationMs

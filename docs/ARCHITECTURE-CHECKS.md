@@ -18,7 +18,7 @@ The scanner detects the host application's base package(s) from the `@SpringBoot
 `ClassFileImporter`, and evaluates every registered rule against the imported classes. Importing is bounded to the
 application's own base package(s) — never the entire classpath — and runs only on demand when the scan action is
 invoked, caching the last report in the controller. When several base packages are detected, all of them are imported
-and analysed together.
+and analyzed together.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when:
@@ -351,7 +351,7 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Inspects**: non-static instance fields declared in classes annotated with `@ConfigurationProperties`.
 - **Fires when**: a `@ConfigurationProperties` class has a non-`final` instance field, i.e. it relies on mutable setter
   binding instead of immutable constructor binding.
-- **Why it matters**: Spring Boot favours immutable configuration bound through records or constructors; mutable
+- **Why it matters**: Spring Boot favors immutable configuration bound through records or constructors; mutable
   configuration state can be changed after binding and is harder to reason about.
 - **Recommendation**: bind configuration through a record or a constructor with `final` fields so configuration state is
   immutable.
