@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
+import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -21,7 +22,7 @@ import java.util.List;
  * <p>The buffer is capped and evicts oldest-first so it never grows unbounded, mirroring BootUI's
  * other in-memory buffers.</p>
  */
-public final class SecurityEventCorrelationRegistry {
+public final class SecurityEventCorrelationRegistry implements IdleReclaimable {
 
     /**
      * One emitted security audit event: the worker thread it was published on, its epoch-millisecond
@@ -43,6 +44,7 @@ public final class SecurityEventCorrelationRegistry {
     private final int maxEntries;
     private final Deque<SecurityEventCorrelation> buffer = new ArrayDeque<>();
     private final Object lock = new Object();
+    private volatile boolean idleSuspended = false;
 
     public SecurityEventCorrelationRegistry(int maxEntries) {
         this.maxEntries = Math.max(1, maxEntries);
@@ -50,7 +52,7 @@ public final class SecurityEventCorrelationRegistry {
 
     /** Records one emitted audit event, evicting the oldest entry when the buffer is full. */
     public void record(SecurityEventCorrelation correlation) {
-        if (correlation == null) {
+        if (correlation == null || idleSuspended) {
             return;
         }
         synchronized (lock) {
@@ -59,6 +61,19 @@ public final class SecurityEventCorrelationRegistry {
                 buffer.removeFirst();
             }
         }
+    }
+
+    @Override
+    public void suspendForIdle() {
+        idleSuspended = true;
+        synchronized (lock) {
+            buffer.clear();
+        }
+    }
+
+    @Override
+    public void resumeFromIdle() {
+        idleSuspended = false;
     }
 
     /**

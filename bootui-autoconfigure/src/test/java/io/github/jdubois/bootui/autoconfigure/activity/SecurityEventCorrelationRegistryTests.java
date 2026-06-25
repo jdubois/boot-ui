@@ -71,4 +71,22 @@ class SecurityEventCorrelationRegistryTests {
 
         assertThat(registry.snapshot()).isEmpty();
     }
+
+    @Test
+    void suspendForIdleClearsAndStopsRecordingUntilResumed() {
+        SecurityEventCorrelationRegistry registry = new SecurityEventCorrelationRegistry(10);
+        registry.record(new SecurityEventCorrelation(1L, "a", "T", "p"));
+
+        registry.suspendForIdle();
+        assertThat(registry.snapshot()).isEmpty();
+
+        registry.record(new SecurityEventCorrelation(2L, "b", "T", "p"));
+        assertThat(registry.snapshot()).isEmpty();
+
+        registry.resumeFromIdle();
+        registry.record(new SecurityEventCorrelation(3L, "c", "T", "p"));
+        assertThat(registry.snapshot())
+                .extracting(SecurityEventCorrelation::thread)
+                .containsExactly("c");
+    }
 }

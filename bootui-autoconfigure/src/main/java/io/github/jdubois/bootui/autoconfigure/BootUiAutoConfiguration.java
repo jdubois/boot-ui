@@ -14,6 +14,9 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
+import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
+import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpController;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
@@ -574,6 +577,26 @@ public class BootUiAutoConfiguration {
         registration.addUrlPatterns(properties.getApiPath() + "/*");
         registration.setOrder(Integer.MIN_VALUE + 1);
         registration.setName("bootUiPanelAccessFilter");
+        return registration;
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(prefix = "bootui.free-on-idle", name = "enabled", matchIfMissing = true)
+    public ConsoleActivityTracker bootUiConsoleActivityTracker(
+            BootUiProperties properties, ObjectProvider<IdleReclaimable> buffers) {
+        return new ConsoleActivityTracker(
+                properties.getFreeOnIdle().getTimeout(), buffers.orderedStream().toList());
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "bootui.free-on-idle", name = "enabled", matchIfMissing = true)
+    public FilterRegistrationBean<ConsoleActivityFilter> bootUiConsoleActivityFilterRegistration(
+            ConsoleActivityTracker tracker, BootUiProperties properties) {
+        FilterRegistrationBean<ConsoleActivityFilter> registration =
+                new FilterRegistrationBean<>(new ConsoleActivityFilter(properties, tracker));
+        registration.addUrlPatterns(properties.getPath() + "/*", properties.getApiPath() + "/*");
+        registration.setOrder(Integer.MIN_VALUE + 2);
+        registration.setName("bootUiConsoleActivityFilter");
         return registration;
     }
 

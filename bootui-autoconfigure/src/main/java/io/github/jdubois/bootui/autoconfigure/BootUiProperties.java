@@ -162,6 +162,10 @@ public class BootUiProperties {
      * Live Activity panel settings (merged activity stream and per-request profiler).
      */
     private Activity activity = new Activity();
+    /**
+     * Free-on-idle memory reclamation settings.
+     */
+    private FreeOnIdle freeOnIdle = new FreeOnIdle();
 
     public Mode getEnabled() {
         return enabled;
@@ -450,6 +454,14 @@ public class BootUiProperties {
 
     public void setActivity(Activity activity) {
         this.activity = activity == null ? new Activity() : activity;
+    }
+
+    public FreeOnIdle getFreeOnIdle() {
+        return freeOnIdle;
+    }
+
+    public void setFreeOnIdle(FreeOnIdle freeOnIdle) {
+        this.freeOnIdle = freeOnIdle == null ? new FreeOnIdle() : freeOnIdle;
     }
 
     /**
@@ -1466,6 +1478,42 @@ public class BootUiProperties {
 
         public void setNPlusOneThreshold(int nPlusOneThreshold) {
             this.nPlusOneThreshold = nPlusOneThreshold;
+        }
+    }
+
+    public static class FreeOnIdle {
+
+        /**
+         * Whether BootUI releases its live in-memory diagnostic buffers (captured SQL, ingested
+         * traces, and the request/security correlation windows) after the console has been idle for
+         * {@code timeout}, and stops recording into them until the console is used again. The
+         * Exceptions and Log Tail buffers are kept so a recent error is still visible when you open
+         * the console. Has no effect in production, where BootUI is inactive.
+         */
+        private boolean enabled = true;
+
+        /**
+         * How long the console may go without any request before its live buffers are released. The
+         * timer resets on every BootUI request (loading the UI, API polling, or opening a stream), so
+         * an open console never reclaims; only a genuinely unused one does. Clamped to a minimum of
+         * one second.
+         */
+        private Duration timeout = Duration.ofMinutes(5);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public Duration getTimeout() {
+            return timeout;
+        }
+
+        public void setTimeout(Duration timeout) {
+            this.timeout = timeout;
         }
     }
 }

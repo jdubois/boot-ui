@@ -41,6 +41,34 @@ class SqlTraceRecorderTests {
     }
 
     @Test
+    void suspendForIdleClearsAndStopsRecordingUntilResumed() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent()).hasSize(1);
+
+        recorder.suspendForIdle();
+        assertThat(recorder.recent()).isEmpty();
+        record(recorder, Category.SELECT, "select 2", 0);
+        assertThat(recorder.recent()).isEmpty();
+
+        recorder.resumeFromIdle();
+        record(recorder, Category.SELECT, "select 3", 0);
+        assertThat(recorder.recent()).hasSize(1);
+    }
+
+    @Test
+    void resumeFromIdleDoesNotOverrideUserPause() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        recorder.setRecording(false);
+
+        recorder.suspendForIdle();
+        recorder.resumeFromIdle();
+
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent()).isEmpty();
+    }
+
+    @Test
     void evictsOldestBeyondCapacityAndCountsEvictions() {
         SqlTraceRecorder recorder = recorder(true, false, 2, 100);
         record(recorder, Category.SELECT, "first", 0);

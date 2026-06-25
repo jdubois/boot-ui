@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.otlp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -15,7 +16,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * scalability on reads, while a {@link LinkedHashMap}
  * ordered by last update time handles capacity bounding.</p>
  */
-public class TelemetryStore {
+public class TelemetryStore implements IdleReclaimable {
 
     static final int HARD_MAX_TRACES = 10_000;
 
@@ -42,6 +43,8 @@ public class TelemetryStore {
     private final LinkedHashMap<String, Boolean> selfTraceIds;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    private volatile boolean idleSuspended = false;
 
     public TelemetryStore(BootUiProperties.Telemetry config) {
         this.config = config;
@@ -85,6 +88,9 @@ public class TelemetryStore {
      */
     public boolean add(NormalizedSpan span, boolean selfSpan) {
         if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
+            return false;
+        }
+        if (idleSuspended) {
             return false;
         }
         lock.writeLock().lock();
@@ -184,6 +190,23 @@ public class TelemetryStore {
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    @Override
+    public void suspendForIdle() {
+        idleSuspended = true;
+        lock.writeLock().lock();
+        try {
+            tracesById.clear();
+            selfTraceIds.clear();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void resumeFromIdle() {
+        idleSuspended = false;
     }
 
     /**
