@@ -104,4 +104,21 @@ class TelemetryLimitsTests {
         assertThat(decoded).hasSizeLessThan(value.length());
         assertThat(decoded).contains("truncated 128 chars");
     }
+
+    @Test
+    void suspendForIdleClearsAndStopsIngestionUntilResumed() {
+        BootUiProperties properties = new BootUiProperties();
+        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        assertThat(store.add(span("trace-a", "span-a"), false)).isTrue();
+        assertThat(store.retainedTraceCount()).isEqualTo(1);
+
+        store.suspendForIdle();
+        assertThat(store.retainedTraceCount()).isZero();
+        assertThat(store.add(span("trace-b", "span-b"), false)).isFalse();
+        assertThat(store.retainedTraceCount()).isZero();
+
+        store.resumeFromIdle();
+        assertThat(store.add(span("trace-c", "span-c"), false)).isTrue();
+        assertThat(store.retainedTraceCount()).isEqualTo(1);
+    }
 }

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
+import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import java.util.ArrayDeque;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * beans were actually wrapped, so the panel can distinguish "no data source"
  * from "tracing disabled".</p>
  */
-public final class SqlTraceRecorder {
+public final class SqlTraceRecorder implements IdleReclaimable {
 
     static final int TOP_STATEMENTS_LIMIT = 20;
 
@@ -89,6 +90,7 @@ public final class SqlTraceRecorder {
     private final AtomicLong totalCaptured = new AtomicLong();
     private final AtomicLong evicted = new AtomicLong();
     private final AtomicBoolean recording;
+    private volatile boolean idleSuspended = false;
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
@@ -170,7 +172,7 @@ public final class SqlTraceRecorder {
             int batchSize,
             String connectionId,
             String thread) {
-        if (!enabled || !recording.get()) {
+        if (!enabled || idleSuspended || !recording.get()) {
             return;
         }
         CapturedStatement entry = new CapturedStatement(
@@ -221,6 +223,17 @@ public final class SqlTraceRecorder {
             buffer.clear();
         }
         notifyListeners();
+    }
+
+    @Override
+    public void suspendForIdle() {
+        idleSuspended = true;
+        clear();
+    }
+
+    @Override
+    public void resumeFromIdle() {
+        idleSuspended = false;
     }
 
     /**

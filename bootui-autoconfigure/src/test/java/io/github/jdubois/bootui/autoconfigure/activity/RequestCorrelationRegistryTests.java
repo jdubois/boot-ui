@@ -56,4 +56,20 @@ class RequestCorrelationRegistryTests {
         assertThat(registry.match("GET", "/a", 1000, 1100)).isNull();
         assertThat(registry.match("GET", "/c", 3000, 3100)).isNotNull();
     }
+
+    @Test
+    void suspendForIdleClearsAndStopsRecordingUntilResumed() {
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(10);
+        registry.record(new RequestCorrelation(1000, 1100, "exec-1", "GET", "/a"));
+
+        registry.suspendForIdle();
+        assertThat(registry.snapshot()).isEmpty();
+
+        registry.record(new RequestCorrelation(2000, 2100, "exec-2", "GET", "/b"));
+        assertThat(registry.snapshot()).isEmpty();
+
+        registry.resumeFromIdle();
+        registry.record(new RequestCorrelation(3000, 3100, "exec-3", "GET", "/c"));
+        assertThat(registry.snapshot()).hasSize(1);
+    }
 }
