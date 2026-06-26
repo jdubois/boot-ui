@@ -52,7 +52,7 @@
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.1.0</spring-boot.version>
-        <testcontainers.version>1.21.4</testcontainers.version>
+        <!-- testcontainers version is managed by the Spring Boot BOM (2.0.x) -->
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
         <frontend-maven-plugin.version>2.0.1</frontend-maven-plugin.version>
