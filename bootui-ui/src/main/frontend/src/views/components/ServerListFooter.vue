@@ -32,6 +32,11 @@ defineEmits(['loadMore'])
 
 const hidden = computed(() => Math.max(props.matched - props.shown, 0))
 const nextCount = computed(() => Math.min(props.pageSize, hidden.value))
+const summary = computed(() =>
+  props.matched === props.total
+    ? `Showing ${props.shown} of ${props.total} ${props.itemLabel}.`
+    : `Showing ${props.shown} of ${props.matched} matching ${props.itemLabel} (${props.total} total).`
+)
 </script>
 
 <template>
@@ -39,12 +44,7 @@ const nextCount = computed(() => Math.min(props.pageSize, hidden.value))
     aria-live="polite"
     class="d-flex flex-wrap justify-content-between align-items-center gap-2 text-muted small py-2"
   >
-    <span>
-      Showing {{ shown }} of {{ matched }} matching {{ itemLabel }}
-      <span v-if="total !== matched">({{ total }} total).</span>
-      <span v-else>.</span>
-      Filters run on the server.
-    </span>
+    <span>{{ summary }} Filters run on the server.</span>
     <button
       v-if="hidden > 0"
       :disabled="loading"

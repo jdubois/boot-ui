@@ -1190,7 +1190,7 @@ watch(
 .activity-tooltip {
   background: var(--bs-body-bg);
   border: 1px solid var(--bs-border-color);
-  border-radius: 0.35rem;
+  border-radius: var(--bootui-radius-xs);
   box-shadow: var(--bs-box-shadow-sm);
   color: var(--bs-body-color);
   font-size: 0.75rem;
@@ -1224,7 +1224,7 @@ watch(
 
 .activity-bar,
 .activity-bar-error {
-  border-radius: 0.35rem 0.35rem 0 0;
+  border-radius: var(--bootui-radius-xs) var(--bootui-radius-xs) 0 0;
   min-height: 2px;
   width: 70%;
 }
@@ -1249,11 +1249,11 @@ watch(
 }
 
 .activity-bars--tokens .activity-bar-token-input {
-  border-radius: 0 0 0.35rem 0.35rem;
+  border-radius: 0 0 var(--bootui-radius-xs) var(--bootui-radius-xs);
 }
 
 .activity-bars--tokens .activity-bar-token-output {
-  border-radius: 0.35rem 0.35rem 0 0;
+  border-radius: var(--bootui-radius-xs) var(--bootui-radius-xs) 0 0;
 }
 
 .activity-label {

@@ -3,6 +3,7 @@ import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -12,6 +13,7 @@ import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
 const liquibasePresent = ref(true)
@@ -42,7 +44,16 @@ async function runUpdate(db) {
     flash(readOnlyReason.value, 'warning')
     return
   }
-  if (!confirm(`Apply pending Liquibase change sets for "${db.name}"?`)) return
+  if (
+    !(await confirm({
+      title: 'Apply Liquibase changes?',
+      message: `Apply all pending Liquibase change sets for "${db.name}" against the live database.`,
+      resource: db.name,
+      confirmLabel: 'Apply',
+      danger: true
+    }))
+  )
+    return
 
   const key = actionKey(db, 'update')
   busy.value = key

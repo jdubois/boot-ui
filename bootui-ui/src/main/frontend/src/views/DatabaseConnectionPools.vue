@@ -347,7 +347,7 @@ watch(
 .chart-box {
   background: linear-gradient(180deg, rgba(13, 110, 253, 0.08), rgba(25, 135, 84, 0.06));
   border: 1px solid rgba(13, 110, 253, 0.12);
-  border-radius: 1rem;
+  border-radius: var(--bootui-radius-lg);
   min-height: 12rem;
   padding: 1rem;
   position: relative;

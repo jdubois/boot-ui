@@ -4,6 +4,7 @@ import {computed, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
@@ -14,6 +15,7 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
 const {message: banner, flash, clear} = useFlashMessage()
@@ -95,9 +97,13 @@ async function clearOne(cache) {
     return
   }
   if (
-    !confirm(
-      `Clear cache "${cache.name}" from manager "${cache.managerName}"? Cached data will be recomputed on demand.`
-    )
+    !(await confirm({
+      title: 'Clear cache?',
+      message: `Clear cache "${cache.name}" from manager "${cache.managerName}"? Cached data is recomputed on demand.`,
+      resource: cache.name,
+      confirmLabel: 'Clear',
+      danger: true
+    }))
   )
     return
   await clearCaches(
@@ -117,7 +123,12 @@ async function clearAll() {
     return
   }
   if (
-    !confirm(`Clear all ${report.value.cacheCount} known caches across ${report.value.managerCount} cache manager(s)?`)
+    !(await confirm({
+      title: 'Clear all caches?',
+      message: `Clear all ${report.value.cacheCount} known caches across ${report.value.managerCount} cache manager(s)? Cached data is recomputed on demand.`,
+      confirmLabel: 'Clear all',
+      danger: true
+    }))
   )
     return
   await clearCaches({all: true, confirm: true}, '__all__')

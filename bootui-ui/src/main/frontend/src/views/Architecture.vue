@@ -1,7 +1,7 @@
 <script setup>
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
-import AdvisorScoreCard from './components/AdvisorScoreCard.vue'
+import AdvisorSummary from './components/AdvisorSummary.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
@@ -40,54 +40,22 @@ const panel = useAdvisorPanel(props, {
     <div v-if="panel.actionMessage" class="alert alert-warning">{{ panel.actionMessage }}</div>
 
     <template v-if="panel.report">
-      <AdvisorScoreCard :score="panel.score" :dismissed-count="panel.dismissedResults.length" />
+      <AdvisorSummary
+        :score="panel.score"
+        :dismissed-count="panel.dismissedResults.length"
+        :scan-status-label="panel.scanStatusLabel(panel.report.scan.status)"
+        :scan-status-class="panel.scanStatusBadgeClass(panel.report.scan.status)"
+        :scan-time="panel.scanTime()"
+        :metrics="[
+          {label: 'Rules evaluated', value: panel.report.rulesEvaluated},
+          {label: 'Rule violations', value: panel.report.violationsFound},
+          {label: 'Classes analysed', value: panel.report.classesAnalyzed}
+        ]"
+      />
       <div class="alert alert-info">
         <strong>Heuristic architecture rules.</strong>
         {{ panel.report.disclaimer }}
         <span v-if="panel.readOnly">Scanning is read-only. {{ panel.readOnlyReason }}</span>
-      </div>
-
-      <div class="row g-3 mb-3">
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Scan status</div>
-              <div class="mt-2">
-                <span :class="panel.scanStatusBadgeClass(panel.report.scan.status)" class="badge fs-6">
-                  {{ panel.scanStatusLabel(panel.report.scan.status) }}
-                </span>
-              </div>
-              <div v-if="panel.scanTime()" class="small text-muted">Scanned at {{ panel.scanTime() }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Rules evaluated</div>
-              <div class="display-6">{{ panel.report.rulesEvaluated }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Rule violations</div>
-              <div class="display-6">{{ panel.report.violationsFound }}</div>
-              <div v-if="panel.dismissedResults.length > 0" class="small text-muted">
-                {{ panel.dismissedResults.length }} dismissed
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Classes analysed</div>
-              <div class="display-6">{{ panel.report.classesAnalyzed }}</div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="row g-3 mb-3">

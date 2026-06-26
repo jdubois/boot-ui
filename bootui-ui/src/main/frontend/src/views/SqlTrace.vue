@@ -5,6 +5,7 @@ import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
@@ -15,6 +16,7 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
 const {message: banner, flash, clear: clearBanner} = useFlashMessage()
@@ -119,7 +121,7 @@ async function applyAction(action, options) {
     flash(readOnlyReason.value, 'warning')
     return
   }
-  if (options.confirm && !confirm(options.confirm)) return
+  if (options.confirm && !(await confirm(options.confirm))) return
   busy.value = action
   clearBanner()
   try {
@@ -154,7 +156,12 @@ function clearTrace() {
   applyAction('clear', {
     url: 'api/sql-trace/clear',
     init: {method: 'POST'},
-    confirm: 'Clear all captured SQL executions from the in-memory trace buffer?',
+    confirm: {
+      title: 'Clear SQL trace?',
+      message: 'Clear all captured SQL executions from the in-memory trace buffer.',
+      confirmLabel: 'Clear',
+      danger: true
+    },
     onSuccess: () => (expanded.value = new Set()),
     success: () => 'SQL trace cleared.',
     failure: 'Could not clear SQL trace'

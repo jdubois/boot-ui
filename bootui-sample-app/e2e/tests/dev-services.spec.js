@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 const devServicesReport = {
   dockerComposePresent: true,
@@ -143,6 +143,7 @@ test.describe('Dev Services view', () => {
     await expect(redisRow.getByRole('button', {name: 'Restart'})).toBeVisible()
 
     await redisRow.getByRole('button', {name: 'Restart'}).click()
+    await acceptConfirm(page)
     await expect(page.locator('.alert-success')).toContainText('Service restarted')
     await expect.poll(async () => restartCalled).toBe(true)
   })

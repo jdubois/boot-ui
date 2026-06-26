@@ -421,6 +421,6 @@ async function copyKubernetesYaml() {
   display: inline-block;
   width: 12px;
   height: 12px;
-  border-radius: 2px;
+  border-radius: var(--bootui-radius-xs);
 }
 </style>

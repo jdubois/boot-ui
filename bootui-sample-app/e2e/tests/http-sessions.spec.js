@@ -1,10 +1,8 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 test.describe('HTTP Sessions view', () => {
   test('lists sample Tomcat sessions with masked contents and clears attributes', async ({openView, page}) => {
-    page.on('dialog', (dialog) => dialog.accept())
-
     await page.goto('/')
     const sessionResponsePromise = page.waitForResponse(
       (response) => response.url().endsWith('/api/sample/session') && response.request().method() === 'GET'
@@ -34,6 +32,7 @@ test.describe('HTTP Sessions view', () => {
     await expect(details).not.toContainText('sample-secret-token')
 
     await sessionRow.getByRole('button', {name: 'Clear'}).click()
+    await acceptConfirm(page)
     await expect(page.locator('.alert-success')).toContainText('Cleared 5 HTTP session attributes.')
   })
 })

@@ -96,46 +96,39 @@ const statusMessage = computed(() => {
     <PanelSkeleton v-if="initialLoading" />
 
     <template v-else-if="root">
-      <div class="row g-3 mb-3">
-        <div class="col-md-4">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small text-uppercase">Overall status</div>
-              <div class="fs-4 fw-semibold">
-                <span
-                  :class="{
-                    'bg-success': root.status === 'UP',
-                    'bg-danger': root.status === 'DOWN',
-                    'bg-warning text-dark': root.status === 'OUT_OF_SERVICE',
-                    'bg-secondary': !['UP', 'DOWN', 'OUT_OF_SERVICE'].includes(root.status)
-                  }"
-                  class="badge"
-                >
-                  {{ root.status }}
-                </span>
+      <div class="card health-summary mb-3">
+        <div class="card-body">
+          <div class="health-summary__row">
+            <div class="health-summary__status">
+              <div class="health-summary__eyebrow">Overall status</div>
+              <span
+                :class="{
+                  'bg-success': root.status === 'UP',
+                  'bg-danger': root.status === 'DOWN',
+                  'bg-warning text-dark': root.status === 'OUT_OF_SERVICE',
+                  'bg-secondary': !['UP', 'DOWN', 'OUT_OF_SERVICE'].includes(root.status)
+                }"
+                class="badge health-summary__badge"
+              >
+                {{ root.status }}
+              </span>
+              <p class="health-summary__message">{{ statusMessage }}</p>
+            </div>
+
+            <div class="health-summary__divider" aria-hidden="true"></div>
+
+            <dl class="health-summary__metrics">
+              <div class="health-summary__metric">
+                <dt>Contributors</dt>
+                <dd>{{ componentCount }}</dd>
+                <small class="health-summary__hint">Nested health components reported by Actuator</small>
               </div>
-              <div class="small text-muted mt-2">{{ statusMessage }}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-md-4">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small text-uppercase">Contributors</div>
-              <div class="fs-4 fw-semibold">{{ componentCount }}</div>
-              <div class="small text-muted mt-2">Nested health components reported by Actuator</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-md-4">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small text-uppercase">Attention needed</div>
-              <div class="fs-4 fw-semibold">{{ problemNodes.length }}</div>
-              <div class="small text-muted mt-2">DOWN or OUT_OF_SERVICE contributors</div>
-            </div>
+              <div class="health-summary__metric">
+                <dt>Attention needed</dt>
+                <dd :class="{'text-danger': problemNodes.length > 0}">{{ problemNodes.length }}</dd>
+                <small class="health-summary__hint">DOWN or OUT_OF_SERVICE contributors</small>
+              </div>
+            </dl>
           </div>
         </div>
       </div>
@@ -173,3 +166,86 @@ const statusMessage = computed(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.health-summary__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 2rem;
+}
+
+.health-summary__status {
+  flex-shrink: 0;
+}
+
+.health-summary__eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bootui-text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.health-summary__badge {
+  font-size: 1.15rem;
+  padding: 0.45em 0.7em;
+}
+
+.health-summary__message {
+  margin: 0.55rem 0 0;
+  font-size: 0.85rem;
+  color: var(--bootui-text-muted);
+  max-width: 34ch;
+}
+
+.health-summary__divider {
+  align-self: stretch;
+  width: 1px;
+  background: var(--bootui-border);
+}
+
+.health-summary__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.85rem 2rem;
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+.health-summary__metric {
+  min-width: 7rem;
+}
+
+.health-summary__metric dt {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bootui-text-muted);
+  margin-bottom: 0.3rem;
+}
+
+.health-summary__metric dd {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--bootui-text);
+  margin: 0 0 0.2rem;
+}
+
+.health-summary__hint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--bootui-text-muted);
+  max-width: 24ch;
+}
+
+@media (max-width: 575.98px) {
+  .health-summary__divider {
+    display: none;
+  }
+}
+</style>

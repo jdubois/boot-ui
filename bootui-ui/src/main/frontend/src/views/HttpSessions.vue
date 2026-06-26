@@ -4,6 +4,7 @@ import {computed, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
@@ -14,6 +15,7 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 
 const report = ref(null)
 const error = ref(null)
@@ -91,9 +93,13 @@ async function clearSession(session) {
     return
   }
   if (
-    !confirm(
-      `Clear all attributes from HTTP session "${session.id}"? The session remains active, but stored user state may be lost.`
-    )
+    !(await confirm({
+      title: 'Clear session attributes?',
+      message: `Clear all attributes from HTTP session "${session.id}"? The session stays active, but stored user state may be lost.`,
+      resource: session.id,
+      confirmLabel: 'Clear attributes',
+      danger: true
+    }))
   )
     return
   await mutateSession(session, 'clear', 'Clear attributes')
@@ -105,9 +111,14 @@ async function destroySession(session) {
     return
   }
   if (
-    !confirm(
-      `Destroy HTTP session "${session.id}"? This invalidates the session and may sign out the associated browser.`
-    )
+    !(await confirm({
+      title: 'Destroy session?',
+      message: `Destroy HTTP session "${session.id}"? This invalidates the session and may sign out the associated browser.`,
+      resource: session.id,
+      confirmLabel: 'Destroy',
+      danger: true,
+      irreversible: true
+    }))
   )
     return
   await mutateSession(session, 'invalidate', 'Destroy session')

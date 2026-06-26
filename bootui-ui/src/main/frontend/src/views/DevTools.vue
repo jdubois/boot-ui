@@ -3,6 +3,7 @@ import {apiFetch, getJson} from '../api.js'
 import {computed, onUnmounted, ref} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
@@ -13,6 +14,7 @@ import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const status = ref(null)
 const actionLoading = ref(null)
 const {message: banner, flash, clear} = useFlashMessage(8000)
@@ -68,7 +70,15 @@ async function restart() {
     showReadOnlyMessage()
     return
   }
-  if (!confirm('Restart this Spring Boot application now? In-memory state and in-flight requests will be interrupted.'))
+  if (
+    !(await confirm({
+      title: 'Restart application?',
+      message:
+        'Restart this Spring Boot application now? In-memory state is lost and in-flight requests are interrupted.',
+      confirmLabel: 'Restart',
+      danger: true
+    }))
+  )
     return
 
   actionLoading.value = 'restart'
@@ -281,7 +291,7 @@ onUnmounted(clearReconnectTimer)
 
 .action-icon {
   align-items: center;
-  border-radius: 1rem;
+  border-radius: var(--bootui-radius-lg);
   display: inline-flex;
   font-size: 1.5rem;
   height: 3rem;

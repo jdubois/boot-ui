@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 const DEMO_MESSAGE = 'Sample failure for the BootUI Exceptions panel demo'
 
@@ -48,8 +48,8 @@ test.describe('Exceptions view', () => {
     await openView('exceptions', 'Exceptions')
     await expect(page.locator('tbody tr', {hasText: DEMO_MESSAGE}).first()).toBeVisible({timeout: 15_000})
 
-    page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', {name: /Clear/}).click()
+    await acceptConfirm(page)
 
     await expect(page.locator('tbody tr', {hasText: DEMO_MESSAGE})).toHaveCount(0)
   })

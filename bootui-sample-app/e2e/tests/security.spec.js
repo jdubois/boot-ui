@@ -15,26 +15,28 @@ test.describe('Security Advisor view', () => {
     // After the scan the severity card is populated and the empty state disappears.
     await expect(page.getByText('No Security Advisor data yet')).toHaveCount(0, {timeout: 30_000})
 
-    const rulesEvaluated = page.locator('.card', {hasText: 'Rules evaluated'}).locator('.display-6')
+    const rulesEvaluated = page.locator('.advisor-summary__metric', {hasText: 'Rules evaluated'}).locator('dd')
     await expect
       .poll(async () => Number.parseInt((await rulesEvaluated.innerText()).trim(), 10) || 0, {timeout: 15_000})
       .toBeGreaterThan(0)
 
-    const filterChainsAnalyzed = page.locator('.card', {hasText: 'Filter chains analysed'}).locator('.display-6')
+    const filterChainsAnalyzed = page
+      .locator('.advisor-summary__metric', {hasText: 'Filter chains analysed'})
+      .locator('dd')
     await expect
       .poll(async () => Number.parseInt((await filterChainsAnalyzed.innerText()).trim(), 10) || 0)
       .toBeGreaterThan(0)
 
-    // The Spring Security filter chains discovered by the scan are listed (the
-    // summary "Filter chains analysed" card is excluded via its display number).
+    // The Spring Security filter chains discovered by the scan are listed in the
+    // content card (identified by its "Filter chains" header, not the summary metric).
     const filterChainsCard = page
-      .locator('.card', {hasText: 'Filter chains'})
-      .filter({hasNot: page.locator('.display-6')})
+      .locator('.card')
+      .filter({has: page.locator('.card-header', {hasText: 'Filter chains'})})
     await expect(filterChainsCard.locator('li.font-monospace').first()).toBeVisible()
     await expect(filterChainsCard).toContainText('/api/secure')
 
-    // The scan-status card surfaces a status badge for the completed scan.
-    const scanStatusCard = page.locator('.card', {hasText: 'Scan status'}).first()
+    // The scan-status metric surfaces a status badge for the completed scan.
+    const scanStatusCard = page.locator('.advisor-summary__metric--status')
     await expect(scanStatusCard.locator('.badge').first()).toBeVisible()
 
     // The rule-results section renders once the scan completes.
