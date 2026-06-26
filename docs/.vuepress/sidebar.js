@@ -14,7 +14,8 @@ const coreDocs = [
   'WORKS-WITH.md',
   'REPOSITORY.md',
   'SPECIFICATION.md',
-  'PLAN.md'
+  'PLAN.md',
+  'QUARKUS-SUPPORT.md'
 ]
 const checkDocs = [
   'ARCHITECTURE-CHECKS.md',

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <include file="db/changelog/db.changelog-base.xml"/>
+
+    <changeSet id="3" author="bootui">
+        <comment>Add quantity tracking</comment>
+        <addColumn tableName="inventory_item">
+            <column name="quantity" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="4" author="bootui">
+        <comment>Seed inventory items</comment>
+        <insert tableName="inventory_item">
+            <column name="sku" value="BOOTUI-STARTER"/>
+            <column name="warehouse_id" valueNumeric="1"/>
+            <column name="quantity" valueNumeric="12"/>
+        </insert>
+        <insert tableName="inventory_item">
+            <column name="sku" value="DEV-CONSOLE"/>
+            <column name="warehouse_id" valueNumeric="1"/>
+            <column name="quantity" valueNumeric="4"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

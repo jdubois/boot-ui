@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>BootUI Quarkus Sample App</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.5;
+        color: #172033;
+        background: #f5f7fb;
+      }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.25rem;
+        display: flex;
+        justify-content: center;
+      }
+      main {
+        max-width: 52rem;
+        width: 100%;
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.75rem;
+      }
+      .lede {
+        color: #4a5568;
+        margin-top: 0;
+      }
+      .cta {
+        display: inline-block;
+        margin: 1rem 0 1.75rem;
+        padding: 0.6rem 1rem;
+        border-radius: 0.5rem;
+        background: #4f46e5;
+        color: #fff;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      code {
+        background: #eef1f7;
+        border-radius: 0.3rem;
+        padding: 0.1rem 0.35rem;
+      }
+      ul {
+        padding-left: 1.1rem;
+      }
+      li {
+        margin: 0.3rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>BootUI Quarkus Sample App</h1>
+      <p class="lede">A reference Quarkus application for the BootUI developer console.</p>
+      <a class="cta" href="/bootui/">Open the BootUI console →</a>
+      <p>Exercise the demo endpoints to give the panels something to show:</p>
+      <ul>
+        <li><code>GET /api/sample/hello</code>: cached greeting</li>
+        <li><code>GET /api/sample/products</code>: cached catalog query (Quarkus Cache)</li>
+        <li><code>GET /api/sample/metrics-burst</code>: custom Micrometer meters (Metrics)</li>
+        <li><code>GET /api/sample/allocate?mb=32</code>: heap bump (Live Memory)</li>
+        <li><code>GET /api/sample/slow?ms=1500</code>: busy thread (Threads)</li>
+        <li><code>GET /api/sample/pool-stress</code>: concurrent queries (DB Connection Pools)</li>
+        <li><code>GET /api/sample/chained</code>: nested spans (Traces)</li>
+        <li><code>GET /api/sample/boom</code>: thrown exception (Exceptions)</li>
+        <li><code>GET /api/architecture/some-errors</code>: advisor findings</li>
+        <li><code>POST /api/chat</code>: LangChain4j/Ollama (AI Usage)</li>
+      </ul>
+      <p>
+        Secured endpoints (<code>/admin</code>, <code>/api/secure</code>) require the
+        <code>admin</code>/<code>admin</code> account.
+      </p>
+    </main>
+  </body>
+</html>
