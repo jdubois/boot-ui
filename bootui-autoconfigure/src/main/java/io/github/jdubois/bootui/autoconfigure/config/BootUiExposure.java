@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.config;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.bind.BindException;
@@ -11,7 +12,7 @@ import org.springframework.core.env.Environment;
 /**
  * Resolves display-time exposure settings from the live Spring environment.
  */
-public class BootUiExposure {
+public class BootUiExposure implements ExposurePolicy {
 
     private static final Logger log = LoggerFactory.getLogger(BootUiExposure.class);
 
@@ -28,10 +29,12 @@ public class BootUiExposure {
         this(null, properties);
     }
 
+    @Override
     public ValueExposure valueExposure() {
         return bind("bootui.expose-values", ValueExposure.class, properties.getExposeValues(), ValueExposure.MASKED);
     }
 
+    @Override
     public boolean maskSecrets() {
         return bind("bootui.mask-secrets", Boolean.class, properties.isMaskSecrets(), true);
     }
