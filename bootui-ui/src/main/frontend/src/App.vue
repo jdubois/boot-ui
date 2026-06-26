@@ -699,7 +699,7 @@ function onGlobalKeydown(e) {
   --bootui-border-alt: rgba(100, 116, 139, 0.2);
 
   /* Shadows */
-  --bootui-shadow-sm: 0 1rem 2.5rem rgba(15, 23, 42, 0.07);
+  --bootui-shadow-sm: 0 0.25rem 0.75rem rgba(15, 23, 42, 0.05);
   --bootui-shadow-md: 0 1.2rem 3rem rgba(15, 23, 42, 0.11);
   --bootui-shadow-sidebar: 0.75rem 0 2rem rgba(15, 23, 42, 0.06);
 
@@ -745,7 +745,7 @@ function onGlobalKeydown(e) {
   --bootui-border-alt: rgba(100, 116, 139, 0.25);
 
   /* Shadows */
-  --bootui-shadow-sm: 0 1rem 2.5rem rgba(0, 0, 0, 0.3);
+  --bootui-shadow-sm: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.22);
   --bootui-shadow-md: 0 1.2rem 3rem rgba(0, 0, 0, 0.4);
   --bootui-shadow-sidebar: 0.75rem 0 2rem rgba(0, 0, 0, 0.25);
 
@@ -955,16 +955,7 @@ function onGlobalKeydown(e) {
   border: 1px solid var(--bootui-border);
   border-radius: 1.1rem;
   box-shadow: var(--bootui-shadow-sm);
-  transition:
-    transform 180ms ease,
-    box-shadow 180ms ease,
-    border-color 180ms ease;
-}
-
-:global(.card:hover) {
-  border-color: rgba(25, 135, 84, 0.25);
-  box-shadow: var(--bootui-shadow-md);
-  transform: translateY(-2px);
+  transition: border-color 180ms ease;
 }
 
 :global(.btn),
