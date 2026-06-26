@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.hibernate;
+package io.github.jdubois.bootui.engine.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -53,7 +53,6 @@ import org.hibernate.annotations.NotFoundAction;
 import org.hibernate.annotations.OptimisticLockType;
 import org.hibernate.annotations.OptimisticLocking;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
 
 class HibernateScannerTests {
 
@@ -63,7 +62,7 @@ class HibernateScannerTests {
 
     @Test
     void scanReportsHibernateMappingAndConfigurationFindings() {
-        MockEnvironment environment = new MockEnvironment()
+        TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.jpa.hibernate.ddl-auto", "update")
                 .withProperty("spring.jpa.open-in-view", "true");
         HibernateScanner scanner = scanner(environment, ProblemOrder.class);
@@ -104,12 +103,12 @@ class HibernateScannerTests {
                 .satisfies(
                         result -> assertThat(result.sampleViolations())
                                 .contains(
-                                        "io.github.jdubois.bootui.autoconfigure.hibernate.HibernateScannerTests$ProblemOrder#status relies on JPA's default ORDINAL enum storage."));
+                                        "io.github.jdubois.bootui.engine.hibernate.HibernateScannerTests$ProblemOrder#status relies on JPA's default ORDINAL enum storage."));
     }
 
     @Test
     void scanReportsExpandedHibernateFindings() {
-        MockEnvironment environment = new MockEnvironment()
+        TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.jpa.open-in-view", "false")
                 .withProperty("spring.jpa.properties.hibernate.enable_lazy_load_no_trans", "true")
                 .withProperty("spring.jpa.properties.hibernate.jdbc.batch_size", "25")
@@ -328,7 +327,7 @@ class HibernateScannerTests {
 
     @Test
     void scanPassesWhenMappingsAndConfigurationAreSafe() {
-        MockEnvironment environment = new MockEnvironment()
+        TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.jpa.open-in-view", "false")
                 .withProperty("spring.jpa.hibernate.ddl-auto", "create")
                 .withProperty("hibernate.default_batch_fetch_size", "32")
@@ -354,7 +353,7 @@ class HibernateScannerTests {
 
     @Test
     void missingBatchFetchReportsLazySecondarySelectAssociations() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.open-in-view", "false");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "false");
         HibernateScanner scanner = scanner(environment, BatchFetchRiskOrder.class);
 
         HibernateReport report = scanner.scan();
@@ -378,7 +377,7 @@ class HibernateScannerTests {
 
     @Test
     void missingBatchFetchHonorsLocalAndTargetBatchSizeAnnotations() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.open-in-view", "false");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "false");
         HibernateScanner scanner =
                 scanner(environment, List.of(), CoveredBatchFetchOrder.class, BatchSizedCustomer.class);
 
@@ -389,7 +388,7 @@ class HibernateScannerTests {
 
     @Test
     void missingBatchFetchIgnoresDefaultEagerToOneAssociations() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.open-in-view", "false");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.open-in-view", "false");
         HibernateScanner scanner = scanner(environment, DefaultEagerToOneOrder.class);
 
         HibernateReport report = scanner.scan();
@@ -399,7 +398,7 @@ class HibernateScannerTests {
 
     @Test
     void scanReturnsStableDisabledReportWhenNoEntitiesAreAvailable() {
-        HibernateScanner scanner = new HibernateScanner(List.of(), new MockEnvironment(), CLOCK);
+        HibernateScanner scanner = new HibernateScanner(List.of(), new TestEnvironment().lookup(), List.of(), CLOCK);
 
         HibernateReport report = scanner.scan();
 
@@ -410,7 +409,7 @@ class HibernateScannerTests {
 
     @Test
     void initialReportDoesNotInspectEntitiesBeforeExplicitScan() {
-        HibernateScanner scanner = scanner(new MockEnvironment(), ProblemOrder.class);
+        HibernateScanner scanner = scanner(new TestEnvironment(), ProblemOrder.class);
 
         HibernateReport report = scanner.initialReport();
 
@@ -438,7 +437,8 @@ class HibernateScannerTests {
         HibernateContext context = new HibernateContext(
                 List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
                 List.of(repository),
-                new MockEnvironment());
+                new TestEnvironment().lookup(),
+                List.of());
 
         HibernateRuleResultDto result = new EagerToOneFetchJoinRule().evaluate(context);
 
@@ -453,7 +453,10 @@ class HibernateScannerTests {
     @Test
     void eagerToOneFetchJoinRuleSkipsWhenNoRepositoriesAreAvailable() {
         HibernateContext context = new HibernateContext(
-                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)), List.of(), new MockEnvironment());
+                List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
+                List.of(),
+                new TestEnvironment().lookup(),
+                List.of());
 
         HibernateRuleResultDto result = new EagerToOneFetchJoinRule().evaluate(context);
 
@@ -479,7 +482,8 @@ class HibernateScannerTests {
         HibernateContext context = new HibernateContext(
                 List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
                 List.of(repository),
-                new MockEnvironment());
+                new TestEnvironment().lookup(),
+                List.of());
 
         HibernateRuleResultDto result = new EntityProjectionQueryRule().evaluate(context);
 
@@ -536,7 +540,8 @@ class HibernateScannerTests {
                         .map(HibernateEntityModel::fromClass)
                         .toList(),
                 List.of(),
-                new MockEnvironment());
+                new TestEnvironment().lookup(),
+                List.of());
     }
 
     @Test
@@ -576,7 +581,7 @@ class HibernateScannerTests {
     }
 
     private static HibernateContext emptyContext() {
-        return new HibernateContext(List.of(), List.of(), new MockEnvironment());
+        return new HibernateContext(List.of(), List.of(), new TestEnvironment().lookup(), List.of());
     }
 
     private static HibernateRuleDefinition testRuleDefinition() {
@@ -626,18 +631,19 @@ class HibernateScannerTests {
         }
     }
 
-    private HibernateScanner scanner(MockEnvironment environment, Class<?> entityType) {
+    private HibernateScanner scanner(TestEnvironment environment, Class<?> entityType) {
         return scanner(environment, List.of(), entityType);
     }
 
     private HibernateScanner scanner(
-            MockEnvironment environment, List<HibernateRepositoryModel> repositories, Class<?>... entityTypes) {
+            TestEnvironment environment, List<HibernateRepositoryModel> repositories, Class<?>... entityTypes) {
         return new HibernateScanner(
                 List.of(entityTypes).stream()
                         .map(HibernateEntityModel::fromClass)
                         .toList(),
                 repositories,
-                environment,
+                environment.lookup(),
+                environment.activeProfiles(),
                 CLOCK,
                 AFFECTED_HIBERNATE_VERSION);
     }
@@ -662,7 +668,8 @@ class HibernateScannerTests {
         return new HibernateContext(
                 List.of(HibernateEntityModel.fromClass(ProblemOrder.class)),
                 List.of(repository),
-                new MockEnvironment(),
+                new TestEnvironment().lookup(),
+                List.of(),
                 hibernateVersion);
     }
 

@@ -29,4 +29,15 @@ class EngineBoundaryArchitectureTests {
                     "io.vertx..",
                     "org.jboss..")
             .because("bootui-engine must stay framework-neutral; adapters wire it via @Bean / @Produces");
+
+    @ArchTest
+    static final ArchRule onlyTheMetamodelReaderTouchesJpa = ArchRuleDefinition.noClasses()
+            .that()
+            .resideInAPackage("io.github.jdubois.bootui.engine..")
+            .and()
+            .haveSimpleNameNotEndingWith("JpaMetamodelReader")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("jakarta.persistence..")
+            .because("jakarta.persistence access is concentrated in JpaMetamodelReader (R2 optional-dependency port)");
 }

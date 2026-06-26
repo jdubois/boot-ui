@@ -1,7 +1,5 @@
-package io.github.jdubois.bootui.autoconfigure.hibernate;
+package io.github.jdubois.bootui.engine.hibernate;
 
-import jakarta.persistence.metamodel.Attribute;
-import jakarta.persistence.metamodel.EntityType;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
@@ -9,202 +7,13 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-record HibernateEntityModel(String name, Class<?> javaType, List<HibernateAttributeModel> attributes) {
-
-    private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
-    private static final String CACHE = "org.hibernate.annotations.Cache";
-    private static final String CACHEABLE = "jakarta.persistence.Cacheable";
-    private static final String VERSION = "jakarta.persistence.Version";
-
-    HibernateEntityModel {
-        attributes = List.copyOf(attributes);
-    }
-
-    static HibernateEntityModel from(EntityType<?> entityType) {
-        Class<?> javaType = entityType.getJavaType();
-        List<HibernateAttributeModel> attributes = new ArrayList<>();
-        for (Attribute<?, ?> attribute : entityType.getAttributes()) {
-            Member member = attribute.getJavaMember();
-            if (member != null) {
-                attributes.add(HibernateAttributeModel.from(attribute, member));
-            }
-        }
-        String name = javaType == null ? entityType.getName() : javaType.getName();
-        return new HibernateEntityModel(name, javaType, attributes);
-    }
-
-    static HibernateEntityModel fromClass(Class<?> javaType) {
-        List<HibernateAttributeModel> attributes = new ArrayList<>();
-        Class<?> current = javaType;
-        while (current != null && current != Object.class) {
-            for (Field field : current.getDeclaredFields()) {
-                if (!Modifier.isStatic(field.getModifiers())) {
-                    attributes.add(HibernateAttributeModel.from(field));
-                }
-            }
-            for (Method method : current.getDeclaredMethods()) {
-                if (method.getParameterCount() == 0
-                        && method.getReturnType() != Void.TYPE
-                        && !method.isSynthetic()
-                        && !method.isBridge()
-                        && !Modifier.isStatic(method.getModifiers())
-                        && Arrays.stream(method.getAnnotations()).anyMatch(HibernateAttributeModel::isJpaAnnotation)) {
-                    attributes.add(HibernateAttributeModel.from(method));
-                }
-            }
-            current = current.getSuperclass();
-        }
-        return new HibernateEntityModel(javaType.getName(), javaType, attributes);
-    }
-
-    String packageName() {
-        if (javaType == null || javaType.getPackageName().isBlank()) {
-            return "";
-        }
-        return javaType.getPackageName();
-    }
-
-    boolean hasBatchSizeAnnotation() {
-        return javaType != null && hasAnnotation(javaType, BATCH_SIZE);
-    }
-
-    boolean hasVersionAttribute() {
-        return attributes.stream().anyMatch(HibernateAttributeModel::hasVersion);
-    }
-
-    boolean isFinalClass() {
-        return javaType != null && Modifier.isFinal(javaType.getModifiers());
-    }
-
-    boolean hasDynamicUpdate() {
-        return annotationInHierarchy("org.hibernate.annotations.DynamicUpdate") != null;
-    }
-
-    String inheritanceStrategy() {
-        Annotation inheritance = annotationInHierarchy("jakarta.persistence.Inheritance");
-        return annotationValueName(inheritance, "strategy");
-    }
-
-    boolean hasDiscriminatorColumn() {
-        return annotationInHierarchy("jakarta.persistence.DiscriminatorColumn") != null;
-    }
-
-    Annotation hibernateCacheAnnotation() {
-        return annotationInHierarchy("org.hibernate.annotations.Cache");
-    }
-
-    String hibernateCacheUsageName() {
-        return annotationValueName(hibernateCacheAnnotation(), "usage");
-    }
-
-    boolean hasHibernateCacheAnnotation() {
-        return annotation(CACHE) != null;
-    }
-
-    boolean isJpaCacheable() {
-        Annotation cacheable = annotation(CACHEABLE);
-        if (cacheable == null) {
-            return false;
-        }
-        Boolean value = annotationBooleanValue(cacheable, "value");
-        return value == null || value;
-    }
-
-    Annotation annotation(String typeName) {
-        return javaType == null ? null : annotation(javaType, typeName);
-    }
-
-    Annotation annotationInHierarchy(String typeName) {
-        Class<?> current = javaType;
-        while (current != null && current != Object.class) {
-            Annotation annotation = annotation(current, typeName);
-            if (annotation != null) {
-                return annotation;
-            }
-            current = current.getSuperclass();
-        }
-        return null;
-    }
-
-    String annotationValueName(Annotation annotation, String attributeName) {
-        Object value = annotationValue(annotation, attributeName);
-        return value instanceof Enum<?> enumValue ? enumValue.name() : null;
-    }
-
-    Integer annotationIntValue(Annotation annotation, String attributeName) {
-        Object value = annotationValue(annotation, attributeName);
-        return value instanceof Integer integerValue ? integerValue : null;
-    }
-
-    Boolean annotationBooleanValue(Annotation annotation, String attributeName) {
-        Object value = annotationValue(annotation, attributeName);
-        return value instanceof Boolean booleanValue ? booleanValue : null;
-    }
-
-    List<HibernateAttributeModel> collectionAttributes() {
-        return attributes.stream()
-                .filter(HibernateAttributeModel::isCollectionAssociation)
-                .toList();
-    }
-
-    boolean overridesEquals() {
-        return declaresMethod("equals", Object.class);
-    }
-
-    boolean overridesHashCode() {
-        return declaresMethod("hashCode");
-    }
-
-    boolean overridesToString() {
-        return declaresMethod("toString");
-    }
-
-    private boolean declaresMethod(String name, Class<?>... parameterTypes) {
-        if (javaType == null) {
-            return false;
-        }
-        try {
-            Method method = javaType.getMethod(name, parameterTypes);
-            return method.getDeclaringClass() != Object.class;
-        } catch (NoSuchMethodException ex) {
-            return false;
-        }
-    }
-
-    private static boolean hasAnnotation(AnnotatedElement element, String typeName) {
-        return Arrays.stream(element.getAnnotations())
-                .map(annotation -> annotation.annotationType().getName())
-                .anyMatch(typeName::equals);
-    }
-
-    private static Annotation annotation(AnnotatedElement element, String typeName) {
-        return Arrays.stream(element.getAnnotations())
-                .filter(candidate -> candidate.annotationType().getName().equals(typeName))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static Object annotationValue(Annotation annotation, String attributeName) {
-        if (annotation == null) {
-            return null;
-        }
-        try {
-            Method method = annotation.annotationType().getMethod(attributeName);
-            return method.invoke(annotation);
-        } catch (ReflectiveOperationException | RuntimeException ex) {
-            return null;
-        }
-    }
-}
-
-record HibernateAttributeModel(
+public record HibernateAttributeModel(
         String entityName,
         String name,
         Class<?> rawType,
@@ -238,19 +47,16 @@ record HibernateAttributeModel(
     private static final String UUID_GENERATOR = "org.hibernate.annotations.UuidGenerator";
     private static final String VERSION = "jakarta.persistence.Version";
 
-    HibernateAttributeModel {
+    public HibernateAttributeModel {
         annotations = List.copyOf(annotations);
     }
 
-    static HibernateAttributeModel from(Attribute<?, ?> attribute, Member member) {
+    static HibernateAttributeModel fromMember(String name, Member member, String persistentAttributeType) {
         RawType rawType = rawType(member);
         String entityName = member.getDeclaringClass().getName();
-        String persistentAttributeType = attribute.getPersistentAttributeType() == null
-                ? null
-                : attribute.getPersistentAttributeType().name();
         return new HibernateAttributeModel(
                 entityName,
-                attribute.getName(),
+                name,
                 rawType.rawType(),
                 rawType.genericType(),
                 persistentAttributeType,
@@ -567,85 +373,4 @@ record HibernateAttributeModel(
     }
 
     private record RawType(Class<?> rawType, Type genericType) {}
-}
-
-record HibernateRepositoryModel(
-        String repositoryInterface, Class<?> domainType, List<HibernateRepositoryMethodModel> methods) {
-
-    HibernateRepositoryModel {
-        methods = List.copyOf(methods);
-    }
-}
-
-record HibernateRepositoryMethodModel(
-        String repositoryInterface,
-        String methodName,
-        Class<?> domainType,
-        Class<?> returnType,
-        String query,
-        boolean nativeQuery,
-        String countQuery,
-        boolean hasPageableParameter,
-        boolean modifying,
-        boolean modifyingClearsAutomatically,
-        boolean modifyingFlushesAutomatically,
-        List<Class<?>> parameterTypes) {
-
-    HibernateRepositoryMethodModel {
-        parameterTypes = List.copyOf(parameterTypes);
-    }
-
-    boolean hasCollectionParameter() {
-        for (Class<?> parameterType : parameterTypes) {
-            if (parameterType.isArray() || Collection.class.isAssignableFrom(parameterType)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    boolean hasQuery() {
-        return query != null && !query.isBlank();
-    }
-
-    boolean hasCountQuery() {
-        return countQuery != null && !countQuery.isBlank();
-    }
-
-    boolean returnsStream() {
-        return returnType != null && java.util.stream.Stream.class.isAssignableFrom(returnType);
-    }
-
-    // Optional Spring Data type: compare by class name instead of hard-referencing a class that may be absent at
-    // runtime.
-    @SuppressWarnings("java:S1872")
-    boolean returnsPage() {
-        return returnType != null && "org.springframework.data.domain.Page".equals(returnType.getName());
-    }
-
-    // Optional Spring Data type: compare by class name instead of hard-referencing a class that may be absent at
-    // runtime.
-    @SuppressWarnings("java:S1872")
-    boolean returnsSlice() {
-        return returnType != null && "org.springframework.data.domain.Slice".equals(returnType.getName());
-    }
-
-    boolean returnsMultiple() {
-        if (returnType == null) {
-            return false;
-        }
-        return returnsStream()
-                || returnsPage()
-                || returnsSlice()
-                || returnType.isArray()
-                || Collection.class.isAssignableFrom(returnType);
-    }
-
-    boolean isDerivedDeleteMethod() {
-        return methodName != null && (methodName.startsWith("deleteBy") || methodName.startsWith("removeBy"));
-    }
-
-    String description() {
-        return repositoryInterface + "#" + methodName;
-    }
 }

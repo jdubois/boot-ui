@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.hibernate;
+package io.github.jdubois.bootui.engine.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,28 +18,29 @@ import jakarta.persistence.Table;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
 
 class HibernateRulesTests {
 
-    private static HibernateContext context(MockEnvironment environment, Class<?>... entityTypes) {
+    private static HibernateContext context(TestEnvironment environment, Class<?>... entityTypes) {
         return new HibernateContext(
                 List.of(entityTypes).stream()
                         .map(HibernateEntityModel::fromClass)
                         .toList(),
                 List.of(),
-                environment,
+                environment.lookup(),
+                environment.activeProfiles(),
                 "7.3.9.Final");
     }
 
     private static HibernateContext context(
-            MockEnvironment environment, List<HibernateRepositoryModel> repositories, Class<?>... entityTypes) {
+            TestEnvironment environment, List<HibernateRepositoryModel> repositories, Class<?>... entityTypes) {
         return new HibernateContext(
                 List.of(entityTypes).stream()
                         .map(HibernateEntityModel::fromClass)
                         .toList(),
                 repositories,
-                environment,
+                environment.lookup(),
+                environment.activeProfiles(),
                 "7.3.9.Final");
     }
 
@@ -64,8 +65,8 @@ class HibernateRulesTests {
 
     @Test
     void identityBatchingRuleFlagsIdentityWhenBatchingConfigured() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("spring.jpa.properties.hibernate.jdbc.batch_size", "25");
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("spring.jpa.properties.hibernate.jdbc.batch_size", "25");
 
         HibernateRuleResultDto result =
                 new IdentityDisablesBatchingRule().evaluate(context(environment, IdentityEntity.class));
@@ -79,14 +80,14 @@ class HibernateRulesTests {
     @Test
     void identityBatchingRuleSkipsWhenBatchingNotConfigured() {
         HibernateRuleResultDto result =
-                new IdentityDisablesBatchingRule().evaluate(context(new MockEnvironment(), IdentityEntity.class));
+                new IdentityDisablesBatchingRule().evaluate(context(new TestEnvironment(), IdentityEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
     }
 
     @Test
     void identityBatchingRulePassesForSequenceIdentifiers() {
-        MockEnvironment environment = new MockEnvironment().withProperty("hibernate.jdbc.batch_size", "25");
+        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.jdbc.batch_size", "25");
 
         HibernateRuleResultDto result =
                 new IdentityDisablesBatchingRule().evaluate(context(environment, SequenceEntity.class));
@@ -99,7 +100,7 @@ class HibernateRulesTests {
     @Test
     void unidirectionalOneToManyJoinColumnRuleFlagsWritableJoinColumn() {
         HibernateRuleResultDto result = new UnidirectionalOneToManyJoinColumnRule()
-                .evaluate(context(new MockEnvironment(), JoinColumnOneToManyEntity.class));
+                .evaluate(context(new TestEnvironment(), JoinColumnOneToManyEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
@@ -110,7 +111,7 @@ class HibernateRulesTests {
     @Test
     void unidirectionalOneToManyJoinColumnRuleSkipsReadOnlyJoinColumn() {
         HibernateRuleResultDto result = new UnidirectionalOneToManyJoinColumnRule()
-                .evaluate(context(new MockEnvironment(), ReadOnlyJoinColumnOneToManyEntity.class));
+                .evaluate(context(new TestEnvironment(), ReadOnlyJoinColumnOneToManyEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -118,7 +119,7 @@ class HibernateRulesTests {
     @Test
     void unidirectionalOneToManyJoinColumnRulePassesForMappedBy() {
         HibernateRuleResultDto result = new UnidirectionalOneToManyJoinColumnRule()
-                .evaluate(context(new MockEnvironment(), MappedByOneToManyEntity.class));
+                .evaluate(context(new TestEnvironment(), MappedByOneToManyEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -136,7 +137,7 @@ class HibernateRulesTests {
                         List.of())));
 
         HibernateRuleResultDto result = new MultipleCollectionJoinFetchRule()
-                .evaluate(context(new MockEnvironment(), List.of(repository), MultiCollectionRoot.class));
+                .evaluate(context(new TestEnvironment(), List.of(repository), MultiCollectionRoot.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.HIGH);
@@ -155,7 +156,7 @@ class HibernateRulesTests {
                         List.of())));
 
         HibernateRuleResultDto result = new MultipleCollectionJoinFetchRule()
-                .evaluate(context(new MockEnvironment(), List.of(repository), MultiCollectionRoot.class));
+                .evaluate(context(new TestEnvironment(), List.of(repository), MultiCollectionRoot.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
@@ -172,7 +173,7 @@ class HibernateRulesTests {
                         "findAll", "select r from MultiCollectionRoot r join fetch r.firstBag", List.of())));
 
         HibernateRuleResultDto result = new MultipleCollectionJoinFetchRule()
-                .evaluate(context(new MockEnvironment(), List.of(repository), MultiCollectionRoot.class));
+                .evaluate(context(new TestEnvironment(), List.of(repository), MultiCollectionRoot.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -181,8 +182,8 @@ class HibernateRulesTests {
 
     @Test
     void riskyDdlAutoRuleUsesCriticalForCreateInProduction() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "create-drop");
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "create-drop");
         environment.setActiveProfiles("prod");
 
         HibernateRuleResultDto result = new RiskyDdlAutoRule().evaluate(context(environment));
@@ -193,7 +194,7 @@ class HibernateRulesTests {
 
     @Test
     void riskyDdlAutoRuleUsesHighForUpdateInProduction() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
         environment.setActiveProfiles("production");
 
         HibernateRuleResultDto result = new RiskyDdlAutoRule().evaluate(context(environment));
@@ -203,7 +204,7 @@ class HibernateRulesTests {
 
     @Test
     void riskyDdlAutoRuleUsesInfoForDevProfile() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
         environment.setActiveProfiles("dev");
 
         HibernateRuleResultDto result = new RiskyDdlAutoRule().evaluate(context(environment));
@@ -213,7 +214,7 @@ class HibernateRulesTests {
 
     @Test
     void riskyDdlAutoRuleUsesMediumWithoutProfile() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
 
         HibernateRuleResultDto result = new RiskyDdlAutoRule().evaluate(context(environment));
 
@@ -222,7 +223,7 @@ class HibernateRulesTests {
 
     @Test
     void riskyDdlAutoRuleLetsProductionWinOverTestProfile() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "create");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "create");
         environment.setActiveProfiles("prod", "test");
 
         HibernateRuleResultDto result = new RiskyDdlAutoRule().evaluate(context(environment));
@@ -233,7 +234,7 @@ class HibernateRulesTests {
 
     @Test
     void riskyDdlAutoRulePassesForTestProfile() {
-        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "create");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "create");
         environment.setActiveProfiles("test");
 
         HibernateRuleResultDto result = new RiskyDdlAutoRule().evaluate(context(environment));
@@ -245,8 +246,8 @@ class HibernateRulesTests {
 
     @Test
     void providerDisablesAutocommitRuleFlagsWhenHikariDisablesAutoCommit() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("spring.datasource.hikari.auto-commit", "false");
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("spring.datasource.hikari.auto-commit", "false");
 
         HibernateRuleResultDto result = new ProviderDisablesAutocommitRule().evaluate(context(environment));
 
@@ -255,7 +256,7 @@ class HibernateRulesTests {
 
     @Test
     void providerDisablesAutocommitRulePassesWhenPropertyEnabled() {
-        MockEnvironment environment = new MockEnvironment()
+        TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.datasource.hikari.auto-commit", "false")
                 .withProperty("hibernate.connection.provider_disables_autocommit", "true");
 
@@ -266,7 +267,7 @@ class HibernateRulesTests {
 
     @Test
     void providerDisablesAutocommitRuleSkipsWhenSignalUnknown() {
-        HibernateRuleResultDto result = new ProviderDisablesAutocommitRule().evaluate(context(new MockEnvironment()));
+        HibernateRuleResultDto result = new ProviderDisablesAutocommitRule().evaluate(context(new TestEnvironment()));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
     }
@@ -281,7 +282,7 @@ class HibernateRulesTests {
                 List.of(queryMethod("findByIds", "select o from Order o where o.id in :ids", List.of(List.class))));
 
         HibernateRuleResultDto result =
-                new InClausePaddingRule().evaluate(context(new MockEnvironment(), List.of(repository)));
+                new InClausePaddingRule().evaluate(context(new TestEnvironment(), List.of(repository)));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
     }
@@ -297,7 +298,7 @@ class HibernateRulesTests {
                         List.of(List.class))));
 
         HibernateRuleResultDto result =
-                new InClausePaddingRule().evaluate(context(new MockEnvironment(), List.of(repository)));
+                new InClausePaddingRule().evaluate(context(new TestEnvironment(), List.of(repository)));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -313,7 +314,7 @@ class HibernateRulesTests {
                         List.of(List.class))));
 
         HibernateRuleResultDto result =
-                new InClausePaddingRule().evaluate(context(new MockEnvironment(), List.of(repository)));
+                new InClausePaddingRule().evaluate(context(new TestEnvironment(), List.of(repository)));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -322,8 +323,8 @@ class HibernateRulesTests {
 
     @Test
     void deferDatasourceInitializationRuleSkipsWhenDdlAutoUnset() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("spring.jpa.defer-datasource-initialization", "true");
+        TestEnvironment environment =
+                new TestEnvironment().withProperty("spring.jpa.defer-datasource-initialization", "true");
 
         HibernateRuleResultDto result = new DeferDatasourceInitializationRule().evaluate(context(environment));
 
@@ -332,7 +333,7 @@ class HibernateRulesTests {
 
     @Test
     void deferDatasourceInitializationRuleViolatesForValidate() {
-        MockEnvironment environment = new MockEnvironment()
+        TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.jpa.defer-datasource-initialization", "true")
                 .withProperty("spring.jpa.hibernate.ddl-auto", "validate");
 
@@ -343,7 +344,7 @@ class HibernateRulesTests {
 
     @Test
     void deferDatasourceInitializationRulePassesForCreate() {
-        MockEnvironment environment = new MockEnvironment()
+        TestEnvironment environment = new TestEnvironment()
                 .withProperty("spring.jpa.defer-datasource-initialization", "true")
                 .withProperty("spring.jpa.hibernate.ddl-auto", "create");
 
@@ -357,7 +358,7 @@ class HibernateRulesTests {
     @Test
     void oneToOneWithoutMapsIdRuleUsesMediumForDependentAssociation() {
         HibernateRuleResultDto result =
-                new OneToOneWithoutMapsIdRule().evaluate(context(new MockEnvironment(), DependentOneToOneEntity.class));
+                new OneToOneWithoutMapsIdRule().evaluate(context(new TestEnvironment(), DependentOneToOneEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
@@ -366,7 +367,7 @@ class HibernateRulesTests {
     @Test
     void oneToOneWithoutMapsIdRuleUsesLowForPlainAssociation() {
         HibernateRuleResultDto result =
-                new OneToOneWithoutMapsIdRule().evaluate(context(new MockEnvironment(), PlainOneToOneEntity.class));
+                new OneToOneWithoutMapsIdRule().evaluate(context(new TestEnvironment(), PlainOneToOneEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.LOW);
@@ -377,7 +378,7 @@ class HibernateRulesTests {
     @Test
     void missingForeignKeyIndexRulePassesWhenInferredColumnLeadsIndex() {
         HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(new MockEnvironment(), IndexedOwnerEntity.class));
+                new MissingForeignKeyIndexRule().evaluate(context(new TestEnvironment(), IndexedOwnerEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
@@ -385,7 +386,7 @@ class HibernateRulesTests {
     @Test
     void missingForeignKeyIndexRuleFlagsWhenColumnIsNotLeadingIndexColumn() {
         HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(new MockEnvironment(), NonLeadingIndexEntity.class));
+                new MissingForeignKeyIndexRule().evaluate(context(new TestEnvironment(), NonLeadingIndexEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.sampleViolations())

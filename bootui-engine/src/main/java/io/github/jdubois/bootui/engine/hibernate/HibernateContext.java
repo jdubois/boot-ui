@@ -1,34 +1,41 @@
-package io.github.jdubois.bootui.autoconfigure.hibernate;
+package io.github.jdubois.bootui.engine.hibernate;
 
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.springframework.core.env.Environment;
 
 record HibernateContext(
         List<HibernateEntityModel> entities,
         List<HibernateRepositoryModel> repositories,
-        Environment environment,
+        Function<String, String> propertyLookup,
+        List<String> activeProfiles,
         HibernateRuntimeVersion hibernateVersion) {
 
     HibernateContext(
-            List<HibernateEntityModel> entities, List<HibernateRepositoryModel> repositories, Environment environment) {
-        this(entities, repositories, environment, HibernateRuntimeVersion.detect());
+            List<HibernateEntityModel> entities,
+            List<HibernateRepositoryModel> repositories,
+            Function<String, String> propertyLookup,
+            List<String> activeProfiles) {
+        this(entities, repositories, propertyLookup, activeProfiles, HibernateRuntimeVersion.detect());
     }
 
     HibernateContext(
             List<HibernateEntityModel> entities,
             List<HibernateRepositoryModel> repositories,
-            Environment environment,
+            Function<String, String> propertyLookup,
+            List<String> activeProfiles,
             String hibernateVersion) {
-        this(entities, repositories, environment, HibernateRuntimeVersion.parse(hibernateVersion));
+        this(entities, repositories, propertyLookup, activeProfiles, HibernateRuntimeVersion.parse(hibernateVersion));
     }
 
     HibernateContext {
         entities = List.copyOf(entities);
         repositories = List.copyOf(repositories);
+        propertyLookup = propertyLookup == null ? (key -> null) : propertyLookup;
+        activeProfiles = activeProfiles == null ? List.of() : List.copyOf(activeProfiles);
         hibernateVersion = hibernateVersion == null ? HibernateRuntimeVersion.unknown() : hibernateVersion;
     }
 
@@ -51,7 +58,7 @@ record HibernateContext(
 
     String firstProperty(String... keys) {
         for (String key : keys) {
-            String value = environment.getProperty(key);
+            String value = propertyLookup.apply(key);
             if (value != null && !value.isBlank()) {
                 return value.trim();
             }
@@ -80,19 +87,28 @@ record HibernateContext(
     }
 
     private Integer integerProperty(String key) {
+        String value = propertyLookup.apply(key);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
         try {
-            return environment.getProperty(key, Integer.class);
-        } catch (RuntimeException ex) {
+            return Integer.valueOf(value.trim());
+        } catch (NumberFormatException ex) {
             return null;
         }
     }
 
-    String[] activeProfiles() {
-        try {
-            return environment.getActiveProfiles();
-        } catch (RuntimeException ex) {
-            return new String[0];
+    Boolean booleanProperty(String key) {
+        String value = propertyLookup.apply(key);
+        if (value == null) {
+            return null;
         }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "true", "on", "yes", "1" -> Boolean.TRUE;
+            case "false", "off", "no", "0" -> Boolean.FALSE;
+            default -> null;
+        };
     }
 
     boolean isProductionProfileActive() {

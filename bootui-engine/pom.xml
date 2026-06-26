@@ -39,6 +39,17 @@
             <artifactId>archunit</artifactId>
         </dependency>
 
+        <!--
+          jakarta.persistence is a neutral JCP standard (same API on Spring Boot and Quarkus). Optional so it
+          is not forced on the engine's downstream consumers; JpaMetamodelReader is the sole importer and is
+          only invoked from the Spring/Quarkus adapter behind a @ConditionalOnClass / CDI presence gate.
+        -->
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

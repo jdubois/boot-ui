@@ -7,17 +7,28 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
+import io.github.jdubois.bootui.core.dto.HibernateReport;
+import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.Metamodel;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.mock.env.MockEnvironment;
 
 /**
  * Pins the property-to-record mappings in {@link BootUiEngineConfiguration}.
@@ -74,6 +85,67 @@ class BootUiEngineConfigurationTests {
         assertThat(initial.scan().status()).isEqualTo("NOT_SCANNED");
         assertThat(initial.basePackages()).containsExactly("com.example.wiring");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void hibernateScannerFactoryWiresPropertyLookupAndActiveProfilesSeam() {
+        // Pins the R2 config seam: the nested HibernateAdvisorConfiguration must read host config through a
+        // neutral property-lookup + active-profiles seam derived from the Environment. We feed a distinctive
+        // property (ddl-auto=update) AND a distinctive active profile (prod); the ddl-auto rule only escalates
+        // to a "production-like profile" violation when BOTH the property value and the profile flow through.
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
+        environment.setActiveProfiles("prod");
+        ObjectProvider<EntityManagerFactory> entityManagerFactories = mock(ObjectProvider.class);
+        when(entityManagerFactories.stream()).thenReturn(Stream.of(stubFactoryWithOneEntity()));
+        ObjectProvider<ListableBeanFactory> beanFactories = mock(ObjectProvider.class);
+        when(beanFactories.getIfAvailable()).thenReturn(null);
+
+        HibernateScanner scanner = new BootUiEngineConfiguration.HibernateAdvisorConfiguration()
+                .bootUiHibernateScanner(entityManagerFactories, beanFactories, environment);
+        HibernateReport report = scanner.scan();
+
+        HibernateRuleResultDto ddlAuto = report.results().stream()
+                .filter(result -> result.id().equals("HIB-CONFIG-002"))
+                .findFirst()
+                .orElseThrow(
+                        () -> new AssertionError("ddl-auto rule did not surface; property/profile seam not wired"));
+        assertThat(ddlAuto.sampleViolations()).anyMatch(detail -> detail.contains("production-like profile"));
+    }
+
+    /**
+     * Minimal {@link EntityManagerFactory} backed by JDK proxies that exposes a single mapped entity, so
+     * the scanner does not short-circuit on an empty metamodel and the config rules (which read the
+     * property-lookup + active-profiles seam) actually evaluate. Mockito is avoided for the metamodel
+     * types because they are generic interfaces; hand-rolled proxies keep the fixture dependency-free.
+     */
+    private static EntityManagerFactory stubFactoryWithOneEntity() {
+        EntityType<?> entityType = (EntityType<?>) Proxy.newProxyInstance(
+                BootUiEngineConfigurationTests.class.getClassLoader(),
+                new Class<?>[] {EntityType.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getJavaType" -> SampleEntity.class;
+                    case "getName" -> "SampleEntity";
+                    case "getAttributes" -> Set.of();
+                    case "toString" -> "StubEntityType";
+                    default -> defaultValue(method);
+                });
+        Metamodel metamodel = (Metamodel) Proxy.newProxyInstance(
+                BootUiEngineConfigurationTests.class.getClassLoader(),
+                new Class<?>[] {Metamodel.class},
+                (proxy, method, args) ->
+                        "getEntities".equals(method.getName()) ? Set.of(entityType) : defaultValue(method));
+        return (EntityManagerFactory) Proxy.newProxyInstance(
+                BootUiEngineConfigurationTests.class.getClassLoader(),
+                new Class<?>[] {EntityManagerFactory.class},
+                (proxy, method, args) -> "getMetamodel".equals(method.getName()) ? metamodel : defaultValue(method));
+    }
+
+    private static Object defaultValue(Method method) {
+        Class<?> returnType = method.getReturnType();
+        return returnType == boolean.class ? Boolean.FALSE : null;
+    }
+
+    private static final class SampleEntity {}
 
     @Test
     @SuppressWarnings("unchecked")

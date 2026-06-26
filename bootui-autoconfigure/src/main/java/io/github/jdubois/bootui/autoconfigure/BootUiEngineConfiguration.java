@@ -3,19 +3,25 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
+import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
+import java.util.List;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -130,6 +136,34 @@ public class BootUiEngineConfiguration {
             return registries.getIfAvailable();
         } catch (NoUniqueBeanDefinitionException ex) {
             return registries.orderedStream().findFirst().orElse(null);
+        }
+    }
+
+    /**
+     * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
+     * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
+     * gated configuration (never inline in the always-active root config), so their types are never linked
+     * in a JPA-absent application.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = {"jakarta.persistence.EntityManagerFactory", "org.hibernate.SessionFactory"})
+    static class HibernateAdvisorConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        HibernateScanner bootUiHibernateScanner(
+                ObjectProvider<EntityManagerFactory> entityManagerFactories,
+                ObjectProvider<ListableBeanFactory> beanFactories,
+                Environment environment) {
+            // Entity discovery (jakarta metamodel via the engine JpaMetamodelReader) + Spring-Data repository
+            // discovery live in the adapter; the engine scanner reads config through a neutral property-lookup
+            // + active-profiles seam and runs the metamodel walk only on demand (POST /scan).
+            return HibernateScanner.using(
+                    () -> SpringHibernateDiscovery.discover(entityManagerFactories, beanFactories),
+                    environment::getProperty,
+                    () -> List.of(environment.getActiveProfiles()),
+                    Clock.systemUTC());
         }
     }
 }

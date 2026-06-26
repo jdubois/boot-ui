@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.hibernate;
+package io.github.jdubois.bootui.engine.hibernate;
 
 record HibernateRuleDefinition(
         String id,

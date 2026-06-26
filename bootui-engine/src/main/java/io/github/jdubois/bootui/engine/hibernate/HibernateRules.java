@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.hibernate;
+package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import java.lang.annotation.Annotation;
@@ -701,7 +701,7 @@ final class OpenInViewRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        Boolean value = context.environment().getProperty("spring.jpa.open-in-view", Boolean.class);
+        Boolean value = context.booleanProperty("spring.jpa.open-in-view");
         if (Boolean.FALSE.equals(value)) {
             return pass();
         }
@@ -977,8 +977,7 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
                 "hibernate.connection.provider_disables_autocommit")) {
             return pass();
         }
-        Boolean hikariAutoCommit =
-                context.environment().getProperty("spring.datasource.hikari.auto-commit", Boolean.class);
+        Boolean hikariAutoCommit = context.booleanProperty("spring.datasource.hikari.auto-commit");
         if (Boolean.FALSE.equals(hikariAutoCommit)) {
             return violation(
                     List.of(
@@ -1128,7 +1127,7 @@ final class RiskyDdlAutoRule extends AbstractHibernateRule {
         if (!RISKY_VALUES.contains(normalized)) {
             return pass();
         }
-        String[] profiles = context.environment().getActiveProfiles();
+        String[] profiles = context.activeProfiles().toArray(new String[0]);
         boolean creates = normalized.equals("create") || normalized.equals("create-drop");
         // Highest-risk profile wins: a production-like profile is dangerous even if a test/dev profile is also active.
         if (context.isProductionProfileActive()) {
