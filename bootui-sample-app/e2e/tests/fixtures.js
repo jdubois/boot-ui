@@ -27,4 +27,18 @@ export const test = base.extend({
   }
 })
 
+/**
+ * Accept the branded ConfirmDialog that replaced native window.confirm() for
+ * destructive actions. Clicks the confirm action (danger or primary variant),
+ * then waits for the dialog to close so callers can assert on the result.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function acceptConfirm(page) {
+  const dialog = page.locator('dialog.confirm-dialog')
+  await dialog.waitFor({state: 'visible'})
+  await dialog.locator('.confirm-actions button:not(.btn-outline-secondary)').click()
+  await expect(dialog).toBeHidden()
+}
+
 export {expect}

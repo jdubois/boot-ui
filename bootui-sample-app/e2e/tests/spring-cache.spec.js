@@ -1,10 +1,8 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 test.describe('Spring Cache view', () => {
   test('lists caches, cache annotations, and clears a cache', async ({openView, page}) => {
-    page.on('dialog', (dialog) => dialog.accept())
-
     await openView('spring-cache', 'Spring Cache')
 
     const cacheSection = page.locator('section', {hasText: 'Caches'}).first()
@@ -23,6 +21,7 @@ test.describe('Spring Cache view', () => {
     await expect(operationsSection).toContainText('sample-products')
 
     await productsRow.getByRole('button', {name: 'Clear'}).click()
+    await acceptConfirm(page)
     await expect(page.locator('.alert-success')).toContainText('Cleared cache')
   })
 })

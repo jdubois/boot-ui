@@ -66,7 +66,7 @@ test.describe('Beans view', () => {
 
     const rows = page.locator('table tbody tr')
     await expect(rows).toHaveCount(200)
-    await expect(page.getByText(/Showing 200 of 205 matching beans/)).toBeVisible()
+    await expect(page.getByText(/Showing 200 of 205 beans/)).toBeVisible()
     await expect(page.getByRole('button', {name: /Load next 5/})).toBeVisible()
 
     await page.getByPlaceholder(/Filter by name or type/).fill('demoBean204')
