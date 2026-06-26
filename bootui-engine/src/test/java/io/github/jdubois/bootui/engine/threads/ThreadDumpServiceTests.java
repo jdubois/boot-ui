@@ -1,24 +1,26 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.threads;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import org.junit.jupiter.api.Test;
 
 /**
  * Slice tests for {@link ThreadDumpService}. The service reads the live JVM via
- * {@code ThreadMXBean}, so the running test thread itself provides deterministic data.
+ * {@code ThreadMXBean}, so the running test thread itself provides deterministic data. The
+ * exposure decision is supplied through a fixed {@link ExposurePolicy} double so the test stays
+ * framework-neutral (no Spring environment binding).
  */
 class ThreadDumpServiceTests {
 
-    private final BootUiProperties properties = new BootUiProperties();
+    private final ExposurePolicy masked = new FixedExposure(ValueExposure.MASKED, true);
 
     @Test
     void reportCapturesLiveThreadsWithSummary() {
-        ThreadDumpService service = new ThreadDumpService(properties);
+        ThreadDumpService service = new ThreadDumpService(masked);
 
         ThreadDumpReport report = service.report(null, null, null, null);
 
@@ -34,7 +36,7 @@ class ThreadDumpServiceTests {
 
     @Test
     void reportFiltersByQueryAndState() {
-        ThreadDumpService service = new ThreadDumpService(properties);
+        ThreadDumpService service = new ThreadDumpService(masked);
         Thread current = Thread.currentThread();
 
         ThreadDumpReport byName = service.report(current.getName(), null, null, null);
@@ -46,7 +48,7 @@ class ThreadDumpServiceTests {
 
     @Test
     void reportPagesResults() {
-        ThreadDumpService service = new ThreadDumpService(properties);
+        ThreadDumpService service = new ThreadDumpService(masked);
 
         ThreadDumpReport firstPage = service.report(null, null, 0, 1);
 
@@ -58,8 +60,7 @@ class ThreadDumpServiceTests {
 
     @Test
     void metadataOnlyModeHidesStackTraces() {
-        properties.setExposeValues(ValueExposure.METADATA_ONLY);
-        ThreadDumpService service = new ThreadDumpService(properties);
+        ThreadDumpService service = new ThreadDumpService(new FixedExposure(ValueExposure.METADATA_ONLY, true));
 
         ThreadDumpReport report = service.report(null, null, null, null);
 
@@ -69,7 +70,7 @@ class ThreadDumpServiceTests {
 
     @Test
     void defaultModeIncludesStackTraces() {
-        ThreadDumpService service = new ThreadDumpService(properties);
+        ThreadDumpService service = new ThreadDumpService(masked);
 
         ThreadDumpReport report = service.report(Thread.currentThread().getName(), null, null, null);
 
@@ -80,7 +81,7 @@ class ThreadDumpServiceTests {
 
     @Test
     void rawDumpRendersThreadNames() {
-        ThreadDumpService service = new ThreadDumpService(properties);
+        ThreadDumpService service = new ThreadDumpService(masked);
 
         String dump = service.rawDump();
 
@@ -91,7 +92,7 @@ class ThreadDumpServiceTests {
 
     @Test
     void unavailableWhenThreadMxBeanMissing() {
-        ThreadDumpService service = new ThreadDumpService(null, properties);
+        ThreadDumpService service = new ThreadDumpService(null, masked);
 
         assertThat(service.available()).isFalse();
         ThreadDumpReport report = service.report(null, null, null, null);
@@ -103,7 +104,7 @@ class ThreadDumpServiceTests {
 
     @Test
     void capturedThreadsExposeBasicMetadata() {
-        ThreadDumpService service = new ThreadDumpService(properties);
+        ThreadDumpService service = new ThreadDumpService(masked);
 
         ThreadDumpReport report = service.report(null, null, null, null);
 
@@ -112,4 +113,9 @@ class ThreadDumpServiceTests {
         assertThat(first.name()).isNotBlank();
         assertThat(first.state()).isNotBlank();
     }
+
+    /**
+     * Minimal {@link ExposurePolicy} test double; the record accessors satisfy the interface.
+     */
+    private record FixedExposure(ValueExposure valueExposure, boolean maskSecrets) implements ExposurePolicy {}
 }

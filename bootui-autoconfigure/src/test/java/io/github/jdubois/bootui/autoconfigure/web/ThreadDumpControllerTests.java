@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,7 +20,8 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class ThreadDumpControllerTests {
 
-    private final MockMvc mvc = standaloneSetup(new ThreadDumpController(new ThreadDumpService(new BootUiProperties())))
+    private final MockMvc mvc = standaloneSetup(
+                    new ThreadDumpController(new ThreadDumpService(new BootUiExposure(new BootUiProperties()))))
             .build();
 
     @Test
@@ -54,8 +57,8 @@ class ThreadDumpControllerTests {
 
     @Test
     void downloadReturnsNotFoundWhenUnavailable() throws Exception {
-        MockMvc unavailable = standaloneSetup(
-                        new ThreadDumpController(new ThreadDumpService(null, new BootUiProperties())))
+        MockMvc unavailable = standaloneSetup(new ThreadDumpController(
+                        new ThreadDumpService(null, new BootUiExposure(new BootUiProperties()))))
                 .build();
 
         unavailable.perform(post("/bootui/api/threads/download")).andExpect(status().isNotFound());

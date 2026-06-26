@@ -1,10 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
+import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import java.nio.charset.StandardCharsets;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,16 +25,7 @@ public class ThreadDumpController {
 
     private final ThreadDumpService service;
 
-    @Autowired
-    public ThreadDumpController(BootUiProperties properties, BootUiExposure exposure) {
-        this(new ThreadDumpService(properties, exposure));
-    }
-
-    public ThreadDumpController(BootUiProperties properties) {
-        this(new ThreadDumpService(properties));
-    }
-
-    ThreadDumpController(ThreadDumpService service) {
+    public ThreadDumpController(ThreadDumpService service) {
         this.service = service;
     }
 

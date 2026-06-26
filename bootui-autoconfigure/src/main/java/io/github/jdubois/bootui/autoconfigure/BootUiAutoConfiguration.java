@@ -152,6 +152,7 @@ import tools.jackson.databind.ObjectMapper;
     MemoryController.class,
     DismissedRulesController.class,
     BootUiIndexController.class,
+    BootUiEngineConfiguration.class,
     BootUiOpenTelemetryConfiguration.class
 })
 public class BootUiAutoConfiguration {

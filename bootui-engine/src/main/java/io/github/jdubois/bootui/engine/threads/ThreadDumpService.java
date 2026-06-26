@@ -1,13 +1,12 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.threads;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.core.dto.ThreadStateCountDto;
 import io.github.jdubois.bootui.engine.support.PagedList;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
@@ -28,30 +27,21 @@ import java.util.stream.Collectors;
  * <p>The snapshot is taken in-process; it never requires the host application to expose the
  * Actuator {@code threaddump} endpoint over HTTP. The service never suspends, interrupts, or kills
  * a thread. Detailed stack frames and lock metadata are routed through the BootUI value-exposure
- * model so the panel stays consistent with the rest of BootUI's masking guarantees.</p>
+ * model (via the framework-neutral {@link ExposurePolicy}) so the panel stays consistent with the
+ * rest of BootUI's masking guarantees on every adapter.</p>
  */
 public class ThreadDumpService {
 
     private final ThreadMXBean threadMxBean;
-    private final BootUiProperties properties;
-    private final BootUiExposure exposure;
+    private final ExposurePolicy exposure;
     private final SecretMasker masker = new SecretMasker();
 
-    public ThreadDumpService(BootUiProperties properties) {
-        this(ManagementFactory.getThreadMXBean(), properties);
+    public ThreadDumpService(ExposurePolicy exposure) {
+        this(ManagementFactory.getThreadMXBean(), exposure);
     }
 
-    ThreadDumpService(BootUiProperties properties, BootUiExposure exposure) {
-        this(ManagementFactory.getThreadMXBean(), properties, exposure);
-    }
-
-    ThreadDumpService(ThreadMXBean threadMxBean, BootUiProperties properties) {
-        this(threadMxBean, properties, new BootUiExposure(properties));
-    }
-
-    ThreadDumpService(ThreadMXBean threadMxBean, BootUiProperties properties, BootUiExposure exposure) {
+    public ThreadDumpService(ThreadMXBean threadMxBean, ExposurePolicy exposure) {
         this.threadMxBean = threadMxBean;
-        this.properties = properties;
         this.exposure = exposure;
     }
 
@@ -166,6 +156,7 @@ public class ThreadDumpService {
 
         ValueExposure exposeValues = exposure.valueExposure();
         boolean hideDetail = exposeValues == ValueExposure.METADATA_ONLY;
+        boolean maskSecrets = exposeValues != ValueExposure.FULL && exposure.maskSecrets();
 
         for (ThreadInfo info : infos) {
             if (info == null) {
@@ -192,10 +183,10 @@ public class ThreadDumpService {
                 userTime = user < 0 ? null : user / 1_000_000L;
             }
 
-            String name = maskName(info.getThreadName(), exposeValues);
+            String name = maskName(info.getThreadName(), maskSecrets);
             List<String> stackTrace = hideDetail ? List.of() : renderStack(info.getStackTrace());
             String lockName = hideDetail ? null : info.getLockName();
-            String lockOwnerName = hideDetail ? null : maskName(info.getLockOwnerName(), exposeValues);
+            String lockOwnerName = hideDetail ? null : maskName(info.getLockOwnerName(), maskSecrets);
             Long lockOwnerId = info.getLockOwnerId() < 0 ? null : info.getLockOwnerId();
 
             rows.add(new ThreadInfoDto(
@@ -295,11 +286,11 @@ public class ThreadDumpService {
         return frames;
     }
 
-    private String maskName(String name, ValueExposure exposeValues) {
+    private String maskName(String name, boolean maskSecrets) {
         if (name == null) {
             return null;
         }
-        if (exposeValues != ValueExposure.FULL && exposure.maskSecrets() && masker.isSecret(name)) {
+        if (maskSecrets && masker.isSecret(name)) {
             return SecretMasker.MASKED_VALUE;
         }
         return name;

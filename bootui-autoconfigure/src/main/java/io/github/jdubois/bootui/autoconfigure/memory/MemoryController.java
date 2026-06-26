@@ -1,9 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.memory;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
-import io.github.jdubois.bootui.autoconfigure.web.ThreadDumpService;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
+import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,11 +29,11 @@ public class MemoryController {
     private volatile MemoryReport lastReport;
 
     @Autowired
-    public MemoryController(BootUiProperties properties, DismissedRulesStore dismissedRules) {
+    public MemoryController(ThreadDumpService threadDumpService, DismissedRulesStore dismissedRules) {
         this(
                 new MemoryScanner(
                         new MemoryCollector(
-                                () -> new ThreadDumpService(properties).report(null, null, 0, 1000),
+                                () -> threadDumpService.report(null, null, 0, 1000),
                                 MemoryCollector::diagnosticCommandHistogram),
                         Clock.systemUTC()),
                 dismissedRules);
