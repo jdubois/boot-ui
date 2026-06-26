@@ -107,10 +107,14 @@ npm install
 npm run dev
 ```
 
-This starts Vite on a separate port and proxies `/bootui/api/*` to a locally
-running sample app. Use `npm run test:watch` for Vitest watch mode while iterating.
-When you are done, run `./mvnw install -pl bootui-ui` once to re-bundle the assets
-into the JAR.
+This starts Vite with hot-module reload on a separate port and proxies
+`/bootui/api/*` to a locally running sample app. Open the **Vite** URL
+(<http://localhost:5173/bootui/>) to see your edits live — the Maven-served
+console at <http://localhost:8080/bootui> serves the pre-built bundle baked into
+the JAR and does **not** hot-reload source changes. If the sample app runs on a
+non-default port, point the proxy at it with `BOOTUI_API_PROXY_TARGET`. Use
+`npm run test:watch` for Vitest watch mode while iterating. When you are done,
+run `./mvnw install -pl bootui-ui` once to re-bundle the assets into the JAR.
 
 ### Bootstrap Icons subsetting
 

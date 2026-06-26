@@ -70,6 +70,25 @@ that same repo:
 ./mvnw -Dmaven.repo.local=.m2 -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
+### Live UI iteration (hot reload)
+
+Editing Vue source does **not** hot-reload the Maven-served console. `spring-boot:run` (and the app's `/bootui` URL)
+serves the **pre-built** bundle copied into the classpath at build time, so UI edits only appear after
+`./mvnw -pl bootui-ui install` plus a restart. For a fast loop with hot-module reload (HMR) — including live/visual
+iteration in the in-app browser (e.g. when using the Impeccable skill) — run two processes and open the **Vite** URL,
+**not** the Maven one:
+
+1. **Backend (REST API).** Run the `Dev server (sample app)` script in `.github/github-app.yml`, or the fast sample-app
+   launch command above. Serves `http://localhost:8080/bootui` (or `$COPILOT_PORT` in the Copilot app).
+2. **Frontend (HMR).** Run the `Vite UI dev server` script, or `(cd bootui-ui/src/main/frontend && npm install && npm run
+   dev)`. Serves `http://localhost:5173/bootui/` and proxies `/bootui/api/*` to the backend.
+
+Open **`http://localhost:5173/bootui/`** (the Vite server) to see edits live — the Maven `/bootui` URL keeps showing the
+old bundle until you re-run `./mvnw -pl bootui-ui install`. Point the proxy at a non-default backend port with
+`BOOTUI_API_PROXY_TARGET` (the Copilot app's `Vite UI dev server` script sets this to `$COPILOT_PORT` automatically).
+State-changing panel actions work through the proxy: `LocalhostOnlyFilter` compares the `Origin` host only (not port),
+so the browser's `:5173` origin is accepted against the `:8080`/`$COPILOT_PORT` host.
+
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17, which includes the frontend Vitest
 suite through Maven, installs Playwright Chromium, and runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers
 Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow (`.github/workflows/release.yml`)
@@ -262,7 +281,8 @@ Playwright coverage aligned across these nine groups (current order):
 - Frontend unit tests use Vitest with Vue Test Utils and jsdom. Add focused `*.test.js` coverage for reusable
   composables/components and UI logic where Playwright would be too broad or slow.
 - The Vite dev server proxies `/bootui/api/*` to the running sample app, but packaged assets must work from `/bootui/`
-  without requiring consumers to install Node.
+  without requiring consumers to install Node. For hot-reload UI iteration, open the Vite URL (`:5173/bootui/`), not the
+  Maven-served `/bootui` — see "Live UI iteration (hot reload)" above.
 
 ## Contribution conventions (from `CONTRIBUTING.md`)
 
