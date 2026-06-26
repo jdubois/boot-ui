@@ -16,14 +16,22 @@ const recentRouteList = loadRecentPanels()
   .filter(Boolean)
 const recentNames = new Set(recentRouteList.map((r) => r.name))
 
+function keywordMatch(keywords, needle) {
+  // Match on word prefixes within a keyword rather than arbitrary substrings,
+  // so "gc" finds the "gc" keyword but not the "gc" buried in "langchain4j".
+  return keywords.some((k) => k.split(/\s+/).some((word) => word.startsWith(needle)))
+}
+
 function score(route, q) {
   const title = (route.meta.title || '').toLowerCase()
   const group = (route.meta.group || '').toLowerCase()
   const shortcut = (route.meta.shortcut || '').toLowerCase()
+  const keywords = (route.meta.keywords || []).map((k) => k.toLowerCase())
   const needle = q.toLowerCase()
-  if (title.startsWith(needle)) return 3
-  if (shortcut.startsWith(needle)) return 3
-  if (title.includes(needle)) return 2
+  if (title.startsWith(needle)) return 6
+  if (shortcut.startsWith(needle)) return 6
+  if (title.includes(needle)) return 4
+  if (keywordMatch(keywords, needle)) return 3
   if (shortcut.includes(needle)) return 2
   if (group.includes(needle)) return 1
   return 0
@@ -98,7 +106,7 @@ defineExpose({focusInput})
           ref="inputEl"
           v-model="query"
           class="cp-input"
-          placeholder="Go to panel…"
+          placeholder="Search panels by name or keyword…"
           type="search"
           autocomplete="off"
           @keydown="onKeydown"
@@ -171,6 +179,13 @@ defineExpose({focusInput})
   padding: 0.85rem 1rem;
 }
 
+/* The search input is intentionally borderless, so surface its keyboard focus
+   on the row instead of an outline on the field. */
+.cp-search-row:focus-within {
+  border-bottom-color: var(--bootui-blue, #0d6efd);
+  box-shadow: inset 0 -1px 0 0 var(--bootui-blue, #0d6efd);
+}
+
 .cp-search-icon {
   color: var(--bootui-text-muted, #64748b);
   flex-shrink: 0;
@@ -193,7 +208,7 @@ defineExpose({focusInput})
 .cp-esc-hint {
   background: var(--bootui-surface, #fff);
   border: 1px solid var(--bootui-border, rgba(15, 23, 42, 0.12));
-  border-radius: 0.3rem;
+  border-radius: var(--bootui-radius-xs);
   color: var(--bootui-text-muted, #94a3b8);
   font-size: 0.7rem;
   padding: 0.15rem 0.4rem;
@@ -244,7 +259,7 @@ defineExpose({focusInput})
 .cp-item-num {
   align-items: center;
   background: var(--bootui-nav-group-bg, rgba(100, 116, 139, 0.08));
-  border-radius: 0.35rem;
+  border-radius: var(--bootui-radius-xs);
   color: var(--bootui-text-muted, #94a3b8);
   display: inline-flex;
   font-size: 0.65rem;
@@ -257,7 +272,7 @@ defineExpose({focusInput})
 
 .cp-item-shortcut {
   background: var(--bootui-nav-group-bg, rgba(100, 116, 139, 0.08));
-  border-radius: 0.25rem;
+  border-radius: var(--bootui-radius-xs);
   color: var(--bootui-text-muted, #94a3b8);
   font-size: 0.65rem;
   font-weight: 600;

@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -19,9 +19,6 @@ test.describe('Configuration view', () => {
 
     const propertyName = `e2e.demo.value.${Date.now()}`
     const propertyValue = 'hello-from-playwright'
-
-    // Auto-dismiss the confirm() dialog raised by the delete button.
-    page.on('dialog', (dialog) => dialog.accept())
 
     // Create the override.
     await page.getByRole('button', {name: /Add override/}).click()
@@ -43,6 +40,7 @@ test.describe('Configuration view', () => {
 
     // Remove the override.
     await newRow.first().locator('button[title="Remove override"]').click()
+    await acceptConfirm(page)
     await expect(page.locator('.alert.alert-success')).toContainText(
       new RegExp(`Override removed for ${escapeRegExp(propertyName)}`)
     )

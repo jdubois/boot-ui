@@ -5,11 +5,13 @@ import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
 const actionMessage = ref(null)
@@ -141,6 +143,14 @@ async function installDockerfile() {
     showReadOnlyMessage()
     return
   }
+  const ok = await confirm({
+    title: 'Write Dockerfile-crac?',
+    message:
+      'Write a CRaC-enabled Dockerfile into your project. An existing Dockerfile-crac at the target path is overwritten.',
+    confirmLabel: 'Write file',
+    danger: true
+  })
+  if (!ok) return
   installingDockerfile.value = true
   try {
     const res = await apiFetch('api/crac/dockerfile/install', {method: 'POST'})
@@ -162,6 +172,14 @@ async function installEntrypoint() {
     showReadOnlyMessage()
     return
   }
+  const ok = await confirm({
+    title: 'Write entrypoint script?',
+    message:
+      'Write the checkpoint-and-run.sh entrypoint script into your project. An existing script at the target path is overwritten.',
+    confirmLabel: 'Write file',
+    danger: true
+  })
+  if (!ok) return
   installingEntrypoint.value = true
   try {
     const res = await apiFetch('api/crac/entrypoint/install', {method: 'POST'})
@@ -183,6 +201,14 @@ async function installBoth() {
     showReadOnlyMessage()
     return
   }
+  const ok = await confirm({
+    title: 'Write CRaC artifacts?',
+    message:
+      'Write both the CRaC Dockerfile and the checkpoint-and-run.sh entrypoint into your project. Existing files at the target paths are overwritten.',
+    confirmLabel: 'Write files',
+    danger: true
+  })
+  if (!ok) return
   installingBoth.value = true
   try {
     const res = await apiFetch('api/crac/install/all', {method: 'POST'})

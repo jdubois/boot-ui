@@ -4,11 +4,11 @@ import {computed, inject, onActivated, onMounted, reactive, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {overallScore, scoreBandLabel, scoreBandTone, scoreFromSeverityCounts} from '../utils/scannerScore.js'
+import PanelHeader from './components/PanelHeader.vue'
 import ScannerScoreCard from './components/ScannerScoreCard.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const injectedPanels = inject('panels', null)
-const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
 
 // Locally fetched panel availability when the shell has not provided it yet.
 const localPanels = ref(null)
@@ -289,26 +289,19 @@ onActivated(refreshScores)
 
 <template>
   <div>
-    <div class="overview-hero mb-4">
-      <div class="hero-copy">
-        <h2>Overview</h2>
-        <p class="hero-lead">Understand your Spring Boot app in minutes.</p>
-        <p>
-          BootUI turns the local runtime into a guided map of profiles, ports, safety status, Actuator-backed
-          diagnostics, and the panels that explain how the app is wired.
-        </p>
-      </div>
-      <div class="hero-actions">
-        <a class="btn btn-outline-light" href="/">
+    <PanelHeader
+      icon="bi-speedometer2"
+      title="Overview"
+      subtitle="Run the advisors to score your app's security, architecture, and runtime health, then open any panel for the details."
+      :refreshable="false"
+    >
+      <template #actions>
+        <a class="btn btn-outline-secondary btn-sm" href="/">
           <i class="bi bi-house-door me-1"></i>
           Application homepage
         </a>
-        <a :href="githubProjectUrl" class="btn btn-outline-light" rel="noopener noreferrer" target="_blank">
-          <i class="bi bi-github me-1"></i>
-          BootUI GitHub project
-        </a>
-      </div>
-    </div>
+      </template>
+    </PanelHeader>
 
     <div class="row gx-3 gy-4 mb-4">
       <div class="col-12">
@@ -330,7 +323,7 @@ onActivated(refreshScores)
         </div>
         <div class="card overall-card">
           <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center gap-4">
-            <div class="flex-shrink-0 min-w-0">
+            <div v-if="scoredCount > 0" class="flex-shrink-0 min-w-0">
               <div class="text-uppercase text-muted fw-bold small">Overall score</div>
               <div class="d-flex align-items-center gap-3 mt-2">
                 <div :class="['overall-gauge', `overall-gauge--${overallBandTone}`]">
@@ -357,26 +350,35 @@ onActivated(refreshScores)
             </div>
 
             <div class="flex-grow-1 min-w-0">
-              <div v-if="overallContributions.length" class="row g-2">
-                <div
-                  v-for="item in overallContributions"
-                  :key="item.title"
-                  class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small min-w-0"
-                >
-                  <span class="text-muted text-truncate me-2">{{ item.title }}</span>
-                  <span
-                    :class="[
-                      'flex-shrink-0',
-                      item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'
-                    ]"
+              <template v-if="scoredCount > 0">
+                <div v-if="overallContributions.length" class="row g-2">
+                  <div
+                    v-for="item in overallContributions"
+                    :key="item.title"
+                    class="col-sm-6 col-lg-4 d-flex justify-content-between align-items-center small min-w-0"
                   >
-                    {{ item.deduction < 0 ? item.deduction : '0' }}
-                  </span>
+                    <span class="text-muted text-truncate me-2">{{ item.title }}</span>
+                    <span
+                      :class="[
+                        'flex-shrink-0',
+                        item.deduction < 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'
+                      ]"
+                    >
+                      {{ item.deduction < 0 ? item.deduction : '0' }}
+                    </span>
+                  </div>
                 </div>
+                <p v-else class="text-success small mb-0">
+                  <i class="bi bi-check-circle me-1"></i>All scanned advisors are passing.
+                </p>
+              </template>
+              <div v-else>
+                <div class="text-uppercase text-muted fw-bold small">Overall score</div>
+                <p class="text-muted small mb-0 mt-1">
+                  {{ scoredCount }} of {{ totalCount }} scanners scored — run the advisors to compute a combined
+                  security &amp; health score.
+                </p>
               </div>
-              <p v-else class="text-muted small mb-0">
-                Run the scanners to compute an overall security & health score.
-              </p>
             </div>
 
             <div class="flex-shrink-0 mt-3 mt-lg-0 min-w-0">
@@ -385,7 +387,7 @@ onActivated(refreshScores)
                 :disabled="anyRunning || totalCount === 0"
                 class="btn btn-primary"
                 type="button"
-                label="Run all scanners"
+                :label="scoredCount > 0 ? 'Re-run all scanners' : 'Run all scanners'"
                 loading-label="Running scanners…"
                 @click="runAll"
               />
@@ -494,94 +496,6 @@ onActivated(refreshScores)
 </template>
 
 <style scoped>
-.overview-hero {
-  align-items: flex-start;
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.38), transparent 18rem),
-    linear-gradient(135deg, #16794c, #0d6efd);
-  border-radius: 1.4rem;
-  box-shadow: 0 1.5rem 3.5rem rgba(13, 110, 253, 0.22);
-  color: #fff;
-  display: flex;
-  gap: 1rem;
-  justify-content: space-between;
-  overflow: hidden;
-  padding: clamp(1.4rem, 3vw, 2.4rem);
-  position: relative;
-}
-
-.overview-hero::after {
-  animation: sweep 5s ease-in-out infinite;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
-  content: '';
-  height: 150%;
-  position: absolute;
-  right: 12%;
-  top: -25%;
-  transform: rotate(18deg);
-  width: 7rem;
-}
-
-.hero-copy {
-  max-width: 48rem;
-  position: relative;
-  z-index: 1;
-}
-
-.hero-kicker {
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 999px;
-  display: inline-flex;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  margin-bottom: 1rem;
-  padding: 0.4rem 0.7rem;
-  text-transform: uppercase;
-}
-
-.overview-hero h2 {
-  font-size: clamp(2rem, 4vw, 3.5rem);
-  font-weight: 900;
-  letter-spacing: -0.04em;
-  line-height: 0.95;
-  margin-bottom: 1rem;
-}
-
-.overview-hero p {
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 1.05rem;
-  margin-bottom: 0;
-}
-
-.overview-hero .hero-lead {
-  font-size: 1.35rem;
-  font-weight: 700;
-  margin-bottom: 0.75rem;
-}
-
-.hero-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 0.75rem;
-  position: relative;
-  z-index: 1;
-}
-
-.hero-actions .btn {
-  font-weight: 700;
-}
-
-.overall-card {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78)),
-    radial-gradient(circle at top right, rgba(13, 110, 253, 0.12), transparent 16rem);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 1.2rem;
-  box-shadow: 0 1rem 2.6rem rgba(15, 23, 42, 0.08);
-}
-
 .overall-gauge {
   align-items: center;
   border: 0.4rem solid;
@@ -600,34 +514,28 @@ onActivated(refreshScores)
 }
 
 .overall-gauge__max {
-  color: #64748b;
+  color: var(--bootui-text-muted);
   font-size: 0.72rem;
 }
 
 .overall-gauge--success {
-  border-color: #198754;
-  color: #198754;
+  border-color: var(--bs-success);
+  color: var(--bs-success-text-emphasis);
 }
 
 .overall-gauge--warning {
-  border-color: #ffc107;
-  color: #997404;
+  border-color: var(--bs-warning);
+  color: var(--bs-warning-text-emphasis);
 }
 
 .overall-gauge--danger {
-  border-color: #dc3545;
-  color: #dc3545;
+  border-color: var(--bs-danger);
+  color: var(--bs-danger-text-emphasis);
 }
 
 .overall-gauge--secondary {
-  border-color: #cbd5e1;
-  color: #64748b;
-}
-
-.overall-contributions {
-  display: grid;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
+  border-color: var(--bootui-border-alt);
+  color: var(--bootui-text-muted);
 }
 
 .scanner-score {
@@ -637,43 +545,19 @@ onActivated(refreshScores)
 }
 
 .scanner-score--success {
-  color: #198754;
+  color: var(--bs-success-text-emphasis);
 }
 
 .scanner-score--warning {
-  color: #997404;
+  color: var(--bs-warning-text-emphasis);
 }
 
 .scanner-score--danger {
-  color: #dc3545;
+  color: var(--bs-danger-text-emphasis);
 }
 
 .scanner-score--secondary {
-  color: #64748b;
-}
-
-@keyframes sweep {
-  0% {
-    opacity: 0;
-    transform: translateX(-6rem) rotate(18deg);
-  }
-  45%,
-  55% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(16rem) rotate(18deg);
-  }
-}
-
-@media (max-width: 991.98px) {
-  .overview-hero {
-    flex-direction: column;
-  }
-
-  .hero-actions {
-    flex-wrap: wrap;
-  }
+  color: var(--bootui-text-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {

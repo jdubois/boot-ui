@@ -34,6 +34,14 @@ describe('ServerListFooter', () => {
     expect(wrapper.text()).toContain('Load next 20')
   })
 
+  it('drops the "matching" wording and renders no stray space when nothing is filtered', () => {
+    const wrapper = mountFooter({shown: 200, matched: 900, total: 900})
+
+    expect(wrapper.text()).toContain('Showing 200 of 900 beans. Filters run on the server.')
+    expect(wrapper.text()).not.toContain('matching')
+    expect(wrapper.text()).not.toContain(' .')
+  })
+
   it('hides the button when every matching item is loaded', () => {
     const wrapper = mountFooter({shown: 450})
 

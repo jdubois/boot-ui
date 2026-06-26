@@ -28,21 +28,21 @@ async function clearDismissedRules(request) {
 }
 
 /**
- * @param {import('@playwright/test').Locator} card
+ * @param {import('@playwright/test').Locator} metric
  * @returns {Promise<number>}
  */
-async function findingsCount(card) {
-  return Number.parseInt((await card.locator('.display-6').innerText()).trim(), 10) || 0
+async function findingsCount(metric) {
+  return Number.parseInt((await metric.locator('dd').innerText()).trim(), 10) || 0
 }
 
 /**
- * Reads the numeric advisor score rendered by the shared AdvisorScoreCard.
+ * Reads the numeric advisor score rendered by the shared AdvisorSummary.
  *
  * @param {import('@playwright/test').Page} page
  * @returns {Promise<number>}
  */
 async function scoreValue(page) {
-  return Number.parseInt((await page.locator('.advisor-score-gauge__value').innerText()).trim(), 10)
+  return Number.parseInt((await page.locator('.advisor-summary__value').innerText()).trim(), 10)
 }
 
 test.describe('Advisor rule dismiss/restore', () => {
@@ -67,11 +67,11 @@ test.describe('Advisor rule dismiss/restore', () => {
     const activeItems = page.locator('.list-group-item').filter({has: page.getByRole('button', {name: 'Dismiss'})})
     await expect(activeItems.first()).toBeVisible({timeout: 30_000})
 
-    const findingsCard = page.locator('.card', {hasText: 'Advisor findings'})
+    const findingsCard = page.locator('.advisor-summary__metric', {hasText: 'Advisor findings'})
     const before = await findingsCount(findingsCard)
     expect(before).toBeGreaterThan(0)
-    // Nothing is dismissed yet, so the "N dismissed" subline is absent.
-    await expect(findingsCard).not.toContainText('dismissed')
+    // Nothing is dismissed yet, so the dismissed-note line is absent.
+    await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
 
     // The advisor score card renders once a scan has produced findings.
     await expect(page.locator('.advisor-score-card')).toBeVisible()
@@ -95,7 +95,7 @@ test.describe('Advisor rule dismiss/restore', () => {
     const dismissedItem = dismissedItemFor(ruleId)
     await expect(dismissedItem).toBeVisible()
     await expect(page.getByText('— not counted in score')).toBeVisible()
-    await expect(findingsCard).toContainText('1 dismissed')
+    await expect(page.locator('.advisor-summary__dismissed')).toContainText('1 dismissed')
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before - 1)
 
     // Dismissing a finding removes its weighted penalty. The score therefore rises or
@@ -114,7 +114,7 @@ test.describe('Advisor rule dismiss/restore', () => {
     await dismissedItem.getByRole('button', {name: 'Restore'}).click()
 
     await expect(dismissedItemFor(ruleId)).toHaveCount(0)
-    await expect(findingsCard).not.toContainText('dismissed')
+    await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
     await expect(page.getByText('excluded from this score')).toHaveCount(0)
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before)
     await expect.poll(async () => scoreValue(page)).toBe(scoreBefore)

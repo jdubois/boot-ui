@@ -5,11 +5,13 @@ import {formatClockTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
 const filter = ref('')
@@ -151,6 +153,14 @@ async function restart(service) {
     actionMessage.value = {type: 'warning', text: readOnlyReason.value}
     return
   }
+  const ok = await confirm({
+    title: 'Restart dev service?',
+    message: `Restart the "${service.name}" container now? In-flight connections are dropped while it restarts and in-container state is lost.`,
+    resource: service.name || service.id,
+    confirmLabel: 'Restart',
+    danger: true
+  })
+  if (!ok) return
   if (selected.value?.id !== service.id) {
     logs.value = null
   }
@@ -409,7 +419,7 @@ td code {
   tr {
     background: #fff;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 1rem;
+    border-radius: var(--bootui-radius-lg);
     box-shadow: 0 0.75rem 1.75rem rgba(15, 23, 42, 0.06);
     padding: 0.75rem;
   }
@@ -420,7 +430,7 @@ td code {
   }
 
   td::before {
-    color: #6c757d;
+    color: var(--bootui-secondary);
     content: attr(data-label);
     display: block;
     font-size: 0.75rem;

@@ -2,15 +2,15 @@
 import {expect, test} from './fixtures.js'
 
 test.describe('Overview view', () => {
-  test('renders the welcome hero and the scanner dashboard', async ({openView}) => {
+  test('renders the panel header and the scanner dashboard', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
     await expect(page.locator('.topbar-title')).toContainText('bootui-sample')
     await expect(page.locator('.topbar-subtitle')).toContainText(/Spring Boot/)
     await expect(page.locator('.topbar-subtitle')).toContainText(/Java/)
 
-    // Welcome hero is preserved.
-    await expect(page.locator('.overview-hero')).toContainText('Understand your Spring Boot app in minutes.')
+    // Panel header introduces the advisor dashboard.
+    await expect(page.locator('.panel-header')).toContainText('Run the advisors to score')
 
     // Overall score box and the on-demand "Run all scanners" action.
     const overall = page.locator('.overall-card').first()
@@ -66,10 +66,10 @@ test.describe('Overview view', () => {
     await expect(tip).toHaveCount(0)
   })
 
-  test('hero links to the BootUI GitHub project', async ({openView}) => {
+  test('links to the BootUI GitHub project', async ({openView}) => {
     const page = await openView('overview', 'Overview')
 
-    await expect(page.getByRole('link', {name: /BootUI GitHub project/})).toHaveAttribute(
+    await expect(page.getByRole('link', {name: /The missing developer UI for Spring Boot/})).toHaveAttribute(
       'href',
       'https://github.com/jdubois/boot-ui'
     )

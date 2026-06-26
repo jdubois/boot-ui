@@ -57,6 +57,37 @@ describe('CommandPalette', () => {
     expect(titles[0]).toBe('AI Usage')
   })
 
+  it('finds panels by keyword synonyms absent from the title', async () => {
+    const {wrapper} = await mountPalette()
+
+    const titlesFor = async (q) => {
+      await setQuery(wrapper, q)
+      return wrapper.findAll('.cp-item-title').map((item) => item.text())
+    }
+
+    // Developer shorthand that never appears in a panel title.
+    expect(await titlesFor('csrf')).toContain('Security')
+    expect(await titlesFor('gc')).toContain('Memory')
+    // Word-prefix matching: "gc" must not match the "gc" inside "langchain4j".
+    expect(await titlesFor('gc')).not.toContain('AI Usage')
+    expect(await titlesFor('env')).toContain('Configuration')
+    expect(await titlesFor('hikari')).toContain('Database Connection Pools')
+    expect(await titlesFor('cron')).toContain('Scheduled Tasks')
+    expect(await titlesFor('n+1')).toEqual(expect.arrayContaining(['SQL Trace', 'Hibernate']))
+  })
+
+  it('keeps a title match ranked above a keyword-only match', async () => {
+    const {wrapper} = await mountPalette()
+    // "Spring" is a title prefix for several panels and a keyword ("spring beans")
+    // for Beans; the title matches must rank above the keyword-only match.
+    await setQuery(wrapper, 'spring')
+
+    const titles = wrapper.findAll('.cp-item-title').map((item) => item.text())
+    expect(titles[0]).toBe('Spring')
+    expect(titles).toContain('Beans')
+    expect(titles.indexOf('Spring')).toBeLessThan(titles.indexOf('Beans'))
+  })
+
   it('navigates with a number key while browsing the unfiltered list', async () => {
     const {wrapper, router} = await mountPalette()
     const push = vi.spyOn(router, 'push')

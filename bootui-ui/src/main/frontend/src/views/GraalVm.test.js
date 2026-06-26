@@ -3,6 +3,10 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import GraalVm from './GraalVm.vue'
 
+vi.mock('../utils/useConfirm.js', () => ({
+  useConfirm: () => ({confirm: () => Promise.resolve(true)})
+}))
+
 function finding(id, name, severity, occurrenceCount = 1, status = 'REVIEW') {
   return {
     id,

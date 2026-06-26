@@ -4,11 +4,13 @@ import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 
 const report = ref(null)
 const error = ref(null)
@@ -128,7 +130,18 @@ async function runAction(path, body) {
   }
 }
 
-function captureDump() {
+async function captureDump() {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  const ok = await confirm({
+    title: 'Capture heap dump?',
+    message: `Capturing a ${live.value ? 'live' : 'full'} heap dump writes a large .hprof file to disk and briefly pauses the JVM while the snapshot is taken.`,
+    confirmLabel: 'Capture',
+    danger: true
+  })
+  if (!ok) return
   runAction(`api/heap-dump/capture?live=${live.value ? 'true' : 'false'}`)
 }
 
@@ -136,7 +149,20 @@ function analyzeHeap() {
   runAction('api/heap-dump/analyze')
 }
 
-function deleteDump(name) {
+async function deleteDump(name) {
+  if (readOnly.value) {
+    showReadOnlyMessage()
+    return
+  }
+  const ok = await confirm({
+    title: 'Delete heap dump?',
+    message: 'Permanently delete this heap dump file from disk.',
+    resource: name,
+    confirmLabel: 'Delete',
+    danger: true,
+    irreversible: true
+  })
+  if (!ok) return
   runAction('api/heap-dump/delete', `name=${encodeURIComponent(name)}`)
 }
 

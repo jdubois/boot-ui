@@ -3,6 +3,10 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import Crac from './Crac.vue'
 
+vi.mock('../utils/useConfirm.js', () => ({
+  useConfirm: () => ({confirm: () => Promise.resolve(true)})
+}))
+
 function runtime(overrides = {}) {
   return {
     summary: 'The org.crac API is not on the classpath.',

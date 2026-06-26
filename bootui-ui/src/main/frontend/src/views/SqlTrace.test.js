@@ -4,6 +4,9 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import SqlTrace from './SqlTrace.vue'
 
 vi.mock('vue-router', () => ({useRoute: () => ({query: {}})}))
+vi.mock('../utils/useConfirm.js', () => ({
+  useConfirm: () => ({confirm: () => Promise.resolve(true)})
+}))
 
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
@@ -183,7 +186,6 @@ describe('SqlTrace', () => {
       return Promise.resolve(jsonResponse(traceReport()))
     })
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
 
     wrapper = mount(SqlTrace, {props: {panel: {id: 'sql-trace'}}})
     await flushPromises()
