@@ -19,8 +19,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * <p>Because this is a separate {@link WebMvcConfigurer} contribution, the handler it
  * registers is added even when Spring Boot's default {@code /**} handler is
  * suppressed. It is scoped to the fixed {@code /bootui/**} UI path &mdash; matching the
- * SPA's Vite base and {@link BootUiIndexController}'s {@code forward:/bootui/index.html}
- * &mdash; so it never re-exposes the host application's own static resources and keeps
+ * SPA's Vite base and the {@code /bootui} / {@code /bootui/} shell that
+ * {@link BootUiIndexController} serves &mdash; so it never re-exposes the host application's own
+ * static resources and keeps
  * the dashboard reachable regardless of the host's static-resource configuration.</p>
  */
 public class BootUiStaticResourceConfigurer implements WebMvcConfigurer {
