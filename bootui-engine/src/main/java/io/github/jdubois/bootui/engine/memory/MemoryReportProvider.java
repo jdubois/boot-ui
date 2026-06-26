@@ -1,52 +1,47 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import io.github.jdubois.bootui.core.dto.MemoryPoolDto;
+import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
 import java.lang.management.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalLong;
-import org.springframework.core.env.Environment;
 
 /**
  * Builds the live JVM memory report shared by the Live Memory and JVM Tuning panels.
  */
 public class MemoryReportProvider {
 
-    private static final String VIRTUAL_THREADS_PROPERTY = "spring.threads.virtual.enabled";
-    private static final String HEALTH_ENDPOINT_ENABLED_PROPERTY = "management.endpoint.health.enabled";
-    private static final String HEALTH_PROBES_ENABLED_PROPERTY = "management.endpoint.health.probes.enabled";
-    private static final String ENDPOINTS_ENABLED_BY_DEFAULT_PROPERTY = "management.endpoints.enabled-by-default";
-
     private final MemoryCalculator calculator;
     private final ContainerMemoryLimitDetector containerMemoryLimitDetector;
-    private final Environment environment;
+    private final MemoryRuntimeConfig runtimeConfig;
 
     public MemoryReportProvider() {
-        this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), null);
+        this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS);
     }
 
-    public MemoryReportProvider(Environment environment) {
-        this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), environment);
+    public MemoryReportProvider(MemoryRuntimeConfig runtimeConfig) {
+        this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), runtimeConfig);
     }
 
     MemoryReportProvider(MemoryCalculator calculator) {
-        this(calculator, ContainerMemoryLimitDetector.standard(), null);
+        this(calculator, ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS);
     }
 
     MemoryReportProvider(MemoryCalculator calculator, ContainerMemoryLimitDetector containerMemoryLimitDetector) {
-        this(calculator, containerMemoryLimitDetector, null);
+        this(calculator, containerMemoryLimitDetector, MemoryRuntimeConfig.DEFAULTS);
     }
 
     MemoryReportProvider(
             MemoryCalculator calculator,
             ContainerMemoryLimitDetector containerMemoryLimitDetector,
-            Environment environment) {
+            MemoryRuntimeConfig runtimeConfig) {
         this.calculator = calculator;
         this.containerMemoryLimitDetector = containerMemoryLimitDetector;
-        this.environment = environment;
+        this.runtimeConfig = runtimeConfig;
     }
 
     public LiveMemoryReport buildReport(
@@ -126,28 +121,14 @@ public class MemoryReportProvider {
     }
 
     private boolean resolveVirtualThreadsEnabled() {
-        if (environment == null || !environment.containsProperty(VIRTUAL_THREADS_PROPERTY)) {
-            return false;
-        }
-        Boolean configured = environment.getProperty(VIRTUAL_THREADS_PROPERTY, Boolean.class);
-        return configured != null && configured;
+        return runtimeConfig.virtualThreadsEnabled();
     }
 
     private boolean resolveKubernetesActuatorEnabled(Boolean kubernetesActuatorEnabled) {
         if (kubernetesActuatorEnabled != null) {
             return kubernetesActuatorEnabled;
         }
-        if (environment == null) {
-            return true;
-        }
-        boolean endpointsEnabledByDefault =
-                environment.getProperty(ENDPOINTS_ENABLED_BY_DEFAULT_PROPERTY, Boolean.class, true);
-        boolean healthEndpointEnabled =
-                environment.getProperty(HEALTH_ENDPOINT_ENABLED_PROPERTY, Boolean.class, endpointsEnabledByDefault);
-        if (!healthEndpointEnabled) {
-            return false;
-        }
-        return environment.getProperty(HEALTH_PROBES_ENABLED_PROPERTY, Boolean.class, true);
+        return runtimeConfig.kubernetesHealthProbesEnabled();
     }
 
     private MemoryPoolDto toDto(String name, MemoryUsage usage) {

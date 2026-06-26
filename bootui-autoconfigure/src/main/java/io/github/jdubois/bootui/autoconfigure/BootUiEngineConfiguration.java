@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
+import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -73,5 +75,14 @@ public class BootUiEngineConfiguration {
         // local.server.port), so it is re-read on every probe rather than snapshotted at construction.
         return new HttpProbeService(() -> environment.getProperty(
                 "local.server.port", Integer.class, environment.getProperty("server.port", Integer.class, 8080)));
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    MemoryReportProvider bootUiMemoryReportProvider(Environment environment) {
+        // Live policy: virtual-threads and Kubernetes health-probe settings are read from the live
+        // Environment (and thus the runtime override property source) on every report, not snapshotted.
+        return new MemoryReportProvider(new SpringMemoryRuntimeConfig(environment));
     }
 }

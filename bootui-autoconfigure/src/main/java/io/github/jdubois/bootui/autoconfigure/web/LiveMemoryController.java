@@ -1,8 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.env.Environment;
+import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -14,20 +13,7 @@ public class LiveMemoryController {
 
     private final MemoryReportProvider provider;
 
-    public LiveMemoryController() {
-        this(new MemoryReportProvider());
-    }
-
-    @Autowired
-    public LiveMemoryController(Environment environment) {
-        this(new MemoryReportProvider(environment));
-    }
-
-    LiveMemoryController(MemoryCalculator calculator) {
-        this(new MemoryReportProvider(calculator));
-    }
-
-    LiveMemoryController(MemoryReportProvider provider) {
+    public LiveMemoryController(MemoryReportProvider provider) {
         this.provider = provider;
     }
 

@@ -1,9 +1,9 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.memory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.web.MemoryCalculator.JdkVersion;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
+import io.github.jdubois.bootui.engine.memory.MemoryCalculator.JdkVersion;
 import org.junit.jupiter.api.Test;
 
 /**

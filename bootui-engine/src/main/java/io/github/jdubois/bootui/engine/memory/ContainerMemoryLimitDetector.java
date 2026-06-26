@@ -1,16 +1,16 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.memory;
 
 import java.io.IOException;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.OptionalLong;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 final class ContainerMemoryLimitDetector {
 
-    private static final Logger log = LoggerFactory.getLogger(ContainerMemoryLimitDetector.class);
+    private static final Logger log = System.getLogger(ContainerMemoryLimitDetector.class.getName());
     private static final long CGROUP_V1_UNLIMITED_SENTINEL_FLOOR = Long.MAX_VALUE / 2;
 
     private static final List<Path> STANDARD_CGROUP_LIMIT_FILES =
@@ -47,7 +47,7 @@ final class ContainerMemoryLimitDetector {
         try {
             return parseLimit(Files.readString(limitFile));
         } catch (IOException ex) {
-            log.debug("Could not read cgroup memory limit from {}", limitFile, ex);
+            log.log(Level.DEBUG, "Could not read cgroup memory limit from " + limitFile, ex);
             return OptionalLong.empty();
         }
     }
@@ -64,7 +64,7 @@ final class ContainerMemoryLimitDetector {
             }
             return OptionalLong.of(parsed);
         } catch (NumberFormatException ex) {
-            log.debug("Could not parse cgroup memory limit '{}'", value, ex);
+            log.log(Level.DEBUG, "Could not parse cgroup memory limit '" + value + "'", ex);
             return OptionalLong.empty();
         }
     }
