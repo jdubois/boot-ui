@@ -20,7 +20,7 @@ async function load() {
       springDataPresent.value = false
       return
     }
-    if (!res.ok) throw new Error('HTTP ' + res.status)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     report.value = await res.json()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load Spring Data repositories')

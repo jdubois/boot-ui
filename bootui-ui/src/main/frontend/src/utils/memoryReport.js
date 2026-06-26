@@ -10,9 +10,9 @@ function bytesToMb(bytes) {
 
 export function formatBytes(bytes) {
   if (bytes == null || bytes < 0) return 'N/A'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
 export function memoryProgressClass(pct) {
@@ -51,13 +51,13 @@ export function useMemoryReport({endpoint = 'api/live-memory', tuningInputs = fa
     if (threadCount.value != null) params.set('threadCount', String(threadCount.value))
     if (headRoomPercent.value != null) params.set('headRoomPercent', String(headRoomPercent.value))
     const query = params.toString()
-    return query ? '?' + query : ''
+    return query ? `?${query}` : ''
   }
 
   async function fetchMemory() {
     try {
       const res = await fetch(endpoint + buildQuery())
-      if (!res.ok) throw new Error('HTTP ' + res.status)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const payload = await res.json()
       data.value = payload
       lastUpdated.value = new Date()

@@ -65,7 +65,7 @@ async function toggle() {
     })
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      flash(result.message || result.error || 'HTTP ' + res.status, 'warning')
+      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
       await load()
       return
     }

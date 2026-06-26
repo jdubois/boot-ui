@@ -96,7 +96,7 @@ async function downloadDump() {
   downloadError.value = null
   try {
     const res = await apiFetch('api/threads/download', {method: 'POST'})
-    if (!res.ok) throw new Error('HTTP ' + res.status)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')

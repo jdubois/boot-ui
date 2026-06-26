@@ -41,7 +41,7 @@ async function changeLevel(logger, level) {
     return
   }
   const body = level ? {level} : {}
-  const res = await apiFetch('api/loggers/' + encodeURIComponent(logger.name), {
+  const res = await apiFetch(`api/loggers/${encodeURIComponent(logger.name)}`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
@@ -50,7 +50,7 @@ async function changeLevel(logger, level) {
     const updated = await res.json()
     const i = data.value.loggers.findIndex((l) => l.name === logger.name)
     if (i >= 0) data.value.loggers[i] = updated
-    showMessage('Level updated for ' + logger.name)
+    showMessage(`Level updated for ${logger.name}`)
   }
 }
 

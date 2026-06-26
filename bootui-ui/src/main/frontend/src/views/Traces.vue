@@ -39,7 +39,7 @@ async function openTrace(traceId) {
   detail.value = null
   detailLoading.value = true
   try {
-    detail.value = await getJson('api/traces/' + traceId)
+    detail.value = await getJson(`api/traces/${traceId}`)
   } catch (e) {
     show(formatLoadError(e, 'Could not load trace'), 'danger')
   } finally {
@@ -69,7 +69,7 @@ async function clearAll() {
   busy.value = true
   try {
     const res = await apiFetch('api/traces', {method: 'DELETE'})
-    if (!res.ok && res.status !== 204) throw new Error('HTTP ' + res.status)
+    if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
     closeDrawer()
     await load()
     flash('Cleared retained traces.', 'success')

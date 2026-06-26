@@ -160,7 +160,7 @@ function formatDefaultValue(value) {
 
 function suggestionLabel(suggestion) {
   const parts = []
-  if (hasDefaultValue(suggestion)) parts.push('default: ' + formatDefaultValue(suggestion.defaultValue))
+  if (hasDefaultValue(suggestion)) parts.push(`default: ${formatDefaultValue(suggestion.defaultValue)}`)
   if (suggestion.type) parts.push(suggestion.type)
   if (suggestion.description) parts.push(suggestion.description)
   return parts.join(' - ')
@@ -215,11 +215,11 @@ async function postOverride(name, value, onSuccess) {
     })
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const msg = result.message || result.error || 'HTTP ' + res.status
-      flash('Could not save override: ' + msg, 'danger')
+      const msg = result.message || result.error || `HTTP ${res.status}`
+      flash(`Could not save override: ${msg}`, 'danger')
       return
     }
-    flash('Override saved for ' + name + '. ' + (result.message || ''), 'success')
+    flash(`Override saved for ${name}. ${result.message || ''}`, 'success')
     editingName.value = null
     if (onSuccess) onSuccess()
     await load()
@@ -235,16 +235,16 @@ async function removeOverride(name) {
     showReadOnlyMessage()
     return
   }
-  if (!confirm('Remove override "' + name + '"? The property will fall back to its underlying value.')) return
+  if (!confirm(`Remove override "${name}"? The property will fall back to its underlying value.`)) return
   saving.value = true
   try {
-    const res = await apiFetch('api/config/overrides/' + encodeURIComponent(name), {method: 'DELETE'})
+    const res = await apiFetch(`api/config/overrides/${encodeURIComponent(name)}`, {method: 'DELETE'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      flash('Could not remove override: ' + (result.message || 'HTTP ' + res.status), 'danger')
+      flash('Could not remove override: ' + (result.message || `HTTP ${res.status}`), 'danger')
       return
     }
-    flash('Override removed for ' + name + '.', 'success')
+    flash(`Override removed for ${name}.`, 'success')
     await load()
   } finally {
     saving.value = false

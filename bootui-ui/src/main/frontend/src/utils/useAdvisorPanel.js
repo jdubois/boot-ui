@@ -116,7 +116,7 @@ export function useAdvisorPanel(props, options) {
   async function loadReport() {
     try {
       const res = await apiFetch(options.apiPath)
-      if (!res.ok) throw new Error('HTTP ' + res.status)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       report.value = await res.json()
       error.value = null
     } catch (e) {
@@ -132,7 +132,7 @@ export function useAdvisorPanel(props, options) {
     loading.value = true
     try {
       const res = await apiFetch(`${options.apiPath}/scan`, {method: 'POST'})
-      if (!res.ok) throw new Error('HTTP ' + res.status)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       report.value = await res.json()
       error.value = null
     } catch (e) {

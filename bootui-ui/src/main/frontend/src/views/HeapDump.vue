@@ -65,7 +65,7 @@ function classWidth(entry) {
 
 function barLabel(entry) {
   if (smartFilter.value === 'big-objects' && entry.instances > 0) {
-    return formatBytes(Math.round(entry.bytes / entry.instances)) + '/obj'
+    return `${formatBytes(Math.round(entry.bytes / entry.instances))}/obj`
   }
   return formatBytes(entry.bytes)
 }
@@ -95,7 +95,7 @@ async function loadReport(options = {}) {
     if (filter.value.trim()) params.set('filter', filter.value.trim())
     if (smartFilter.value) params.set('smartFilter', smartFilter.value)
     const qs = params.toString()
-    const url = qs ? 'api/heap-dump?' + qs : 'api/heap-dump'
+    const url = qs ? `api/heap-dump?${qs}` : 'api/heap-dump'
     const next = await getJson(url)
     if (requestId !== reportRequestId) return
     report.value = next
@@ -118,7 +118,7 @@ async function runAction(path, body) {
       init.body = body
     }
     const res = await apiFetch(path, init)
-    if (!res.ok) throw new Error('HTTP ' + res.status)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     await loadReport()
     error.value = null
   } catch (e) {
@@ -129,7 +129,7 @@ async function runAction(path, body) {
 }
 
 function captureDump() {
-  runAction('api/heap-dump/capture?live=' + (live.value ? 'true' : 'false'))
+  runAction(`api/heap-dump/capture?live=${live.value ? 'true' : 'false'}`)
 }
 
 function analyzeHeap() {
@@ -137,11 +137,11 @@ function analyzeHeap() {
 }
 
 function deleteDump(name) {
-  runAction('api/heap-dump/delete', 'name=' + encodeURIComponent(name))
+  runAction('api/heap-dump/delete', `name=${encodeURIComponent(name)}`)
 }
 
 function downloadUrl(name) {
-  return 'api/heap-dump/download?name=' + encodeURIComponent(name)
+  return `api/heap-dump/download?name=${encodeURIComponent(name)}`
 }
 
 function showReadOnlyMessage() {

@@ -40,7 +40,7 @@ export async function apiFetch(input, init = {}) {
  */
 export async function getJson(input, init) {
   const res = await apiFetch(input, init)
-  if (!res.ok) throw new Error('HTTP ' + res.status)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 

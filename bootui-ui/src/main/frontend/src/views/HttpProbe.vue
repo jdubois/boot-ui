@@ -88,7 +88,7 @@ async function sendProbe() {
 function normalizePath(value) {
   const trimmed = (value || '').trim()
   if (!trimmed) return '/'
-  return trimmed.startsWith('/') ? trimmed : '/' + trimmed
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
 }
 
 function clearForm() {

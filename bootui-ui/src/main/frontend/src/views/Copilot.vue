@@ -463,7 +463,7 @@ async function revealRaw(event) {
       rawById.value = {...rawById.value, [event.id]: 'Raw reveal is disabled.'}
       return
     }
-    if (!res.ok) throw new Error('HTTP ' + res.status)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const payload = await res.json()
     rawById.value = {...rawById.value, [event.id]: payload.json}
   } catch (e) {
