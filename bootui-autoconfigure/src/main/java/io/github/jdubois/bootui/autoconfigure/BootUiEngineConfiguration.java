@@ -4,10 +4,12 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
+import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.env.Environment;
 
 /**
  * Wires framework-neutral {@code bootui-engine} services into the Spring adapter.
@@ -61,5 +63,15 @@ public class BootUiEngineConfiguration {
                 heapDump.getMaxClasses(),
                 heapDump.getTopClasses());
         return new HeapDumpService(settings);
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    HttpProbeService bootUiHttpProbeService(Environment environment) {
+        // Live policy: the bound port is only known after startup (e.g. a random-port test exposes it as
+        // local.server.port), so it is re-read on every probe rather than snapshotted at construction.
+        return new HttpProbeService(() -> environment.getProperty(
+                "local.server.port", Integer.class, environment.getProperty("server.port", Integer.class, 8080)));
     }
 }

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
 import io.github.jdubois.bootui.core.dto.HttpProbeResponse;
+import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;

@@ -1,7 +1,8 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.web;
 
 import io.github.jdubois.bootui.core.dto.HttpProbeRequest;
 import io.github.jdubois.bootui.core.dto.HttpProbeResponse;
+import io.github.jdubois.bootui.spi.ServerPortSupplier;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -13,10 +14,17 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import org.springframework.core.env.Environment;
-import org.springframework.stereotype.Service;
 
-@Service
+/**
+ * Framework-neutral HTTP Probe engine service: sends a request to the application's own loopback
+ * address and returns a sanitized {@link HttpProbeResponse}.
+ *
+ * <p>The probe target is always {@code http://localhost:<port><path>}, so it can never reach an
+ * external host regardless of the supplied path. The live local server port comes from a
+ * {@link ServerPortSupplier} (read on every probe, since the bound port is only known once the server
+ * is running). Hop-by-hop request headers are stripped, and only a small allow-list of response headers
+ * is surfaced.
+ */
 public class HttpProbeService {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
@@ -38,12 +46,12 @@ public class HttpProbeService {
             "keep-alive",
             "te");
 
-    private final Environment environment;
+    private final ServerPortSupplier serverPort;
 
     private final HttpClient httpClient;
 
-    public HttpProbeService(Environment environment) {
-        this.environment = environment;
+    public HttpProbeService(ServerPortSupplier serverPort) {
+        this.serverPort = serverPort;
         this.httpClient =
                 HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
     }
@@ -52,7 +60,7 @@ public class HttpProbeService {
         long start = System.currentTimeMillis();
         String method = normalizeMethod(request == null ? null : request.method());
         String path = normalizePath(request == null ? null : request.path());
-        String url = "http://localhost:" + resolveServerPort() + path;
+        String url = "http://localhost:" + serverPort.localServerPort() + path;
 
         try {
             HttpRequest.Builder builder =
@@ -109,10 +117,6 @@ public class HttpProbeService {
 
     private boolean allowsBody(String method) {
         return "POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method);
-    }
-
-    private String resolveServerPort() {
-        return environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
     }
 
     private String normalizeMethod(String method) {

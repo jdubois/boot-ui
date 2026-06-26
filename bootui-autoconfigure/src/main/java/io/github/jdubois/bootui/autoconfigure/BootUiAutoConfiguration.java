@@ -117,7 +117,6 @@ import tools.jackson.databind.ObjectMapper;
     BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration.class,
     BootUiAutoConfiguration.SecurityAuditRepositoryConfiguration.class,
     ScheduledController.class,
-    HttpProbeService.class,
     HttpProbeController.class,
     PentestingController.class,
     HeapDumpController.class,
