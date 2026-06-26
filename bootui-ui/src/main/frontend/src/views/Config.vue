@@ -241,7 +241,8 @@ async function removeOverride(name) {
     const res = await apiFetch(`api/config/overrides/${encodeURIComponent(name)}`, {method: 'DELETE'})
     const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      flash('Could not remove override: ' + (result.message || `HTTP ${res.status}`), 'danger')
+      const msg = result.message || `HTTP ${res.status}`
+      flash(`Could not remove override: ${msg}`, 'danger')
       return
     }
     flash(`Override removed for ${name}.`, 'success')
@@ -388,7 +389,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
                   :disabled="readOnly"
                   :placeholder="
                     hasDefaultValue(selectedNewSuggestion)
-                      ? 'default: ' + formatDefaultValue(selectedNewSuggestion.defaultValue)
+                      ? `default: ${formatDefaultValue(selectedNewSuggestion.defaultValue)}`
                       : 'new value'
                   "
                   class="form-control font-monospace"
