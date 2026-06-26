@@ -7,6 +7,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import AdvisorSummary from './components/AdvisorSummary.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -171,46 +172,17 @@ onMounted(loadDependencies)
         <span v-if="data.scanningEnabled === false">Scanning is disabled by configuration.</span>
       </div>
 
-      <div class="row g-3 mb-3">
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Scan status</div>
-              <div class="mt-2">
-                <span :class="scanStatusBadgeClass(data.scan.status)" class="badge fs-6">
-                  {{ scanStatusLabel(data.scan.status) }}
-                </span>
-              </div>
-              <div v-if="scanTime()" class="small text-muted">Scanned at {{ scanTime() }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Dependencies</div>
-              <div class="display-6">{{ data.total }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Vulnerable</div>
-              <div class="display-6">{{ data.vulnerable }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Scanner</div>
-              <div class="fw-semibold">{{ data.scan.scanner }}</div>
-              <div class="small text-muted">{{ data.scan.message }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AdvisorSummary
+        :score="null"
+        :scan-status-label="scanStatusLabel(data.scan.status)"
+        :scan-status-class="scanStatusBadgeClass(data.scan.status)"
+        :scan-time="scanTime()"
+        :metrics="[
+          {label: 'Dependencies', value: data.total},
+          {label: 'Vulnerable', value: data.vulnerable},
+          {label: 'Scanner', value: data.scan.scanner, hint: data.scan.message}
+        ]"
+      />
 
       <div class="card mb-3">
         <div class="card-header fw-semibold">Severity breakdown</div>

@@ -7,6 +7,7 @@ import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/sca
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import AdvisorSummary from './components/AdvisorSummary.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
@@ -348,45 +349,17 @@ onBeforeUnmount(stopProgressPolling)
         </ul>
       </div>
 
-      <div class="row g-3 mb-3">
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Scan status</div>
-              <div class="mt-2">
-                <span :class="scanStatusBadgeClass(report.scan.status)" class="badge fs-6">
-                  {{ scanStatusLabel(report.scan.status) }}
-                </span>
-              </div>
-              <div v-if="scanTime()" class="small text-muted">Scanned at {{ scanTime() }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Checks run</div>
-              <div class="display-6">{{ report.checksRun }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Concerns to review</div>
-              <div class="display-6">{{ report.findingsFound }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="text-muted small">Classes analysed</div>
-              <div class="display-6">{{ report.classesAnalyzed }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AdvisorSummary
+        :score="null"
+        :scan-status-label="scanStatusLabel(report.scan.status)"
+        :scan-status-class="scanStatusBadgeClass(report.scan.status)"
+        :scan-time="scanTime()"
+        :metrics="[
+          {label: 'Checks run', value: report.checksRun},
+          {label: 'Concerns to review', value: report.findingsFound},
+          {label: 'Classes analysed', value: report.classesAnalyzed}
+        ]"
+      />
 
       <div class="row g-3 mb-3">
         <div class="col-lg-5">
