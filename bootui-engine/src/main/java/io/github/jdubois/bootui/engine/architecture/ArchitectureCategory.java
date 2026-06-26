@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture;
+package io.github.jdubois.bootui.engine.architecture;
 
 /**
  * Logical grouping for the curated architecture rules so the panel can describe what each

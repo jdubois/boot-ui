@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture;
+package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;

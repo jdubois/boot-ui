@@ -13,10 +13,6 @@ final class ArchitecturePackages {
 
     private ArchitecturePackages() {}
 
-    static boolean available(BeanFactory beanFactory) {
-        return !detect(beanFactory).isEmpty();
-    }
-
     static List<String> detect(BeanFactory beanFactory) {
         if (beanFactory == null) {
             return List.of();

@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture;
+package io.github.jdubois.bootui.engine.architecture;
 
 import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predicates.annotatedWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;

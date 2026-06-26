@@ -4,14 +4,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
+import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
+import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.support.GenericApplicationContext;
 
 /**
  * Pins the property-to-record mappings in {@link BootUiEngineConfiguration}.
@@ -43,6 +49,30 @@ class BootUiEngineConfigurationTests {
         assertThat(service.rawDownloadAllowed()).isTrue();
         assertThat(report.maxDumps()).isEqualTo(7);
         // maxClasses / topClasses semantics are pinned by HeapDumpServiceTests in bootui-engine.
+    }
+
+    @Test
+    void basePackageProviderFactoryProducesSpringProvider() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+
+            BasePackageProvider provider = new BootUiEngineConfiguration().bootUiBasePackageProvider(context);
+
+            assertThat(provider).isInstanceOf(SpringBasePackageProvider.class);
+        }
+    }
+
+    @Test
+    void architectureScannerFactoryWiresBasePackageProviderIntoTheScanner() {
+        // Pins the base-package seam: the scanner must read its base packages from the injected provider
+        // (the supplier is what bounds the on-demand ArchUnit import to the host application's own code).
+        ArchitectureScanner scanner =
+                new BootUiEngineConfiguration().bootUiArchitectureScanner(() -> List.of("com.example.wiring"));
+
+        ArchitectureReport initial = scanner.initialReport();
+
+        assertThat(initial.scan().status()).isEqualTo("NOT_SCANNED");
+        assertThat(initial.basePackages()).containsExactly("com.example.wiring");
     }
 
     @Test

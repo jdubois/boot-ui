@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture;
+package io.github.jdubois.bootui.engine.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 class ArchitectureScannerTests {
 
-    private static final String FIXTURES = "io.github.jdubois.bootui.autoconfigure.architecture.fixtures";
+    private static final String FIXTURES = "io.github.jdubois.bootui.engine.architecture.fixtures";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
 
     private ArchitectureScanner scanner(List<String> basePackages) {

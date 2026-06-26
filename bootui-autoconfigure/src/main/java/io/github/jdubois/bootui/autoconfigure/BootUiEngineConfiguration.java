@@ -1,18 +1,23 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
+import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
@@ -55,6 +60,24 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     ThreadDumpService bootUiThreadDumpService(BootUiExposure exposure) {
         return new ThreadDumpService(exposure);
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    BasePackageProvider bootUiBasePackageProvider(ApplicationContext applicationContext) {
+        // Neutral seam shared by the ArchUnit-based advisors: the host application's own base packages,
+        // resolved from AutoConfigurationPackages and re-read live on every scan (fails soft to empty).
+        return new SpringBasePackageProvider(applicationContext);
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    ArchitectureScanner bootUiArchitectureScanner(BasePackageProvider basePackageProvider) {
+        // Live policy: base packages are re-read on every scan via the BasePackageProvider SPI, and the
+        // ArchUnit classpath import runs only on demand (POST /scan), never at bean construction.
+        return ArchitectureScanner.usingClasspath(basePackageProvider::basePackages, Clock.systemUTC());
     }
 
     @Bean

@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture;
+package io.github.jdubois.bootui.engine.architecture;
 
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 

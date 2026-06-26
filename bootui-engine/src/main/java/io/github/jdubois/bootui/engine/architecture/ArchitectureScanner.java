@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture;
+package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
@@ -20,7 +20,7 @@ import java.util.function.Supplier;
  * {@code @SpringBootApplication} base packages) and runs a fixed registry of curated, project-
  * agnostic architecture rules. Results are heuristic review prompts, not architectural verdicts.</p>
  */
-final class ArchitectureScanner {
+public final class ArchitectureScanner {
 
     private static final String ANALYZER = "BootUI ArchUnit hygiene";
     private static final String DISCLAIMER =
@@ -44,7 +44,17 @@ final class ArchitectureScanner {
         this.clock = clock;
     }
 
-    ArchitectureReport initialReport() {
+    /**
+     * Builds a scanner that imports the host application's compiled classes from the classpath, bounded
+     * to the supplied base packages. This is the entry point adapters wire: the base packages are read
+     * <em>live</em> on every scan (the supplier is typically backed by a {@code BasePackageProvider} SPI),
+     * and the ArchUnit import runs only on demand, never at construction.
+     */
+    public static ArchitectureScanner usingClasspath(Supplier<List<String>> basePackagesSupplier, Clock clock) {
+        return new ArchitectureScanner(basePackagesSupplier, new ClassFileArchitectureImporter(), clock);
+    }
+
+    public ArchitectureReport initialReport() {
         List<String> basePackages = safeBasePackages();
         return report(
                 "NOT_SCANNED",
@@ -56,7 +66,7 @@ final class ArchitectureScanner {
                 List.of());
     }
 
-    ArchitectureReport scan() {
+    public ArchitectureReport scan() {
         List<String> basePackages = safeBasePackages();
         if (basePackages.isEmpty()) {
             return report(
@@ -147,7 +157,7 @@ final class ArchitectureScanner {
                 analysisErrors(results));
     }
 
-    ArchitectureReport applyDismissals(ArchitectureReport report, Set<String> dismissedIds) {
+    public ArchitectureReport applyDismissals(ArchitectureReport report, Set<String> dismissedIds) {
         if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
             return report;
         }

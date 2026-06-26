@@ -1,6 +1,6 @@
-package io.github.jdubois.bootui.autoconfigure.architecture.modulefixtures.moduleone;
+package io.github.jdubois.bootui.engine.architecture.modulefixtures.moduleone;
 
-import io.github.jdubois.bootui.autoconfigure.architecture.modulefixtures.moduleone.internal.ModuleOneInternal;
+import io.github.jdubois.bootui.engine.architecture.modulefixtures.moduleone.internal.ModuleOneInternal;
 
 /** Public API of module one; allowed to depend on its own internal package. */
 public class ModuleOnePublic {

@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture;
+package io.github.jdubois.bootui.engine.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -487,12 +487,11 @@ class ArchitectureRulesTests {
 
     @Test
     void internalPackagesShouldNotBeAccessedExternallyFlagsCrossModuleInternalAccess() {
-        JavaClasses importedClasses = new ClassFileImporter()
-                .importPackages("io.github.jdubois.bootui.autoconfigure.architecture.modulefixtures");
+        JavaClasses importedClasses =
+                new ClassFileImporter().importPackages("io.github.jdubois.bootui.engine.architecture.modulefixtures");
         ArchitectureRuleResultDto result = new InternalPackagesShouldNotBeAccessedExternallyRule()
                 .evaluate(new ArchitectureContext(
-                        importedClasses,
-                        List.of("io.github.jdubois.bootui.autoconfigure.architecture.modulefixtures")));
+                        importedClasses, List.of("io.github.jdubois.bootui.engine.architecture.modulefixtures")));
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-MOD-001");

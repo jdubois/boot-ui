@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture.modulefixtures.moduleone.internal;
+package io.github.jdubois.bootui.engine.architecture.modulefixtures.moduleone.internal;
 
 /** Implementation detail of module one; only module one may depend on it. */
 public class ModuleOneInternal {

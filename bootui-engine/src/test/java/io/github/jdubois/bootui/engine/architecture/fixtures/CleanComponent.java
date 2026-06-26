@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.architecture.fixtures;
+package io.github.jdubois.bootui.engine.architecture.fixtures;
 
 /**
  * Clean test fixture that does not trip any architecture rule.
