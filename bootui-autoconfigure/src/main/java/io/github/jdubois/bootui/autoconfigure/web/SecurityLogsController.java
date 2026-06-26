@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogDataDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogTypeSummaryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
+import io.github.jdubois.bootui.engine.support.PagedList;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;

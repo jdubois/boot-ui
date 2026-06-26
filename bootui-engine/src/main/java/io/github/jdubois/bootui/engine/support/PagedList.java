@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.support;
 
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import java.util.ArrayList;
@@ -6,7 +6,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Predicate;
 
-final class PagedList {
+/**
+ * Framework-neutral pagination/filtering helper shared by every BootUI adapter.
+ *
+ * <p>Lives in {@code bootui-engine} so the Spring Boot and Quarkus controllers produce identically
+ * shaped, {@link PageMetadata}-annotated pages from in-memory collections. Pure functions over core
+ * DTOs and the JDK only — no host-framework or transport types.
+ */
+public final class PagedList {
 
     static final int DEFAULT_LIMIT = 200;
 
@@ -14,19 +21,19 @@ final class PagedList {
 
     private PagedList() {}
 
-    static String normalize(String value) {
+    public static String normalize(String value) {
         if (value == null || value.isBlank()) {
             return "";
         }
         return value.trim().toLowerCase(Locale.ROOT);
     }
 
-    static boolean contains(String value, String query) {
+    public static boolean contains(String value, String query) {
         return query.isEmpty()
                 || (value != null && value.toLowerCase(Locale.ROOT).contains(query));
     }
 
-    static <T> Result<T> from(List<T> items, Predicate<T> matches, Integer offset, Integer limit) {
+    public static <T> Result<T> from(List<T> items, Predicate<T> matches, Integer offset, Integer limit) {
         List<T> matched = new ArrayList<>();
         for (T item : items) {
             if (matches.test(item)) {
@@ -45,9 +52,9 @@ final class PagedList {
                         items.size(), matched.size(), fromIndex, safeLimit, page.size(), toIndex < matched.size()));
     }
 
-    static <T> Result<T> from(List<T> items, Integer offset, Integer limit) {
+    public static <T> Result<T> from(List<T> items, Integer offset, Integer limit) {
         return from(items, ignored -> true, offset, limit);
     }
 
-    record Result<T>(List<T> items, PageMetadata page) {}
+    public record Result<T>(List<T> items, PageMetadata page) {}
 }

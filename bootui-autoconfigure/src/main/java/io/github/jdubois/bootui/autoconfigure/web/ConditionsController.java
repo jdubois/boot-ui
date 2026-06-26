@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.ConditionCounts;
 import io.github.jdubois.bootui.core.dto.ConditionEntry;
 import io.github.jdubois.bootui.core.dto.ConditionsReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.engine.support.PagedList;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.MappingsReport;
+import io.github.jdubois.bootui.engine.support.PagedList;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
