@@ -1,0 +1,12 @@
+name: BootUI
+description: Local-only developer console for Quarkus, served at /bootui (the Quarkus adapter over bootui-engine).
+metadata:
+  keywords:
+    - bootui
+    - developer-console
+    - dev-tools
+    - diagnostics
+  categories:
+    - "developer-tools"
+  status: "experimental"
+  guide: "https://github.com/jdubois/boot-ui/blob/main/docs/QUARKUS-SUPPORT.md"

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.6.0</version>
+    </parent>
+
+    <artifactId>bootui-quarkus</artifactId>
+    <name>BootUI :: Quarkus Extension (Runtime)</name>
+    <description>Quarkus extension that serves the BootUI developer console — the Quarkus adapter over the
+        framework-neutral bootui-engine, the analogue of bootui-autoconfigure on Spring Boot.</description>
+
+    <!--
+        This is the RUNTIME half of the BootUI Quarkus extension (deployment half: bootui-quarkus-deployment).
+        It inherits bootui-parent for coordinates/formatting but imports the Quarkus BOM in its OWN
+        dependencyManagement so Quarkus artifacts resolve from it (nearest-wins) rather than from the Spring
+        Boot BOM the parent imports. Spring Boot 4 uses Jackson 3 (tools.jackson) and Quarkus uses Jackson 2
+        (com.fasterxml), so the two coexist without a clash.
+    -->
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Framework-neutral engine (logic shared with the Spring adapter) + the shared Vue UI bundle. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-engine</artifactId>
+        </dependency>
+        <!-- bootui-ui ships the pre-built SPA under META-INF/resources/bootui/, served automatically by
+             Quarkus' static-resource handler from this dependency jar — no Node required by consumers. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-ui</artifactId>
+        </dependency>
+
+        <!-- CDI + JAX-RS (Quarkus REST) + Jackson for the /bootui/api/** endpoints. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-arc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Generates META-INF/quarkus-extension.properties (with the deployment-artifact GAV) and the
+                 extension metadata, linking this runtime jar to bootui-quarkus-deployment. -->
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-extension-maven-plugin</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <executions>
+                    <execution>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>extension-descriptor</goal>
+                        </goals>
+                        <configuration>
+                            <deployment>${project.groupId}:bootui-quarkus-deployment:${project.version}</deployment>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Quarkus annotation processor validates extension runtime metadata (@ConfigRoot, @Recorder, ...). -->
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>io.quarkus</groupId>
+                                    <artifactId>quarkus-extension-processor</artifactId>
+                                    <version>${quarkus.platform.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -45,6 +45,8 @@
         <module>bootui-ui</module>
         <module>bootui-conformance</module>
         <module>bootui-sample-app</module>
+        <module>bootui-quarkus</module>
+        <module>bootui-quarkus-deployment</module>
     </modules>
 
     <properties>
@@ -55,6 +57,8 @@
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.1.0</spring-boot.version>
+        <!-- Quarkus platform for the bootui-quarkus extension + Quarkus sample app. 3.20 LTS targets Java 17. -->
+        <quarkus.platform.version>3.20.0</quarkus.platform.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
@@ -127,6 +131,16 @@
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-conformance</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-quarkus</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-quarkus-deployment</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
