@@ -5,12 +5,14 @@ import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import AdvisorSummary from './components/AdvisorSummary.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
 const actionMessage = ref(null)
@@ -197,6 +199,14 @@ async function installMetadata() {
     showReadOnlyMessage()
     return
   }
+  const ok = await confirm({
+    title: 'Write reachability metadata?',
+    message:
+      'Write GraalVM reachability metadata into your project source tree. Existing metadata files at the target path are overwritten.',
+    confirmLabel: 'Write files',
+    danger: true
+  })
+  if (!ok) return
   installing.value = true
   try {
     const res = await apiFetch('api/graalvm/install', {method: 'POST'})
@@ -218,6 +228,14 @@ async function installDockerfile() {
     showReadOnlyMessage()
     return
   }
+  const ok = await confirm({
+    title: 'Write Dockerfile-native?',
+    message:
+      'Write a native-image Dockerfile into your project. An existing Dockerfile-native at the target path is overwritten.',
+    confirmLabel: 'Write file',
+    danger: true
+  })
+  if (!ok) return
   installingDockerfile.value = true
   try {
     const res = await apiFetch('api/graalvm/dockerfile/install', {method: 'POST'})
@@ -239,6 +257,14 @@ async function installBoth() {
     showReadOnlyMessage()
     return
   }
+  const ok = await confirm({
+    title: 'Write GraalVM artifacts?',
+    message:
+      'Write both the native-image Dockerfile and reachability metadata into your project. Existing files at the target paths are overwritten.',
+    confirmLabel: 'Write files',
+    danger: true
+  })
+  if (!ok) return
   installingBoth.value = true
   try {
     const res = await apiFetch('api/graalvm/install/all', {method: 'POST'})

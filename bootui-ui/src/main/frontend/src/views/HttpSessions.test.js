@@ -3,6 +3,10 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import HttpSessions from './HttpSessions.vue'
 
+vi.mock('../utils/useConfirm.js', () => ({
+  useConfirm: () => ({confirm: () => Promise.resolve(true)})
+}))
+
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
@@ -146,10 +150,6 @@ describe('HTTP Sessions', () => {
   })
 
   it('posts confirmed clear and destroy actions using the opaque session key', async () => {
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => true)
-    )
     const fetchMock = vi.fn((url) => {
       if (String(url).includes('/clear')) {
         return Promise.resolve(jsonResponse({status: 'cleared', message: 'Cleared 2 HTTP session attributes.'}))

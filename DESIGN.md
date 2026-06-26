@@ -256,9 +256,17 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
 - **Brand mark:** a solid Spring-green rounded square (1rem radius, 2.75rem) holding a white coffee-cup glyph (`bi-cup-hot-fill`), with a green glow (`0 0.6rem 1.2rem rgba(25,135,84,0.28)`). The "BootUI" wordmark sits beside it.
 - **Ambient orbs:** two large, softly blurred color fields (green + blue) rest **statically** behind the shell at `z-index: -1` as quiet ambient glows. They are pure atmosphere — they do not drift or animate (the room stays calm across long sessions), must never sit above content, and must never reduce text contrast.
 
+### Destructive Confirmation
+- **What it is:** a single branded `ConfirmDialog` (native `<dialog>`, mounted once at the app root) driven by the `useConfirm()` composable — BootUI's styled replacement for `window.confirm()`. **Never surprise the user:** every state-changing action that restarts a service, deletes a file, writes into the user's project, runs a migration, or clears a buffer must `await confirm({...})` before it fires. Read-only scans and reversible toggles must *not* prompt.
+- **Anatomy:** title (the question), a one- or two-sentence consequence in muted sans, an optional monospace **resource chip** naming the exact target (container id, file name, property key, session id), and an optional "This action cannot be undone." note for irreversible operations.
+- **Earned red:** destructive prompts get the `danger` treatment — a warning glyph in a soft red tile and a `btn-danger` confirm button. Red is reserved for genuine consequence, never decoration.
+- **Calm by default:** focus lands on **Cancel** for `danger` prompts (the safe choice), Esc / backdrop-click / Cancel all resolve to "no", and focus returns to the triggering control on close. The entrance is a 160ms scale+fade that collapses to nothing under `prefers-reduced-motion`.
+- **Accessibility:** `aria-labelledby` / `aria-describedby` wire the title and body; the native modal traps focus and exposes a backdrop. Buttons carry the same branded focus ring as the rest of the system.
+
 ## 6. Do's and Don'ts
 
 ### Do:
+- **Do** confirm every destructive or project-mutating action through the branded `ConfirmDialog` (`useConfirm`), name the affected resource, and mark irreversible actions as such — never fire a one-click restart, delete, file-write, or migration straight from a button.
 - **Do** keep the green→blue gradient for the active/selected state only; everywhere else, use flat Spring green or signal blue.
 - **Do** render every machine-produced identifier, key, value, and log line in the mono stack; keep BootUI's own explanation in sans.
 - **Do** verify contrast meets **WCAG 2.1 AA in both light and dark themes** — especially semantic status colors (log levels, severities) and code/identifier text on tinted or selected backgrounds, which Bootstrap tunes for light backgrounds only.

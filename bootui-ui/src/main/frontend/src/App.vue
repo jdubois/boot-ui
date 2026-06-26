@@ -12,6 +12,7 @@ import {
 import {describeLoadError} from './utils/loadError.js'
 import {recordRecentPanel} from './utils/recentPanels.js'
 import CommandPalette from './views/components/CommandPalette.vue'
+import ConfirmDialog from './views/components/ConfirmDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -424,6 +425,7 @@ function onGlobalKeydown(e) {
 <template>
   <div class="bootui-shell min-vh-100">
     <CommandPalette v-if="commandPaletteOpen" ref="commandPaletteRef" @close="commandPaletteOpen = false" />
+    <ConfirmDialog />
     <div class="ambient-orb ambient-orb-one"></div>
     <div class="ambient-orb ambient-orb-two"></div>
 

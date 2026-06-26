@@ -3,6 +3,7 @@ import {apiFetch} from '../api.js'
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
@@ -12,6 +13,7 @@ import PanelHeader from './components/PanelHeader.vue'
 const MAX_PROPERTY_SUGGESTIONS = 200
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 
 const filter = ref('')
 const sourceFilter = ref('')
@@ -235,7 +237,16 @@ async function removeOverride(name) {
     showReadOnlyMessage()
     return
   }
-  if (!confirm(`Remove override "${name}"? The property will fall back to its underlying value.`)) return
+  if (
+    !(await confirm({
+      title: 'Remove override?',
+      message: `Remove the override for "${name}"? The property falls back to its underlying value.`,
+      resource: name,
+      confirmLabel: 'Remove',
+      danger: true
+    }))
+  )
+    return
   saving.value = true
   try {
     const res = await apiFetch(`api/config/overrides/${encodeURIComponent(name)}`, {method: 'DELETE'})

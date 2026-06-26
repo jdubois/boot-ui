@@ -9,6 +9,12 @@ Every visible panel can be hidden with `bootui.panels.<panel-id>.enabled=false`.
 also support `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes the whole BootUI application
 read-only. The complete list is in the [property reference](PROPERTIES.md).
 
+Any action that changes server state — restarting a dev service, deleting or capturing a heap dump, writing GraalVM or
+CRaC artifacts into your project, running a Flyway/Liquibase migration, clearing a cache or trace buffer, or destroying
+an HTTP session — first opens a branded confirmation dialog that names the affected resource and flags irreversible
+operations. The dialog defaults focus to Cancel, dismisses on Escape or a backdrop click, and honors
+`prefers-reduced-motion`. Read-only scans and reversible toggles never prompt.
+
 Monitoring-oriented panels hide BootUI's own runtime data by default so Beans, Conditions, Mappings, Loggers, Metrics,
 Startup Timeline, Scheduled Tasks, Spring Cache, Spring Security, Security Logs, and Traces stay focused on the host
 application. Set

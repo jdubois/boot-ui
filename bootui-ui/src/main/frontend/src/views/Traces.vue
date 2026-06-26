@@ -4,6 +4,7 @@ import {computed, ref} from 'vue'
 import {formatDuration, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
@@ -14,6 +15,7 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const detail = ref(null)
 const error = ref(null)
@@ -65,7 +67,16 @@ async function clearAll() {
     showReadOnlyMessage()
     return
   }
-  if (!confirm('Clear all retained traces? This cannot be undone.')) return
+  if (
+    !(await confirm({
+      title: 'Clear retained traces?',
+      message: 'Clear every retained HTTP trace from the in-memory buffer.',
+      confirmLabel: 'Clear all',
+      danger: true,
+      irreversible: true
+    }))
+  )
+    return
   busy.value = true
   try {
     const res = await apiFetch('api/traces', {method: 'DELETE'})

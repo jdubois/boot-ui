@@ -3,6 +3,7 @@ import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
+import {useConfirm} from '../utils/useConfirm.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -12,6 +13,7 @@ import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
 const flywayPresent = ref(true)
@@ -44,9 +46,22 @@ async function runAction(db, action) {
   }
   const confirmation =
     action === 'clean'
-      ? `Clean Flyway-managed schema(s) for "${db.name}"? This can delete all objects in those schemas.`
-      : `Run pending Flyway migrations for "${db.name}"?`
-  if (!confirm(confirmation)) return
+      ? {
+          title: 'Clean Flyway schema?',
+          message: `Clean Flyway-managed schema(s) for "${db.name}"? Every table, view, and object in those schemas is dropped.`,
+          resource: db.name,
+          confirmLabel: 'Clean schema',
+          danger: true,
+          irreversible: true
+        }
+      : {
+          title: 'Run Flyway migrations?',
+          message: `Run all pending Flyway migrations for "${db.name}" against the live database.`,
+          resource: db.name,
+          confirmLabel: 'Migrate',
+          danger: true
+        }
+  if (!(await confirm(confirmation))) return
 
   const key = actionKey(db, action)
   busy.value = key
