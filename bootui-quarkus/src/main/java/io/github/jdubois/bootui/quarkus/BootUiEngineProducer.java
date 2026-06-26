@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 import org.eclipse.microprofile.config.Config;
@@ -20,6 +21,7 @@ import org.eclipse.microprofile.config.Config;
  * receives an immutable {@link HeapDumpSettings} record mapped inline from {@code bootui.heap-dump.*},
  * matching the Spring factory's defaults.</p>
  */
+@ApplicationScoped
 public class BootUiEngineProducer {
 
     @Produces
