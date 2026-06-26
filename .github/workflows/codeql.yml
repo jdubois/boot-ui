@@ -48,7 +48,7 @@ jobs:
         if: steps.code-scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         uses: actions/setup-node@v6
         with:
-          node-version: '24.16.0'
+          node-version: '24.18.0'
 
       - name: Initialize CodeQL
         if: steps.code-scanning.outputs.enabled == 'true'
