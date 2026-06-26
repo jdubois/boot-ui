@@ -281,7 +281,7 @@ onUnmounted(clearReconnectTimer)
 
 .action-icon {
   align-items: center;
-  border-radius: 1rem;
+  border-radius: var(--bootui-radius-lg);
   display: inline-flex;
   font-size: 1.5rem;
   height: 3rem;

@@ -703,6 +703,14 @@ function onGlobalKeydown(e) {
   --bootui-shadow-md: 0 1.2rem 3rem rgba(15, 23, 42, 0.11);
   --bootui-shadow-sidebar: 0.75rem 0 2rem rgba(15, 23, 42, 0.06);
 
+  /* Radius scale (mirrors DESIGN.md rounded) */
+  --bootui-radius-xs: 0.35rem;
+  --bootui-radius-sm: 0.5rem;
+  --bootui-radius-md: 0.75rem;
+  --bootui-radius-lg: 1.1rem;
+  --bootui-radius-xl: 1.25rem;
+  --bootui-radius-pill: 999px;
+
   /* Nav link state */
   --bootui-nav-hover-bg: rgba(25, 135, 84, 0.08);
   --bootui-nav-hover-color: #146c43;
@@ -953,7 +961,7 @@ function onGlobalKeydown(e) {
 
 :global(.card) {
   border: 1px solid var(--bootui-border);
-  border-radius: 1.1rem;
+  border-radius: var(--bootui-radius-lg);
   box-shadow: var(--bootui-shadow-sm);
   transition: border-color 180ms ease;
 }
@@ -963,11 +971,11 @@ function onGlobalKeydown(e) {
 :global(.alert),
 :global(.form-control),
 :global(.form-select) {
-  border-radius: 0.75rem;
+  border-radius: var(--bootui-radius-md);
 }
 
 :global(.progress) {
-  border-radius: 999px;
+  border-radius: var(--bootui-radius-pill);
   overflow: hidden;
 }
 
@@ -1066,7 +1074,7 @@ function onGlobalKeydown(e) {
   padding: 0.6rem;
   background: var(--bootui-surface-solid);
   border: 1px solid var(--bootui-border);
-  border-radius: 1rem;
+  border-radius: var(--bootui-radius-lg);
   box-shadow: var(--bootui-shadow-md);
 }
 
@@ -1083,7 +1091,7 @@ function onGlobalKeydown(e) {
 }
 
 .bootui-nav-flyout__link {
-  border-radius: 0.7rem;
+  border-radius: var(--bootui-radius-md);
 }
 
 .flyout-fade-enter-active,
@@ -1220,7 +1228,7 @@ function onGlobalKeydown(e) {
 .page-icon,
 .contribute-icon {
   align-items: center;
-  border-radius: 1rem;
+  border-radius: var(--bootui-radius-lg);
   display: inline-flex;
   justify-content: center;
 }
@@ -1300,7 +1308,7 @@ function onGlobalKeydown(e) {
   align-items: center;
   background: var(--bootui-nav-group-bg);
   border: 1px solid var(--bootui-border-subtle);
-  border-radius: 0.9rem;
+  border-radius: var(--bootui-radius-md);
   color: var(--bootui-nav-group-color);
   display: flex;
   font-size: 0.72rem;
@@ -1682,7 +1690,7 @@ function onGlobalKeydown(e) {
 .cp-trigger-hint {
   background: var(--bootui-surface);
   border: 1px solid var(--bootui-border-alt);
-  border-radius: 0.3rem;
+  border-radius: var(--bootui-radius-xs);
   font-size: 0.7rem;
   padding: 0.1rem 0.35rem;
 }

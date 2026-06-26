@@ -50,6 +50,7 @@ typography:
     fontWeight: 400
     lineHeight: 1.5
 rounded:
+  xs: "0.35rem"
   sm: "0.5rem"
   md: "0.75rem"
   lg: "1.1rem"

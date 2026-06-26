@@ -208,7 +208,7 @@ defineExpose({focusInput})
 .cp-esc-hint {
   background: var(--bootui-surface, #fff);
   border: 1px solid var(--bootui-border, rgba(15, 23, 42, 0.12));
-  border-radius: 0.3rem;
+  border-radius: var(--bootui-radius-xs);
   color: var(--bootui-text-muted, #94a3b8);
   font-size: 0.7rem;
   padding: 0.15rem 0.4rem;
@@ -259,7 +259,7 @@ defineExpose({focusInput})
 .cp-item-num {
   align-items: center;
   background: var(--bootui-nav-group-bg, rgba(100, 116, 139, 0.08));
-  border-radius: 0.35rem;
+  border-radius: var(--bootui-radius-xs);
   color: var(--bootui-text-muted, #94a3b8);
   display: inline-flex;
   font-size: 0.65rem;
@@ -272,7 +272,7 @@ defineExpose({focusInput})
 
 .cp-item-shortcut {
   background: var(--bootui-nav-group-bg, rgba(100, 116, 139, 0.08));
-  border-radius: 0.25rem;
+  border-radius: var(--bootui-radius-xs);
   color: var(--bootui-text-muted, #94a3b8);
   font-size: 0.65rem;
   font-weight: 600;

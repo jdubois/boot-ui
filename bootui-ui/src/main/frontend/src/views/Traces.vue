@@ -303,12 +303,12 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
   position: relative;
   height: 16px;
   background: rgba(0, 0, 0, 0.05);
-  border-radius: 4px;
+  border-radius: var(--bootui-radius-xs);
 }
 
 .waterfall-bar {
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--bootui-radius-xs);
 }
 
 .waterfall-duration {

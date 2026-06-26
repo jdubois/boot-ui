@@ -31,7 +31,7 @@ defineProps({
   );
   background-size: 800px 100%;
   animation: shimmer 1.4s ease-in-out infinite;
-  border-radius: 4px;
+  border-radius: var(--bootui-radius-xs);
   height: 0.9rem;
 }
 

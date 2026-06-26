@@ -409,7 +409,7 @@ td code {
   tr {
     background: #fff;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 1rem;
+    border-radius: var(--bootui-radius-lg);
     box-shadow: 0 0.75rem 1.75rem rgba(15, 23, 42, 0.06);
     padding: 0.75rem;
   }

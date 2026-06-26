@@ -136,7 +136,7 @@ function onRun() {
 
 .scanner-icon {
   align-items: center;
-  border-radius: 0.85rem;
+  border-radius: var(--bootui-radius-md);
   display: inline-flex;
   flex-shrink: 0;
   font-size: 1.1rem;
