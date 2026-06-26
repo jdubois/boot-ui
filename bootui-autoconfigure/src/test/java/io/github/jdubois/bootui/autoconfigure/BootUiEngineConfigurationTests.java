@@ -1,10 +1,17 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
+import org.springframework.beans.factory.ObjectProvider;
 
 /**
  * Pins the property-to-record mappings in {@link BootUiEngineConfiguration}.
@@ -36,5 +43,27 @@ class BootUiEngineConfigurationTests {
         assertThat(service.rawDownloadAllowed()).isTrue();
         assertThat(report.maxDumps()).isEqualTo(7);
         // maxClasses / topClasses semantics are pinned by HeapDumpServiceTests in bootui-engine.
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void resolveRegistryReturnsAvailableRegistry() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ObjectProvider<MeterRegistry> registries = mock(ObjectProvider.class);
+        when(registries.getIfAvailable()).thenReturn(registry);
+
+        assertThat(BootUiEngineConfiguration.resolveRegistry(registries)).isSameAs(registry);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void resolveRegistryFallsBackToFirstWhenAmbiguous() {
+        SimpleMeterRegistry first = new SimpleMeterRegistry();
+        SimpleMeterRegistry second = new SimpleMeterRegistry();
+        ObjectProvider<MeterRegistry> registries = mock(ObjectProvider.class);
+        when(registries.getIfAvailable()).thenThrow(new NoUniqueBeanDefinitionException(MeterRegistry.class, 2, "two"));
+        when(registries.orderedStream()).thenReturn(Stream.of(first, second));
+
+        assertThat(BootUiEngineConfiguration.resolveRegistry(registries)).isSameAs(first);
     }
 }

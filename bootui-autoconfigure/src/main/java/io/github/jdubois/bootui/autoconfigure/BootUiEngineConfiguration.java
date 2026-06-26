@@ -2,11 +2,16 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
+import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -84,5 +89,24 @@ public class BootUiEngineConfiguration {
         // Live policy: virtual-threads and Kubernetes health-probe settings are read from the live
         // Environment (and thus the runtime override property source) on every report, not snapshotted.
         return new MemoryReportProvider(new SpringMemoryRuntimeConfig(environment));
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    MetricsReportProvider bootUiMetricsReportProvider(
+            ObjectProvider<MeterRegistry> registries, BootUiSelfDataFilter selfDataFilter) {
+        // Live handle: the MeterRegistry is resolved per request (it may be absent until metrics are
+        // configured), and BootUI's own self-data filter is fed as the engine's meter-visibility predicate
+        // so the console never reports its own traffic.
+        return new MetricsReportProvider(() -> resolveRegistry(registries), selfDataFilter::shouldIncludeMeter);
+    }
+
+    static MeterRegistry resolveRegistry(ObjectProvider<MeterRegistry> registries) {
+        try {
+            return registries.getIfAvailable();
+        } catch (NoUniqueBeanDefinitionException ex) {
+            return registries.orderedStream().findFirst().orElse(null);
+        }
     }
 }

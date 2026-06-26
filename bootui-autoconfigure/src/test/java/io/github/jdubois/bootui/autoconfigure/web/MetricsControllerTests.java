@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.greaterThan;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,123 +9,79 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
-import io.micrometer.core.instrument.*;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.dto.MetricDetailDto;
+import io.github.jdubois.bootui.core.dto.MetricMeterDto;
+import io.github.jdubois.bootui.core.dto.MetricsReport;
+import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.List;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * Thin MVC wiring tests for {@link MetricsController}: the report logic lives in the engine
+ * {@link MetricsReportProvider} (covered by {@code MetricsReportProviderTests}), so here we only assert
+ * that the two routes delegate, that request parameters bind, that the {@code @ExceptionHandler} maps a
+ * bad tag filter to 400, and that the adapter's default self-data filter is wired into the engine.
+ */
 class MetricsControllerTests {
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<MeterRegistry> providerOf(MeterRegistry registry) {
-        ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(registry);
-        return provider;
-    }
-
     @Test
-    void listGroupsMetersByNameAndAggregatesTagValues() throws Exception {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        Counter.builder("bootui.sample.requests")
-                .description("Sample requests")
-                .baseUnit("requests")
-                .tag("outcome", "success")
-                .register(registry)
-                .increment(2);
-        Counter.builder("bootui.sample.requests")
-                .description("Sample requests")
-                .baseUnit("requests")
-                .tag("outcome", "failure")
-                .register(registry)
-                .increment();
+    void metricsDelegatesToProvider() throws Exception {
+        MetricsReportProvider provider = mock(MetricsReportProvider.class);
+        when(provider.metrics())
+                .thenReturn(new MetricsReport(
+                        true,
+                        1,
+                        List.of(new MetricMeterDto(
+                                "bootui.sample.requests", "desc", "requests", "COUNTER", List.of()))));
 
-        MockMvc mvc =
-                standaloneSetup(new MetricsController(providerOf(registry))).build();
+        MockMvc mvc = standaloneSetup(new MetricsController(provider)).build();
 
         mvc.perform(get("/bootui/api/metrics"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.metricsAvailable").value(true))
-                .andExpect(jsonPath("$.total").value(greaterThan(0)))
-                .andExpect(jsonPath("$.meters[0].name").value("bootui.sample.requests"))
-                .andExpect(jsonPath("$.meters[0].description").value("Sample requests"))
-                .andExpect(jsonPath("$.meters[0].baseUnit").value("requests"))
-                .andExpect(jsonPath("$.meters[0].type").value("COUNTER"))
-                .andExpect(jsonPath("$.meters[0].availableTags[0].key").value("outcome"))
-                .andExpect(jsonPath("$.meters[0].availableTags[0].values", contains("failure", "success")));
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.meters[0].name").value("bootui.sample.requests"));
     }
 
     @Test
-    void detailFiltersByTagsAndAggregatesFiniteMeasurements() throws Exception {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        Counter.builder("bootui.sample.requests")
-                .tag("outcome", "success")
-                .register(registry)
-                .increment(2);
-        Counter.builder("bootui.sample.requests")
-                .tag("outcome", "failure")
-                .register(registry)
-                .increment(3);
+    void detailBindsNameAndTagParametersAndDelegates() throws Exception {
+        MetricsReportProvider provider = mock(MetricsReportProvider.class);
+        when(provider.metric(eq("bootui.sample.requests"), eq(List.of("outcome:success"))))
+                .thenReturn(new MetricDetailDto(
+                        true, "bootui.sample.requests", null, null, "COUNTER", List.of(), List.of(), List.of()));
 
-        MockMvc mvc =
-                standaloneSetup(new MetricsController(providerOf(registry))).build();
+        MockMvc mvc = standaloneSetup(new MetricsController(provider)).build();
 
         mvc.perform(get("/bootui/api/metrics/detail")
                         .param("name", "bootui.sample.requests")
                         .param("tag", "outcome:success"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.metricsAvailable").value(true))
-                .andExpect(jsonPath("$.name").value("bootui.sample.requests"))
-                .andExpect(jsonPath("$.measurements[0].statistic").value("count"))
-                .andExpect(jsonPath("$.measurements[0].value").value(2.0))
-                .andExpect(jsonPath("$.samples.length()").value(1))
-                .andExpect(jsonPath("$.samples[0].tags[0].key").value("outcome"))
-                .andExpect(jsonPath("$.samples[0].tags[0].value").value("success"));
+                .andExpect(jsonPath("$.name").value("bootui.sample.requests"));
     }
 
     @Test
-    void detailUsesMaximumWhenAggregatingMaxStatistic() throws Exception {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        Timer.builder("bootui.sample.latency")
-                .tag("node", "one")
-                .register(registry)
-                .record(10, TimeUnit.MILLISECONDS);
-        Timer.builder("bootui.sample.latency")
-                .tag("node", "two")
-                .register(registry)
-                .record(25, TimeUnit.MILLISECONDS);
+    void malformedTagFilterIsMappedToBadRequest() throws Exception {
+        MetricsReportProvider provider = mock(MetricsReportProvider.class);
+        when(provider.metric(any(), any()))
+                .thenThrow(new IllegalArgumentException("Metric tag filters must use key:value syntax"));
 
-        MockMvc mvc =
-                standaloneSetup(new MetricsController(providerOf(registry))).build();
-
-        mvc.perform(get("/bootui/api/metrics/detail").param("name", "bootui.sample.latency"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.measurements[?(@.statistic == 'max')].value", contains(0.025)));
-    }
-
-    @Test
-    void detailAcceptsColonInTagValues() throws Exception {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        AtomicInteger value = new AtomicInteger(7);
-        Gauge.builder("bootui.sample.gauge", value, AtomicInteger::get)
-                .tags(Tags.of("uri", "http://localhost:8080/api"))
-                .register(registry);
-
-        MockMvc mvc =
-                standaloneSetup(new MetricsController(providerOf(registry))).build();
+        MockMvc mvc = standaloneSetup(new MetricsController(provider)).build();
 
         mvc.perform(get("/bootui/api/metrics/detail")
-                        .param("name", "bootui.sample.gauge")
-                        .param("tag", "uri:http://localhost:8080/api"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.samples.length()").value(1))
-                .andExpect(jsonPath("$.measurements[0].value").value(7.0));
+                        .param("name", "bootui.sample.requests")
+                        .param("tag", "malformed"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
     }
 
     @Test
-    void metricsHideBootUiPathTagSamples() throws Exception {
+    void defaultSelfDataFilterHidesBootUiSamples() throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         Counter.builder("http.server.requests")
                 .tag("uri", "/bootui/api/beans")
@@ -136,28 +92,14 @@ class MetricsControllerTests {
                 .register(registry)
                 .increment(2);
 
-        MockMvc mvc =
-                standaloneSetup(new MetricsController(providerOf(registry))).build();
+        MetricsReportProvider provider =
+                new MetricsReportProvider(() -> registry, BootUiSelfDataFilter.defaults()::shouldIncludeMeter);
+        MockMvc mvc = standaloneSetup(new MetricsController(provider)).build();
 
         mvc.perform(get("/bootui/api/metrics/detail").param("name", "http.server.requests"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.samples.length()").value(1))
                 .andExpect(jsonPath("$.samples[0].tags[0].value").value("/api/orders"))
-                .andExpect(jsonPath("$.availableTags[0].values", contains("/api/orders")));
-    }
-
-    @Test
-    void detailRejectsMalformedTagFilters() throws Exception {
-        SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        registry.counter("bootui.sample.requests").increment();
-
-        MockMvc mvc =
-                standaloneSetup(new MetricsController(providerOf(registry))).build();
-
-        mvc.perform(get("/bootui/api/metrics/detail")
-                        .param("name", "bootui.sample.requests")
-                        .param("tag", "malformed"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").exists());
+                .andExpect(jsonPath("$.availableTags[0].values", Matchers.contains("/api/orders")));
     }
 }
