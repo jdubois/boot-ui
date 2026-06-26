@@ -47,6 +47,7 @@
         <module>bootui-sample-app</module>
         <module>bootui-quarkus</module>
         <module>bootui-quarkus-deployment</module>
+        <module>bootui-quarkus-integration-tests</module>
     </modules>
 
     <properties>
