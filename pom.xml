@@ -41,6 +41,7 @@
         <module>bootui-autoconfigure</module>
         <module>bootui-spring-boot-starter</module>
         <module>bootui-ui</module>
+        <module>bootui-conformance</module>
         <module>bootui-sample-app</module>
     </modules>
 
@@ -109,6 +110,11 @@
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-ui</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-conformance</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

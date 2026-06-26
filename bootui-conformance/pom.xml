@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.6.0</version>
+    </parent>
+
+    <artifactId>bootui-conformance</artifactId>
+    <name>BootUI :: Conformance</name>
+    <description>
+        Framework-neutral, black-box HTTP conformance suite for the BootUI /bootui/api/** contract.
+        Both the Spring Boot and the Quarkus adapters run this same suite (each supplies its own
+        expected-panel manifest), so the shared Vue UI keeps binding to one stable API shape. This is
+        a test-support library, never published to Maven Central.
+    </description>
+
+    <properties>
+        <!-- Test-support library shared by the sample apps; never publish to Maven Central. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencies>
+        <!--
+            The reusable conformance base classes live in src/main so other modules can extend them in
+            test scope, hence JUnit/Jackson/AssertJ are compile-scoped here. Versions come from the
+            Spring Boot BOM imported by the parent. Uses only the JDK HttpClient so the suite stays
+            framework-neutral and adds no HTTP-client dependency.
+        -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+        </dependency>
+    </dependencies>
+</project>
