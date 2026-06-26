@@ -274,3 +274,27 @@ Playwright coverage aligned across these nine groups (current order):
 - The sample app is for demos/integration tests and has `<maven.deploy.skip>true</maven.deploy.skip>`; do not publish it
   as part of Maven Central releases.
 - Spring Boot 3.x compatibility is **out of scope** — don't add compatibility shims.
+
+## Design context
+
+BootUI's design system is documented at the **repo root** (kept out of `docs/` so it isn't published to the docs
+site). Read and honor both before changing anything the user sees in `bootui-ui`:
+
+- **`PRODUCT.md`** — strategic context: register (`product`), users/personas, purpose, brand personality,
+  anti-references, the five design principles, and the accessibility bar.
+- **`DESIGN.md`** — the visual system in Stitch DESIGN.md format, with `.impeccable/design.json` as its machine
+  sidecar: design tokens, typography, elevation, and component specs. North star: **"The Calm Control Room."**
+
+Load-bearing rules when touching the UI:
+
+- **Accessibility is WCAG 2.1 AA in *both* light and dark themes.** Verify contrast for semantic status colors
+  (log levels, severities) and code/identifier text on tinted or selected backgrounds — Bootstrap's contextual
+  colors are tuned for light backgrounds only. Every interactive control needs a visible, branded focus ring.
+- **Use Bootstrap, never look like default Bootstrap** — no AdminLTE / SB-Admin admin-template look, default
+  blue, or untouched utility-class styling.
+- **The green→blue gradient means "active / selected" only** — never a hero backdrop or heading fill.
+  Backgrounds stay cool (no cream/sand). Machine output is monospace; BootUI's own explanation is sans.
+- **Never surprise the user** — no network calls, scans, or mutations on render; honor `prefers-reduced-motion`.
+
+These files are also read by the `impeccable` design skill; re-run `/impeccable document` if the visual system
+drifts from the code.
