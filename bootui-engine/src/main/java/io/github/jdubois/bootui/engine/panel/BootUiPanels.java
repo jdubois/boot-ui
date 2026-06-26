@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.panel;
+package io.github.jdubois.bootui.engine.panel;
 
 import java.util.List;
 import java.util.Map;

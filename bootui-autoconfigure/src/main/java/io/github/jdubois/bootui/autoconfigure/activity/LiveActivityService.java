@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -19,6 +18,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;

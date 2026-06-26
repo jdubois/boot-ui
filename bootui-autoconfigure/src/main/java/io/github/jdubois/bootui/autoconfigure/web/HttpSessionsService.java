@@ -2,13 +2,13 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.dto.HttpSessionActionRequest;
 import io.github.jdubois.bootui.core.dto.HttpSessionActionResult;
 import io.github.jdubois.bootui.core.dto.HttpSessionAttributeDto;
 import io.github.jdubois.bootui.core.dto.HttpSessionDto;
 import io.github.jdubois.bootui.core.dto.HttpSessionsReport;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import jakarta.servlet.http.HttpSession;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

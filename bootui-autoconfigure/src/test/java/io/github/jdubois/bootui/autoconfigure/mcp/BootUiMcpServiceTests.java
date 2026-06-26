@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

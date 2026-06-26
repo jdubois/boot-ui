@@ -1,10 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
 import java.nio.file.Path;
 import java.util.regex.Pattern;
 import org.springframework.boot.actuate.audit.AuditEventRepository;

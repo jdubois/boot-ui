@@ -26,7 +26,6 @@ import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
@@ -38,6 +37,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPos
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;

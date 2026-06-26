@@ -9,8 +9,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
 import io.github.jdubois.bootui.core.dto.PanelDto;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;

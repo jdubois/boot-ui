@@ -19,6 +19,10 @@
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-engine</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

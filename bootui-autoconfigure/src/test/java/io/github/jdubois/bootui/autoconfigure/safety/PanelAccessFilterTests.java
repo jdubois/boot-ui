@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.safety;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
