@@ -7,6 +7,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/bootui` no longer redirects to `/bootui/`, fixing a "localhost redirected you too many times"
+  (`ERR_TOO_MANY_REDIRECTS`) loop behind a trailing-slash–stripping filter or proxy.** BootUI used to
+  answer `GET /bootui` with a `302` to the canonical `/bootui/` so its relatively-referenced Vue assets
+  and `fetch('api/...')` calls would resolve. Spring Framework 6.1+/Boot 4 dropped trailing-slash URL
+  matching, so a host application that restores it with `UrlHandlerFilter.trailingSlashHandler("/**")
+  .wrapRequest()` (a standard Boot 4 idiom) rewrites `/bootui/` back to `/bootui` ahead of the
+  dispatcher — turning BootUI's redirect into an infinite loop. The same happens behind any proxy or
+  filter that strips trailing slashes. BootUI now serves the SPA shell at **both** `/bootui` and
+  `/bootui/` and injects a runtime `<base href="{contextPath}/bootui/">` so assets, API calls, and lazy
+  chunks resolve regardless of the trailing slash, with no redirect to loop on. Host
+  `server.servlet.context-path` support (#332) is preserved because the base href is computed
+  per-request (#456).
+
 ## [1.6.0] - 2026-06-25
 
 Feature release headlined by **idle memory reclamation** — BootUI now releases its live diagnostic buffers and pauses
