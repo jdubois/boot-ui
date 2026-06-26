@@ -510,18 +510,6 @@ onActivated(refreshScores)
   position: relative;
 }
 
-.overview-hero::after {
-  animation: sweep 5s ease-in-out infinite;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
-  content: '';
-  height: 150%;
-  position: absolute;
-  right: 12%;
-  top: -25%;
-  transform: rotate(18deg);
-  width: 7rem;
-}
-
 .hero-copy {
   max-width: 48rem;
   position: relative;
@@ -650,20 +638,6 @@ onActivated(refreshScores)
 
 .scanner-score--secondary {
   color: #64748b;
-}
-
-@keyframes sweep {
-  0% {
-    opacity: 0;
-    transform: translateX(-6rem) rotate(18deg);
-  }
-  45%,
-  55% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(16rem) rotate(18deg);
-  }
 }
 
 @media (max-width: 991.98px) {

@@ -6,6 +6,10 @@ colors:
   spring-green-deep: "#146c43"
   signal-blue: "#0d6efd"
   indigo-accent: "#6610f2"
+  accessible-deep-blue: "#0a53be"
+  accessible-danger: "#b02a37"
+  accessible-info: "#0b6e85"
+  accessible-warning: "#8a6d00"
   ink: "#152033"
   slate-muted: "#64748b"
   slate-subtle: "#94a3b8"
@@ -118,6 +122,14 @@ A cool, confident palette: two brand hues (Spring green, signal blue) over a nea
 ### Tertiary
 - **Indigo Accent** (`#6610f2`): a sparing third hue for the "output" data series and multi-series charts. Never used for chrome or interactive state — purely categorical.
 
+### Semantic Status (accessible)
+Bootstrap's contextual colors are tuned for white backgrounds and fail WCAG AA as text in places, so BootUI remaps each semantic *text* color per theme. These light-theme values clear ≥4.5:1 on the frosted/white surfaces (dark theme uses the brighter tones in `App.vue`):
+- **Accessible Deep Blue** (`#0a53be`): `.text-primary` text and the *selected* master-list row (white-on-blue ~7:1). The accessible companion to Signal Blue.
+- **Accessible Danger** (`#b02a37`): `.text-danger` error/at-risk text.
+- **Accessible Info** (`#0b6e85`): `.text-info` informational text (the raw Bootstrap cyan is ~1.9:1 and is never used as text).
+- **Accessible Warning** (`#8a6d00`): `.text-warning` caution text (the raw amber is ~1.6:1 and is never used as text).
+- `.text-success` text uses **Spring Green Deep** (`#146c43`, ~6.5:1); no separate token needed.
+
 ### Neutral
 - **Ink** (`#152033`): primary body and heading text on light surfaces (near-navy, not pure black). Dark theme inverts to **Ink (Dark)** (`#e2e8f0`).
 - **Slate Muted** (`#64748b`): secondary text, captions, and nav-group labels. Verified for AA at body sizes on the light shell.
@@ -132,6 +144,8 @@ A cool, confident palette: two brand hues (Spring green, signal blue) over a nea
 **The No-Warmth Rule.** Backgrounds are cool near-whites tinted toward the brand's own green/blue, never warm. If a surface reads as cream, sand, paper, or parchment, it is wrong — that is the saturated AI default, and it is forbidden here.
 
 **The Earned-Red Rule.** Danger/warning color appears only when the runtime is genuinely at risk. A screen at rest is green, blue, and slate. Red is a signal, not decoration.
+
+**The AA-Both-Themes Rule.** Every semantic *text* color must clear WCAG AA (≥4.5:1) in **both** light and dark themes. Bootstrap's raw contextual colors don't, so each is remapped per theme in `App.vue` (light) and its dark counterpart — see Semantic Status (accessible). Never let raw `.text-info` / `.text-warning` / `.text-danger` reach the reader as body text.
 
 ## 3. Typography
 
@@ -199,7 +213,7 @@ BootUI is a **layered, lifted** system, not a flat one. Depth is the metaphor: f
 
 ### Signature: Brand Mark & Ambient Orbs
 - **Brand mark:** a solid Spring-green rounded square (1rem radius, 2.75rem) holding a white coffee-cup glyph (`bi-cup-hot-fill`), with a green glow (`0 0.6rem 1.2rem rgba(25,135,84,0.28)`). The "BootUI" wordmark sits beside it.
-- **Ambient orbs:** two large blurred color fields (green + blue) drift slowly behind the shell at `z-index: -1`. They are pure atmosphere — must be fully suppressed under `prefers-reduced-motion` and must never sit above content or reduce text contrast.
+- **Ambient orbs:** two large, softly blurred color fields (green + blue) rest **statically** behind the shell at `z-index: -1` as quiet ambient glows. They are pure atmosphere — they do not drift or animate (the room stays calm across long sessions), must never sit above content, and must never reduce text contrast.
 
 ## 6. Do's and Don'ts
 
@@ -209,7 +223,7 @@ BootUI is a **layered, lifted** system, not a flat one. Depth is the metaphor: f
 - **Do** verify contrast meets **WCAG 2.1 AA in both light and dark themes** — especially semantic status colors (log levels, severities) and code/identifier text on tinted or selected backgrounds, which Bootstrap tunes for light backgrounds only.
 - **Do** give every interactive control — including custom buttons, nav toggles, and the command palette — a visible, consistent, branded focus ring.
 - **Do** pair every status color with a text label and/or icon, so meaning survives color-blindness and grayscale.
-- **Do** honor `prefers-reduced-motion` for the ambient orbs, hover lifts, and every transition.
+- **Do** honor `prefers-reduced-motion` for hover lifts, loading/skeleton motion, and every transition.
 - **Do** lead panels with a search/filter affordance and a human-readable interpretation; keep raw Actuator/JSON one disclosure away.
 
 ### Don't:
@@ -221,4 +235,5 @@ BootUI is a **layered, lifted** system, not a flat one. Depth is the metaphor: f
 - **Don't** use `background-clip: text` gradient fills, `border-left`/`border-right` color stripes thicker than 1px, or glassmorphism as a default card treatment.
 - **Don't** nest cards, and don't reach for a card when a table, list, or plain section is the better affordance.
 - **Don't** set `outline: none` on any control without an equally visible branded replacement.
+- **Don't** add page-entrance reveal animations — no `fade-up`/slide-in applied to every panel or section. Navigation carries one gentle ~180ms route transition; panels otherwise appear instantly. Motion is reserved for hover feedback, loading, and live-status indicators, never decorative reveals or perpetual background drift.
 - **Don't** trigger network calls, scans, or mutations from a render — every external or destructive action is explicit, labeled, and reversible-by-default.

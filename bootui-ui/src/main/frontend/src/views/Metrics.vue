@@ -363,6 +363,22 @@ const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh
   overflow-wrap: anywhere;
 }
 
+/* The selected row paints itself Bootstrap primary blue; deepen it so the small
+   <code> meter name and muted description clear WCAG AA (white on #0a53be ~7:1),
+   and stop the default pink <code>/slate muted colors from leaking onto blue. */
+.meter-list .list-group-item-action.active {
+  --bs-list-group-active-bg: #0a53be;
+  --bs-list-group-active-border-color: #0a53be;
+}
+
+.meter-list .list-group-item-action.active code {
+  color: inherit;
+}
+
+.meter-list .list-group-item-action.active .text-muted {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
 .chart-box {
   background: linear-gradient(180deg, rgba(13, 110, 253, 0.08), rgba(25, 135, 84, 0.06));
   border: 1px solid rgba(13, 110, 253, 0.12);

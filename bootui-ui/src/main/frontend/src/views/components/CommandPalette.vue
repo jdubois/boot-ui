@@ -171,6 +171,13 @@ defineExpose({focusInput})
   padding: 0.85rem 1rem;
 }
 
+/* The search input is intentionally borderless, so surface its keyboard focus
+   on the row instead of an outline on the field. */
+.cp-search-row:focus-within {
+  border-bottom-color: var(--bootui-blue, #0d6efd);
+  box-shadow: inset 0 -1px 0 0 var(--bootui-blue, #0d6efd);
+}
+
 .cp-search-icon {
   color: var(--bootui-text-muted, #64748b);
   flex-shrink: 0;

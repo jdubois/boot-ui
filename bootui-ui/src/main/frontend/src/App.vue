@@ -903,6 +903,43 @@ function onGlobalKeydown(e) {
   color: rgba(255, 218, 106, var(--bs-text-opacity, 1)) !important;
 }
 
+/* Bootstrap's saturated semantic text colors (info and warning especially) fail
+   WCAG AA as body text on BootUI's light surfaces; darken each toward its own hue
+   so themed text clears 4.5:1 in light mode too. Dark mode is handled above. */
+:global(:root:not([data-bootui-theme='dark']) .text-primary) {
+  color: rgba(10, 83, 190, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root:not([data-bootui-theme='dark']) .text-success) {
+  color: rgba(20, 108, 67, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root:not([data-bootui-theme='dark']) .text-danger) {
+  color: rgba(176, 42, 55, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root:not([data-bootui-theme='dark']) .text-info) {
+  color: rgba(11, 110, 133, var(--bs-text-opacity, 1)) !important;
+}
+
+:global(:root:not([data-bootui-theme='dark']) .text-warning) {
+  color: rgba(138, 109, 0, var(--bs-text-opacity, 1)) !important;
+}
+
+/* Consistent, branded keyboard-focus ring for the custom controls that would
+   otherwise fall back to the UA default outline. Visible in both themes via
+   --bootui-blue (#0d6efd light / #60a5fa dark). */
+.brand-card:focus-visible,
+.contribute-card:focus-visible,
+.sidebar-toggle:focus-visible,
+.bootui-nav-group__toggle:focus-visible,
+.nav-hamburger:focus-visible,
+.cp-trigger:focus-visible,
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--bootui-blue);
+  outline-offset: 2px;
+}
+
 /* Fixed light surfaces (code snippets, popovers) must darken in dark mode. */
 :global(:root[data-bootui-theme='dark'] .bg-light:not(.badge)) {
   background-color: var(--bootui-surface-alt) !important;
@@ -958,15 +995,14 @@ function onGlobalKeydown(e) {
 
 .ambient-orb {
   border-radius: 999px;
-  filter: blur(4px);
-  opacity: 0.45;
+  filter: blur(55px);
+  opacity: 0.4;
   pointer-events: none;
   position: fixed;
   z-index: -1;
 }
 
 .ambient-orb-one {
-  animation: float-orb 13s ease-in-out infinite;
   background: rgba(25, 135, 84, 0.22);
   height: 18rem;
   left: -5rem;
@@ -975,7 +1011,6 @@ function onGlobalKeydown(e) {
 }
 
 .ambient-orb-two {
-  animation: float-orb 16s ease-in-out infinite reverse;
   background: rgba(13, 110, 253, 0.16);
   bottom: 4rem;
   height: 22rem;
@@ -1224,7 +1259,6 @@ function onGlobalKeydown(e) {
 }
 
 .sidebar-nav {
-  animation: fade-up 420ms ease both;
   gap: 0.45rem;
 }
 
@@ -1532,10 +1566,6 @@ function onGlobalKeydown(e) {
   padding: 0 2rem 1.5rem;
 }
 
-.page-panel {
-  animation: fade-up 360ms ease both;
-}
-
 .panel-alert {
   border: 0;
   box-shadow: 0 0.75rem 1.75rem rgba(180, 83, 9, 0.12);
@@ -1586,27 +1616,6 @@ function onGlobalKeydown(e) {
 .page-slide-leave-to {
   opacity: 0;
   transform: translateY(-0.35rem) scale(0.99);
-}
-
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(0.75rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes float-orb {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(1.5rem, -1rem, 0) scale(1.06);
-  }
 }
 
 @media (max-width: 991.98px) {
