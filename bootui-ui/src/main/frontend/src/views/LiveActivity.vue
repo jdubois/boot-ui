@@ -954,23 +954,23 @@ function clearFilters() {
 }
 
 .activity-lat-1 {
-  color: #664d03;
-  background-color: #ffe69c;
+  color: var(--bootui-heat-low-text);
+  background-color: var(--bootui-heat-low-bg);
 }
 
 .activity-lat-2 {
   color: #fff;
-  background-color: #fd7e14;
+  background-color: var(--bootui-high);
 }
 
 .activity-lat-3 {
   color: #fff;
-  background-color: #dc3545;
+  background-color: var(--bootui-danger);
 }
 
 .activity-lat-4 {
   color: #fff;
-  background-color: #b00020;
+  background-color: var(--bootui-critical);
 }
 
 .activity-text-filter {

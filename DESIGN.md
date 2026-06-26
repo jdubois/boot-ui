@@ -8,8 +8,8 @@ colors:
   indigo-accent: "#6610f2"
   accessible-deep-blue: "#0a53be"
   accessible-danger: "#b02a37"
-  accessible-info: "#0b6e85"
-  accessible-warning: "#8a6d00"
+  accessible-info: "#087990"
+  accessible-warning: "#997404"
   ink: "#152033"
   slate-muted: "#64748b"
   slate-subtle: "#94a3b8"
@@ -21,6 +21,43 @@ colors:
   blue-dark-theme: "#60a5fa"
   ink-dark-theme: "#e2e8f0"
   surface-dark-theme: "#1e293b"
+  # Status / severity (CSS chrome tokens; rgba tints derive from these bases)
+  status-danger: "#dc3545"
+  status-warning: "#ffc107"
+  status-high: "#fd7e14"
+  status-critical: "#b00020"
+  status-info: "#0dcaf0"
+  secondary-slate: "#6c757d"
+  # Latency-heat low level (amber badge pair)
+  heat-low-bg: "#ffe69c"
+  heat-low-text: "#664d03"
+  # Warning-panel amber accents (shadow + border tints)
+  amber-accent-deep: "#b45309"
+  amber-accent: "#f59e0b"
+  highlight-amber-bg: "#fffbe6"
+  # Neutral timeline track + stack-trace syntax highlights
+  neutral-track: "#dee2e6"
+  syntax-app: "#fcd34d"
+  syntax-cause: "#f87171"
+  overlay-black: "#000000"
+  # Data-viz — GitHub quota RdYlGn ramp + shared chart ink
+  quota-1: "#d73027"
+  quota-2: "#f46d43"
+  quota-3: "#fdae61"
+  quota-4: "#ffffbf"
+  quota-5: "#a6d96a"
+  quota-6: "#66bd63"
+  quota-7: "#1a9850"
+  chart-ink: "#212529"
+  # Data-viz — startup duration ramp
+  duration-fast: "#8bc34a"
+  duration-slow: "#ff7a00"
+  duration-slowest: "#ff0000"
+  # Dark-theme body gradient stops + nav-active blue
+  body-dark-1: "#0d1a12"
+  body-dark-2: "#0f1929"
+  body-dark-3: "#100f1a"
+  nav-active-blue: "#2563eb"
 typography:
   display:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
@@ -106,7 +143,7 @@ This system explicitly rejects four things: the **default-Bootstrap admin templa
 - Frosted-glass instrument panels floating over a green→blue→violet near-white gradient (true off-white, never cream/sand).
 - Spring green + signal blue as a paired identity; the green→blue gradient is reserved for the active/selected state.
 - Calm by default, loud only on real risk — status color always paired with a text label.
-- Soft, generous geometry: large radii, large diffuse shadows, a 2px hover lift as the signature motion.
+- Soft, generous geometry: a documented radius scale (signature 1.1rem), calm low-profile shadows, and a restrained hover lift reserved for genuinely interactive cards.
 - Light **and** dark theme are first-class and both must clear WCAG 2.1 AA.
 
 ## 2. Colors
@@ -124,12 +161,15 @@ A cool, confident palette: two brand hues (Spring green, signal blue) over a nea
 - **Indigo Accent** (`#6610f2`): a sparing third hue for the "output" data series and multi-series charts. Never used for chrome or interactive state — purely categorical.
 
 ### Semantic Status (accessible)
-Bootstrap's contextual colors are tuned for white backgrounds and fail WCAG AA as text in places, so BootUI remaps each semantic *text* color per theme. These light-theme values clear ≥4.5:1 on the frosted/white surfaces (dark theme uses the brighter tones in `App.vue`):
+Bootstrap's raw contextual colors are tuned for white fills and fail WCAG AA as text in places, so BootUI defines accessible companions as `--bootui-*-text` tokens (in `App.vue`, shared across themes) and references them for status text and icons. Light-surface contrast:
 - **Accessible Deep Blue** (`#0a53be`): `.text-primary` text and the *selected* master-list row (white-on-blue ~7:1). The accessible companion to Signal Blue.
-- **Accessible Danger** (`#b02a37`): `.text-danger` error/at-risk text.
-- **Accessible Info** (`#0b6e85`): `.text-info` informational text (the raw Bootstrap cyan is ~1.9:1 and is never used as text).
-- **Accessible Warning** (`#8a6d00`): `.text-warning` caution text (the raw amber is ~1.6:1 and is never used as text).
+- **Accessible Danger** (`#b02a37`, `--bootui-danger-text`): error/at-risk text (~6.5:1).
+- **Accessible Info** (`#087990`, `--bootui-info-text`): informational text (~5:1; raw Bootstrap cyan ~1.9:1 is never used as text).
+- **Accessible Warning** (`#997404`, `--bootui-warning-text`): caution amber on **large** score text and icon glyphs, where the 3:1 large-text/non-text bar applies (~3.9:1 on the amber tint, ~4.3:1 on white). Raw Bootstrap amber (~1.6:1) is never used; for body-size warning text, step the value down.
 - `.text-success` text uses **Spring Green Deep** (`#146c43`, ~6.5:1); no separate token needed.
+
+### Status Fills & Data-Viz
+Saturated **status fills** back badges, latency-heat rows, and advisor severity, registered as tokens: `--bootui-danger` (`#dc3545`), `--bootui-warning` (`#ffc107`), `--bootui-high` (`#fd7e14`), `--bootui-critical` (`#b00020`), `--bootui-info` (`#0dcaf0`), `--bootui-secondary` (`#6c757d`); rgba tints are these bases at reduced opacity. Three **categorical data-viz palettes** stay as documented constants (never chrome, never interactive state): the GitHub quota RdYlGn ramp (`#d73027 → #1a9850`), the startup-duration ramp (`#8bc34a → #ff0000`), and the latency-heat badge ramp (`#ffe69c/#664d03 → #b00020`).
 
 ### Neutral
 - **Ink** (`#152033`): primary body and heading text on light surfaces (near-navy, not pure black). Dark theme inverts to **Ink (Dark)** (`#e2e8f0`).
@@ -146,7 +186,7 @@ Bootstrap's contextual colors are tuned for white backgrounds and fail WCAG AA a
 
 **The Earned-Red Rule.** Danger/warning color appears only when the runtime is genuinely at risk. A screen at rest is green, blue, and slate. Red is a signal, not decoration.
 
-**The AA-Both-Themes Rule.** Every semantic *text* color must clear WCAG AA (≥4.5:1) in **both** light and dark themes. Bootstrap's raw contextual colors don't, so each is remapped per theme in `App.vue` (light) and its dark counterpart — see Semantic Status (accessible). Never let raw `.text-info` / `.text-warning` / `.text-danger` reach the reader as body text.
+**The AA-Both-Themes Rule.** Every semantic *text* color must clear WCAG AA for its context — ≥4.5:1 for body-size text, ≥3:1 for large text and icon glyphs — in **both** light and dark themes. Bootstrap's raw contextual colors don't, so BootUI references accessible `--bootui-*-text` companions — see Semantic Status (accessible). Never let raw `.text-info` / `.text-warning` / `.text-danger` reach the reader as body text.
 
 ## 3. Typography
 
@@ -169,16 +209,16 @@ Bootstrap's contextual colors are tuned for white backgrounds and fail WCAG AA a
 
 ## 4. Elevation
 
-BootUI is a **layered, lifted** system, not a flat one. Depth is the metaphor: frosted instrument panels hover above a gradient field on large, soft, diffuse ambient shadows — closer to "premium float" than "2014 drop shadow." Glassmorphism is used *purposefully and sparingly* (the sidebar and translucent surfaces over the colored body), never sprayed across every element.
+BootUI is a **layered** system, not a flat one — but the elevation is calm. Frosted instrument panels sit above a gradient field on short, soft, diffuse ambient shadows: present enough to separate panel from field, never a harsh "2014 drop shadow." Glassmorphism is used *purposefully and sparingly* (the sidebar and translucent surfaces over the colored body), never sprayed across every element.
 
 ### Shadow Vocabulary
-- **Ambient SM** (`box-shadow: 0 1rem 2.5rem rgba(15,23,42,0.07)`): the resting elevation of cards and panels. Large blur, low opacity, no harsh edge.
-- **Ambient MD** (`box-shadow: 0 1.2rem 3rem rgba(15,23,42,0.11)`): hover / raised elevation and popovers — the SM shadow deepened on interaction.
+- **Ambient SM** (`box-shadow: 0 0.25rem 0.75rem rgba(15,23,42,0.05)`): the resting elevation of cards and panels — short, soft, low-opacity, calm at rest (flattened from the earlier large shadow so cards don't shout).
+- **Ambient MD** (`box-shadow: 0 1.2rem 3rem rgba(15,23,42,0.11)`): raised elevation for popovers, flyouts, and the few genuinely interactive cards on hover — never the resting state of an informational card.
 - **Sidebar** (`box-shadow: 0.75rem 0 2rem rgba(15,23,42,0.06)`): the horizontal cast that separates the frosted rail from the workspace.
-- Dark theme keeps the same geometry with `rgba(0,0,0,0.25–0.4)`.
+- Dark theme keeps the same geometry with `rgba(0,0,0,0.22–0.4)`.
 
 ### Named Rules
-**The Soft-Float Rule.** Surfaces rest on a large, diffuse ambient shadow and lift exactly **2px** (`translateY(-2px)`) on hover, deepening to Ambient MD. If a shadow looks tight, dark, or small-blurred, it is wrong — that is the dated-app tell.
+**The Calm-Elevation Rule.** Surfaces rest on a short, soft ambient shadow and stay put. Only genuinely interactive cards (brand tiles, metric-card buttons, scanner cards) lift (~2px `translateY`) and deepen toward Ambient MD on hover; informational cards never lift. A tight, dark, small-blurred shadow is wrong — and so is a heavy one that makes a resting card shout.
 
 **The Purposeful-Glass Rule.** `backdrop-filter: blur(22px)` belongs on the sidebar and over-gradient surfaces only. Glass is a deliberate material here, never a default applied to ordinary cards.
 
@@ -195,10 +235,10 @@ BootUI is a **layered, lifted** system, not a flat one. Depth is the metaphor: f
 - **State:** status pills always pair color with a text label and icon ("● Healthy"), never color alone.
 
 ### Cards / Containers
-- **Corner Style:** 1.1rem radius (the system's signature roundness).
+- **Corner Style:** 1.1rem radius — the system's signature roundness (`--bootui-radius-lg`, from the documented xs→pill scale).
 - **Background:** frosted white (`rgba(255,255,255,0.82)`) over the gradient field; solid white where content needs maximum legibility.
-- **Shadow Strategy:** Ambient SM at rest → Ambient MD on hover (see Elevation).
-- **Border:** 1px `rgba(15,23,42,0.08)`, warming to a green-tinted `rgba(25,135,84,0.25)` on hover.
+- **Shadow Strategy:** Ambient SM at rest. Informational cards stay flat — **no hover lift**. Only genuinely interactive cards (brand tiles, metric-card buttons, scanner cards) lift and raise to Ambient MD on hover (see Elevation).
+- **Border:** 1px `rgba(15,23,42,0.08)`. Interactive cards warm the border toward green-tinted `rgba(25,135,84,0.25)` on hover; informational cards keep the steady hairline.
 - **Internal Padding:** 1.25rem. **Cards never nest.**
 
 ### Inputs / Fields

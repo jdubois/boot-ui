@@ -685,6 +685,19 @@ function onGlobalKeydown(e) {
   --bootui-text-muted: #64748b;
   --bootui-text-subtle: #94a3b8;
 
+  /* Status / severity palette (consistent meaning across light & dark) */
+  --bootui-danger: #dc3545;
+  --bootui-danger-text: #b02a37;
+  --bootui-warning: #ffc107;
+  --bootui-warning-text: #997404;
+  --bootui-high: #fd7e14;
+  --bootui-critical: #b00020;
+  --bootui-info: #0dcaf0;
+  --bootui-info-text: #087990;
+  --bootui-secondary: #6c757d;
+  --bootui-heat-low-bg: #ffe69c;
+  --bootui-heat-low-text: #664d03;
+
   /* Surfaces */
   --bootui-bg-body: linear-gradient(135deg, #f6fbf8 0%, #eef6ff 46%, #f7f4ff 100%);
   --bootui-bg-body-orb: rgba(25, 135, 84, 0.18);
@@ -980,6 +993,7 @@ function onGlobalKeydown(e) {
 }
 
 :global(.progress-bar) {
+  /* impeccable-disable-next-line layout-transition -- progress fill animates width by design */
   transition: width 500ms ease;
 }
 
@@ -1031,6 +1045,7 @@ function onGlobalKeydown(e) {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 1.25rem;
+  /* impeccable-disable-next-line layout-transition -- collapsible sidebar/drawer animates width by design */
   transition: width 220ms ease;
   width: 18rem;
 }
@@ -1530,7 +1545,7 @@ function onGlobalKeydown(e) {
 .status-pill--unreachable {
   background: rgba(220, 53, 69, 0.1);
   border-color: rgba(220, 53, 69, 0.25);
-  color: #b02a37;
+  color: var(--bootui-danger-text);
 }
 
 .shell-error {

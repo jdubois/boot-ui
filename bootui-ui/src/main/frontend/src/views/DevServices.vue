@@ -420,7 +420,7 @@ td code {
   }
 
   td::before {
-    color: #6c757d;
+    color: var(--bootui-secondary);
     content: attr(data-label);
     display: block;
     font-size: 0.75rem;

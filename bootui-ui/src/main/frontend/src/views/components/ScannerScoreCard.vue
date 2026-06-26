@@ -152,17 +152,17 @@ function onRun() {
 
 .scanner-icon--danger {
   background: rgba(220, 53, 69, 0.12);
-  color: #dc3545;
+  color: var(--bootui-danger);
 }
 
 .scanner-icon--warning {
   background: rgba(255, 193, 7, 0.18);
-  color: #997404;
+  color: var(--bootui-warning-text);
 }
 
 .scanner-icon--info {
   background: rgba(13, 202, 240, 0.16);
-  color: #087990;
+  color: var(--bootui-info-text);
 }
 
 .scanner-icon--success {
@@ -186,11 +186,11 @@ function onRun() {
 }
 
 .scanner-score--warning {
-  color: #997404;
+  color: var(--bootui-warning-text);
 }
 
 .scanner-score--danger {
-  color: #dc3545;
+  color: var(--bootui-danger);
 }
 
 .scanner-score--secondary {
