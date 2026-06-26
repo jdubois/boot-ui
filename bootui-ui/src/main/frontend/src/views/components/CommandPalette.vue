@@ -16,14 +16,22 @@ const recentRouteList = loadRecentPanels()
   .filter(Boolean)
 const recentNames = new Set(recentRouteList.map((r) => r.name))
 
+function keywordMatch(keywords, needle) {
+  // Match on word prefixes within a keyword rather than arbitrary substrings,
+  // so "gc" finds the "gc" keyword but not the "gc" buried in "langchain4j".
+  return keywords.some((k) => k.split(/\s+/).some((word) => word.startsWith(needle)))
+}
+
 function score(route, q) {
   const title = (route.meta.title || '').toLowerCase()
   const group = (route.meta.group || '').toLowerCase()
   const shortcut = (route.meta.shortcut || '').toLowerCase()
+  const keywords = (route.meta.keywords || []).map((k) => k.toLowerCase())
   const needle = q.toLowerCase()
-  if (title.startsWith(needle)) return 3
-  if (shortcut.startsWith(needle)) return 3
-  if (title.includes(needle)) return 2
+  if (title.startsWith(needle)) return 6
+  if (shortcut.startsWith(needle)) return 6
+  if (title.includes(needle)) return 4
+  if (keywordMatch(keywords, needle)) return 3
   if (shortcut.includes(needle)) return 2
   if (group.includes(needle)) return 1
   return 0
@@ -98,7 +106,7 @@ defineExpose({focusInput})
           ref="inputEl"
           v-model="query"
           class="cp-input"
-          placeholder="Go to panel…"
+          placeholder="Search panels by name or keyword…"
           type="search"
           autocomplete="off"
           @keydown="onKeydown"
