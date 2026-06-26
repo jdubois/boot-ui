@@ -1,6 +1,5 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.heapdump;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.HeapDumpCaptureStatusDto;
 import io.github.jdubois.bootui.core.dto.HeapDumpFileDto;
@@ -82,7 +81,7 @@ public class HeapDumpService {
         String classHistogram() throws Exception;
     }
 
-    private final BootUiProperties.HeapDump config;
+    private final HeapDumpSettings config;
     private final Path baseDir;
     private final HeapDumper dumper;
     private final HistogramSource histogramSource;
@@ -94,10 +93,10 @@ public class HeapDumpService {
     private volatile long histogramTotalInstances;
     private volatile long histogramTotalBytes;
 
-    public HeapDumpService(BootUiProperties.HeapDump config) {
+    public HeapDumpService(HeapDumpSettings config) {
         this(
                 config,
-                Paths.get(config.getOutputDir()).toAbsolutePath().normalize(),
+                Paths.get(config.outputDir()).toAbsolutePath().normalize(),
                 HeapDumpService::dumpWithHotSpot,
                 HeapDumpService::histogramWithDiagnosticCommand,
                 Clock.systemUTC(),
@@ -105,7 +104,7 @@ public class HeapDumpService {
     }
 
     HeapDumpService(
-            BootUiProperties.HeapDump config,
+            HeapDumpSettings config,
             Path baseDir,
             HeapDumper dumper,
             HistogramSource histogramSource,
@@ -143,11 +142,16 @@ public class HeapDumpService {
         return buildReport(filter, smartFilter);
     }
 
+    /** Whether the raw {@code .hprof} file may be downloaded (it contains unmasked secrets). */
+    public boolean rawDownloadAllowed() {
+        return config.allowRawDownload();
+    }
+
     public synchronized HeapDumpReport capture(boolean live) {
         if (!hotspotAvailable) {
             return errorReport("Heap dumps are not supported on this JVM");
         }
-        if (!config.isCaptureEnabled()) {
+        if (!config.captureEnabled()) {
             return errorReport("Heap dump capture is disabled via bootui.heap-dump.capture-enabled=false");
         }
         try {
@@ -222,10 +226,10 @@ public class HeapDumpService {
         List<HeapClassHistogramEntryDto> displayed = filteredTopClasses(allClasses, filter, smartFilter);
         return new HeapDumpReport(
                 hotspotAvailable,
-                config.isCaptureEnabled(),
-                config.isAllowRawDownload(),
+                config.captureEnabled(),
+                config.allowRawDownload(),
                 baseDir.toString(),
-                config.getMaxDumps(),
+                config.maxDumps(),
                 dumps.size(),
                 liveHeapUsedBytes(),
                 freeDiskBytes(),
@@ -238,7 +242,7 @@ public class HeapDumpService {
 
     private List<HeapClassHistogramEntryDto> filteredTopClasses(
             List<HeapClassHistogramEntryDto> all, String filter, String smartFilter) {
-        int limit = Math.max(1, config.getTopClasses());
+        int limit = Math.max(1, config.topClasses());
         List<HeapClassHistogramEntryDto> base = applySmartFilter(all, smartFilter);
         if (filter == null || filter.isBlank()) {
             return base.subList(0, Math.min(limit, base.size()));
@@ -310,7 +314,7 @@ public class HeapDumpService {
     }
 
     private void evictOldDumps() {
-        int maxDumps = Math.max(0, config.getMaxDumps());
+        int maxDumps = Math.max(0, config.maxDumps());
         List<HeapDumpFileDto> dumps = listDumps();
         if (dumps.size() <= maxDumps) {
             return;
@@ -342,7 +346,7 @@ public class HeapDumpService {
     private void refreshHistogram() throws Exception {
         String raw = histogramSource.classHistogram();
         List<HeapClassHistogramEntryDto> all = parseHistogram(raw);
-        int limit = Math.max(1, config.getMaxClasses());
+        int limit = Math.max(1, config.maxClasses());
         if (all.size() > limit) {
             all = all.subList(0, limit);
         }

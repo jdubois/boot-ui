@@ -281,6 +281,7 @@ class BootUiAutoConfigurationTests {
             assertLazyBeanDefinition(beanFactory, "bootUiDevToolsBridge");
             assertLazyBeanDefinition(beanFactory, "bootUiOtlpSpanDecoder");
             assertLazyBeanDefinition(beanFactory, "bootUiThreadDumpService");
+            assertLazyBeanDefinition(beanFactory, "bootUiHeapDumpService");
 
             assertEagerBean(beanFactory, BootUiActivation.class);
             assertEagerBean(beanFactory, DevServicesController.class);

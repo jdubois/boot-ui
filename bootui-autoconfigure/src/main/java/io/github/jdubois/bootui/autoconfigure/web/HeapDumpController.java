@@ -1,9 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
+import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import java.nio.file.Path;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -28,16 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class HeapDumpController {
 
     private final HeapDumpService service;
-    private final BootUiProperties.HeapDump config;
 
-    @Autowired
-    public HeapDumpController(BootUiProperties properties) {
-        this(new HeapDumpService(properties.getHeapDump()), properties.getHeapDump());
-    }
-
-    HeapDumpController(HeapDumpService service, BootUiProperties.HeapDump config) {
+    public HeapDumpController(HeapDumpService service) {
         this.service = service;
-        this.config = config;
     }
 
     @GetMapping
@@ -64,7 +56,7 @@ public class HeapDumpController {
 
     @GetMapping("/download")
     public ResponseEntity<Resource> download(@RequestParam(name = "name") String name) {
-        if (!config.isAllowRawDownload()) {
+        if (!service.rawDownloadAllowed()) {
             return ResponseEntity.notFound().build();
         }
         Path file = service.resolveExisting(name);

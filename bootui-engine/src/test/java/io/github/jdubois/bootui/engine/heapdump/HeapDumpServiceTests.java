@@ -1,8 +1,7 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.heapdump;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,11 +43,11 @@ class HeapDumpServiceTests {
             Total            24            372
             """;
 
-    private BootUiProperties.HeapDump config() {
-        return new BootUiProperties.HeapDump();
+    private HeapDumpSettings config() {
+        return new HeapDumpSettings(".bootui/heap-dumps", true, false, 5, 1000, 25);
     }
 
-    private HeapDumpService service(BootUiProperties.HeapDump config, Path dir, boolean hotspot) {
+    private HeapDumpService service(HeapDumpSettings config, Path dir, boolean hotspot) {
         return new HeapDumpService(
                 config,
                 dir,
@@ -123,8 +122,8 @@ class HeapDumpServiceTests {
 
     @Test
     void maxClassesLimitsEntriesStoredInMemory(@TempDir Path dir) {
-        BootUiProperties.HeapDump config = config();
-        config.setMaxClasses(2);
+        // maxClasses=2: only the top-2 classes by bytes are kept in memory
+        HeapDumpSettings config = new HeapDumpSettings(".bootui/heap-dumps", true, false, 5, 2, 25);
         HeapDumpService service = service(config, dir, true);
         HeapDumpReport report = service.analyze();
 
@@ -171,8 +170,8 @@ class HeapDumpServiceTests {
 
     @Test
     void captureRejectedWhenCaptureDisabled(@TempDir Path dir) {
-        BootUiProperties.HeapDump config = config();
-        config.setCaptureEnabled(false);
+        // capture-enabled=false
+        HeapDumpSettings config = new HeapDumpSettings(".bootui/heap-dumps", false, false, 5, 1000, 25);
 
         HeapDumpReport report = service(config, dir, true).capture(true);
 
@@ -192,8 +191,8 @@ class HeapDumpServiceTests {
 
     @Test
     void evictsOldestDumpsBeyondMax(@TempDir Path dir) {
-        BootUiProperties.HeapDump config = config();
-        config.setMaxDumps(2);
+        // maxDumps=2: evict the oldest beyond two
+        HeapDumpSettings config = new HeapDumpSettings(".bootui/heap-dumps", true, false, 2, 1000, 25);
         HeapDumpService service = service(config, dir, true);
 
         service.capture(true);
