@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.core.ValueExposure;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;

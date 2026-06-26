@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -471,24 +472,6 @@ public class BootUiProperties {
         AUTO,
         ON,
         OFF
-    }
-
-    /**
-     * How configuration values are displayed in the Config panel.
-     */
-    public enum ValueExposure {
-        /**
-         * Replace secret-like values with stars. Default.
-         */
-        MASKED,
-        /**
-         * Hide values entirely and only show metadata.
-         */
-        METADATA_ONLY,
-        /**
-         * Show all values, including secrets. Discouraged.
-         */
-        FULL
     }
 
     public static class Panel {

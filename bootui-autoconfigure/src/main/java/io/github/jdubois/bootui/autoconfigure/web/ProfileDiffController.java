@@ -1,9 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ConfigPropertyDto;
 import io.github.jdubois.bootui.core.dto.ProfileSourceDto;
 import io.github.jdubois.bootui.core.dto.ProfilesReport;

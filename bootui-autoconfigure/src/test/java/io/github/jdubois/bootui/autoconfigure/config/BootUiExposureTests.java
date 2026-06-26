@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.core.ValueExposure;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 

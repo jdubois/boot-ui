@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.HttpSessionActionRequest;
 import io.github.jdubois.bootui.core.dto.HttpSessionActionResult;
 import io.github.jdubois.bootui.core.dto.HttpSessionAttributeDto;
@@ -71,7 +72,7 @@ class HttpSessionsService {
     HttpSessionsReport sessions(String currentSessionId) {
         int limit = maxSessions();
         boolean actionEnabled = !properties.isPanelReadOnly(BootUiPanels.HTTP_SESSIONS);
-        BootUiProperties.ValueExposure valueExposure = valueExposure();
+        ValueExposure valueExposure = valueExposure();
         ManagerResolution resolution = managerResolver.get();
         if (!resolution.available()) {
             return HttpSessionsReport.unavailable(
@@ -197,8 +198,7 @@ class HttpSessionsService {
         return result(HttpStatus.OK, "destroyed", "Destroyed HTTP session.", sessionKey, 0);
     }
 
-    private HttpSessionDto toDto(
-            Session session, String currentSessionId, BootUiProperties.ValueExposure valueExposure) {
+    private HttpSessionDto toDto(Session session, String currentSessionId, ValueExposure valueExposure) {
         String rawId = session.getId();
         HttpSession facade = facade(session);
         if (facade == null) {
@@ -212,7 +212,7 @@ class HttpSessionsService {
         return new HttpSessionDto(
                 sessionKey(rawId),
                 displaySessionId(rawId, valueExposure),
-                valueExposure != BootUiProperties.ValueExposure.FULL,
+                valueExposure != ValueExposure.FULL,
                 rawId != null && rawId.equals(currentSessionId),
                 instant(session.getCreationTime()),
                 instant(session.getLastAccessedTime()),
@@ -222,8 +222,7 @@ class HttpSessionsService {
                 attributes);
     }
 
-    private HttpSessionAttributeDto attribute(
-            HttpSession session, String name, BootUiProperties.ValueExposure valueExposure) {
+    private HttpSessionAttributeDto attribute(HttpSession session, String name, ValueExposure valueExposure) {
         Object value;
         try {
             value = session.getAttribute(name);
@@ -236,11 +235,11 @@ class HttpSessionsService {
         return new HttpSessionAttributeDto(name, type, display.value(), display.masked(), display.truncated());
     }
 
-    private DisplayValue displayAttributeValue(Object value, BootUiProperties.ValueExposure valueExposure) {
-        if (value == null || valueExposure == BootUiProperties.ValueExposure.METADATA_ONLY) {
+    private DisplayValue displayAttributeValue(Object value, ValueExposure valueExposure) {
+        if (value == null || valueExposure == ValueExposure.METADATA_ONLY) {
             return new DisplayValue(null, false, false);
         }
-        if (valueExposure != BootUiProperties.ValueExposure.FULL) {
+        if (valueExposure != ValueExposure.FULL) {
             return new DisplayValue(SecretMasker.MASKED_VALUE, true, false);
         }
         String text;
@@ -327,17 +326,17 @@ class HttpSessionsService {
                         .toSeconds());
     }
 
-    private String displaySessionId(String id, BootUiProperties.ValueExposure valueExposure) {
+    private String displaySessionId(String id, ValueExposure valueExposure) {
         if (id == null || id.isBlank()) {
             return null;
         }
-        if (valueExposure == BootUiProperties.ValueExposure.FULL) {
+        if (valueExposure == ValueExposure.FULL) {
             return id;
         }
         return SecretMasker.MASKED_VALUE;
     }
 
-    private BootUiProperties.ValueExposure valueExposure() {
+    private ValueExposure valueExposure() {
         return exposure.valueExposure();
     }
 

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CopilotActivityEvent;
 import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
 import java.nio.file.Files;
@@ -187,7 +188,7 @@ class ClaudeCodeControllerTests {
         writeClaudeSession(tempDir.resolve("project-one").resolve("session-one.jsonl"));
         BootUiProperties props = propertiesFor(tempDir);
         props.getClaudeCode().setAllowRawReveal(true);
-        props.setExposeValues(BootUiProperties.ValueExposure.METADATA_ONLY);
+        props.setExposeValues(ValueExposure.METADATA_ONLY);
         ClaudeCodeSessionStore store = storeFor(props);
         MockMvc mvc = standaloneSetup(new ClaudeCodeController(store, props)).build();
 

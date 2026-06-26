@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.ValueExposure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.bind.BindException;
@@ -27,12 +28,8 @@ public class BootUiExposure {
         this(null, properties);
     }
 
-    public BootUiProperties.ValueExposure valueExposure() {
-        return bind(
-                "bootui.expose-values",
-                BootUiProperties.ValueExposure.class,
-                properties.getExposeValues(),
-                BootUiProperties.ValueExposure.MASKED);
+    public ValueExposure valueExposure() {
+        return bind("bootui.expose-values", ValueExposure.class, properties.getExposeValues(), ValueExposure.MASKED);
     }
 
     public boolean maskSecrets() {

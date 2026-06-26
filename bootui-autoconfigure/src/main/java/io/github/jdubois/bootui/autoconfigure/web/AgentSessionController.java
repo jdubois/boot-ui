@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CopilotDashboardDto;
 import io.github.jdubois.bootui.core.dto.CopilotEventListDto;
 import io.github.jdubois.bootui.core.dto.CopilotRawEventDto;
@@ -92,7 +92,7 @@ public abstract class AgentSessionController {
         if (!store.isRawRevealAllowed()) {
             return ResponseEntity.notFound().build();
         }
-        if (exposure.valueExposure() == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        if (exposure.valueExposure() == ValueExposure.METADATA_ONLY) {
             return ResponseEntity.notFound().build();
         }
         String json = store.getRawEventJson(id, eventId);

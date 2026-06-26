@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
+import io.github.jdubois.bootui.core.ValueExposure;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -158,7 +159,7 @@ class BootUiAutoConfigurationTests {
             assertThat(properties.getApiPath()).isEqualTo("/bootui/api");
             assertThat(properties.isAllowNonLocalhost()).isFalse();
             assertThat(properties.isMaskSecrets()).isTrue();
-            assertThat(properties.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.MASKED);
+            assertThat(properties.getExposeValues()).isEqualTo(ValueExposure.MASKED);
             assertThat(properties.isShowBanner()).isTrue();
             assertThat(properties.getEnabledProfiles()).containsExactly("dev", "local");
             assertThat(properties.getDisabledProfiles()).containsExactly("prod", "production");
@@ -199,7 +200,7 @@ class BootUiAutoConfigurationTests {
                     assertThat(properties.getPath()).isEqualTo("/admin");
                     assertThat(properties.getApiPath()).isEqualTo("/admin/api");
                     assertThat(properties.isMaskSecrets()).isFalse();
-                    assertThat(properties.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.FULL);
+                    assertThat(properties.getExposeValues()).isEqualTo(ValueExposure.FULL);
                     assertThat(properties.isReadOnly()).isTrue();
                     assertThat(properties.getOverridesFile()).isEqualTo("/tmp/bootui.properties");
                     assertThat(properties.isPanelEnabled("config")).isFalse();

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import java.util.List;
 import org.apache.catalina.core.StandardContext;
 import org.apache.catalina.session.StandardManager;
@@ -67,7 +68,7 @@ class HttpSessionsControllerTests {
         StandardManager manager = new StandardManager();
         addSession(manager, "session-one-abcdef", "sampleMessage", "Hello session");
         BootUiProperties properties = new BootUiProperties();
-        properties.setExposeValues(BootUiProperties.ValueExposure.FULL);
+        properties.setExposeValues(ValueExposure.FULL);
         MockMvc mvc = standaloneSetup(new HttpSessionsController(new HttpSessionsService(manager, properties)))
                 .build();
 
@@ -113,7 +114,7 @@ class HttpSessionsControllerTests {
         StandardManager manager = new StandardManager();
         addSession(manager, "session-one-abcdef", "sampleCount", 42);
         BootUiProperties properties = new BootUiProperties();
-        properties.setExposeValues(BootUiProperties.ValueExposure.METADATA_ONLY);
+        properties.setExposeValues(ValueExposure.METADATA_ONLY);
         MockMvc mvc = standaloneSetup(new HttpSessionsController(new HttpSessionsService(manager, properties)))
                 .build();
 

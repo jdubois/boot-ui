@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.SpringSecurityAuthDto;
 import io.github.jdubois.bootui.core.dto.SpringSecurityEndpointDto;
 import io.github.jdubois.bootui.core.dto.SpringSecurityEndpointsReport;
@@ -516,7 +517,7 @@ class SpringSecurityService {
         // developers identify the auto-generated user when no custom UserDetailsService
         // is configured. Never read spring.security.user.password.
         String configuredUsername = null;
-        if (exposure.valueExposure() != BootUiProperties.ValueExposure.METADATA_ONLY) {
+        if (exposure.valueExposure() != ValueExposure.METADATA_ONLY) {
             configuredUsername = environment.getProperty("spring.security.user.name");
         }
         return new SpringSecurityAuthDto(providerTypes, udsTypes, configuredUsername);

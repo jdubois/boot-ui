@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties.ValueExposure;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import org.junit.jupiter.api.Test;

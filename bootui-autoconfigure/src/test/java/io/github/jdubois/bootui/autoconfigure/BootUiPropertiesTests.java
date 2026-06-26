@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import java.nio.file.Path;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -68,7 +69,7 @@ class BootUiPropertiesTests {
     @Test
     void defaultExposeValuesIsMasked() {
         BootUiProperties props = new BootUiProperties();
-        assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.MASKED);
+        assertThat(props.getExposeValues()).isEqualTo(ValueExposure.MASKED);
     }
 
     @Test
@@ -250,7 +251,7 @@ class BootUiPropertiesTests {
 
         BootUiProperties props = bind(env);
 
-        assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.METADATA_ONLY);
+        assertThat(props.getExposeValues()).isEqualTo(ValueExposure.METADATA_ONLY);
     }
 
     @Test
@@ -260,7 +261,7 @@ class BootUiPropertiesTests {
 
         BootUiProperties props = bind(env);
 
-        assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.FULL);
+        assertThat(props.getExposeValues()).isEqualTo(ValueExposure.FULL);
     }
 
     @Test
@@ -473,7 +474,7 @@ class BootUiPropertiesTests {
 
         assertThat(props.getEnabled()).isEqualTo(BootUiProperties.Mode.AUTO);
         assertThat(props.isMaskSecrets()).isTrue();
-        assertThat(props.getExposeValues()).isEqualTo(BootUiProperties.ValueExposure.MASKED);
+        assertThat(props.getExposeValues()).isEqualTo(ValueExposure.MASKED);
         assertThat(props.getOverridesFile()).isEqualTo(".bootui/application-bootui.properties");
     }
 }

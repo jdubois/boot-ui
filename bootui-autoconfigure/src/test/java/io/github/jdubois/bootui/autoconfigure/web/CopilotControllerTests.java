@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CopilotActivityEvent;
 import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
@@ -452,7 +453,7 @@ class CopilotControllerTests {
         Files.writeString(
                 tempDir.resolve("s1.json"), "{\"events\":[{\"type\":\"t\",\"tool\":\"apply_patch\",\"timestamp\":1}]}");
         BootUiProperties props = propertiesFor(tempDir);
-        props.setExposeValues(BootUiProperties.ValueExposure.METADATA_ONLY);
+        props.setExposeValues(ValueExposure.METADATA_ONLY);
         CopilotSessionStore store = storeFor(props);
         String eventId = store.getSession("s1").recentEvents().get(0).id();
 

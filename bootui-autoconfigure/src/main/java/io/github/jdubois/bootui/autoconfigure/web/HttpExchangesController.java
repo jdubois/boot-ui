@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
@@ -163,12 +164,12 @@ public class HttpExchangesController {
         if (values == null || values.isEmpty()) {
             return List.of();
         }
-        BootUiProperties.ValueExposure valueExposure = exposure.valueExposure();
-        if (valueExposure == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return List.of();
         }
         if (shouldMask(name)) {
-            if (valueExposure == BootUiProperties.ValueExposure.FULL) {
+            if (valueExposure == ValueExposure.FULL) {
                 return List.copyOf(values);
             }
             return values.stream().map(ignored -> SecretMasker.MASKED_VALUE).toList();
@@ -180,11 +181,11 @@ public class HttpExchangesController {
         if (value == null) {
             return null;
         }
-        BootUiProperties.ValueExposure valueExposure = exposure.valueExposure();
-        if (valueExposure == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        ValueExposure valueExposure = exposure.valueExposure();
+        if (valueExposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
-        if (shouldMask(name) && valueExposure != BootUiProperties.ValueExposure.FULL) {
+        if (shouldMask(name) && valueExposure != ValueExposure.FULL) {
             return SecretMasker.MASKED_VALUE;
         }
         return value;
@@ -227,7 +228,7 @@ public class HttpExchangesController {
         if (rawQuery == null) {
             return null;
         }
-        if (exposure.valueExposure() == BootUiProperties.ValueExposure.METADATA_ONLY) {
+        if (exposure.valueExposure() == ValueExposure.METADATA_ONLY) {
             return null;
         }
         String[] parts = rawQuery.split("&", -1);
@@ -240,7 +241,7 @@ public class HttpExchangesController {
     private String displayQueryPart(String part) {
         int equalsIndex = part.indexOf('=');
         String name = equalsIndex >= 0 ? part.substring(0, equalsIndex) : part;
-        if (!shouldMask(name) || exposure.valueExposure() == BootUiProperties.ValueExposure.FULL) {
+        if (!shouldMask(name) || exposure.valueExposure() == ValueExposure.FULL) {
             return part;
         }
         return equalsIndex >= 0 ? name + "=" + SecretMasker.MASKED_VALUE : SecretMasker.MASKED_VALUE;
