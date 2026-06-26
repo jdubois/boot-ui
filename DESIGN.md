@@ -10,6 +10,8 @@ colors:
   accessible-danger: "#b02a37"
   accessible-info: "#087990"
   accessible-warning: "#997404"
+  accessible-warning-strong: "#6f5300"
+  accessible-warning-strong-dark: "#e0a800"
   ink: "#152033"
   slate-muted: "#64748b"
   slate-subtle: "#94a3b8"
@@ -161,11 +163,12 @@ A cool, confident palette: two brand hues (Spring green, signal blue) over a nea
 - **Indigo Accent** (`#6610f2`): a sparing third hue for the "output" data series and multi-series charts. Never used for chrome or interactive state — purely categorical.
 
 ### Semantic Status (accessible)
-Bootstrap's raw contextual colors are tuned for white fills and fail WCAG AA as text in places, so BootUI defines accessible companions as `--bootui-*-text` tokens (in `App.vue`, shared across themes) and references them for status text and icons. Light-surface contrast:
+Bootstrap's raw contextual colors are tuned for white fills and fail WCAG AA as text in places, so BootUI defines accessible companions as `--bootui-*-text` tokens (in `App.vue`) and references them for status text and icons. Most are shared across themes; warning adds a per-theme body companion (below). Light-surface contrast:
 - **Accessible Deep Blue** (`#0a53be`): `.text-primary` text and the *selected* master-list row (white-on-blue ~7:1). The accessible companion to Signal Blue.
 - **Accessible Danger** (`#b02a37`, `--bootui-danger-text`): error/at-risk text (~6.5:1).
 - **Accessible Info** (`#087990`, `--bootui-info-text`): informational text (~5:1; raw Bootstrap cyan ~1.9:1 is never used as text).
-- **Accessible Warning** (`#997404`, `--bootui-warning-text`): caution amber on **large** score text and icon glyphs, where the 3:1 large-text/non-text bar applies (~3.9:1 on the amber tint, ~4.3:1 on white). Raw Bootstrap amber (~1.6:1) is never used; for body-size warning text, step the value down.
+- **Accessible Warning** (`#997404`, `--bootui-warning-text`): caution amber on **large** score text and icon glyphs, where the 3:1 large-text/non-text bar applies (~3.9:1 on the amber tint, ~4.3:1 on white). Raw Bootstrap amber (~1.6:1) is never used.
+- **Accessible Warning (Strong)** (`--bootui-warning-text-strong`): the body-size caution companion, themed per mode because amber can't clear 4.5:1 on both shells from one value — `#6f5300` on light (~7.2:1 on white), `#e0a800` on dark (~6.8:1 on the dark surface). Used for body-size warning copy such as the destructive-confirmation "cannot be undone" note.
 - `.text-success` text uses **Spring Green Deep** (`#146c43`, ~6.5:1); no separate token needed.
 
 ### Status Fills & Data-Viz
@@ -186,7 +189,7 @@ Saturated **status fills** back badges, latency-heat rows, and advisor severity,
 
 **The Earned-Red Rule.** Danger/warning color appears only when the runtime is genuinely at risk. A screen at rest is green, blue, and slate. Red is a signal, not decoration.
 
-**The AA-Both-Themes Rule.** Every semantic *text* color must clear WCAG AA for its context — ≥4.5:1 for body-size text, ≥3:1 for large text and icon glyphs — in **both** light and dark themes. Bootstrap's raw contextual colors don't, so BootUI references accessible `--bootui-*-text` companions — see Semantic Status (accessible). Never let raw `.text-info` / `.text-warning` / `.text-danger` reach the reader as body text.
+**The AA-Both-Themes Rule.** Every semantic *text* color must clear WCAG AA for its context — ≥4.5:1 for body-size text, ≥3:1 for large text and icon glyphs — in **both** light and dark themes. Bootstrap's raw contextual colors don't, so BootUI references accessible `--bootui-*-text` companions — see Semantic Status (accessible). Amber is the one hue that can't reach body-size AA on both shells from a single value, so warning text splits: `--bootui-warning-text` for large/icon (3:1) and the per-theme `--bootui-warning-text-strong` for body copy (4.5:1). Never let raw `.text-info` / `.text-warning` / `.text-danger` reach the reader as body text.
 
 ## 3. Typography
 

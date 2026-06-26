@@ -692,6 +692,7 @@ function onGlobalKeydown(e) {
   --bootui-danger-text: #b02a37;
   --bootui-warning: #ffc107;
   --bootui-warning-text: #997404;
+  --bootui-warning-text-strong: #6f5300;
   --bootui-high: #fd7e14;
   --bootui-critical: #b00020;
   --bootui-info: #0dcaf0;
@@ -753,6 +754,9 @@ function onGlobalKeydown(e) {
   --bootui-text: #e2e8f0;
   --bootui-text-muted: #94a3b8;
   --bootui-text-subtle: #64748b;
+
+  /* Status text re-lit for dark-surface contrast (see Semantic Status) */
+  --bootui-warning-text-strong: #e0a800;
 
   /* Surfaces */
   --bootui-bg-body: linear-gradient(135deg, #0d1a12 0%, #0f1929 46%, #100f1a 100%);

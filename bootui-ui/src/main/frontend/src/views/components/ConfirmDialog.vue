@@ -173,7 +173,7 @@ function onBackdropClick(e) {
 
 .confirm-irreversible {
   align-items: baseline;
-  color: var(--bootui-warning-text, #997404);
+  color: var(--bootui-warning-text-strong, #6f5300);
   display: flex;
   font-size: 0.82rem;
   gap: 0.4rem;
