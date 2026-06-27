@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector
 import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
@@ -16,6 +17,7 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
@@ -35,6 +37,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.util.ClassUtils;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
 /**
  * Wires framework-neutral {@code bootui-engine} services into the Spring adapter.
@@ -137,6 +140,23 @@ public class BootUiEngineConfiguration {
                 basePackageProvider::basePackages,
                 () -> CracRuntimeInventoryCollector.collect(applicationContext),
                 Clock.systemUTC());
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    PentestingScanner bootUiPentestingScanner(
+            ApplicationContext applicationContext, Environment environment, BootUiProperties properties) {
+        // The Spring observation (endpoint inventory, security wiring, config snapshot, server port/context path)
+        // is collected live on every scan through the SpringPentestingObservationCollector adapter, so the random
+        // local.server.port is read after startup; the engine owns the probe methodology (synthetic URI assembly +
+        // GET/OPTIONS loopback probes) and fires them only on demand (POST /scan), never at bean construction.
+        SpringPentestingObservationCollector collector = new SpringPentestingObservationCollector(
+                applicationContext,
+                applicationContext.getBeanProvider(RequestMappingInfoHandlerMapping.class),
+                environment,
+                properties);
+        return PentestingScanner.usingObservation(collector::collect, Clock.systemUTC());
     }
 
     @Bean
