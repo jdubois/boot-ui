@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
+import io.github.jdubois.bootui.engine.telemetry.AiFrameworkDetector;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.regex.Pattern;

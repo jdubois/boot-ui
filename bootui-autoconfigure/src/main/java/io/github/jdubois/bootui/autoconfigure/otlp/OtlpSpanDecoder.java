@@ -3,6 +3,10 @@ package io.github.jdubois.bootui.autoconfigure.otlp;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.telemetry.AttributeValue;
+import io.github.jdubois.bootui.engine.telemetry.NormalizedEvent;
+import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryLimits;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.InstrumentationScope;
@@ -22,8 +26,6 @@ import java.util.Map;
  * {@link NormalizedSpan} instances suitable for the BootUI telemetry store.
  */
 public final class OtlpSpanDecoder {
-
-    static final int HARD_MAX_ATTRIBUTE_VALUE_CHARS = 64 * 1024;
 
     private final BootUiProperties.Telemetry config;
 
@@ -158,14 +160,7 @@ public final class OtlpSpanDecoder {
     }
 
     private String truncate(String value) {
-        if (value == null) {
-            return null;
-        }
-        int max = Math.max(64, Math.min(HARD_MAX_ATTRIBUTE_VALUE_CHARS, config.getMaxAttributeValueBytes()));
-        if (value.length() <= max) {
-            return value;
-        }
-        return value.substring(0, max) + "…[truncated " + (value.length() - max) + " chars]";
+        return TelemetryLimits.truncate(value, config.getMaxAttributeValueBytes());
     }
 
     private String extractServiceName(Resource resource) {

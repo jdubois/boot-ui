@@ -1,7 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.web;
-
-import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
-import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
+package io.github.jdubois.bootui.engine.telemetry;
 
 /**
  * Heuristics for recognizing AI spans inside the BootUI telemetry store.

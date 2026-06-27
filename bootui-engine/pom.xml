@@ -50,6 +50,23 @@
             <optional>true</optional>
         </dependency>
 
+        <!--
+          OpenTelemetry SDK powers the in-process span capture (BootUiSpanExporter) feeding TelemetryStore.
+          Optional so it is not forced on the engine's downstream consumers; BootUiSpanExporter is the sole
+          importer (pinned by an ArchUnit concentration rule) and is only constructed by the adapter behind a
+          @ConditionalOnClass / CDI presence gate. Versions are BOM-managed (spring-boot-dependencies).
+        -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

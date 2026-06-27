@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.otlp;
+package io.github.jdubois.bootui.engine.telemetry;
 
 /**
  * Normalized representation of an OTLP attribute value.

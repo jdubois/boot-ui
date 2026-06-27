@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.telemetry;
 
 /**
  * Detects which AI framework is present on the application classpath so the AI

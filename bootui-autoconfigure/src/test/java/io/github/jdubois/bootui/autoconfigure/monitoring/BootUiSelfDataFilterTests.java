@@ -3,8 +3,8 @@ package io.github.jdubois.bootui.autoconfigure.monitoring;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
-import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
+import io.github.jdubois.bootui.engine.telemetry.AttributeValue;
+import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;

@@ -9,7 +9,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import com.google.protobuf.ByteString;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
-import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
+import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.InstrumentationScope;
@@ -142,7 +143,7 @@ class OtlpReceiverControllerTests {
     void setUp() {
         properties = new BootUiProperties();
         properties.getTelemetry().setEnabled(true);
-        store = new TelemetryStore(properties.getTelemetry());
+        store = new TelemetryStore(new SpringTelemetrySettings(properties));
         OtlpSpanDecoder decoder = new OtlpSpanDecoder(properties.getTelemetry());
         mvc = standaloneSetup(new OtlpReceiverController(store, decoder, properties))
                 .build();

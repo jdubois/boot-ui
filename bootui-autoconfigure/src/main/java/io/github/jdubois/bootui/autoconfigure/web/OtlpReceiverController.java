@@ -2,10 +2,10 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
-import io.github.jdubois.bootui.autoconfigure.otlp.TelemetrySpanFilter;
-import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
+import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -77,11 +77,12 @@ public class OtlpReceiverController {
         }
         try {
             List<NormalizedSpan> spans = decoder.decode(body);
-            String apiPath = properties.getApiPath();
             boolean excludeSelf = telemetry.isExcludeSelfSpans();
+            SelfTelemetryClassifier captureClassifier =
+                    SelfTelemetryClassifier.forPaths("/bootui", properties.getApiPath());
             int kept = 0;
             for (NormalizedSpan span : spans) {
-                boolean selfSpan = excludeSelf && TelemetrySpanFilter.isSelfSpan(span, apiPath);
+                boolean selfSpan = excludeSelf && captureClassifier.isBootUiSpan(span);
                 if (store.add(span, selfSpan)) {
                     kept++;
                 }

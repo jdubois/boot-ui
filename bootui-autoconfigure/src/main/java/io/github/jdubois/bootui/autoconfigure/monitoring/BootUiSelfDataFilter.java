@@ -1,27 +1,27 @@
 package io.github.jdubois.bootui.autoconfigure.monitoring;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
-import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
+import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
-import java.net.URI;
 import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * Central classifier for runtime data produced by BootUI itself.
+ *
+ * <p>The HTTP path / span / trace matching is delegated to the framework-neutral
+ * {@link SelfTelemetryClassifier} in {@code bootui-engine} (shared with the telemetry capture path);
+ * this adapter class keeps the Spring-coupled bean, mapping, logger, meter, security and startup-step
+ * orchestration on top of it.</p>
  */
 public final class BootUiSelfDataFilter {
 
     private static final List<String> INTERNAL_PACKAGES =
             List.of("io.github.jdubois.bootui.autoconfigure", "io.github.jdubois.bootui.core");
-
-    private static final Set<String> PATH_TAG_KEYS = Set.of(
-            "uri", "path", "endpoint", "http.route", "http.target", "http.path", "http.url", "url.path", "url.full");
 
     private static final Set<String> STARTUP_CLASS_TAGS =
             Set.of("bean.type", "beanType", "class", "configurationClass", "target.type", "targetType");
@@ -30,7 +30,7 @@ public final class BootUiSelfDataFilter {
 
     private final boolean excludeSelf;
 
-    private final Set<String> selfPaths;
+    private final SelfTelemetryClassifier classifier;
 
     public BootUiSelfDataFilter(BootUiProperties properties) {
         this(properties.getMonitoring().isExcludeSelf(), properties.getPath(), properties.getApiPath());
@@ -38,7 +38,7 @@ public final class BootUiSelfDataFilter {
 
     private BootUiSelfDataFilter(boolean excludeSelf, String path, String apiPath) {
         this.excludeSelf = excludeSelf;
-        this.selfPaths = selfPaths(path, apiPath);
+        this.classifier = new SelfTelemetryClassifier(excludeSelf, path, apiPath);
     }
 
     public static BootUiSelfDataFilter defaults() {
@@ -49,8 +49,13 @@ public final class BootUiSelfDataFilter {
         return new BootUiSelfDataFilter(false, "/bootui", "/bootui/api");
     }
 
-    public static BootUiSelfDataFilter forPaths(String path, String apiPath) {
-        return new BootUiSelfDataFilter(true, path, apiPath);
+    /**
+     * The neutral self-traffic classifier this filter composes, for engine services (such as the
+     * Traces read model) that need the same transform-side self-trace filtering without the
+     * Spring-coupled orchestration.
+     */
+    public SelfTelemetryClassifier telemetryClassifier() {
+        return classifier;
     }
 
     public boolean shouldExcludeSelf() {
@@ -145,56 +150,15 @@ public final class BootUiSelfDataFilter {
     }
 
     public boolean isBootUiSpan(NormalizedSpan span) {
-        if (span == null) {
-            return false;
-        }
-        if (isBootUiPath(span.name())) {
-            return true;
-        }
-        Map<String, AttributeValue> attributes = span.attributes();
-        if (attributes == null) {
-            return false;
-        }
-        for (Map.Entry<String, AttributeValue> entry : attributes.entrySet()) {
-            if (!isPathTag(entry.getKey())) {
-                continue;
-            }
-            AttributeValue value = entry.getValue();
-            if (value != null && isBootUiPath(value.asString())) {
-                return true;
-            }
-        }
-        return false;
+        return classifier.isBootUiSpan(span);
     }
 
     public boolean isBootUiTrace(Collection<NormalizedSpan> spans) {
-        if (spans == null || spans.isEmpty()) {
-            return false;
-        }
-        boolean allSelf = true;
-        NormalizedSpan root = null;
-        for (NormalizedSpan span : spans) {
-            boolean self = isBootUiSpan(span);
-            allSelf = allSelf && self;
-            if (span != null && span.parentSpanId() == null) {
-                if (root == null || span.startEpochNanos() < root.startEpochNanos()) {
-                    root = span;
-                }
-            }
-        }
-        return allSelf || (root != null && isBootUiSpan(root));
+        return classifier.isBootUiTrace(spans);
     }
 
     public boolean isBootUiPath(String value) {
-        if (isBlank(value)) {
-            return false;
-        }
-        String candidate = value.trim();
-        String uriPath = uriPath(candidate);
-        if (matchesAnySelfPath(uriPath)) {
-            return true;
-        }
-        return matchesAnySelfPath(candidate);
+        return classifier.isBootUiPath(value);
     }
 
     private boolean isBootUiStartupStep(String name, Iterable<? extends Map.Entry<String, String>> tags) {
@@ -221,64 +185,7 @@ public final class BootUiSelfDataFilter {
     }
 
     private boolean isPathTag(String key) {
-        return key != null && PATH_TAG_KEYS.contains(key);
-    }
-
-    private boolean matchesAnySelfPath(String value) {
-        for (String selfPath : selfPaths) {
-            if (containsPathWithBoundaries(value, selfPath)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean containsPathWithBoundaries(String value, String path) {
-        if (isBlank(value)) {
-            return false;
-        }
-        int index = value.indexOf(path);
-        while (index >= 0) {
-            int afterIndex = index + path.length();
-            if (hasPathBoundaryBefore(value, index) && hasPathBoundaryAfter(value, afterIndex)) {
-                return true;
-            }
-            index = value.indexOf(path, index + 1);
-        }
-        return false;
-    }
-
-    private boolean hasPathBoundaryBefore(String value, int index) {
-        if (index == 0) {
-            return true;
-        }
-        char previous = value.charAt(index - 1);
-        return !Character.isLetterOrDigit(previous) && previous != '_' && previous != '-' && previous != '.';
-    }
-
-    private boolean hasPathBoundaryAfter(String value, int index) {
-        if (index >= value.length()) {
-            return true;
-        }
-        char next = value.charAt(index);
-        return next == '/' || next == '?' || next == '#' || Character.isWhitespace(next) || isClosingDelimiter(next);
-    }
-
-    private boolean isClosingDelimiter(char value) {
-        return value == ']' || value == ')' || value == '}' || value == ',' || value == '\'' || value == '"';
-    }
-
-    private String uriPath(String value) {
-        if (!value.contains("://")) {
-            return value;
-        }
-        try {
-            URI uri = URI.create(value);
-            String path = uri.getRawPath();
-            return path == null ? value : path;
-        } catch (IllegalArgumentException ex) {
-            return value;
-        }
+        return classifier.isPathTag(key);
     }
 
     private boolean isInternalPackageValue(String value) {
@@ -325,29 +232,6 @@ public final class BootUiSelfDataFilter {
 
     private boolean isPackageChar(char value) {
         return Character.isLetterOrDigit(value) || value == '_' || value == '.';
-    }
-
-    private static Set<String> selfPaths(String path, String apiPath) {
-        LinkedHashSet<String> paths = new LinkedHashSet<>();
-        addPath(paths, path);
-        addPath(paths, apiPath);
-        addPath(paths, "/bootui");
-        addPath(paths, "/bootui/api");
-        return Set.copyOf(paths);
-    }
-
-    private static void addPath(Set<String> paths, String path) {
-        if (path == null || path.isBlank()) {
-            return;
-        }
-        String normalized = path.trim();
-        if (!normalized.startsWith("/")) {
-            normalized = "/" + normalized;
-        }
-        while (normalized.length() > 1 && normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        paths.add(normalized);
     }
 
     private boolean isBlank(String value) {

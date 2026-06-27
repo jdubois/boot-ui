@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure;
 
-import io.github.jdubois.bootui.autoconfigure.otlp.BootUiSpanExporter;
-import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
+import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
+import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -20,6 +22,8 @@ class BootUiOpenTelemetryConfiguration {
             havingValue = "true",
             matchIfMissing = true)
     SpanExporter bootUiSpanExporter(TelemetryStore store, BootUiProperties properties) {
-        return new BootUiSpanExporter(store, properties);
+        SelfTelemetryClassifier captureClassifier =
+                SelfTelemetryClassifier.forPaths("/bootui", properties.getApiPath());
+        return new BootUiSpanExporter(store, captureClassifier, new SpringTelemetrySettings(properties));
     }
 }

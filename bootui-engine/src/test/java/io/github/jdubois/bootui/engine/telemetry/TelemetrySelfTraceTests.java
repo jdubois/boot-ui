@@ -1,8 +1,7 @@
-package io.github.jdubois.bootui.autoconfigure.otlp;
+package io.github.jdubois.bootui.engine.telemetry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -13,7 +12,7 @@ class TelemetrySelfTraceTests {
 
     @Test
     void dropsChildSpanWhenRootSelfSpanArrivesFirst() {
-        TelemetryStore store = new TelemetryStore(new BootUiProperties().getTelemetry());
+        TelemetryStore store = new TelemetryStore(TelemetrySettings.of(true, true, 500, 500, 4096));
 
         assertThat(store.add(httpRoot(), true)).isFalse();
         assertThat(store.add(securityFilterChain(), false)).isFalse();
@@ -24,7 +23,7 @@ class TelemetrySelfTraceTests {
 
     @Test
     void purgesAlreadyStoredChildSpansWhenRootSelfSpanArrivesLater() {
-        TelemetryStore store = new TelemetryStore(new BootUiProperties().getTelemetry());
+        TelemetryStore store = new TelemetryStore(TelemetrySettings.of(true, true, 500, 500, 4096));
 
         // Spring Security "security filterchain before" ends (and is exported) before the
         // path-bearing HTTP server span that identifies the trace as BootUI's own traffic.
@@ -39,7 +38,7 @@ class TelemetrySelfTraceTests {
 
     @Test
     void keepsTracesThatAreNotBootUiTraffic() {
-        TelemetryStore store = new TelemetryStore(new BootUiProperties().getTelemetry());
+        TelemetryStore store = new TelemetryStore(TelemetrySettings.of(true, true, 500, 500, 4096));
 
         assertThat(store.add(span("app-trace", "root", null, "GET /api/orders", Map.of()), false))
                 .isTrue();

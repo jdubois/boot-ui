@@ -6,9 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.otlp.AttributeValue;
-import io.github.jdubois.bootui.autoconfigure.otlp.NormalizedSpan;
-import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
+import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
+import io.github.jdubois.bootui.engine.telemetry.AttributeValue;
+import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -115,7 +116,7 @@ class AiControllerTests {
     @Test
     void overviewAggregatesChatToolAndVectorSpans() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
         long now = nowNanos();
         store.add(chatSpan("trace-1", "chat-1", now, 250_000_000L, "ollama", "qwen3", 42, 8, false));
         store.add(toolSpan("trace-1", "tool-1", "chat-1", "getWeather"));
@@ -148,7 +149,7 @@ class AiControllerTests {
     void overviewReportsDisabledTelemetry() throws Exception {
         BootUiProperties properties = new BootUiProperties();
         properties.getTelemetry().setEnabled(false);
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
 
         mvcWith(store, properties)
                 .perform(get("/bootui/api/ai/overview"))
@@ -161,7 +162,7 @@ class AiControllerTests {
     @Test
     void overviewIsEmptyWhenNoSpans() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
 
         mvcWith(store, properties)
                 .perform(get("/bootui/api/ai/overview"))
@@ -178,7 +179,7 @@ class AiControllerTests {
     @Test
     void chatsRespectLimitAndAreOrderedMostRecentFirst() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
         long now = nowNanos();
         store.add(chatSpan("trace-old", "chat-old", now, 1_000_000L, "ollama", "m1", 1, 1, false));
         store.add(chatSpan("trace-new", "chat-new", now + ONE_MINUTE_NANOS, 1_000_000L, "ollama", "m2", 2, 2, false));
@@ -203,7 +204,7 @@ class AiControllerTests {
     @Test
     void chatDetailReturnsLinkedToolsAndVectorOperations() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
         long now = nowNanos();
         store.add(chatSpan("trace-1", "chat-1", now, 100_000_000L, "ollama", "qwen3", 10, 5, false));
         store.add(toolSpan("trace-1", "tool-1", "chat-1", "getWeather"));
@@ -226,7 +227,7 @@ class AiControllerTests {
     @Test
     void chatDetailReturnsNotFoundForUnknownSpan() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
 
         mvcWith(store, properties)
                 .perform(get("/bootui/api/ai/chats/does-not-exist"))
@@ -236,7 +237,7 @@ class AiControllerTests {
     @Test
     void tokensReturnsRequestedWindowAndBucketsTheChat() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
         store.add(chatSpan("trace-1", "chat-1", nowNanos(), 1_000_000L, "ollama", "qwen3", 42, 8, false));
 
         mvcWith(store, properties)
@@ -251,7 +252,7 @@ class AiControllerTests {
     @Test
     void tokensClampsWindowAndFallsBackToConfiguredDefault() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
         MockMvc mvc = mvcWith(store, properties);
 
         mvc.perform(get("/bootui/api/ai/tokens").param("minutes", "1000"))
@@ -271,7 +272,7 @@ class AiControllerTests {
     @Test
     void chatsClampLimitToConfiguredMaximum() throws Exception {
         BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
         long now = nowNanos();
         // 501 chat spans split across two traces stay under the per-trace and trace caps
         // while exceeding the 500 response limit, so the clamp is what bounds the result.

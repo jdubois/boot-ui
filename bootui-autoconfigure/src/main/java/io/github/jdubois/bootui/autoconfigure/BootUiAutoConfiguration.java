@@ -25,7 +25,7 @@ import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
-import io.github.jdubois.bootui.autoconfigure.otlp.TelemetryStore;
+import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
@@ -38,6 +38,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -488,7 +489,28 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public TelemetryStore bootUiTelemetryStore(BootUiProperties properties) {
-        return new TelemetryStore(properties.getTelemetry());
+        return new TelemetryStore(new SpringTelemetrySettings(properties));
+    }
+
+    /**
+     * Bridges the framework-neutral {@link TelemetryStore} to BootUI's idle-reclaim mechanism. The
+     * store no longer implements {@link IdleReclaimable} (it stays engine-neutral), so this thin
+     * delegate lets {@link ConsoleActivityTracker} suspend and resume span capture while the console
+     * is idle, exactly as before the engine extraction.
+     */
+    @Bean
+    public IdleReclaimable bootUiTelemetryStoreIdleReclaimable(TelemetryStore store) {
+        return new IdleReclaimable() {
+            @Override
+            public void suspendForIdle() {
+                store.suspendForIdle();
+            }
+
+            @Override
+            public void resumeFromIdle() {
+                store.resumeFromIdle();
+            }
+        };
     }
 
     @Bean

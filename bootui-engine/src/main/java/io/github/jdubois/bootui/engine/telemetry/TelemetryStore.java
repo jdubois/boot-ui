@@ -1,7 +1,5 @@
-package io.github.jdubois.bootui.autoconfigure.otlp;
+package io.github.jdubois.bootui.engine.telemetry;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -15,8 +13,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * <p>The store is protected by a {@link ReentrantReadWriteLock} for better
  * scalability on reads, while a {@link LinkedHashMap}
  * ordered by last update time handles capacity bounding.</p>
+ *
+ * <p>This class is framework-neutral: it reads its capacity bounds through the
+ * {@link TelemetrySettings} seam and exposes {@link #suspendForIdle()} /
+ * {@link #resumeFromIdle()} as plain methods so an adapter can bridge them to
+ * its own idle-reclaim mechanism without coupling the engine to it.</p>
  */
-public class TelemetryStore implements IdleReclaimable {
+public class TelemetryStore {
 
     static final int HARD_MAX_TRACES = 10_000;
 
@@ -29,7 +32,7 @@ public class TelemetryStore implements IdleReclaimable {
      */
     static final int SELF_TRACE_MEMORY = 4_096;
 
-    private final BootUiProperties.Telemetry config;
+    private final TelemetrySettings settings;
     private final LinkedHashMap<String, TraceBucket> tracesById;
 
     /**
@@ -46,8 +49,8 @@ public class TelemetryStore implements IdleReclaimable {
 
     private volatile boolean idleSuspended = false;
 
-    public TelemetryStore(BootUiProperties.Telemetry config) {
-        this.config = config;
+    public TelemetryStore(TelemetrySettings settings) {
+        this.settings = settings;
         this.tracesById = new LinkedHashMap<>(256, 0.75f, false);
         this.selfTraceIds = new LinkedHashMap<>(256, 0.75f, false) {
             @Override
@@ -57,12 +60,12 @@ public class TelemetryStore implements IdleReclaimable {
         };
     }
 
-    static int effectiveMaxTraces(BootUiProperties.Telemetry config) {
-        return clamp(config.getMaxTraces(), 1, HARD_MAX_TRACES);
+    private int effectiveMaxTraces() {
+        return clamp(settings.maxTraces(), 1, HARD_MAX_TRACES);
     }
 
-    static int effectiveMaxSpansPerTrace(BootUiProperties.Telemetry config) {
-        return clamp(config.getMaxSpansPerTrace(), 1, HARD_MAX_SPANS_PER_TRACE);
+    private int effectiveMaxSpansPerTrace() {
+        return clamp(settings.maxSpansPerTrace(), 1, HARD_MAX_SPANS_PER_TRACE);
     }
 
     private static int clamp(int value, int min, int max) {
@@ -107,7 +110,7 @@ public class TelemetryStore implements IdleReclaimable {
             TraceBucket bucket = tracesById.remove(traceId);
             if (bucket == null) {
                 bucket = new TraceBucket(traceId);
-                while (tracesById.size() >= effectiveMaxTraces(config)) {
+                while (tracesById.size() >= effectiveMaxTraces()) {
                     Iterator<Map.Entry<String, TraceBucket>> it =
                             tracesById.entrySet().iterator();
                     if (!it.hasNext()) {
@@ -117,7 +120,7 @@ public class TelemetryStore implements IdleReclaimable {
                     it.remove();
                 }
             }
-            if (bucket.spans.size() < effectiveMaxSpansPerTrace(config)) {
+            if (bucket.spans.size() < effectiveMaxSpansPerTrace()) {
                 bucket.spans.add(span);
             }
             bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
@@ -164,7 +167,7 @@ public class TelemetryStore implements IdleReclaimable {
     }
 
     public int capacity() {
-        return effectiveMaxTraces(config);
+        return effectiveMaxTraces();
     }
 
     /**
@@ -192,7 +195,10 @@ public class TelemetryStore implements IdleReclaimable {
         }
     }
 
-    @Override
+    /**
+     * Stop ingesting and release retained spans while the console is idle. Bridged to the adapter's
+     * idle-reclaim mechanism (for example a Spring {@code IdleReclaimable} bean) by the adapter.
+     */
     public void suspendForIdle() {
         idleSuspended = true;
         lock.writeLock().lock();
@@ -204,7 +210,7 @@ public class TelemetryStore implements IdleReclaimable {
         }
     }
 
-    @Override
+    /** Resume ingestion after {@link #suspendForIdle()}. */
     public void resumeFromIdle() {
         idleSuspended = false;
     }

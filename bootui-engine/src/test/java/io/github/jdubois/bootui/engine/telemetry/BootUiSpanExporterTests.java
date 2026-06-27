@@ -1,8 +1,7 @@
-package io.github.jdubois.bootui.autoconfigure.otlp;
+package io.github.jdubois.bootui.engine.telemetry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
@@ -20,11 +19,16 @@ class BootUiSpanExporterTests {
 
     private static final AttributeKey<String> SERVICE_NAME = AttributeKey.stringKey("service.name");
 
+    private static final SelfTelemetryClassifier SELF = SelfTelemetryClassifier.forPaths("/bootui", "/bootui/api");
+
+    private static final TelemetrySettings ENABLED = TelemetrySettings.of(true, true, 500, 500, 4096);
+
+    private static final TelemetrySettings DISABLED = TelemetrySettings.of(false, true, 500, 500, 4096);
+
     @Test
     void exportsOpenTelemetrySpansToTheBootUiStore() {
-        BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
-        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        TelemetryStore store = new TelemetryStore(ENABLED);
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, SELF, ENABLED));
         try {
             Tracer tracer = provider.get("bootui-test-scope");
             Span span = tracer.spanBuilder("GET /api/orders")
@@ -60,9 +64,8 @@ class BootUiSpanExporterTests {
 
     @Test
     void dropsBootUiSelfSpansByDefault() {
-        BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
-        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        TelemetryStore store = new TelemetryStore(ENABLED);
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, SELF, ENABLED));
         try {
             Span span = provider.get("bootui-test-scope")
                     .spanBuilder("GET /bootui/api/traces")
@@ -80,10 +83,8 @@ class BootUiSpanExporterTests {
 
     @Test
     void doesNotCaptureSpansWhenTelemetryIsDisabled() {
-        BootUiProperties properties = new BootUiProperties();
-        properties.getTelemetry().setEnabled(false);
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
-        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        TelemetryStore store = new TelemetryStore(DISABLED);
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, SELF, DISABLED));
         try {
             Span span = provider.get("bootui-test-scope")
                     .spanBuilder("GET /api/orders")
@@ -101,9 +102,8 @@ class BootUiSpanExporterTests {
 
     @Test
     void dropsChildSpansOfBootUiSelfTraces() {
-        BootUiProperties properties = new BootUiProperties();
-        TelemetryStore store = new TelemetryStore(properties.getTelemetry());
-        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, properties));
+        TelemetryStore store = new TelemetryStore(ENABLED);
+        SdkTracerProvider provider = tracerProvider(new BootUiSpanExporter(store, SELF, ENABLED));
         try {
             Tracer tracer = provider.get("bootui-test-scope");
             // The HTTP server span carries the /bootui path; the nested Spring Security filter-chain

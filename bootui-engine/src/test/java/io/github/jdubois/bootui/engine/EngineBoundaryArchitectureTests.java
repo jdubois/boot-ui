@@ -46,4 +46,19 @@ class EngineBoundaryArchitectureTests {
             .dependOnClassesThat()
             .resideInAPackage("jakarta.persistence..")
             .because("jakarta.persistence access is concentrated in JpaMetamodelReader (R2 optional-dependency port)");
+
+    @ArchTest
+    static final ArchRule onlyTheSpanExporterTouchesOpenTelemetry = ArchRuleDefinition.noClasses()
+            .that()
+            .resideInAPackage("io.github.jdubois.bootui.engine..")
+            // Exclude BootUiSpanExporter and the synthetic switch-map class (BootUiSpanExporter$1) that
+            // javac emits for its switch over io.opentelemetry.api.common.AttributeType.
+            .and()
+            .haveNameNotMatching(".*BootUiSpanExporter(\\$.*)?")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("io.opentelemetry.sdk..", "io.opentelemetry.api..")
+            .because("the OpenTelemetry SDK is an optional dependency concentrated in BootUiSpanExporter "
+                    + "(R2 optional-dependency port); the rest of the telemetry engine works over neutral "
+                    + "NormalizedSpan records so the OTLP-decoding adapter never forces OTel on a consumer");
 }

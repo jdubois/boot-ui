@@ -1,6 +1,5 @@
-package io.github.jdubois.bootui.autoconfigure.otlp;
+package io.github.jdubois.bootui.engine.telemetry;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.Value;
@@ -16,30 +15,40 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * In-process OpenTelemetry {@link SpanExporter} that normalizes spans into the BootUI
+ * {@link TelemetryStore}. Framework-neutral: capture gating and self-span classification are supplied
+ * through the {@link TelemetrySettings} and {@link SelfTelemetryClassifier} seams.
+ *
+ * <p>This is the sole engine type that touches the OpenTelemetry SDK; the dependency is optional and
+ * a concentration ArchUnit rule pins it here.</p>
+ */
 public final class BootUiSpanExporter implements SpanExporter {
 
     private static final AttributeKey<String> SERVICE_NAME = AttributeKey.stringKey("service.name");
 
     private final TelemetryStore store;
 
-    private final BootUiProperties properties;
+    private final SelfTelemetryClassifier selfClassifier;
 
-    public BootUiSpanExporter(TelemetryStore store, BootUiProperties properties) {
+    private final TelemetrySettings settings;
+
+    public BootUiSpanExporter(
+            TelemetryStore store, SelfTelemetryClassifier selfClassifier, TelemetrySettings settings) {
         this.store = store;
-        this.properties = properties;
+        this.selfClassifier = selfClassifier;
+        this.settings = settings;
     }
 
     @Override
     public CompletableResultCode export(Collection<SpanData> spans) {
-        BootUiProperties.Telemetry telemetry = properties.getTelemetry();
-        if (!telemetry.isEnabled() || spans == null || spans.isEmpty()) {
+        if (!settings.enabled() || spans == null || spans.isEmpty()) {
             return CompletableResultCode.ofSuccess();
         }
-        String apiPath = properties.getApiPath();
-        boolean excludeSelf = telemetry.isExcludeSelfSpans();
+        boolean excludeSelf = settings.excludeSelfSpans();
         for (SpanData span : spans) {
             NormalizedSpan normalized = toNormalized(span);
-            boolean selfSpan = excludeSelf && TelemetrySpanFilter.isSelfSpan(normalized, apiPath);
+            boolean selfSpan = excludeSelf && selfClassifier.isBootUiSpan(normalized);
             store.add(normalized, selfSpan);
         }
         return CompletableResultCode.ofSuccess();
@@ -133,18 +142,7 @@ public final class BootUiSpanExporter implements SpanExporter {
     }
 
     private String truncate(String value) {
-        if (value == null) {
-            return null;
-        }
-        int max = Math.max(
-                64,
-                Math.min(
-                        OtlpSpanDecoder.HARD_MAX_ATTRIBUTE_VALUE_CHARS,
-                        properties.getTelemetry().getMaxAttributeValueBytes()));
-        if (value.length() <= max) {
-            return value;
-        }
-        return value.substring(0, max) + "…[truncated " + (value.length() - max) + " chars]";
+        return TelemetryLimits.truncate(value, settings.maxAttributeValueBytes());
     }
 
     private static String emptyToNull(String s) {

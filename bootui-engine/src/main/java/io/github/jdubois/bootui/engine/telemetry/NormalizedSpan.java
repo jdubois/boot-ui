@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.otlp;
+package io.github.jdubois.bootui.engine.telemetry;
 
 import java.util.List;
 import java.util.Map;
