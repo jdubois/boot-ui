@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac.fixtures;
+package io.github.jdubois.bootui.engine.crac.fixtures;
 
 /** Captures a secret in a static field (CRAC-SECRET-001). */
 public class SecretHolder {

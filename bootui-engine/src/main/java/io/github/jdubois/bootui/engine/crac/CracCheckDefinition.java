@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac;
+package io.github.jdubois.bootui.engine.crac;
 
 /**
  * Immutable description of one curated CRaC checkpoint/restore readiness check. The definition is

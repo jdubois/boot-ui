@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac.fixtures;
+package io.github.jdubois.bootui.engine.crac.fixtures;
 
 import java.security.SecureRandom;
 

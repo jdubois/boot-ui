@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac;
+package io.github.jdubois.bootui.engine.crac;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 

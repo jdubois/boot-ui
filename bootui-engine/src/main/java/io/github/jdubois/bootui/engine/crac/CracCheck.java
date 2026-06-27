@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac;
+package io.github.jdubois.bootui.engine.crac;
 
 import io.github.jdubois.bootui.core.dto.CracFindingDto;
 

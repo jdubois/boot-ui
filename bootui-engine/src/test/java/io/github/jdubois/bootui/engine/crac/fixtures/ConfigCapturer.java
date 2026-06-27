@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac.fixtures;
+package io.github.jdubois.bootui.engine.crac.fixtures;
 
 /** Captures environment and system configuration in a static initializer (CRAC-CONFIG-001). */
 public class ConfigCapturer {

@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac;
+package io.github.jdubois.bootui.engine.crac;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.CracFindingDto;
@@ -21,7 +21,7 @@ import java.util.function.Supplier;
  * checks. Results are heuristic review prompts that complement, but do not replace, an actual
  * checkpoint/restore run on a CRaC-enabled JDK.</p>
  */
-final class CracReadinessScanner {
+public final class CracReadinessScanner {
 
     static final String ANALYZER = "BootUI CRaC readiness";
     static final String DISCLAIMER =
@@ -56,7 +56,21 @@ final class CracReadinessScanner {
         this.inventorySupplier = inventorySupplier;
     }
 
-    CracScanResult initialResult() {
+    /**
+     * Builds a scanner that imports the host application's compiled classes from the classpath, bounded to
+     * the supplied base packages, and reads a live runtime inventory through the supplied seam. Base packages
+     * are read <em>live</em> on every scan (the supplier is typically backed by a {@code BasePackageProvider}
+     * SPI), and the runtime inventory is captured once per scan; the ArchUnit import runs only on demand
+     * (POST /scan), never at construction.
+     */
+    public static CracReadinessScanner usingClasspath(
+            Supplier<List<String>> basePackagesSupplier,
+            Supplier<CracRuntimeInventory> inventorySupplier,
+            Clock clock) {
+        return new CracReadinessScanner(basePackagesSupplier, new ClassFileCracImporter(), clock, inventorySupplier);
+    }
+
+    public CracScanResult initialResult() {
         BasePackageDetection basePackages = detectBasePackages();
         return new CracScanResult(
                 "NOT_SCANNED",
@@ -69,7 +83,7 @@ final class CracReadinessScanner {
                 basePackages.warnings());
     }
 
-    CracScanResult scan() {
+    public CracScanResult scan() {
         BasePackageDetection basePackages = detectBasePackages();
         if (basePackages.packages().isEmpty()) {
             return new CracScanResult(
@@ -132,7 +146,7 @@ final class CracReadinessScanner {
     }
 
     /** Assembles the DTO report served to the panel from a cached scan plus a fresh runtime status. */
-    CracReadinessReport report(CracScanResult scan, CracRuntimeStatusDto runtime) {
+    public CracReadinessReport report(CracScanResult scan, CracRuntimeStatusDto runtime) {
         List<CracFindingDto> findings = reviewFindings(scan.findings());
         int findingsFound = findings.size();
         CracScanStatusDto status = new CracScanStatusDto(
@@ -211,7 +225,7 @@ final class CracReadinessScanner {
     }
 
     /** Scan-specific portion of a CRaC readiness run, cached by the controller between requests. */
-    record CracScanResult(
+    public record CracScanResult(
             String status,
             String message,
             Long scannedAt,
@@ -221,7 +235,7 @@ final class CracReadinessScanner {
             List<CracFindingDto> findings,
             List<String> warnings) {
 
-        CracScanResult {
+        public CracScanResult {
             basePackages = List.copyOf(basePackages);
             findings = List.copyOf(findings);
             warnings = List.copyOf(warnings);

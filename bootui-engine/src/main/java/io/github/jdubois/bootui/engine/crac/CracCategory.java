@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac;
+package io.github.jdubois.bootui.engine.crac;
 
 /**
  * Logical grouping for the curated CRaC checkpoint/restore readiness checks so the panel can

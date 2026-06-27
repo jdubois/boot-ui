@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.crac;
+package io.github.jdubois.bootui.engine.crac;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import java.util.List;

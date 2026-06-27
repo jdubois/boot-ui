@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.crac;
 
-import io.github.jdubois.bootui.autoconfigure.crac.CracReadinessScanner.CracScanResult;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectBuildSystem;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.InstallOutcome;
@@ -10,8 +9,9 @@ import io.github.jdubois.bootui.core.dto.CracInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.CracInstallResultDto;
 import io.github.jdubois.bootui.core.dto.CracReadinessReport;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
+import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
+import io.github.jdubois.bootui.engine.crac.CracReadinessScanner.CracScanResult;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -55,13 +55,10 @@ public class CracController {
     private volatile CracScanResult lastResult;
 
     @Autowired
-    public CracController(ApplicationContext applicationContext, Environment environment) {
+    public CracController(
+            CracReadinessScanner scanner, ApplicationContext applicationContext, Environment environment) {
         this(
-                new CracReadinessScanner(
-                        () -> CracPackages.detect(applicationContext),
-                        new ClassFileCracImporter(),
-                        Clock.systemUTC(),
-                        () -> CracRuntimeInventoryCollector.collect(applicationContext)),
+                scanner,
                 new CracRuntimeStatusCollector(
                         environment, () -> CracRuntimeInventoryCollector.collect(applicationContext)),
                 ProjectSourceTree.forApplication(applicationContext));

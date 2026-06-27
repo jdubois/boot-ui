@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.crac;
 
+import io.github.jdubois.bootui.engine.crac.CracRuntimeInventory;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -19,7 +20,7 @@ import org.springframework.util.ClassUtils;
  * that are actually on the classpath, so a missing optional dependency never fails the scan. All
  * access is read-only and never triggers a checkpoint.</p>
  */
-final class CracRuntimeInventoryCollector {
+public final class CracRuntimeInventoryCollector {
 
     /**
      * Bean types that own pooled OS sockets and therefore matter for a clean checkpoint. Each entry
@@ -51,7 +52,7 @@ final class CracRuntimeInventoryCollector {
 
     private CracRuntimeInventoryCollector() {}
 
-    static CracRuntimeInventory collect(ApplicationContext applicationContext) {
+    public static CracRuntimeInventory collect(ApplicationContext applicationContext) {
         if (applicationContext == null) {
             return CracRuntimeInventory.empty();
         }
@@ -61,7 +62,7 @@ final class CracRuntimeInventoryCollector {
                     applicationContext,
                     List.of(CACHE_MANAGER_TYPE_NAME),
                     type -> NO_OP_CACHE_MANAGER_TYPE_NAME.equals(type.getName()));
-            return new CracRuntimeInventory(poolBeans, cacheBeans, applicationContext.getEnvironment());
+            return new CracRuntimeInventory(poolBeans, cacheBeans);
         } catch (RuntimeException ex) {
             return CracRuntimeInventory.empty();
         }

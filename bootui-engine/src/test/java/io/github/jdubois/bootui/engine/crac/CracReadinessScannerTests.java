@@ -1,11 +1,11 @@
-package io.github.jdubois.bootui.autoconfigure.crac;
+package io.github.jdubois.bootui.engine.crac;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.crac.CracReadinessScanner.CracScanResult;
 import io.github.jdubois.bootui.core.dto.CracFindingDto;
 import io.github.jdubois.bootui.core.dto.CracReadinessReport;
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
+import io.github.jdubois.bootui.engine.crac.CracReadinessScanner.CracScanResult;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 
 class CracReadinessScannerTests {
 
-    private static final String FIXTURES = "io.github.jdubois.bootui.autoconfigure.crac.fixtures";
+    private static final String FIXTURES = "io.github.jdubois.bootui.engine.crac.fixtures";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
     private static final CracRuntimeStatusDto RUNTIME =
             new CracRuntimeStatusDto(false, false, "Test JVM", false, null, null, List.of(), "summary", List.of());
@@ -113,7 +113,7 @@ class CracReadinessScannerTests {
     @Test
     void scanFlagsConnectionPoolWhenInventoryReportsOne() {
         CracRuntimeInventory inventory =
-                new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"), null);
+                new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"));
         CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
 
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);
@@ -131,9 +131,7 @@ class CracReadinessScannerTests {
     @Test
     void scanFlagsCacheManagerWhenInventoryReportsOne() {
         CracRuntimeInventory inventory = new CracRuntimeInventory(
-                List.of(),
-                List.of("cacheManager : org.springframework.cache.concurrent.ConcurrentMapCacheManager"),
-                null);
+                List.of(), List.of("cacheManager : org.springframework.cache.concurrent.ConcurrentMapCacheManager"));
         CracReadinessScanner scanner = scanner(List.of(FIXTURES), inventory);
 
         CracReadinessReport report = scanner.report(scanner.scan(), RUNTIME);

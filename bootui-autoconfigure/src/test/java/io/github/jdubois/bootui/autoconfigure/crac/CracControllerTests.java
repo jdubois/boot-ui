@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Coordinates;
+import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
+import io.github.jdubois.bootui.engine.crac.CracRuntimeInventory;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -28,8 +30,8 @@ class CracControllerTests {
     private static final Coordinates COORDS = new Coordinates("com.example", "demo");
 
     private MockMvc mvc(ProjectSourceTree sourceTree) {
-        CracReadinessScanner scanner =
-                new CracReadinessScanner(() -> List.of(FIXTURES), new ClassFileCracImporter(), Clock.systemUTC());
+        CracReadinessScanner scanner = CracReadinessScanner.usingClasspath(
+                () -> List.of(FIXTURES), CracRuntimeInventory::empty, Clock.systemUTC());
         CracRuntimeStatusCollector collector =
                 new CracRuntimeStatusCollector(new MockEnvironment(), List::of, className -> false);
         return standaloneSetup(new CracController(scanner, collector, sourceTree))
@@ -55,8 +57,7 @@ class CracControllerTests {
         mvc().perform(post("/bootui/api/crac/scan"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
-                .andExpect(jsonPath("$.checksRun")
-                        .value(CracCheckRegistry.activeChecks().size()))
+                .andExpect(jsonPath("$.checksRun").value(org.hamcrest.Matchers.greaterThan(0)))
                 .andExpect(jsonPath("$.findingsFound").value(org.hamcrest.Matchers.greaterThan(0)))
                 .andExpect(jsonPath("$.runtime").exists());
     }

@@ -3,10 +3,12 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
+import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
 import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
@@ -119,6 +121,21 @@ public class BootUiEngineConfiguration {
                 basePackageProvider::basePackages,
                 new GraalVmDependencySettings(graalvm.isRepositoryLookupEnabled(), graalvm.getMaxRepositoryLookups()),
                 new HttpReachabilityMetadataRepository(graalvm.getRepositoryLookupTimeout()),
+                Clock.systemUTC());
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    CracReadinessScanner bootUiCracReadinessScanner(
+            BasePackageProvider basePackageProvider, ApplicationContext applicationContext) {
+        // Reuses the shared BasePackageProvider SPI (live base packages) and reads a live runtime inventory of
+        // auto-configured resources (connection pools, cache managers) through the engine's CracRuntimeInventory
+        // supplier seam; this adapter supplies the Spring bean inspection so bootui-engine stays framework-neutral.
+        // The ArchUnit import runs only on demand (POST /scan), never at bean construction.
+        return CracReadinessScanner.usingClasspath(
+                basePackageProvider::basePackages,
+                () -> CracRuntimeInventoryCollector.collect(applicationContext),
                 Clock.systemUTC());
     }
 

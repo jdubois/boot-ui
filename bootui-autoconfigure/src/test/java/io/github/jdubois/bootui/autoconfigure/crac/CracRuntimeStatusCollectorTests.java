@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.crac;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
+import io.github.jdubois.bootui.engine.crac.CracRuntimeInventory;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -89,7 +90,7 @@ class CracRuntimeStatusCollectorTests {
     @Test
     void surfacesConnectionPoolsAsRestoreCaveat() {
         CracRuntimeInventory inventory =
-                new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"), null);
+                new CracRuntimeInventory(List.of("dataSource : com.zaxxer.hikari.HikariDataSource"));
         CracRuntimeStatusCollector collector = new CracRuntimeStatusCollector(new MockEnvironment(), () -> inventory);
 
         CracRuntimeStatusDto status = collector.collect();

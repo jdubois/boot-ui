@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.crac;
 
 import io.github.jdubois.bootui.core.dto.CracRuntimeStatusDto;
+import io.github.jdubois.bootui.engine.crac.CracRuntimeInventory;
 import java.lang.management.RuntimeMXBean;
 import java.util.ArrayList;
 import java.util.List;
