@@ -26,7 +26,9 @@ public class CatalogService {
     @CacheResult(cacheName = "sample-products")
     @Transactional
     public List<ProductSummary> activeProducts() {
-        return products.findActiveOrderByName().stream().map(ProductSummary::from).toList();
+        return products.findActiveOrderByName().stream()
+                .map(ProductSummary::from)
+                .toList();
     }
 
     @Transactional
@@ -37,7 +39,9 @@ public class CatalogService {
 
     @Transactional
     public List<ProductSummary> securedCatalog() {
-        return products.findActiveOrderByName().stream().map(ProductSummary::from).toList();
+        return products.findActiveOrderByName().stream()
+                .map(ProductSummary::from)
+                .toList();
     }
 
     @CacheInvalidateAll(cacheName = "sample-products")

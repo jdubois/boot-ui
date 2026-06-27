@@ -103,11 +103,16 @@ public class SampleResource {
             ordersProcessedCounter.increment();
         }
         return Map.of(
-                "iterations", iterations,
-                "counter", "sample.orders.processed",
-                "counterTotal", ordersProcessedCounter.count(),
-                "timer", "sample.orders.duration",
-                "timerCount", orderDurationTimer.count());
+                "iterations",
+                iterations,
+                "counter",
+                "sample.orders.processed",
+                "counterTotal",
+                ordersProcessedCounter.count(),
+                "timer",
+                "sample.orders.duration",
+                "timerCount",
+                orderDurationTimer.count());
     }
 
     /** Briefly allocates and touches a bounded heap buffer for the Live Memory / Heap Dump panels. */

@@ -42,9 +42,10 @@ public class ChatResource {
 
     private static Response aiUnavailable() {
         return Response.status(Response.Status.SERVICE_UNAVAILABLE)
-                .entity(Map.of(
-                        "error",
-                        "LangChain4j Ollama is not reachable. Start Ollama (or the docker profile) and pull the model."))
+                .entity(
+                        Map.of(
+                                "error",
+                                "LangChain4j Ollama is not reachable. Start Ollama (or the docker profile) and pull the model."))
                 .build();
     }
 
