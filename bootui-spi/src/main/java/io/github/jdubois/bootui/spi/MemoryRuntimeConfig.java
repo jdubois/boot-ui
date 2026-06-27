@@ -21,9 +21,18 @@ public interface MemoryRuntimeConfig {
     boolean kubernetesHealthProbesEnabled();
 
     /**
+     * How this application exposes its Kubernetes health-probe endpoints: the startup, liveness and
+     * readiness HTTP paths plus the optional environment variable that turns them on. This lets the
+     * engine render the Kubernetes manifest without hardcoding any one framework's URLs or switch.
+     */
+    HealthProbeManifest healthProbeManifest();
+
+    /**
      * Neutral defaults used when no adapter binding is supplied (e.g. the no-arg engine constructor or
-     * unit tests): virtual threads off, health probes assumed on. These match the original Spring
-     * behavior for an absent {@code Environment}.
+     * unit tests): virtual threads off, health probes assumed on, and the Spring Actuator health-probe
+     * manifest. These match the original Spring behavior for an absent {@code Environment}; real adapters
+     * always supply their own {@link #healthProbeManifest()}, so this fallback is never used in
+     * production.
      */
     MemoryRuntimeConfig DEFAULTS = new MemoryRuntimeConfig() {
 
@@ -35,6 +44,11 @@ public interface MemoryRuntimeConfig {
         @Override
         public boolean kubernetesHealthProbesEnabled() {
             return true;
+        }
+
+        @Override
+        public HealthProbeManifest healthProbeManifest() {
+            return HealthProbeManifest.SPRING_ACTUATOR;
         }
     };
 }

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -47,6 +48,11 @@ public class QuarkusMemoryRuntimeConfig implements MemoryRuntimeConfig {
     @Override
     public boolean kubernetesHealthProbesEnabled() {
         return SMALLRYE_HEALTH_PRESENT;
+    }
+
+    @Override
+    public HealthProbeManifest healthProbeManifest() {
+        return HealthProbeManifest.QUARKUS_SMALLRYE;
     }
 
     private static boolean isSmallRyeHealthPresent() {

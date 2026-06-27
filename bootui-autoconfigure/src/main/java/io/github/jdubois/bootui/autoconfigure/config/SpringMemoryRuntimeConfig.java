@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.config;
 
+import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
 import org.springframework.core.env.Environment;
 
@@ -48,5 +49,10 @@ public class SpringMemoryRuntimeConfig implements MemoryRuntimeConfig {
             return false;
         }
         return environment.getProperty(HEALTH_PROBES_ENABLED_PROPERTY, Boolean.class, true);
+    }
+
+    @Override
+    public HealthProbeManifest healthProbeManifest() {
+        return HealthProbeManifest.SPRING_ACTUATOR;
     }
 }

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
+import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -32,7 +33,8 @@ final class MemoryKubernetesSizer {
             double initialRamPercentage,
             String javaToolOptions,
             boolean burstableEnabled,
-            boolean actuatorProbesEnabled) {
+            boolean healthProbesEnabled,
+            HealthProbeManifest healthProbeManifest) {
 
         long currentSnapshotBytes = estimateCurrentSnapshotBytes(
                 calculation, heapCommittedBytes, nonHeapCommittedBytes, directBufferMemoryUsedBytes);
@@ -61,7 +63,7 @@ final class MemoryKubernetesSizer {
                     0,
                     "",
                     burstableEnabled,
-                    actuatorProbesEnabled);
+                    healthProbesEnabled);
         }
 
         long limitBytes = calculation.totalMemoryBytes();
@@ -76,10 +78,16 @@ final class MemoryKubernetesSizer {
                 maxRamPercentage,
                 javaToolOptions,
                 burstableEnabled,
-                actuatorProbesEnabled);
+                healthProbesEnabled,
+                healthProbeManifest);
         String confidence = confidence(calculation, nativeMemoryTrackingEnabled, detectedContainerLimitBytes);
         String qosClass = requestBytes < limitBytes ? "Burstable" : "Guaranteed";
-        String yaml = buildYaml(formatMi(requestBytes), formatMi(limitBytes), javaToolOptions, actuatorProbesEnabled);
+        String yaml = buildYaml(
+                formatMi(requestBytes),
+                formatMi(limitBytes),
+                javaToolOptions,
+                healthProbesEnabled,
+                healthProbeManifest);
 
         return new KubernetesMemoryRecommendationDto(
                 requestBytes,
@@ -100,7 +108,7 @@ final class MemoryKubernetesSizer {
                 initialRamPercentage,
                 javaToolOptions,
                 burstableEnabled,
-                actuatorProbesEnabled);
+                healthProbesEnabled);
     }
 
     static double heapPercentage(MemoryCalculationDto calculation) {
@@ -140,7 +148,8 @@ final class MemoryKubernetesSizer {
             double maxRamPercentage,
             String javaToolOptions,
             boolean burstableEnabled,
-            boolean actuatorProbesEnabled) {
+            boolean healthProbesEnabled,
+            HealthProbeManifest healthProbeManifest) {
 
         List<String> warnings = new ArrayList<>();
         warnings.add(garbageCollectorWarning(javaToolOptions));
@@ -151,9 +160,8 @@ final class MemoryKubernetesSizer {
             warnings.add(
                     "Request equals limit for Kubernetes Guaranteed QoS; enable burstable mode only in clusters that intentionally overcommit memory.");
         }
-        if (!actuatorProbesEnabled) {
-            warnings.add(
-                    "Spring Boot Actuator probes are omitted from the snippet; enabling them is recommended so Kubernetes can restart or drain unhealthy pods.");
+        if (!healthProbesEnabled) {
+            warnings.add(healthProbeManifest.probesOmittedWarning());
         }
         warnings.add(
                 "JAVA_TOOL_OPTIONS uses MaxRAMPercentage/InitialRAMPercentage so the heap follows the container memory limit; fixed metaspace, code cache, direct memory, and stack caps must still fit if you shrink the pod.");
@@ -227,7 +235,11 @@ final class MemoryKubernetesSizer {
     }
 
     private static String buildYaml(
-            String requestMemory, String limitMemory, String javaToolOptions, boolean actuatorProbesEnabled) {
+            String requestMemory,
+            String limitMemory,
+            String javaToolOptions,
+            boolean healthProbesEnabled,
+            HealthProbeManifest healthProbeManifest) {
         String escapedJvmOptions = javaToolOptions.replace("\\", "\\\\").replace("\"", "\\\"");
         StringBuilder yaml = new StringBuilder(512);
         yaml.append("resources:\n")
@@ -244,26 +256,39 @@ final class MemoryKubernetesSizer {
                 .append("    value: >-\n")
                 .append("      ")
                 .append(escapedJvmOptions);
-        if (actuatorProbesEnabled) {
-            yaml.append("\n")
-                    .append("  - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED\n")
-                    .append("    value: \"true\"\n")
-                    .append("startupProbe:\n")
+        if (healthProbesEnabled) {
+            // Terminate the JAVA_TOOL_OPTIONS value line before the (optional) enabling env entry or the
+            // probe stanzas, so frameworks without an enabling env var (e.g. Quarkus) still yield valid YAML.
+            yaml.append("\n");
+            if (healthProbeManifest.enablingEnvVar() != null) {
+                // The value is always literal "true"; only the variable name is framework-specific today.
+                yaml.append("  - name: ")
+                        .append(healthProbeManifest.enablingEnvVar())
+                        .append("\n")
+                        .append("    value: \"true\"\n");
+            }
+            yaml.append("startupProbe:\n")
                     .append("  httpGet:\n")
-                    .append("    path: /actuator/health/liveness\n")
+                    .append("    path: ")
+                    .append(healthProbeManifest.startupPath())
+                    .append("\n")
                     .append("    port: 8080\n")
                     .append("  failureThreshold: 30\n")
                     .append("  periodSeconds: 10\n")
                     .append("readinessProbe:\n")
                     .append("  httpGet:\n")
-                    .append("    path: /actuator/health/readiness\n")
+                    .append("    path: ")
+                    .append(healthProbeManifest.readinessPath())
+                    .append("\n")
                     .append("    port: 8080\n")
                     .append("  periodSeconds: 10\n")
                     .append("  timeoutSeconds: 5\n")
                     .append("  failureThreshold: 3\n")
                     .append("livenessProbe:\n")
                     .append("  httpGet:\n")
-                    .append("    path: /actuator/health/liveness\n")
+                    .append("    path: ")
+                    .append(healthProbeManifest.livenessPath())
+                    .append("\n")
                     .append("    port: 8080\n")
                     .append("  periodSeconds: 15\n")
                     .append("  timeoutSeconds: 5\n")

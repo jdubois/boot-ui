@@ -115,7 +115,8 @@ public class MemoryReportProvider {
                 initialRamPercentage,
                 kubernetesJvmOptions,
                 resolvedKubernetesBurstableEnabled,
-                resolvedKubernetesActuatorEnabled);
+                resolvedKubernetesActuatorEnabled,
+                runtimeConfig.healthProbeManifest());
 
         return new LiveMemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation, kubernetes);
     }

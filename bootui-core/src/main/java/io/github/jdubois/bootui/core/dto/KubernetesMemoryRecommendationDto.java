@@ -25,4 +25,4 @@ public record KubernetesMemoryRecommendationDto(
         double initialRamPercentage,
         String javaToolOptions,
         boolean burstableEnabled,
-        boolean actuatorProbesEnabled) {}
+        boolean healthProbesEnabled) {}

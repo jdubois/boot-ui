@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import io.github.jdubois.bootui.engine.memory.MemoryCalculator.JdkVersion;
+import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import java.util.OptionalLong;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,7 @@ class MemoryKubernetesSizerTests {
         assertThat(recommendation.limitMemory()).isEqualTo("1024Mi");
         assertThat(recommendation.qosClass()).isEqualTo("Guaranteed");
         assertThat(recommendation.burstableEnabled()).isFalse();
-        assertThat(recommendation.actuatorProbesEnabled()).isTrue();
+        assertThat(recommendation.healthProbesEnabled()).isTrue();
         assertThat(recommendation.confidence()).isEqualTo("High");
         assertThat(recommendation.detectedContainerLimitMemory()).isEqualTo("1024Mi");
         assertThat(recommendation.maxRamPercentage()).isGreaterThan(0).isLessThanOrEqualTo(75.0);
@@ -84,7 +85,7 @@ class MemoryKubernetesSizerTests {
         KubernetesMemoryRecommendationDto recommendation =
                 recommend(calculation, 256 * MB, 128 * MB, 8 * MB, true, null, false, false);
 
-        assertThat(recommendation.actuatorProbesEnabled()).isFalse();
+        assertThat(recommendation.healthProbesEnabled()).isFalse();
         assertThat(recommendation.yaml())
                 .doesNotContain("MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED")
                 .doesNotContain("startupProbe")
@@ -92,6 +93,55 @@ class MemoryKubernetesSizerTests {
                 .doesNotContain("livenessProbe");
         assertThat(recommendation.warnings())
                 .anySatisfy(warning -> assertThat(warning).contains("Actuator probes are omitted"));
+    }
+
+    @Test
+    void quarkusManifestUsesSmallRyePathsAndOmitsEnablingEnvVar() {
+        MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
+
+        KubernetesMemoryRecommendationDto recommendation = recommend(
+                calculation,
+                256 * MB,
+                128 * MB,
+                8 * MB,
+                true,
+                1024 * MB,
+                false,
+                true,
+                HealthProbeManifest.QUARKUS_SMALLRYE);
+
+        assertThat(recommendation.healthProbesEnabled()).isTrue();
+        assertThat(recommendation.yaml())
+                .doesNotContain("MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED")
+                .doesNotContain("/actuator/health")
+                .contains("    path: /q/health/started\n")
+                .contains("    path: /q/health/ready\n")
+                .contains("    path: /q/health/live\n")
+                .contains("\nstartupProbe:\n")
+                .doesNotContain("\n\nstartupProbe");
+    }
+
+    @Test
+    void quarkusManifestOmittedProbesWarningIsFrameworkNeutral() {
+        MemoryCalculationDto calculation = calculator.calculate(1024 * MB, 250, 5_000, 10, 40, 5_000);
+
+        KubernetesMemoryRecommendationDto recommendation = recommend(
+                calculation,
+                256 * MB,
+                128 * MB,
+                8 * MB,
+                true,
+                null,
+                false,
+                false,
+                HealthProbeManifest.QUARKUS_SMALLRYE);
+
+        assertThat(recommendation.healthProbesEnabled()).isFalse();
+        assertThat(recommendation.yaml()).doesNotContain("startupProbe");
+        assertThat(recommendation.warnings())
+                .anySatisfy(warning -> assertThat(warning)
+                        .contains("Kubernetes liveness/readiness health probes are omitted")
+                        .doesNotContain("Spring Boot Actuator"));
     }
 
     @Test
@@ -158,6 +208,33 @@ class MemoryKubernetesSizerTests {
             long nonHeapCommittedBytes,
             long directBufferMemoryUsedBytes,
             boolean nativeMemoryTrackingEnabled,
+            Long detectedContainerLimitBytes,
+            boolean burstableEnabled,
+            boolean healthProbesEnabled,
+            HealthProbeManifest healthProbeManifest) {
+        double maxRamPercentage = MemoryKubernetesSizer.heapPercentage(calculation);
+        String javaToolOptions = calculator.buildKubernetesJvmOptions(calculation, maxRamPercentage, maxRamPercentage);
+        return MemoryKubernetesSizer.recommend(
+                calculation,
+                heapCommittedBytes,
+                nonHeapCommittedBytes,
+                directBufferMemoryUsedBytes,
+                nativeMemoryTrackingEnabled,
+                detectedContainerLimitBytes,
+                maxRamPercentage,
+                maxRamPercentage,
+                javaToolOptions,
+                burstableEnabled,
+                healthProbesEnabled,
+                healthProbeManifest);
+    }
+
+    private KubernetesMemoryRecommendationDto recommend(
+            MemoryCalculationDto calculation,
+            long heapCommittedBytes,
+            long nonHeapCommittedBytes,
+            long directBufferMemoryUsedBytes,
+            boolean nativeMemoryTrackingEnabled,
             Long detectedContainerLimitBytes) {
         double maxRamPercentage = MemoryKubernetesSizer.heapPercentage(calculation);
         String javaToolOptions = calculator.buildKubernetesJvmOptions(calculation, maxRamPercentage, maxRamPercentage);
@@ -172,7 +249,8 @@ class MemoryKubernetesSizerTests {
                 maxRamPercentage,
                 javaToolOptions,
                 false,
-                true);
+                true,
+                HealthProbeManifest.SPRING_ACTUATOR);
     }
 
     private KubernetesMemoryRecommendationDto recommend(
@@ -183,7 +261,7 @@ class MemoryKubernetesSizerTests {
             boolean nativeMemoryTrackingEnabled,
             Long detectedContainerLimitBytes,
             boolean burstableEnabled,
-            boolean actuatorProbesEnabled) {
+            boolean healthProbesEnabled) {
         double maxRamPercentage = MemoryKubernetesSizer.heapPercentage(calculation);
         String javaToolOptions = calculator.buildKubernetesJvmOptions(calculation, maxRamPercentage, maxRamPercentage);
         return MemoryKubernetesSizer.recommend(
@@ -197,6 +275,7 @@ class MemoryKubernetesSizerTests {
                 maxRamPercentage,
                 javaToolOptions,
                 burstableEnabled,
-                actuatorProbesEnabled);
+                healthProbesEnabled,
+                HealthProbeManifest.SPRING_ACTUATOR);
     }
 }

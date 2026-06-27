@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.engine.memory.MemoryCalculator.JdkVersion;
+import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +34,11 @@ class MemoryReportProviderTests {
             @Override
             public boolean kubernetesHealthProbesEnabled() {
                 return healthProbes;
+            }
+
+            @Override
+            public HealthProbeManifest healthProbeManifest() {
+                return HealthProbeManifest.SPRING_ACTUATOR;
             }
         };
     }
@@ -103,7 +109,7 @@ class MemoryReportProviderTests {
         assertThat(report.kubernetes().limitMemoryBytes()).isEqualTo(expectedBytes);
         assertThat(report.kubernetes().qosClass()).isEqualTo("Guaranteed");
         assertThat(report.kubernetes().burstableEnabled()).isFalse();
-        assertThat(report.kubernetes().actuatorProbesEnabled()).isTrue();
+        assertThat(report.kubernetes().healthProbesEnabled()).isTrue();
         assertThat(report.kubernetes().yaml())
                 .contains("resources:")
                 .contains("MaxRAMPercentage")
@@ -130,12 +136,12 @@ class MemoryReportProviderTests {
     void kubernetesActuatorToggleUsesRuntimeConfigAndCanBeOverridden() {
         LiveMemoryReport fromConfig =
                 providerWithDisabledDetector(config(false, false)).buildReport(1024L, null, null, null, null);
-        assertThat(fromConfig.kubernetes().actuatorProbesEnabled()).isFalse();
+        assertThat(fromConfig.kubernetes().healthProbesEnabled()).isFalse();
         assertThat(fromConfig.kubernetes().yaml()).doesNotContain("startupProbe");
 
         LiveMemoryReport overridden =
                 providerWithDisabledDetector(config(false, false)).buildReport(1024L, null, null, null, true);
-        assertThat(overridden.kubernetes().actuatorProbesEnabled()).isTrue();
+        assertThat(overridden.kubernetes().healthProbesEnabled()).isTrue();
         assertThat(overridden.kubernetes().yaml()).contains("startupProbe");
     }
 

@@ -82,7 +82,7 @@ function memoryReport({
       initialRamPercentage: 62.5,
       javaToolOptions,
       burstableEnabled: kubernetesBurstableEnabled,
-      actuatorProbesEnabled: kubernetesActuatorEnabled
+      healthProbesEnabled: kubernetesActuatorEnabled
     }
   }
 }
