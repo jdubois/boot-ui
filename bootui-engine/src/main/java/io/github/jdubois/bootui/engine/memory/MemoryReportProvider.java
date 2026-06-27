@@ -97,7 +97,8 @@ public class MemoryReportProvider {
                 resolvedHeadRoom,
                 liveThreads,
                 liveClasses,
-                resolvedVirtualThreadsEnabled);
+                resolvedVirtualThreadsEnabled,
+                runtimeConfig.virtualThreadsProperty());
         Long detectedContainerMemoryLimitBytes =
                 detectedContainerMemoryLimit.isPresent() ? detectedContainerMemoryLimit.getAsLong() : null;
         double maxRamPercentage = MemoryKubernetesSizer.heapPercentage(calculation);

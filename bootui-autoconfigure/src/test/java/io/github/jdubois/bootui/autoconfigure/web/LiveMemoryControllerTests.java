@@ -32,8 +32,26 @@ class LiveMemoryControllerTests {
     private static LiveMemoryReport sampleReport() {
         MemoryPoolDto heap = new MemoryPoolDto("Heap", 1L, 2L, 4L, 25);
         MemoryPoolDto nonHeap = new MemoryPoolDto("Non-Heap", 1L, 2L, 4L, 25);
-        MemoryCalculationDto calculation =
-                new MemoryCalculationDto(512L, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, false, "-Xmx", true, null);
+        MemoryCalculationDto calculation = new MemoryCalculationDto(
+                512L,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                7,
+                0,
+                0,
+                0,
+                0,
+                false,
+                "spring.threads.virtual.enabled",
+                "-Xmx",
+                true,
+                null);
         KubernetesMemoryRecommendationDto kubernetes = new KubernetesMemoryRecommendationDto(
                 0, 0, 0, 0, null, "", "", "", "", "", "Guaranteed", "", List.of(), "", 0, 0, "", false, true);
         return new LiveMemoryReport(heap, nonHeap, List.of(heap), List.of("-Xss"), "-Xmx", calculation, kubernetes);

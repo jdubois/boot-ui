@@ -12,10 +12,10 @@ import java.util.Set;
  * <p>The panel registry ({@link BootUiPanels}) is shared with the Spring adapter, so panel ids, titles
  * and order are identical and the shared Vue UI renders the same sidebar on both platforms. Availability
  * is platform-specific and computed here (the Spring adapter's {@code PanelsController} computes its own
- * over Actuator/bean presence). This release lights up the framework-neutral Threads, Heap Dump and
- * Live Memory panels; every other panel is reported unavailable with a clear reason until its Quarkus
- * backing is ported. Read-only is not yet modelled, so no panel is read-only ({@code readOnlyReason}
- * stays {@code null}).</p>
+ * over Actuator/bean presence). This release lights up the framework-neutral Threads, Heap Dump,
+ * Live Memory and JVM Tuning panels; every other panel is reported unavailable with a clear reason until
+ * its Quarkus backing is ported. Read-only is not yet modelled, so no panel is read-only ({@code
+ * readOnlyReason} stays {@code null}).</p>
  */
 @ApplicationScoped
 public class QuarkusPanelAvailability {
@@ -23,7 +23,7 @@ public class QuarkusPanelAvailability {
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final Set<String> AVAILABLE_PANELS =
-            Set.of(BootUiPanels.THREADS, BootUiPanels.HEAP_DUMP, BootUiPanels.LIVE_MEMORY);
+            Set.of(BootUiPanels.THREADS, BootUiPanels.HEAP_DUMP, BootUiPanels.LIVE_MEMORY, BootUiPanels.JVM_TUNING);
 
     public PanelsReport manifest() {
         return new PanelsReport(BootUiPanels.all().stream().map(this::toDto).toList());

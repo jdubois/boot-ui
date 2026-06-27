@@ -46,6 +46,13 @@ public class QuarkusMemoryRuntimeConfig implements MemoryRuntimeConfig {
     }
 
     @Override
+    public String virtualThreadsProperty() {
+        // Quarkus has no application-wide virtual-threads switch (per-endpoint @RunOnVirtualThread), so
+        // there is no property to cite; null tells the JVM Tuning panel to omit the app-wide VT advisory.
+        return null;
+    }
+
+    @Override
     public boolean kubernetesHealthProbesEnabled() {
         return SMALLRYE_HEALTH_PRESENT;
     }

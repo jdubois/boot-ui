@@ -35,6 +35,14 @@ class SpringMemoryRuntimeConfigTests {
     }
 
     @Test
+    void virtualThreadsPropertyIsTheSpringSwitchEvenWithoutAnEnvironment() {
+        assertThat(new SpringMemoryRuntimeConfig(new MockEnvironment()).virtualThreadsProperty())
+                .isEqualTo("spring.threads.virtual.enabled");
+        assertThat(new SpringMemoryRuntimeConfig(null).virtualThreadsProperty())
+                .isEqualTo("spring.threads.virtual.enabled");
+    }
+
+    @Test
     void healthProbesDefaultToEnabledWhenNothingConfigured() {
         SpringMemoryRuntimeConfig config = new SpringMemoryRuntimeConfig(new MockEnvironment());
 

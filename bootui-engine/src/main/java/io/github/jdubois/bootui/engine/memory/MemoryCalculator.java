@@ -168,6 +168,26 @@ final class MemoryCalculator {
             int liveThreadCount,
             int liveLoadedClassCount,
             boolean virtualThreadsEnabled) {
+        return calculate(
+                totalMemoryBytes,
+                threadCount,
+                loadedClasses,
+                headRoomPercent,
+                liveThreadCount,
+                liveLoadedClassCount,
+                virtualThreadsEnabled,
+                "spring.threads.virtual.enabled");
+    }
+
+    MemoryCalculationDto calculate(
+            long totalMemoryBytes,
+            int threadCount,
+            int loadedClasses,
+            int headRoomPercent,
+            int liveThreadCount,
+            int liveLoadedClassCount,
+            boolean virtualThreadsEnabled,
+            String virtualThreadsProperty) {
 
         long clampedTotal = clamp(totalMemoryBytes, MIN_TOTAL_MEMORY_BYTES, MAX_TOTAL_MEMORY_BYTES);
         int clampedThreads = (int) clamp(threadCount, MIN_THREAD_COUNT, MAX_THREAD_COUNT);
@@ -202,6 +222,7 @@ final class MemoryCalculator {
                     liveLoadedClassCount,
                     clampedHeadRoom,
                     virtualThreadsEnabled,
+                    virtualThreadsProperty,
                     "",
                     false,
                     message);
@@ -226,6 +247,7 @@ final class MemoryCalculator {
                 liveLoadedClassCount,
                 clampedHeadRoom,
                 virtualThreadsEnabled,
+                virtualThreadsProperty,
                 jvmOptions,
                 true,
                 null);

@@ -37,6 +37,13 @@ public class SpringMemoryRuntimeConfig implements MemoryRuntimeConfig {
     }
 
     @Override
+    public String virtualThreadsProperty() {
+        // Returned unconditionally (even for a null Environment): this is the name of the Spring switch,
+        // not its live value, so the JVM Tuning advisory still renders on Spring regardless of binding.
+        return VIRTUAL_THREADS_PROPERTY;
+    }
+
+    @Override
     public boolean kubernetesHealthProbesEnabled() {
         if (environment == null) {
             return true;

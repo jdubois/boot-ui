@@ -502,7 +502,7 @@ Features:
   for Guaranteed QoS and percentage-based heap sizing (`-XX:MaxRAMPercentage` / `-XX:InitialRAMPercentage`) instead of
   fixed `-Xmx` / `-Xms`, while keeping fixed non-heap caps and warnings visible.
 - The JVM Tuning panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
-  and lets the user include or omit Spring Boot Actuator startup/readiness/liveness probes. The Actuator toggle
+  and lets the user include or omit Kubernetes startup/readiness/liveness health probes. The toggle
   initializes from the current application health-probe configuration and is recommended for Kubernetes deployments.
 
 Acceptance criteria:

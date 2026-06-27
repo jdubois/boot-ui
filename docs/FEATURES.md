@@ -344,7 +344,7 @@ thread stacks, and headroom, then turns that plan into copyable JVM options with
 Kubernetes calculator keeps `requests.memory == limits.memory` for Guaranteed QoS by default, but can switch to a
 snapshot-based Burstable request when the operator intentionally overcommits memory. Its `JAVA_TOOL_OPTIONS` uses
 `-XX:MaxRAMPercentage` and `-XX:InitialRAMPercentage` instead of fixed heap sizes so the JVM heap follows the container
-memory limit when an operator resizes the pod. A Spring Boot Actuator probes toggle initializes from the current health
+memory limit when an operator resizes the pod. A Kubernetes health probes toggle initializes from the current health
 probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
 non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
 

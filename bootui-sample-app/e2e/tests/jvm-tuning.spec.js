@@ -25,7 +25,7 @@ test.describe('JVM Tuning view', () => {
     const kubernetesCard = page.locator('.card', {hasText: 'Kubernetes calculator'}).first()
     const kubernetesYaml = kubernetesCard.locator('.options-box code')
     await expect(virtualThreadsStatus).toBeVisible()
-    await expect(virtualThreadsStatus).toContainText('Spring virtual threads enabled')
+    await expect(virtualThreadsStatus).toContainText('Virtual threads enabled')
     await expect(virtualThreadsStatus).toContainText('positive for performance')
     await expect(virtualThreadsStatus).toHaveClass(/alert-info/)
     await expect(page.locator('#virtualThreadsEnabled')).toHaveCount(0)

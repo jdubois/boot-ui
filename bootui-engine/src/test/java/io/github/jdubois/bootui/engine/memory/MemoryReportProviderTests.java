@@ -32,6 +32,11 @@ class MemoryReportProviderTests {
             }
 
             @Override
+            public String virtualThreadsProperty() {
+                return "spring.threads.virtual.enabled";
+            }
+
+            @Override
             public boolean kubernetesHealthProbesEnabled() {
                 return healthProbes;
             }
