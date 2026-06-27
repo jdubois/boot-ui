@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
@@ -28,6 +29,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
+import org.springframework.util.ClassUtils;
 
 /**
  * Wires framework-neutral {@code bootui-engine} services into the Spring adapter.
@@ -84,6 +86,19 @@ public class BootUiEngineConfiguration {
         // Live policy: base packages are re-read on every scan via the BasePackageProvider SPI, and the
         // ArchUnit classpath import runs only on demand (POST /scan), never at bean construction.
         return ArchitectureScanner.usingClasspath(basePackageProvider::basePackages, Clock.systemUTC());
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    RestApiScanner bootUiRestApiScanner(BasePackageProvider basePackageProvider) {
+        // Live policy: base packages are re-read on every scan via the shared BasePackageProvider SPI, the
+        // springdoc/OpenAPI presence is probed live, and the ArchUnit import runs only on demand (POST /scan).
+        return RestApiScanner.usingClasspath(
+                basePackageProvider::basePackages,
+                () -> ClassUtils.isPresent(
+                        "io.swagger.v3.oas.annotations.Operation", BootUiEngineConfiguration.class.getClassLoader()),
+                Clock.systemUTC());
     }
 
     @Bean

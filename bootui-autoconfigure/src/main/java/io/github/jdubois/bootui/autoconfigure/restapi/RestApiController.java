@@ -2,10 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.restapi;
 
 import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
-import java.time.Clock;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
-import org.springframework.util.ClassUtils;
+import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,19 +25,7 @@ public class RestApiController {
 
     private volatile RestApiReport lastReport;
 
-    @Autowired
-    public RestApiController(ApplicationContext applicationContext, DismissedRulesStore dismissedRules) {
-        this(
-                new RestApiScanner(
-                        () -> RestApiPackages.detect(applicationContext),
-                        new ClassFileRestApiImporter(),
-                        () -> ClassUtils.isPresent(
-                                "io.swagger.v3.oas.annotations.Operation", RestApiController.class.getClassLoader()),
-                        Clock.systemUTC()),
-                dismissedRules);
-    }
-
-    RestApiController(RestApiScanner scanner, DismissedRulesStore dismissedRules) {
+    public RestApiController(RestApiScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
         this.lastReport = scanner.initialReport();
