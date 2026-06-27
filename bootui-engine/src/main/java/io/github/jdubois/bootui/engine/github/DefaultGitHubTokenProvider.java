@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.github;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -6,14 +6,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-interface GitHubTokenProvider {
-
-    Token token(Duration timeout);
-
-    record Token(String value, String source) {}
-}
-
-final class DefaultGitHubTokenProvider implements GitHubTokenProvider {
+public final class DefaultGitHubTokenProvider implements GitHubTokenProvider {
 
     private final Map<String, String> environment;
 
@@ -23,6 +16,10 @@ final class DefaultGitHubTokenProvider implements GitHubTokenProvider {
 
     DefaultGitHubTokenProvider(Map<String, String> environment) {
         this.environment = environment;
+    }
+
+    public static DefaultGitHubTokenProvider create() {
+        return new DefaultGitHubTokenProvider();
     }
 
     @Override

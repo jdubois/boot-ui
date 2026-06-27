@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.GitHubDashboardReport;
+import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
+import io.github.jdubois.bootui.engine.github.GitHubTokenProvider;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;

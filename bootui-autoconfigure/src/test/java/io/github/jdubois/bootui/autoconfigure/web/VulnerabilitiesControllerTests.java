@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,7 +26,7 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "unused", 1L, 1, dependencies)))
+                        dependencies -> DependencyReports.report(true, "SCANNED", "unused", 1L, 1, dependencies)))
                 .build();
 
         mvc.perform(get("/bootui/api/vulnerabilities"))
@@ -42,7 +43,7 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "done", 1L, 1, dependencies)))
+                        dependencies -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, dependencies)))
                 .build();
 
         mvc.perform(post("/bootui/api/vulnerabilities/scan"))
@@ -59,7 +60,7 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         properties,
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "unused", 1L, 1, dependencies)))
+                        dependencies -> DependencyReports.report(true, "SCANNED", "unused", 1L, 1, dependencies)))
                 .build();
 
         mvc.perform(post("/bootui/api/vulnerabilities/scan"))
@@ -74,7 +75,7 @@ class VulnerabilitiesControllerTests {
         MockMvc mvc = standaloneSetup(new VulnerabilitiesController(
                         new BootUiProperties(),
                         () -> List.of(dependency("org.example", "sample", "1.0.0")),
-                        dependencies -> OsvVulnerabilityScanner.report(true, "SCANNED", "done", 1L, 1, dependencies)))
+                        dependencies -> DependencyReports.report(true, "SCANNED", "done", 1L, 1, dependencies)))
                 .build();
 
         mvc.perform(post("/bootui/api/vulnerabilities/scan"))

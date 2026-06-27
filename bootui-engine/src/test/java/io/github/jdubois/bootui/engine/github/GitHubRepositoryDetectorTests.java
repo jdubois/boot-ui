@@ -1,11 +1,11 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -18,8 +18,9 @@ class GitHubRepositoryDetectorTests {
     void detectsHttpsGithubOrigin() throws Exception {
         Path project = project("https://github.com/jdubois/boot-ui.git");
 
-        GitHubRepositoryDetector.Repository repository =
-                GitHubRepositoryDetector.detect(project, new BootUiProperties()).orElseThrow();
+        GitHubRepositoryDetector.Repository repository = GitHubRepositoryDetector.detect(
+                        project, List.of("api.github.com"))
+                .orElseThrow();
 
         assertThat(repository.fullName()).isEqualTo("jdubois/boot-ui");
         assertThat(repository.apiBaseUri().toString()).isEqualTo("https://api.github.com/");
@@ -31,8 +32,9 @@ class GitHubRepositoryDetectorTests {
     void detectsScpLikeGithubOrigin() throws Exception {
         Path project = project("git@github.com:jdubois/boot-ui.git");
 
-        GitHubRepositoryDetector.Repository repository =
-                GitHubRepositoryDetector.detect(project, new BootUiProperties()).orElseThrow();
+        GitHubRepositoryDetector.Repository repository = GitHubRepositoryDetector.detect(
+                        project, List.of("api.github.com"))
+                .orElseThrow();
 
         assertThat(repository.fullName()).isEqualTo("jdubois/boot-ui");
         assertThat(repository.htmlUrl()).isEqualTo("https://github.com/jdubois/boot-ui");
@@ -41,11 +43,10 @@ class GitHubRepositoryDetectorTests {
     @Test
     void detectsConfiguredEnterpriseHost() throws Exception {
         Path project = project("git@ghe.example.com:team/service.git");
-        BootUiProperties properties = new BootUiProperties();
-        properties.getGithub().setAllowedApiHosts(new String[] {"ghe.example.com"});
 
-        GitHubRepositoryDetector.Repository repository =
-                GitHubRepositoryDetector.detect(project, properties).orElseThrow();
+        GitHubRepositoryDetector.Repository repository = GitHubRepositoryDetector.detect(
+                        project, List.of("ghe.example.com"))
+                .orElseThrow();
 
         assertThat(repository.fullName()).isEqualTo("team/service");
         assertThat(repository.apiBaseUri().toString()).isEqualTo("https://ghe.example.com/api/v3/");
@@ -55,9 +56,9 @@ class GitHubRepositoryDetectorTests {
     void rejectsNonGithubOrigin() throws Exception {
         Path project = project("https://gitlab.com/jdubois/boot-ui.git");
 
-        assertThat(GitHubRepositoryDetector.detect(project, new BootUiProperties()))
+        assertThat(GitHubRepositoryDetector.detect(project, List.of("api.github.com")))
                 .isEmpty();
-        assertThat(GitHubRepositoryDetector.unavailableReason(project, new BootUiProperties()))
+        assertThat(GitHubRepositoryDetector.unavailableReason(project, List.of("api.github.com")))
                 .contains("not github.com");
     }
 

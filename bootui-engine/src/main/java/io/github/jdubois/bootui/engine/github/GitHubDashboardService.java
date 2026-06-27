@@ -1,48 +1,38 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.github;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.*;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import tools.jackson.databind.ObjectMapper;
 
-class GitHubDashboardService {
-
-    private final BootUiProperties properties;
+public final class GitHubDashboardService {
 
     private final Path workingDirectory;
+
+    private final GitHubDashboardConfig config;
 
     private final GitHubClient client;
 
     private volatile GitHubDashboardReport lastReport;
 
-    GitHubDashboardService(BootUiProperties properties) {
-        this(
-                properties,
-                Path.of(System.getProperty("user.dir", ".")),
-                new GitHubApiClient(
-                        properties.getGithub(),
-                        HttpClient.newBuilder()
-                                .connectTimeout(properties.getGithub().getRequestTimeout())
-                                .build(),
-                        new ObjectMapper(),
-                        new DefaultGitHubTokenProvider()));
-    }
-
-    GitHubDashboardService(BootUiProperties properties, Path workingDirectory, GitHubClient client) {
-        this.properties = properties;
+    GitHubDashboardService(Path workingDirectory, GitHubDashboardConfig config, GitHubClient client) {
         this.workingDirectory = workingDirectory;
+        this.config = config;
         this.client = client;
     }
 
-    GitHubDashboardReport dashboard() {
-        GitHubRepositoryDetector.Repository repository =
-                GitHubRepositoryDetector.detect(workingDirectory, properties).orElse(null);
+    public static GitHubDashboardService using(
+            Path workingDirectory, GitHubDashboardConfig config, GitHubClient client) {
+        return new GitHubDashboardService(workingDirectory, config, client);
+    }
+
+    public GitHubDashboardReport dashboard() {
+        GitHubRepositoryDetector.Repository repository = GitHubRepositoryDetector.detect(
+                        workingDirectory, config.allowedApiHosts())
+                .orElse(null);
         if (repository == null) {
-            return unavailable(GitHubRepositoryDetector.unavailableReason(workingDirectory, properties));
+            return unavailable(GitHubRepositoryDetector.unavailableReason(workingDirectory, config.allowedApiHosts()));
         }
         GitHubDashboardReport cached = lastReport;
         if (cached != null
@@ -53,13 +43,14 @@ class GitHubDashboardService {
         return ready(repository, "Click Connect to load live GitHub metrics and quota state.");
     }
 
-    GitHubDashboardReport refresh() {
-        GitHubRepositoryDetector.Repository repository =
-                GitHubRepositoryDetector.detect(workingDirectory, properties).orElse(null);
+    public GitHubDashboardReport refresh() {
+        GitHubRepositoryDetector.Repository repository = GitHubRepositoryDetector.detect(
+                        workingDirectory, config.allowedApiHosts())
+                .orElse(null);
         if (repository == null) {
-            return unavailable(GitHubRepositoryDetector.unavailableReason(workingDirectory, properties));
+            return unavailable(GitHubRepositoryDetector.unavailableReason(workingDirectory, config.allowedApiHosts()));
         }
-        if (!properties.getGithub().isApiEnabled()) {
+        if (!config.apiEnabled()) {
             GitHubDashboardReport report = ready(
                     repository,
                     "GitHub API calls are disabled. Set bootui.github.api-enabled=true to allow the refresh action.");

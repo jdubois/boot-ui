@@ -2,6 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.*;
+import io.github.jdubois.bootui.engine.github.GitHubClient;
+import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
+import io.github.jdubois.bootui.engine.github.GitHubTokenProvider;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;

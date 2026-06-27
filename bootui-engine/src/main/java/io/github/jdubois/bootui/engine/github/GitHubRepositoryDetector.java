@@ -1,6 +1,5 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.github;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -10,13 +9,13 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class GitHubRepositoryDetector {
+public final class GitHubRepositoryDetector {
 
     private static final Pattern SCP_LIKE_REMOTE = Pattern.compile("(?:[^@]+@)?([^:]+):(.+)");
 
     private GitHubRepositoryDetector() {}
 
-    static Optional<Repository> detect(Path workingDirectory, BootUiProperties properties) {
+    public static Optional<Repository> detect(Path workingDirectory, List<String> allowedApiHosts) {
         GitLayout layout = findGitLayout(workingDirectory).orElse(null);
         if (layout == null) {
             return Optional.empty();
@@ -24,7 +23,7 @@ final class GitHubRepositoryDetector {
         Map<String, Map<String, String>> config = readConfig(layout.configPaths());
         String remoteUrl = value(config, "remote \"origin\"", "url");
         Remote remote = parseRemote(remoteUrl).orElse(null);
-        if (remote == null || !isGitHubHost(remote.host(), properties.getGithub())) {
+        if (remote == null || !isGitHubHost(remote.host(), allowedApiHosts)) {
             return Optional.empty();
         }
 
@@ -42,7 +41,7 @@ final class GitHubRepositoryDetector {
                 upstreamBranch));
     }
 
-    static String unavailableReason(Path workingDirectory, BootUiProperties properties) {
+    public static String unavailableReason(Path workingDirectory, List<String> allowedApiHosts) {
         GitLayout layout = findGitLayout(workingDirectory).orElse(null);
         if (layout == null) {
             return "No local git repository was detected";
@@ -53,7 +52,7 @@ final class GitHubRepositoryDetector {
         if (remote == null) {
             return "No GitHub origin remote was detected";
         }
-        if (!isGitHubHost(remote.host(), properties.getGithub())) {
+        if (!isGitHubHost(remote.host(), allowedApiHosts)) {
             return "Origin remote host is not github.com or an allowed GitHub Enterprise host";
         }
         return "No GitHub origin remote was detected";
@@ -229,12 +228,12 @@ final class GitHubRepositoryDetector {
         return Optional.of(new Remote(normalizeHost(host), segments[0], segments[1]));
     }
 
-    private static boolean isGitHubHost(String host, BootUiProperties.GitHub properties) {
+    private static boolean isGitHubHost(String host, List<String> allowedApiHosts) {
         String normalized = normalizeHost(host);
         if ("github.com".equals(normalized) || "ssh.github.com".equals(normalized)) {
             return true;
         }
-        return Arrays.stream(properties.getAllowedApiHosts())
+        return allowedApiHosts.stream()
                 .filter(Objects::nonNull)
                 .map(GitHubRepositoryDetector::normalizeHost)
                 .anyMatch(allowedHost -> allowedHost.equals(normalized));
@@ -257,7 +256,7 @@ final class GitHubRepositoryDetector {
         return host == null ? "" : host.toLowerCase(Locale.ROOT);
     }
 
-    record Repository(
+    public record Repository(
             String owner,
             String name,
             String fullName,

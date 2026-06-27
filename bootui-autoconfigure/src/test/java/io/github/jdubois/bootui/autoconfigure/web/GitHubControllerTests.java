@@ -8,11 +8,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.GitHubCopilotUsageDto;
 import io.github.jdubois.bootui.core.dto.GitHubCredentialDto;
 import io.github.jdubois.bootui.core.dto.GitHubDashboardReport;
 import io.github.jdubois.bootui.core.dto.GitHubRepositoryDto;
+import io.github.jdubois.bootui.engine.github.GitHubClient;
+import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
+import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
+import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -61,7 +64,8 @@ class GitHubControllerTests {
     void dashboardReturnsLocalRepositoryState() throws Exception {
         Path project = githubProject("https://github.com/jdubois/boot-ui.git");
         StubGitHubClient client = new StubGitHubClient("CONNECTED", true);
-        GitHubDashboardService service = new GitHubDashboardService(new BootUiProperties(), project, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(true, List.of("api.github.com")), client);
 
         mvcFor(service)
                 .perform(get("/bootui/api/github"))
@@ -80,8 +84,10 @@ class GitHubControllerTests {
 
     @Test
     void dashboardReportsUnavailableOutsideGitHubRepository() throws Exception {
-        GitHubDashboardService service =
-                new GitHubDashboardService(new BootUiProperties(), tempDir, new StubGitHubClient("CONNECTED", true));
+        GitHubDashboardService service = GitHubDashboardService.using(
+                tempDir,
+                new GitHubDashboardConfig(true, List.of("api.github.com")),
+                new StubGitHubClient("CONNECTED", true));
 
         mvcFor(service)
                 .perform(get("/bootui/api/github"))
@@ -95,10 +101,9 @@ class GitHubControllerTests {
     @Test
     void refreshReportsDisabledWhenApiRefreshIsDisabled() throws Exception {
         Path project = githubProject("https://github.com/jdubois/boot-ui.git");
-        BootUiProperties properties = new BootUiProperties();
-        properties.getGithub().setApiEnabled(false);
         StubGitHubClient client = new StubGitHubClient("CONNECTED", true);
-        GitHubDashboardService service = new GitHubDashboardService(properties, project, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(false, List.of("api.github.com")), client);
 
         mvcFor(service)
                 .perform(post("/bootui/api/github/refresh"))
@@ -115,7 +120,8 @@ class GitHubControllerTests {
     void refreshDelegatesToClientWhenApiEnabled() throws Exception {
         Path project = githubProject("git@github.com:jdubois/boot-ui.git");
         StubGitHubClient client = new StubGitHubClient("CONNECTED", true);
-        GitHubDashboardService service = new GitHubDashboardService(new BootUiProperties(), project, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(true, List.of("api.github.com")), client);
 
         mvcFor(service)
                 .perform(post("/bootui/api/github/refresh"))
@@ -131,7 +137,8 @@ class GitHubControllerTests {
     @Test
     void refreshReportsUnavailableOutsideGitHubRepository() throws Exception {
         StubGitHubClient client = new StubGitHubClient("CONNECTED", true);
-        GitHubDashboardService service = new GitHubDashboardService(new BootUiProperties(), tempDir, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                tempDir, new GitHubDashboardConfig(true, List.of("api.github.com")), client);
 
         mvcFor(service)
                 .perform(post("/bootui/api/github/refresh"))
@@ -146,7 +153,8 @@ class GitHubControllerTests {
     void refreshSurfacesClientErrorReport() throws Exception {
         Path project = githubProject("https://github.com/jdubois/boot-ui.git");
         StubGitHubClient client = new StubGitHubClient("ERROR", false);
-        GitHubDashboardService service = new GitHubDashboardService(new BootUiProperties(), project, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(true, List.of("api.github.com")), client);
 
         mvcFor(service)
                 .perform(post("/bootui/api/github/refresh"))

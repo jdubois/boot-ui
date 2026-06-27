@@ -3,6 +3,9 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
+import io.github.jdubois.bootui.engine.vulnerabilities.VulnerabilityScanner;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,7 +46,7 @@ public class VulnerabilitiesController {
             return cached;
         }
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
-        return OsvVulnerabilityScanner.report(
+        return DependencyReports.report(
                 properties.getVulnerabilities().isOsvEnabled(),
                 "NOT_SCANNED",
                 "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
@@ -57,7 +60,7 @@ public class VulnerabilitiesController {
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
         DependenciesReport report;
         if (!properties.getVulnerabilities().isOsvEnabled()) {
-            report = OsvVulnerabilityScanner.report(
+            report = DependencyReports.report(
                     false,
                     "DISABLED",
                     "OSV scanning is disabled. Set bootui.vulnerabilities.osv-enabled=true to allow on-demand scans.",

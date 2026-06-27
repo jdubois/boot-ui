@@ -1,8 +1,7 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -21,7 +20,8 @@ class GitHubDashboardServiceTests {
     void dashboardOnlyReadsLocalRepositoryState() throws Exception {
         Path project = githubProject("https://github.com/jdubois/boot-ui.git");
         CountingGitHubClient client = new CountingGitHubClient();
-        GitHubDashboardService service = new GitHubDashboardService(new BootUiProperties(), project, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(true, List.of("api.github.com")), client);
 
         GitHubDashboardReport report = service.dashboard();
 
@@ -35,7 +35,8 @@ class GitHubDashboardServiceTests {
     void refreshUsesClientAndCachesReportForSubsequentReads() throws Exception {
         Path project = githubProject("git@github.com:jdubois/boot-ui.git");
         CountingGitHubClient client = new CountingGitHubClient();
-        GitHubDashboardService service = new GitHubDashboardService(new BootUiProperties(), project, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(true, List.of("api.github.com")), client);
 
         GitHubDashboardReport refreshed = service.refresh();
         GitHubDashboardReport cached = service.dashboard();
@@ -48,10 +49,9 @@ class GitHubDashboardServiceTests {
     @Test
     void refreshDoesNotCallGitHubWhenApiRefreshIsDisabled() throws Exception {
         Path project = githubProject("https://github.com/jdubois/boot-ui.git");
-        BootUiProperties properties = new BootUiProperties();
-        properties.getGithub().setApiEnabled(false);
         CountingGitHubClient client = new CountingGitHubClient();
-        GitHubDashboardService service = new GitHubDashboardService(properties, project, client);
+        GitHubDashboardService service = GitHubDashboardService.using(
+                project, new GitHubDashboardConfig(false, List.of("api.github.com")), client);
 
         GitHubDashboardReport report = service.refresh();
 
@@ -61,8 +61,8 @@ class GitHubDashboardServiceTests {
 
     @Test
     void reportsUnavailableOutsideGitHubRepository() {
-        GitHubDashboardService service =
-                new GitHubDashboardService(new BootUiProperties(), tempDir, new CountingGitHubClient());
+        GitHubDashboardService service = GitHubDashboardService.using(
+                tempDir, new GitHubDashboardConfig(true, List.of("api.github.com")), new CountingGitHubClient());
 
         GitHubDashboardReport report = service.dashboard();
 

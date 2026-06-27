@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;

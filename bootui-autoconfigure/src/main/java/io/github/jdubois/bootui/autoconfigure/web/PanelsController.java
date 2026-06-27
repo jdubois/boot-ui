@@ -3,10 +3,12 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
+import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.regex.Pattern;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
@@ -226,12 +228,16 @@ public class PanelsController {
     }
 
     private boolean githubAvailable() {
-        return GitHubRepositoryDetector.detect(Path.of(System.getProperty("user.dir", ".")), properties)
+        return GitHubRepositoryDetector.detect(
+                        Path.of(System.getProperty("user.dir", ".")),
+                        Arrays.asList(properties.getGithub().getAllowedApiHosts()))
                 .isPresent();
     }
 
     private String githubUnavailableReason() {
-        return GitHubRepositoryDetector.unavailableReason(Path.of(System.getProperty("user.dir", ".")), properties);
+        return GitHubRepositoryDetector.unavailableReason(
+                Path.of(System.getProperty("user.dir", ".")),
+                Arrays.asList(properties.getGithub().getAllowedApiHosts()));
     }
 
     private boolean aiAvailable() {
