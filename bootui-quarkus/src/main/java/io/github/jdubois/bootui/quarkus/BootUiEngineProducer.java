@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus;
 
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
+import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
@@ -19,7 +20,9 @@ import org.eclipse.microprofile.config.Config;
  * rather than the SPI interface — so adding more {@code ExposurePolicy} beans later can never make this
  * wiring ambiguous. A service that needs only <em>static</em> settings ({@link HeapDumpService}) instead
  * receives an immutable {@link HeapDumpSettings} record mapped inline from {@code bootui.heap-dump.*},
- * matching the Spring factory's defaults.</p>
+ * matching the Spring factory's defaults. The {@link MemoryReportProvider} follows the live-policy shape
+ * too: it is given the concrete {@link QuarkusMemoryRuntimeConfig} bean so future
+ * {@code MemoryRuntimeConfig} beans can never make this wiring ambiguous.</p>
  */
 @ApplicationScoped
 public class BootUiEngineProducer {
@@ -28,6 +31,12 @@ public class BootUiEngineProducer {
     @Singleton
     public ThreadDumpService threadDumpService(QuarkusExposurePolicy exposure) {
         return new ThreadDumpService(exposure);
+    }
+
+    @Produces
+    @Singleton
+    public MemoryReportProvider memoryReportProvider(QuarkusMemoryRuntimeConfig runtimeConfig) {
+        return new MemoryReportProvider(runtimeConfig);
     }
 
     @Produces

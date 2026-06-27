@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.deployment;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
+import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.deployment.annotations.BuildProducer;
@@ -52,6 +53,7 @@ class BootUiQuarkusProcessor {
                 .addBeanClasses(
                         BootUiEngineProducer.class,
                         QuarkusExposurePolicy.class,
+                        QuarkusMemoryRuntimeConfig.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
