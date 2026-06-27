@@ -677,7 +677,10 @@ capture, is in-memory only, and is cleared on restart.
 
 On Quarkus the AI Usage panel is identical and reads from the same in-memory telemetry store; GenAI spans are captured
 when the application depends on `quarkus-opentelemetry` (for example alongside `quarkus-langchain4j`, or any
-OpenTelemetry GenAI instrumentation that emits the `gen_ai.*` semantic-convention spans).
+OpenTelemetry GenAI instrumentation that emits the `gen_ai.*` semantic-convention spans). When no framework is detected,
+the setup checklist adapts to the platform: on Quarkus it shows a single LangChain4j guide using `quarkus-langchain4j`
+plus `quarkus-opentelemetry` and BootUI's in-process capture model — no embedded OTLP receiver — instead of the Spring
+AI / LangChain4j side-by-side guides.
 
 ![BootUI AI Usage panel](./images/bootui-ai.webp)
 
@@ -713,7 +716,9 @@ default, and the `logging.level.io.opentelemetry`/`io.micrometer.tracing` pins) 
 specific to the Spring Boot starter. On Quarkus the same Traces panel and in-memory store are served by the extension,
 but spans are captured **in-process** through an OpenTelemetry `SpanProcessor` that is registered only when the
 application depends on `quarkus-opentelemetry` — there is no embedded OTLP receiver. Self-span filtering and the
-`bootui.telemetry.*` retention bounds behave identically on both platforms.
+`bootui.telemetry.*` retention bounds behave identically on both platforms. The panel's empty-state guidance adapts too:
+on Quarkus it points to `quarkus-opentelemetry` and the in-process capture model rather than the embedded
+`/bootui/api/otlp/v1/traces` receiver.
 
 ![BootUI Traces panel](./images/bootui-traces.webp)
 

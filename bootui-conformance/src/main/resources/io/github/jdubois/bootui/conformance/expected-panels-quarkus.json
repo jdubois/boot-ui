@@ -1,5 +1,6 @@
 {
   "_comment": "Golden manifest for the Quarkus adapter: the exact panels GET /bootui/api/panels must report, in registry order. Panel ids/titles/order are shared with the Spring adapter (same BootUiPanels registry), so this list mirrors expected-panels-spring.json; only runtime availability differs (computed by QuarkusPanelAvailability, not encoded here). Keep in sync with BootUiPanels and bootui-ui/src/main/frontend/src/routes.js.",
+  "platform": "quarkus",
   "panels": [
     { "id": "overview", "title": "Overview", "actionCapable": false },
     { "id": "health", "title": "Health", "actionCapable": false },

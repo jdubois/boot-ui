@@ -94,7 +94,18 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .as("GET /bootui/api/panels content-type (%s)", response.contentType())
                 .isTrue();
 
-        JsonNode panels = response.json().get("panels");
+        JsonNode root = response.json();
+
+        String expectedPlatform = loadExpectedPlatform();
+        JsonNode livePlatform = root.path("platform");
+        assertThat(livePlatform.isTextual())
+                .as("$.platform must be a non-null string (got %s)", livePlatform)
+                .isTrue();
+        assertThat(livePlatform.asText())
+                .as("manifest platform must match the expected fixture")
+                .isEqualTo(expectedPlatform);
+
+        JsonNode panels = root.get("panels");
         assertThat(panels).as("$.panels array").isNotNull();
         assertThat(panels.isArray()).as("$.panels is an array").isTrue();
 
@@ -223,6 +234,22 @@ public abstract class AbstractBootUiApiConformanceTest {
                         panel.get("actionCapable").asBoolean()));
             }
             return panels;
+        } catch (IOException ex) {
+            throw new UncheckedIOException("Failed to read expected-panels resource: " + resource, ex);
+        }
+    }
+
+    private String loadExpectedPlatform() {
+        String resource = expectedPanelsResource();
+        try (InputStream in = getClass().getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new IllegalStateException("Expected-panels resource not found on the classpath: " + resource);
+            }
+            JsonNode platform = MAPPER.readTree(in).path("platform");
+            assertThat(platform.isTextual())
+                    .as("expected-panels fixture %s must declare a string 'platform'", resource)
+                    .isTrue();
+            return platform.asText();
         } catch (IOException ex) {
             throw new UncheckedIOException("Failed to read expected-panels resource: " + resource, ex);
         }

@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {formatDuration, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -15,6 +15,8 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const panels = inject('panels', ref(null))
+const platform = computed(() => panels.value?.platform ?? 'spring-boot')
 const {confirm} = useConfirm()
 const report = ref(null)
 const detail = ref(null)
@@ -180,9 +182,15 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
       <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason">Trace clearing is read-only.</ReadOnlyNotice>
 
       <div v-if="report.enabled && report.retained === 0" class="alert alert-secondary">
-        No traces received yet. With the BootUI starter on the classpath, local application spans are captured
-        automatically. Exercise your application to populate this panel; cooperating services can still export OTLP to
-        <code>/bootui/api/otlp/v1/traces</code>.
+        <template v-if="platform === 'quarkus'">
+          No traces received yet. With <code>quarkus-opentelemetry</code> on the classpath, the BootUI extension
+          captures local application spans automatically, in-process. Exercise your application to populate this panel.
+        </template>
+        <template v-else>
+          No traces received yet. With the BootUI starter on the classpath, local application spans are captured
+          automatically. Exercise your application to populate this panel; cooperating services can still export OTLP to
+          <code>/bootui/api/otlp/v1/traces</code>.
+        </template>
       </div>
 
       <template v-if="report.retained > 0">

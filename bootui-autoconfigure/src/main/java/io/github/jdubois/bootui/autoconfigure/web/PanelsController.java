@@ -57,7 +57,9 @@ public class PanelsController {
 
     @GetMapping
     public PanelsReport panels() {
-        return new PanelsReport(BootUiPanels.all().stream().map(this::panel).toList());
+        return new PanelsReport(
+                PanelsReport.PLATFORM_SPRING_BOOT,
+                BootUiPanels.all().stream().map(this::panel).toList());
     }
 
     private PanelDto panel(Panel definition) {

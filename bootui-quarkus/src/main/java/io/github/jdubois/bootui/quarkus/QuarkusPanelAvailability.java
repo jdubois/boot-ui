@@ -34,7 +34,9 @@ public class QuarkusPanelAvailability {
             BootUiPanels.AI);
 
     public PanelsReport manifest() {
-        return new PanelsReport(BootUiPanels.all().stream().map(this::toDto).toList());
+        return new PanelsReport(
+                PanelsReport.PLATFORM_QUARKUS,
+                BootUiPanels.all().stream().map(this::toDto).toList());
     }
 
     private PanelDto toDto(BootUiPanels.Panel panel) {

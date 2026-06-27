@@ -309,7 +309,13 @@ sidebar from `router.options.routes`, and both adapters render the same sidebar 
 catalogue of panel ids used by the API access filters and per-adapter availability — not the sidebar/title source.
 **Availability is per-adapter**: Spring's `PanelsController` (over Actuator/bean presence) and Quarkus'
 `QuarkusPanelAvailability`; `docs/QUARKUS-SUPPORT.md` is the prose source for Quarkus-live status (`docs/FEATURES.md` does
-not yet carry a per-platform column). The stance is to harden **all visible panels**, not hide newer ones. Keep API, UI,
+not yet carry a per-platform column). The `/bootui/api/panels` manifest (`PanelsReport`) also carries a top-level
+`platform` discriminator (`spring-boot` | `quarkus`, set by each adapter's manifest builder) so the shared Vue UI can
+render framework-correct setup/empty-state copy (e.g. Traces and AI Usage point Quarkus users at in-process
+`quarkus-opentelemetry` capture instead of the embedded OTLP receiver). The UI reads it via `inject('panels')` and
+**defaults to `spring-boot` when absent** — keep that field populated in both adapters and in the conformance fixtures
+(`expected-panels-spring.json` / `expected-panels-quarkus.json`). The stance is to harden **all visible panels**, not
+hide newer ones. Keep API, UI,
 `docs/FEATURES.md`, and e2e coverage aligned across these nine groups (current order):
 
 - **Overview**: Overview, Live Activity, GitHub

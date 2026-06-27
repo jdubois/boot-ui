@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {formatDuration, formatNumber, formatRelative, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
@@ -16,6 +16,9 @@ const error = ref(null)
 const selectedSpanId = ref(null)
 const detailLoading = ref(false)
 const lastUpdated = ref(null)
+
+const panels = inject('panels', ref(null))
+const platform = computed(() => panels.value?.platform ?? 'spring-boot')
 
 const isStale = computed(() => {
   if (autoRefresh.value || !lastUpdated.value) return false
@@ -396,7 +399,9 @@ const detectedFrameworks = computed(() => {
 const detectedFrameworkLabel = computed(() => {
   if (!overview.value) return null
   const frameworks = detectedFrameworks.value
-  if (frameworks.length === 0) return 'Spring AI or LangChain4j not on classpath'
+  if (frameworks.length === 0) {
+    return platform.value === 'quarkus' ? 'LangChain4j not on classpath' : 'Spring AI or LangChain4j not on classpath'
+  }
   return `${frameworks.join(' & ')} detected`
 })
 </script>
@@ -439,6 +444,7 @@ const detectedFrameworkLabel = computed(() => {
         v-if="!overview.enabled || !frameworkDetected"
         :enabled="overview.enabled"
         :has-data="hasAnyData"
+        :platform="platform"
         :spring-ai-detected="overview.springAiDetected"
         :lang-chain4j-detected="overview.langChain4jDetected"
       />

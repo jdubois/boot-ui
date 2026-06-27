@@ -1,5 +1,6 @@
 {
   "_comment": "Golden manifest for the Spring Boot adapter: the exact panels GET /bootui/api/panels must report, in registry order. The Quarkus adapter ships its own curated manifest (docs/QUARKUS-SUPPORT.md §5). Keep this in sync with BootUiPanels and bootui-ui/src/main/frontend/src/routes.js.",
+  "platform": "spring-boot",
   "panels": [
     { "id": "overview", "title": "Overview", "actionCapable": false },
     { "id": "health", "title": "Health", "actionCapable": false },

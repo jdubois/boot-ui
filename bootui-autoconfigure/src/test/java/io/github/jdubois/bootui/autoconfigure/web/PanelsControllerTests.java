@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.PanelDto;
+import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.List;
 import javax.sql.DataSource;
@@ -78,10 +79,12 @@ class PanelsControllerTests {
             MockMvc mvc = standaloneSetup(controller).build();
 
             assertThat(BootUiPanels.all()).extracting(BootUiPanels.Panel::id).containsExactlyElementsOf(PANEL_IDS);
+            assertThat(controller.panels().platform()).isEqualTo(PanelsReport.PLATFORM_SPRING_BOOT);
             assertThat(controller.panels().panels()).extracting(PanelDto::id).containsExactlyElementsOf(PANEL_IDS);
 
             mvc.perform(get("/bootui/api/panels"))
                     .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.platform").value(PanelsReport.PLATFORM_SPRING_BOOT))
                     .andExpect(jsonPath("$.panels.length()").value(PANEL_IDS.size()));
         }
     }
