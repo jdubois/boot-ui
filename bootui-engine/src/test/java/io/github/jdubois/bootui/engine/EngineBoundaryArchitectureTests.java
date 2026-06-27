@@ -10,9 +10,12 @@ import com.tngtech.archunit.lang.syntax.ArchRuleDefinition;
  * Pins the framework-neutrality of {@code bootui-engine}: its services must never depend on a
  * host-framework or transport API, so both the Spring Boot and Quarkus adapters can wire them. Neutral
  * {@code jakarta.*} contracts ({@code jakarta.persistence}, {@code jakarta.sql}) and Micrometer stay
- * allowed deliberately; only the framework/transport packages below are banned. This is the build-time
- * tripwire for the optional-dependency classloading trap: engine classes must inject already-resolved
- * handles rather than statically importing Spring/CDI/Quarkus types.
+ * allowed deliberately; only the framework/transport packages below are banned. JSON libraries are banned
+ * too: Spring Boot 4 ships Jackson 3 ({@code tools.jackson.*}) while Quarkus ships Jackson 2
+ * ({@code com.fasterxml.jackson.*}) — incompatible artifact <em>and</em> package — so any JSON
+ * parsing/serialization belongs in the adapter, which feeds the engine already-parsed neutral records.
+ * This is the build-time tripwire for the optional-dependency classloading trap: engine classes must
+ * inject already-resolved handles rather than statically importing Spring/CDI/Quarkus/Jackson types.
  */
 @AnalyzeClasses(packages = "io.github.jdubois.bootui.engine", importOptions = DoNotIncludeTests.class)
 class EngineBoundaryArchitectureTests {
@@ -27,8 +30,11 @@ class EngineBoundaryArchitectureTests {
                     "jakarta.ws.rs..",
                     "io.quarkus..",
                     "io.vertx..",
-                    "org.jboss..")
-            .because("bootui-engine must stay framework-neutral; adapters wire it via @Bean / @Produces");
+                    "org.jboss..",
+                    "tools.jackson..",
+                    "com.fasterxml.jackson..")
+            .because("bootui-engine must stay framework-neutral; adapters wire it via @Bean / @Produces and "
+                    + "feed it already-parsed neutral records (JSON libraries differ across Spring Boot/Quarkus)");
 
     @ArchTest
     static final ArchRule onlyTheMetamodelReaderTouchesJpa = ArchRuleDefinition.noClasses()

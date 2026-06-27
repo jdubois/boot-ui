@@ -3,9 +3,12 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
+import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
@@ -98,6 +101,24 @@ public class BootUiEngineConfiguration {
                 basePackageProvider::basePackages,
                 () -> ClassUtils.isPresent(
                         "io.swagger.v3.oas.annotations.Operation", BootUiEngineConfiguration.class.getClassLoader()),
+                Clock.systemUTC());
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    GraalVmReadinessScanner bootUiGraalVmReadinessScanner(
+            BasePackageProvider basePackageProvider, BootUiProperties properties) {
+        // Reuses the shared BasePackageProvider SPI (live base packages) and snapshots the static
+        // bootui.graalvm.* gating into an engine value record. Reachability-metadata repository lookups go
+        // through the engine's ReachabilityMetadataRepository seam; this adapter supplies the Jackson + HTTP
+        // implementation so bootui-engine stays free of any JSON library. The ArchUnit import and any
+        // dependency-repository lookups run only on demand (POST /scan), never at bean construction.
+        BootUiProperties.Graalvm graalvm = properties.getGraalvm();
+        return GraalVmReadinessScanner.usingClasspath(
+                basePackageProvider::basePackages,
+                new GraalVmDependencySettings(graalvm.isRepositoryLookupEnabled(), graalvm.getMaxRepositoryLookups()),
+                new HttpReachabilityMetadataRepository(graalvm.getRepositoryLookupTimeout()),
                 Clock.systemUTC());
     }
 

@@ -1,7 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.graalvm;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectBuildSystem;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree;
 import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.InstallOutcome;
@@ -11,8 +9,10 @@ import io.github.jdubois.bootui.core.dto.GraalVmInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
 import io.github.jdubois.bootui.core.dto.GraalVmScanProgressDto;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmMetadataGenerator;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner.GraalVmScanResult;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpHeaders;
@@ -49,16 +49,9 @@ public class GraalVmController {
     private volatile GraalVmScanResult lastResult;
 
     @Autowired
-    public GraalVmController(ApplicationContext applicationContext, BootUiProperties properties) {
+    public GraalVmController(GraalVmReadinessScanner scanner, ApplicationContext applicationContext) {
         this(
-                new GraalVmReadinessScanner(
-                        () -> GraalVmPackages.detect(applicationContext),
-                        new ClassFileGraalVmImporter(),
-                        new GraalVmDependencyScanner(
-                                properties.getGraalvm().isRepositoryLookupEnabled(),
-                                properties.getGraalvm().getRepositoryLookupTimeout(),
-                                properties.getGraalvm().getMaxRepositoryLookups()),
-                        Clock.systemUTC()),
+                scanner,
                 new GraalVmMetadataGenerator(),
                 new GraalVmSourceLayout(ProjectSourceTree.forApplication(applicationContext)));
     }

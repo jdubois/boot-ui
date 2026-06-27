@@ -6,6 +6,10 @@ import io.github.jdubois.bootui.autoconfigure.sourcetree.ProjectSourceTree.Coord
 import io.github.jdubois.bootui.core.dto.GraalVmInstallAllResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmInstallResultDto;
 import io.github.jdubois.bootui.core.dto.GraalVmReadinessReport;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmMetadataGenerator;
+import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
+import io.github.jdubois.bootui.engine.graalvm.ReachabilityMetadataIndex;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -22,10 +26,10 @@ class GraalVmControllerTests {
     private static final Coordinates COORDS = new Coordinates("com.example", "demo");
 
     private GraalVmController controller(GraalVmSourceLayout layout) {
-        GraalVmReadinessScanner scanner = new GraalVmReadinessScanner(
+        GraalVmReadinessScanner scanner = GraalVmReadinessScanner.usingClasspath(
                 () -> java.util.List.of(),
-                new ClassFileGraalVmImporter(),
-                new GraalVmDependencyScanner(() -> ""),
+                new GraalVmDependencySettings(false, 0),
+                coordinates -> ReachabilityMetadataIndex.of(java.util.List.of()),
                 Clock.systemUTC());
         return new GraalVmController(scanner, new GraalVmMetadataGenerator(), layout);
     }
