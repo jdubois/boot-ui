@@ -675,6 +675,10 @@ windows, spans, and attributes
 are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from BootUI's local telemetry
 capture, is in-memory only, and is cleared on restart.
 
+On Quarkus the AI Usage panel is identical and reads from the same in-memory telemetry store; GenAI spans are captured
+when the application depends on `quarkus-opentelemetry` (for example alongside `quarkus-langchain4j`, or any
+OpenTelemetry GenAI instrumentation that emits the `gen_ai.*` semantic-convention spans).
+
 ![BootUI AI Usage panel](./images/bootui-ai.webp)
 
 ## Diagnostics
@@ -703,6 +707,13 @@ tracing is merely empty. The in-memory trace buffer is bounded by `bootui.teleme
 `bootui.telemetry.max-spans-per-trace`, request-size limits, and attribute-value truncation, with additional internal
 caps to keep misconfigured local exporters from overflowing the UI. Trace data is reset on application restart or via
 the panel's clear action.
+
+The capture mechanics above (starter-contributed tracing dependencies, the `management.tracing.sampling.probability`
+default, and the `logging.level.io.opentelemetry`/`io.micrometer.tracing` pins) and the embedded OTLP/HTTP receiver are
+specific to the Spring Boot starter. On Quarkus the same Traces panel and in-memory store are served by the extension,
+but spans are captured **in-process** through an OpenTelemetry `SpanProcessor` that is registered only when the
+application depends on `quarkus-opentelemetry` — there is no embedded OTLP receiver. Self-span filtering and the
+`bootui.telemetry.*` retention bounds behave identically on both platforms.
 
 ![BootUI Traces panel](./images/bootui-traces.webp)
 

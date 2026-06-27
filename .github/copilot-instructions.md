@@ -326,8 +326,11 @@ not yet carry a per-platform column). The stance is to harden **all visible pane
   replace the **Spring advisor** with a **Quarkus advisor** and **Spring Cache** with a **Quarkus Cache** panel on the
   Quarkus adapter; a few Spring-only panels (e.g. DevTools, Conditions) have no Quarkus equivalent and stay unavailable
   there. Use the shared registry + per-adapter availability rather than forking the route list.
-- As of today the Quarkus adapter reports these panels **available**: Threads, Heap Dump, Live Memory, JVM Tuning.
-  Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+- As of today the Quarkus adapter reports these panels **available**: Threads, Heap Dump, Live Memory, JVM Tuning,
+  Traces, and AI Usage. Traces and AI Usage reuse the engine telemetry services; their read endpoints are always wired
+  (so the panels render even with no data), but spans are only captured when the application adds `quarkus-opentelemetry`
+  (in-process via a CDI `SpanProcessor`, no OTLP receiver). Everything else is reported unavailable with a clear reason
+  until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

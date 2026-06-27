@@ -2,10 +2,15 @@ package io.github.jdubois.bootui.quarkus.deployment;
 
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
+import io.github.jdubois.bootui.quarkus.BootUiTelemetryProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
+import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
+import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Capability;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
@@ -31,6 +36,12 @@ class BootUiQuarkusProcessor {
 
     private static final String FEATURE = "bootui";
 
+    // Referenced by class name only: this is the sole OpenTelemetry-importing type in the extension, and
+    // the deployment classloader must never load it while augmenting an application that has no
+    // quarkus-opentelemetry on its classpath (loading it would resolve its SpanProcessor return type and
+    // link the OTel SDK that must stay absent — R2/BF2).
+    private static final String OTEL_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiOtelProducer";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -48,15 +59,58 @@ class BootUiQuarkusProcessor {
         // RESTEasy discover the annotated console types within it.
         indexDependency.produce(new IndexDependencyBuildItem("com.julien-dubois.bootui", "bootui-quarkus"));
         // Register the producer (which has @Produces methods) and the SPI-backed beans, and keep them even
-        // if Arc's unused-bean analysis can't see the RESTEasy-mediated injection points.
+        // if Arc's unused-bean analysis can't see the RESTEasy-mediated injection points. The telemetry read
+        // services (Traces + AI Usage) are produced unconditionally here — they hold no OpenTelemetry types,
+        // so they wire (and render empty) whether or not the app has quarkus-opentelemetry. The OTel-importing
+        // capture producer is gated separately in {@link #registerOpenTelemetryCapture}.
         additionalBeans.produce(AdditionalBeanBuildItem.builder()
                 .addBeanClasses(
                         BootUiEngineProducer.class,
+                        BootUiTelemetryProducer.class,
+                        QuarkusTelemetrySettings.class,
                         QuarkusExposurePolicy.class,
                         QuarkusMemoryRuntimeConfig.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());
+    }
+
+    /**
+     * Registers the in-process span-capture producer ({@code BootUiOtelProducer}) <strong>only when
+     * OpenTelemetry tracing is on the application classpath</strong> and not in production, and otherwise
+     * <strong>excludes it from bean discovery entirely</strong>.
+     *
+     * <p>{@code BootUiOtelProducer} has a {@code @Produces SpanProcessor} method, and the extension runtime
+     * jar is Jandex-indexed (so Arc discovers the always-on beans). Arc treats a producer method as
+     * bean-defining, so the indexed producer would be discovered <em>unconditionally</em> — and Arc would
+     * fail to resolve its {@code io.opentelemetry.sdk.trace.SpanProcessor} return type in an application
+     * without {@code quarkus-opentelemetry}, linking the SDK that must stay absent (R2/BF2). A missing CDI
+     * scope on the class is therefore <em>not</em> enough; the producer must be actively
+     * {@linkplain ExcludedTypeBuildItem excluded} from discovery when OTel is absent. When OTel is present,
+     * it is registered (and pinned unremovable, since its {@code SpanProcessor} is consumed by Quarkus
+     * OpenTelemetry through a build step Arc's usage analysis cannot see). Quarkus then auto-discovers the
+     * produced {@code SpanProcessor} and feeds finished spans through the engine exporter into the shared
+     * {@code TelemetryStore}, lighting up the Traces and AI Usage panels with real data.</p>
+     */
+    @BuildStep
+    void registerOpenTelemetryCapture(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean enableCapture = launchMode.getLaunchMode() != LaunchMode.NORMAL
+                && capabilities.isPresent(Capability.OPENTELEMETRY_TRACER);
+        if (enableCapture) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(OTEL_PRODUCER_CLASS)
+                    .setUnremovable()
+                    .build());
+        } else {
+            // No OpenTelemetry tracing (or production): keep the OTel-importing producer out of bean
+            // discovery so Arc never tries to resolve its SpanProcessor return type. Traces/AI still wire
+            // via BootUiTelemetryProducer and render empty.
+            excludedTypes.produce(new ExcludedTypeBuildItem(OTEL_PRODUCER_CLASS));
+        }
     }
 }

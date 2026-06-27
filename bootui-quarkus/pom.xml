@@ -61,6 +61,23 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
+
+        <!-- OpenTelemetry SDK, compile-only (provided): needed solely to compile the in-process span-capture
+             producer (BootUiOtelProducer) and the engine BootUiSpanExporter it wraps. provided scope is NOT
+             transitive, so an application that depends on this extension but does not add quarkus-opentelemetry
+             never gets the OTel SDK on its classpath, and the capability-gated build step never registers the
+             producer that would reference it (R2/BF2). When an app DOES add quarkus-opentelemetry, the SDK is
+             supplied (at the same quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>

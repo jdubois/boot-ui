@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.6.0</version>
+    </parent>
+
+    <artifactId>bootui-quarkus-otel-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (OpenTelemetry Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds quarkus-opentelemetry on top of the bootui-quarkus
+        extension and proves the in-process span-capture path: a GenAI-style span emitted through the real OTel
+        SDK flows via the BootUI SpanProcessor into the shared TelemetryStore and surfaces on the Traces and AI
+        Usage panels. Kept separate from bootui-quarkus-integration-tests (which deliberately has NO OpenTelemetry)
+        so the OTel-absent safety path and the OTel-present capture path are each proven in isolation.</description>
+
+    <!--
+        Like bootui-quarkus-integration-tests, this module has NO datasource / messaging dependencies, so a
+        @QuarkusTest boots without Docker. It is never published.
+    -->
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Adds the OpenTelemetry SDK + tracer. Its presence flips the BootUI extension's OPENTELEMETRY_TRACER
+             capability gate on, so the deployment processor registers the in-process SpanProcessor producer and
+             spans emitted here are captured into the shared TelemetryStore. Not a test of OTLP export — the test
+             resources set quarkus.otel.traces.exporter=none, so no network is touched. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-opentelemetry</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
