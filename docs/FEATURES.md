@@ -463,6 +463,12 @@ inspects.
 > to help you *prepare* an application for native-image compilation; once the application is already running as a native
 > executable the advisor has no purpose, and the panel is automatically hidden.
 
+This panel is Spring Boot only and is **deliberately not applicable on Quarkus**. Quarkus compiles native images itself
+(`quarkus build -Dnative` / the native build profile) and generates its own reachability metadata at build time through
+its build-time augmentation, so a Spring-oriented native-readiness advisor — and the generic `reachability-metadata.json`
+and `Dockerfile-native` it scaffolds — would not match how Quarkus produces native images. The panel therefore reports an
+honest "not applicable on Quarkus" reason rather than implying a port is forthcoming.
+
 ![BootUI GraalVM panel](./images/bootui-graalvm.webp)
 
 ### CRaC
@@ -493,6 +499,12 @@ overwrite a file BootUI did not generate. This shares the same source-tree write
 > **Not available in GraalVM native images.** CRaC (Coordinated Restore at Checkpoint) is a JVM-only feature and is
 > mutually exclusive with native executables; the panel is automatically hidden when the application is detected to be
 > running as a native image.
+
+This panel is Spring Boot only and is **deliberately not applicable on Quarkus**. The advisor and its generated assets
+target the Spring Boot startup model (`spring.context.checkpoint=onRefresh` and Spring's checkpoint/restore lifecycle),
+whereas Quarkus achieves fast startup through build-time augmentation and native images rather than CRaC checkpoint/
+restore. The panel therefore reports an honest "not applicable on Quarkus" reason rather than implying a port is
+forthcoming.
 
 ![BootUI CRaC panel](./images/bootui-crac.webp)
 

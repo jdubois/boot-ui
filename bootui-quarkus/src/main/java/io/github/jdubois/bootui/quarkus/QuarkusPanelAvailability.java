@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import jakarta.enterprise.context.ApplicationScoped;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -40,11 +41,35 @@ import java.util.Set;
  * ({@code ResteasyReactiveResourceMethodEntriesBuildItem}). Capturing it would require a new build-step +
  * {@code @Recorder} + {@code SyntheticBeanBuildItem} data-capture pattern (its own slice and critic
  * round); until then Mappings stays unavailable on Quarkus while remaining fully available on Spring.</p>
+ *
+ * <p>The <strong>GraalVM</strong> and <strong>CRaC</strong> advisors are deliberate, permanent exceptions
+ * (see {@link #NOT_APPLICABLE}): they have no meaningful Quarkus equivalent rather than simply not being
+ * ported yet. GraalVM native-image readiness is a Spring-specific concern — Quarkus compiles native images
+ * itself and generates its own reachability metadata at build time, so the Spring-oriented advisor and its
+ * {@code reachability-metadata.json} / {@code Dockerfile-native} scaffolding do not apply. CRaC targets the
+ * Spring Boot startup model ({@code spring.context.checkpoint=onRefresh}); Quarkus's fast startup comes from
+ * build-time augmentation and native images instead. Both therefore report an honest, panel-specific reason
+ * so the shared Vue unavailable-alert never implies a port is forthcoming.</p>
  */
 @ApplicationScoped
 public class QuarkusPanelAvailability {
 
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
+
+    /**
+     * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
+     * Quarkus equivalent — as opposed to the generic {@link #NOT_YET_AVAILABLE} panels that simply have not
+     * been ported yet. Each maps to an honest, panel-specific reason.
+     */
+    private static final Map<String, String> NOT_APPLICABLE = Map.of(
+            BootUiPanels.GRAALVM,
+            "Not applicable on Quarkus: Quarkus builds native images and generates its own reachability"
+                    + " metadata at build time, so this Spring-oriented native-image readiness advisor is not"
+                    + " used here.",
+            BootUiPanels.CRAC,
+            "Not applicable on Quarkus: this CRaC checkpoint/restore advisor targets the Spring Boot startup"
+                    + " model, and Quarkus's fast startup comes from build-time augmentation and native images"
+                    + " instead, so it is not used here.");
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
             BootUiPanels.THREADS,
@@ -67,7 +92,7 @@ public class QuarkusPanelAvailability {
 
     private PanelDto toDto(BootUiPanels.Panel panel) {
         boolean available = AVAILABLE_PANELS.contains(panel.id());
-        return new PanelDto(
-                panel.id(), panel.title(), available, available ? null : NOT_YET_AVAILABLE, true, false, null);
+        String unavailableReason = available ? null : NOT_APPLICABLE.getOrDefault(panel.id(), NOT_YET_AVAILABLE);
+        return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
     }
 }

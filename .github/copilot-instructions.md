@@ -357,7 +357,11 @@ hide newer ones. Keep API, UI,
 - Some panels are framework-specific. The **plan** (not yet implemented — tracked in `docs/QUARKUS-SUPPORT.md`) is to
   replace the **Spring advisor** with a **Quarkus advisor** and **Spring Cache** with a **Quarkus Cache** panel on the
   Quarkus adapter; a few Spring-only panels (e.g. DevTools, Conditions) have no Quarkus equivalent and stay unavailable
-  there. Use the shared registry + per-adapter availability rather than forking the route list.
+  there. The **GraalVM** and **CRaC** advisors are deliberately **not** ported to Quarkus (they are not "not yet" — they
+  have no meaningful Quarkus equivalent): Quarkus compiles native images itself and generates its own reachability
+  metadata at build time, and CRaC targets the Spring startup model, so both report a panel-specific "not applicable on
+  Quarkus" reason (`QuarkusPanelAvailability.NOT_APPLICABLE`) rather than the generic "not yet" message. Use the shared
+  registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Threads, Heap Dump, Live Memory, JVM
   Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, and AI Usage. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
