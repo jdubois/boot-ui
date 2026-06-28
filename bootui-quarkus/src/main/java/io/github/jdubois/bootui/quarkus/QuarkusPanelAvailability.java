@@ -13,12 +13,13 @@ import java.util.Set;
  * and order are identical and the shared Vue UI renders the same sidebar on both platforms. Availability
  * is platform-specific and computed here (the Spring adapter's {@code PanelsController} computes its own
  * over Actuator/bean presence). This release lights up the framework-neutral Threads, Heap Dump,
- * Live Memory and JVM Tuning panels plus the OpenTelemetry-backed Traces and AI Usage panels (whose read
- * services are always wired — they simply render empty until spans are captured, which requires
- * {@code quarkus-opentelemetry} on the application classpath); every other panel is reported unavailable
- * with a clear reason until its Quarkus backing is ported. Read-only is not yet modelled, so no panel is
- * read-only ({@code readOnlyReason} stays {@code null}) — note Traces is action-capable (its buffer can be
- * cleared), so it is the first Quarkus panel exposing a state-changing action.</p>
+ * Live Memory, JVM Tuning and Loggers panels plus the OpenTelemetry-backed Traces and AI Usage panels
+ * (whose read services are always wired — they simply render empty until spans are captured, which
+ * requires {@code quarkus-opentelemetry} on the application classpath); every other panel is reported
+ * unavailable with a clear reason until its Quarkus backing is ported. Read-only is not yet modelled, so
+ * no panel is read-only ({@code readOnlyReason} stays {@code null}) — note Traces (its buffer can be
+ * cleared) and Loggers (a logger level can be set) are action-capable, so they are the Quarkus panels
+ * exposing state-changing actions.</p>
  *
  * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
@@ -35,6 +36,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.LIVE_MEMORY,
             BootUiPanels.JVM_TUNING,
+            BootUiPanels.LOGGERS,
             BootUiPanels.TRACES,
             BootUiPanels.AI);
 

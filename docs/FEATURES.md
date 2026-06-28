@@ -497,9 +497,14 @@ masking rules.
 
 ### Loggers
 
-The Loggers panel lists runtime logger configuration from Actuator. It shows configured and effective levels, supports
-server-side search, and can update or clear logger levels without restarting the application. Large logger lists load in
-bounded pages while filtering still searches the full logger set.
+The Loggers panel lists runtime logger configuration. On Spring Boot it reads from Actuator's loggers endpoint. It shows
+configured and effective levels, supports server-side search, and can update or clear logger levels without restarting
+the application. Large logger lists load in bounded pages while filtering still searches the full logger set.
+
+On Quarkus the panel is identical, served over the JBoss LogManager that Quarkus uses at runtime: it enumerates the live
+loggers, maps their levels onto the same canonical vocabulary (`OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`,
+`TRACE`), and applies level changes to the running JVM. BootUI refuses to change the level of its own loggers on either
+platform.
 
 ![BootUI Loggers panel](./images/bootui-loggers.webp)
 

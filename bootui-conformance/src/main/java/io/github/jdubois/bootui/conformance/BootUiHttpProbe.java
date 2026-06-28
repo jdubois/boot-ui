@@ -3,6 +3,9 @@ package io.github.jdubois.bootui.conformance;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -11,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Minimal, framework-neutral HTTP client used by the conformance suite. Built on the JDK
@@ -19,18 +23,26 @@ import java.util.Map;
  *
  * <p>Always bypasses any system proxy (the loopback test server must be reached directly) and never
  * throws on non-2xx responses, so callers can assert on the status code themselves.
+ *
+ * <p>A single probe instance keeps a cookie jar across requests, so a state-changing flow can prime a
+ * cookie-based CSRF token with one request and have it sent back automatically on the next. The cookie
+ * value is also readable via {@link #cookie(String)} so callers can echo it into a header (the Spring
+ * SPA CSRF contract); the Quarkus adapter sets no such cookie, so the same flow runs unchanged there.
  */
 public final class BootUiHttpProbe {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String baseUrl;
+    private final CookieManager cookieManager;
     private final HttpClient client;
 
     public BootUiHttpProbe(String baseUrl) {
         this.baseUrl = stripTrailingSlash(baseUrl);
+        this.cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         this.client = HttpClient.newBuilder()
                 .proxy(ProxySelector.of(null))
+                .cookieHandler(cookieManager)
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
@@ -65,6 +77,18 @@ public final class BootUiHttpProbe {
                 .method(method, publisher);
         headers.forEach(builder::header);
         return send(builder.build());
+    }
+
+    /**
+     * Returns the current value of the named cookie if the server has set it on this probe's session.
+     * Cookies persist for the life of the probe instance, so a request that primes a cookie must share
+     * the same probe as the request that reads it.
+     */
+    public Optional<String> cookie(String name) {
+        return cookieManager.getCookieStore().getCookies().stream()
+                .filter(c -> c.getName().equals(name))
+                .map(HttpCookie::getValue)
+                .findFirst();
     }
 
     private Response send(HttpRequest request) {

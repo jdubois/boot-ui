@@ -222,6 +222,69 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .isTrue();
     }
 
+    @Test
+    void loggerLevelCanBeSetAndResetThroughTheWritePath() {
+        // Cross-adapter WRITE contract: POST /bootui/api/loggers/{name} sets one logger's level and
+        // returns its refreshed view; a null level resets it. Both adapters route this through the shared
+        // engine LoggersService over their own backend (Actuator's LoggersEndpoint on Spring Boot, the
+        // JBoss LogManager on Quarkus), so a canonical level name set on one platform round-trips to the
+        // same name on the other. This is the first mutating endpoint exercised on both adapters, so it
+        // also proves a same-origin write reaches the backend through each adapter's safety stack:
+        // mirroring the BootUI SPA, a priming GET makes the Spring adapter mint its XSRF-TOKEN cookie
+        // (via CsrfCookieFilter), which is echoed back as the X-XSRF-TOKEN header; the Quarkus adapter
+        // sets no such cookie and lets the same-origin write through, so the identical flow runs on both.
+        assertThat(loggersAvailable())
+                .as("both adapters ship the Loggers panel, so its write path must be exercisable")
+                .isTrue();
+
+        BootUiHttpProbe probe = probe();
+        String logger = "com.example.bootui.conformanceprobe";
+        Map<String, String> headers = stateChangingHeaders(probe);
+
+        Response set = probe.request("POST", "/bootui/api/loggers/" + logger, headers, "{\"level\":\"DEBUG\"}");
+        assertThat(set.status()).as("POST set-level status").isEqualTo(200);
+        assertThat(set.isJson())
+                .as("POST set-level content-type (%s)", set.contentType())
+                .isTrue();
+        JsonNode updated = set.json();
+        assertThat(updated.path("name").asText()).as("returned logger name").isEqualTo(logger);
+        assertThat(updated.path("configuredLevel").asText())
+                .as("configured level after set")
+                .isEqualTo("DEBUG");
+        assertThat(updated.path("effectiveLevel").asText())
+                .as("effective level after set")
+                .isEqualTo("DEBUG");
+
+        Response reset = probe.request("POST", "/bootui/api/loggers/" + logger, headers, "{\"level\":null}");
+        assertThat(reset.status()).as("POST reset-level status").isEqualTo(200);
+        assertThat(isNull(reset.json().path("configuredLevel")))
+                .as("configured level must be null after a reset")
+                .isTrue();
+    }
+
+    /**
+     * Headers for a same-origin state-changing request, built exactly as the BootUI SPA does. A priming
+     * GET lets the Spring adapter set its {@code XSRF-TOKEN} cookie, which Spring's SPA CSRF contract
+     * expects echoed back verbatim as the {@code X-XSRF-TOKEN} header. The Quarkus adapter sets no CSRF
+     * cookie, so only {@code Content-Type} is sent and its Origin-based defense allows the write.
+     */
+    private Map<String, String> stateChangingHeaders(BootUiHttpProbe probe) {
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        probe.get("/bootui/api/overview");
+        probe.cookie("XSRF-TOKEN").ifPresent(token -> headers.put("X-XSRF-TOKEN", token));
+        return headers;
+    }
+
+    private boolean loggersAvailable() {
+        for (JsonNode panel : probe().get("/bootui/api/panels").json().get("panels")) {
+            if ("loggers".equals(panel.path("id").asText(null))) {
+                return panel.path("available").asBoolean(false);
+            }
+        }
+        return false;
+    }
+
     private void assertPanelShape(ExpectedPanel expectedPanel, JsonNode panel) {
         String id = expectedPanel.id();
         assertThat(panel.path("id").isTextual())

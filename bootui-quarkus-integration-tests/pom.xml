@@ -92,6 +92,22 @@
                     </execution>
                 </executions>
             </plugin>
+            <!--
+              Install the JBoss LogManager as the JVM's java.util.logging LogManager for the test fork.
+              This is the documented Quarkus test setup: at runtime Quarkus always uses the JBoss
+              LogManager, and QuarkusLoggerProvider only reports itself available when that manager is
+              installed. Setting it here makes the Loggers IT (and the shared write-path conformance test)
+              exercise the real backend deterministically instead of depending on JVM-global init order.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

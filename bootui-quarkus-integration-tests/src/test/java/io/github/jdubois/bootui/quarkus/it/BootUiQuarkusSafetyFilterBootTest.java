@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
  * cross-adapter JSON body contract is also asserted in the shared conformance suite.
  */
 @QuarkusTest
-class BootUiQuarkusSafetyFilterIT {
+class BootUiQuarkusSafetyFilterBootTest {
 
     @TestHTTPResource
     URL baseUrl;
