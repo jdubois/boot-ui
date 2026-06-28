@@ -35,9 +35,9 @@ import org.springframework.http.MediaType;
 import org.springframework.modulith.core.ApplicationModuleIdentifiers;
 import org.springframework.modulith.runtime.flyway.SpringModulithFlywayMigrationStrategy;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * HTTP-level tests for {@link FlywayController}.
@@ -53,7 +53,7 @@ class FlywayControllerTests {
             "Spring Modulith module-aware Flyway migrations use module-specific history tables and are read-only in BootUI.";
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
 
     @SuppressWarnings("unchecked")
     private static <T> ObjectProvider<T> providerOf(T value) {
