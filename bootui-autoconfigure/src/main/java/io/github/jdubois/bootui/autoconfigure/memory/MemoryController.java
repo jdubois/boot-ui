@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.memory;
 
-import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;

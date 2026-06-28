@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.advisor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

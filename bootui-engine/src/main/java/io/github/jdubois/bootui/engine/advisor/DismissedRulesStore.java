@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.advisor;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

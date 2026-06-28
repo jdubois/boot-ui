@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
-import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.SpringReport;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;

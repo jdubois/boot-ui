@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
-import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesStore;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import java.time.Clock;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;

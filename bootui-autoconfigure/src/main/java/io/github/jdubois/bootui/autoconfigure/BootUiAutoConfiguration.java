@@ -37,6 +37,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPos
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Paths;
