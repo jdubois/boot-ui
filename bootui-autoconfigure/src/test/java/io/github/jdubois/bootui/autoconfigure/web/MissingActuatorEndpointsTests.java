@@ -6,10 +6,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
@@ -18,7 +20,6 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
-import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.mock.env.MockEnvironment;
@@ -69,8 +70,9 @@ class MissingActuatorEndpointsTests {
 
     @Test
     void beansControllerReturnsEmptyListWhenEndpointMissing() throws Exception {
-        ObjectProvider<BeansEndpoint> provider = emptyProvider();
-        MockMvc mvc = standaloneSetup(new BeansController(provider)).build();
+        BeansController controller = new BeansController(
+                new BeansService(new SpringBeanProvider(() -> null, BootUiSelfDataFilter.defaults())));
+        MockMvc mvc = standaloneSetup(controller).build();
 
         mvc.perform(get("/bootui/api/beans"))
                 .andExpect(status().isOk())

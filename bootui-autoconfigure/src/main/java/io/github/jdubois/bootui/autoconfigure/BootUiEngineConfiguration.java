@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
+import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
@@ -14,6 +15,7 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
@@ -30,6 +32,7 @@ import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
+import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
@@ -40,6 +43,7 @@ import java.util.List;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -266,6 +270,18 @@ public class BootUiEngineConfiguration {
         return new MappingsService(mappingProviders.getIfAvailable());
     }
 
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    BeansService bootUiBeansService(ObjectProvider<BeanProvider> beanProviders) {
+        // R2 optional-dependency port: the actuator-typed SpringBeanProvider is gated below, so this
+        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
+        // class-absent case) by serving an empty list. The provider maps, self-filters and classifies the
+        // raw beans (where the live Class and the Spring-specific FRAMEWORK prefix matter, for
+        // byte-identical behavior); the engine service only sorts, filters and pages.
+        return new BeansService(beanProviders.getIfAvailable());
+    }
+
     /**
      * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
      * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
@@ -365,6 +381,29 @@ public class BootUiEngineConfiguration {
             // touch-point for the Actuator MappingsEndpoint on this path, so it is registered here rather
             // than imported unconditionally, keeping the neutral MappingsController actuator-free.
             return new ActuatorMappingsController(endpoints);
+        }
+    }
+
+    /**
+     * R2 optional-dependency port: the Actuator-backed beans provider is only wired when the Actuator
+     * {@code BeansEndpoint} type is on the classpath. The {@code BeansEndpoint}-typed parameter lives in
+     * this nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root
+     * config), so the type and the beans descriptor types are never linked in an Actuator-absent
+     * application. The neutral {@code BeansController} stays unconditional and serves an empty list when
+     * this backend is absent.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.beans.BeansEndpoint")
+    static class BeansBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        SpringBeanProvider bootUiSpringBeanProvider(
+                ObjectProvider<BeansEndpoint> endpoints, BootUiSelfDataFilter selfDataFilter) {
+            // The endpoint bean may be absent (Actuator present but the beans endpoint not exposed); the
+            // provider resolves it live so it reports itself unavailable in that case.
+            return new SpringBeanProvider(endpoints::getIfAvailable, selfDataFilter);
         }
     }
 }

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
@@ -21,6 +22,7 @@ import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
+import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanProvider;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
@@ -35,6 +37,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
+import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Singleton;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
@@ -218,6 +221,26 @@ public class BootUiEngineProducer {
     @Singleton
     public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages) {
         return ArchitectureScanner.usingClasspath(basePackages::basePackages, Clock.systemUTC());
+    }
+
+    /**
+     * The Beans panel over the Arc/CDI container. Mirrors the live-policy shape: the concrete
+     * {@link QuarkusBeanProvider} bean is injected (not the {@link io.github.jdubois.bootui.spi.BeanProvider}
+     * interface) so adding another provider later can never make this wiring ambiguous. The provider holds
+     * the {@link BeanManager} and enumerates beans live on every request; the engine {@link BeansService}
+     * only sorts, classification/free-text filters and pages — exactly as the Spring adapter builds its
+     * {@code BeansService} over the Actuator-backed {@code SpringBeanProvider}.
+     */
+    @Produces
+    @Singleton
+    public QuarkusBeanProvider quarkusBeanProvider(BeanManager beanManager) {
+        return new QuarkusBeanProvider(beanManager);
+    }
+
+    @Produces
+    @Singleton
+    public BeansService beansService(QuarkusBeanProvider beanProvider) {
+        return new BeansService(beanProvider);
     }
 
     /**

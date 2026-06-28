@@ -31,7 +31,11 @@ import org.eclipse.microprofile.config.Config;
  * dependency inventory, captured from the build-time application model, and reaches out to OSV.dev only on
  * the user-initiated {@code POST /scan} — never on render); every other panel is reported unavailable with
  * a clear reason until its Quarkus backing is
- * ported. The <strong>Pentesting</strong> (local OWASP hygiene) advisor is also lit up: it reuses the shared
+ * ported. The <strong>Beans</strong> panel is also lit up (always available like Architecture/Metrics): the
+ * shared engine {@code BeansService} reads the live Arc/CDI container through {@code QuarkusBeanProvider}
+ * (the Quarkus analogue of the Spring adapter's Actuator-backed provider), with BootUI's own beans filtered
+ * out; {@code resource} and inter-bean {@code dependencies} are empty on Quarkus (Arc exposes neither at
+ * runtime) and {@code scope} uses the CDI vocabulary. The <strong>Pentesting</strong> (local OWASP hygiene) advisor is also lit up: it reuses the shared
  * engine {@code PentestingScanner}, whose framework-neutral value comes from two synthetic loopback probes
  * (security headers, cookies, CORS, TRACE, technology disclosure), so the Quarkus adapter supplies only the
  * live server port + context path and a deliberately neutral endpoint/security/config snapshot (the
@@ -115,6 +119,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.JVM_TUNING,
             BootUiPanels.METRICS,
             BootUiPanels.LOGGERS,
+            BootUiPanels.BEANS,
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_PROBE,
             BootUiPanels.ARCHITECTURE,

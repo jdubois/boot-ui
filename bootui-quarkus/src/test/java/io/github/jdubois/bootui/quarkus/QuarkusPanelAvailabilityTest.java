@@ -45,11 +45,20 @@ class QuarkusPanelAvailabilityTest {
 
     @Test
     void notYetPortedPanelsKeepTheGenericReason() {
-        // Beans has no Quarkus backing yet; it must keep the generic "not yet" reason so it stays clearly
+        // Mappings has no Quarkus backing yet; it must keep the generic "not yet" reason so it stays clearly
         // distinct from the deliberately-not-applicable GraalVM/CRaC panels above.
+        PanelDto mappings = manifestById().get(BootUiPanels.MAPPINGS);
+        assertThat(mappings.available()).isFalse();
+        assertThat(mappings.unavailableReason()).isEqualTo("Not yet available on Quarkus.");
+    }
+
+    @Test
+    void beansIsLitUpOnQuarkus() {
+        // Beans runs over the live Arc/CDI container; quarkus-arc is a core extension dependency, so the panel
+        // is always-available like Architecture/Metrics, with no capability gate.
         PanelDto beans = manifestById().get(BootUiPanels.BEANS);
-        assertThat(beans.available()).isFalse();
-        assertThat(beans.unavailableReason()).isEqualTo("Not yet available on Quarkus.");
+        assertThat(beans.available()).as("Beans is lit up on Quarkus").isTrue();
+        assertThat(beans.unavailableReason()).isNull();
     }
 
     @Test

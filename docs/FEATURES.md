@@ -590,6 +590,15 @@ bean names and types, plus classifications such as application, Spring framework
 own beans are hidden by default; when self-data filtering is disabled they are classified separately as BootUI beans.
 Large bean lists load in bounded pages so the initial payload stays small while filters still apply to the full bean set.
 
+On Quarkus the panel is identical from the UI's point of view, running over the same framework-neutral engine
+`BeansService` and the same `/bootui/api/beans` contract. The Quarkus adapter enumerates beans from the live Arc/CDI
+container (in place of the Spring adapter's Actuator beans endpoint), filters out BootUI's own beans, and classifies them
+with Quarkus-aware framework prefixes (`io.quarkus.`, `io.vertx.`, `org.jboss.`, …). A few fields have reduced fidelity
+because Arc does not expose them at runtime the way Actuator does: the defining `resource` and inter-bean `dependencies`
+are empty, the `scope` uses the CDI vocabulary (`ApplicationScoped`, `Singleton`, …) rather than Spring's
+`singleton`/`prototype`, and unnamed beans get a synthetic decapitalized class name. The inventory also reflects only the
+beans Arc retains, since Arc removes unused beans at build time.
+
 ![BootUI Beans panel](./images/bootui-beans.webp)
 
 ### Conditions
