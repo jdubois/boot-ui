@@ -365,7 +365,7 @@ hide newer ones. Keep API, UI,
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
   Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, Beans, Scheduled Tasks, and Cache. Architecture is the first **advisor** lit up on
+  GitHub, Beans, Scheduled Tasks, Cache, and Flyway. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -481,7 +481,24 @@ hide newer ones. Keep API, UI,
   `@CacheInvalidate`) woven into methods, so there is no runtime registry of cached operations — `operations()` is empty
   and `SpringCache.vue` renders a Quarkus-specific "Cached operations" note (via the `platform` discriminator) instead of
   the Spring `@Cacheable` table. `GET /bootui/api/spring-cache` lists caches + metrics network-free; only the explicit
-  `POST /bootui/api/spring-cache/clear` mutates, behind the shared `LocalhostGuard` write floor. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  `POST /bootui/api/spring-cache/clear` mutates, behind the shared `LocalhostGuard` write floor. Flyway is the first
+  **Database** panel and the second **action-capable optional-dependency** port (after Cache), and the simplest of the
+  optional-dependency ports because **both frameworks use the same library** — `org.flywaydb.core.Flyway`: the shared
+  engine `FlywayService` owns the neutral half (per-database migration-history assembly, sort/totals/current/pending, and
+  the state-changing **migrate**/**clean** orchestration — target resolution, confirmation gating, clean-disabled gating),
+  while the `FlywayProvider` SPI is the seam each adapter implements (`SpringFlywayProvider` over the `Flyway` beans in the
+  bean factory, incl. the Spring-Modulith module-aware history block; `QuarkusFlywayProvider` over the active
+  `io.quarkus.flyway.runtime.FlywayContainer` beans, one per datasource). It is an optional-dependency port like Hibernate
+  and Cache: the sole `org.flywaydb.*`/`io.quarkus.flyway.*` importer (`QuarkusFlywayProvider` + `BootUiFlywayProducer`) is
+  compiled `<scope>provided</scope>` and **excluded** by the deployment `registerFlyway` build step (`ExcludedTypeBuildItem`
+  by string name) unless `Capability.FLYWAY` is present and the launch mode is non-prod — so Arc never links the absent
+  Flyway API; only the panel's *availability* tracks the build-time `bootui.internal.flyway-present` flag, while the
+  Flyway-API-free engine `FlywayService` is `@Produces`'d unconditionally (its `FlywayProvider` `Instance` resolves empty →
+  renders `flywayPresent:false`). The Spring-Modulith module-aware block is Spring-only (Quarkus has no Modulith), and the
+  clean-disabled message names the framework-correct property (`spring.flyway.clean-disabled` vs `quarkus.flyway.clean-disabled`)
+  from the provider. `GET /bootui/api/flyway/migrations` lists history network-free; only the explicit
+  `POST /bootui/api/flyway/migrate` and `POST /bootui/api/flyway/clean` mutate, behind the shared `LocalhostGuard` write
+  floor, with `clean` preserving Flyway's disabled-by-default, confirmation-gated semantics. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

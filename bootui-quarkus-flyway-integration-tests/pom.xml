@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.6.0</version>
+    </parent>
+
+    <artifactId>bootui-quarkus-flyway-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Flyway Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds quarkus-flyway + quarkus-jdbc-h2 (in-memory) on top
+        of the bootui-quarkus extension and proves the Flyway panel light-up: the migration history read from
+        the application's active io.quarkus.flyway.runtime.FlywayContainer beans by the QuarkusFlywayProvider is
+        shaped by the shared engine FlywayService, and the panel is surfaced on
+        GET /bootui/api/flyway/migrations. Kept separate from bootui-quarkus-integration-tests (which
+        deliberately has NO quarkus-flyway, so the capability gate keeps the flyway panel unavailable) so the
+        flyway-present and flyway-absent paths are each proven in isolation — the same split used for the
+        Cache-present/absent and SmallRye-Health-present/absent coverage.</description>
+
+    <!--
+        Uses an in-memory H2 datasource (quarkus-jdbc-h2), so a @QuarkusTest boots without Docker. Never published.
+    -->
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Adds the Quarkus Flyway extension. Its presence makes the FLYWAY capability available, so the
+             deployment build step wires BootUiFlywayProducer and the flyway panel is reported available; the
+             active FlywayContainer beans expose the migration history the panel reads. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-flyway</artifactId>
+        </dependency>
+
+        <!-- An in-memory datasource for Flyway to manage; H2 keeps the @QuarkusTest Docker-free. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

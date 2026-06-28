@@ -53,6 +53,7 @@
         <module>bootui-quarkus-micrometer-integration-tests</module>
         <module>bootui-quarkus-scheduler-integration-tests</module>
         <module>bootui-quarkus-cache-integration-tests</module>
+        <module>bootui-quarkus-flyway-integration-tests</module>
     </modules>
 
     <properties>

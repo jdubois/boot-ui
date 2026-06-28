@@ -62,7 +62,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
     private static final String SIMPLE_GRANTED_AUTHORITY =
             "org.springframework.security.core.authority.SimpleGrantedAuthority";
 
-    /** Spring Modulith identifiers whose {@code stream()} is invoked reflectively by {@code FlywayController}. */
+    /** Spring Modulith identifiers whose {@code stream()} is invoked reflectively by {@code SpringFlywayProvider}. */
     private static final String MODULITH_APPLICATION_MODULE_IDENTIFIERS =
             "org.springframework.modulith.core.ApplicationModuleIdentifiers";
 

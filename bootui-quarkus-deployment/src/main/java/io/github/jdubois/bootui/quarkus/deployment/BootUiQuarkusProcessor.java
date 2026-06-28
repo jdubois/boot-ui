@@ -86,6 +86,8 @@ class BootUiQuarkusProcessor {
 
     private static final String CACHE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiCacheProducer";
 
+    private static final String FLYWAY_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiFlywayProducer";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -495,6 +497,48 @@ class BootUiQuarkusProcessor {
             // via the always-produced CacheService and renders the panel unavailable; the panel is reported
             // unavailable in the manifest (CACHE_PRESENT_KEY defaults to false).
             excludedTypes.produce(new ExcludedTypeBuildItem(CACHE_PRODUCER_CLASS));
+        }
+    }
+
+    /**
+     * Capability-gated registration of the Flyway panel's Flyway-API-importing producer (R2), mirroring
+     * {@link #registerCacheAdvisor} exactly.
+     *
+     * <p>{@code BootUiFlywayProducer} has a {@code @Produces FlywayProvider} method whose body constructs
+     * {@code QuarkusFlywayProvider}, which imports {@code org.flywaydb.*} and {@code io.quarkus.flyway.*}
+     * types, and the extension runtime jar is Jandex-indexed (so Arc discovers the always-on beans). Arc
+     * treats a producer method as bean-defining, so the indexed producer would be discovered
+     * <em>unconditionally</em> — and loading it in an application without {@code quarkus-flyway} would link the
+     * Flyway API that must stay absent (R2). A missing CDI scope on the class is therefore <em>not</em> enough;
+     * the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from discovery when the
+     * {@code FLYWAY} capability is absent. When it is present, the producer is registered (and pinned
+     * unremovable, since the engine {@code FlywayService} that consumes its {@code FlywayProvider} is itself
+     * injected into the RESTEasy-mediated {@code FlywayResource}, which Arc's usage analysis cannot see). The
+     * always-produced {@code FlywayService} (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer})
+     * then receives a {@code null} provider when absent and renders the panel unavailable, so it never fails —
+     * it is simply reported unavailable in the manifest until {@code quarkus-flyway} is added.</p>
+     */
+    @BuildStep
+    void registerFlyway(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.FLYWAY);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(FLYWAY_PRODUCER_CLASS)
+                    .setUnremovable()
+                    .build());
+            runtimeDefaults.produce(
+                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.FLYWAY_PRESENT_KEY, "true"));
+        } else {
+            // No quarkus-flyway (or production): keep the Flyway-importing producer out of bean discovery so Arc
+            // never loads QuarkusFlywayProvider and links the Flyway API. The Flyway service still wires via the
+            // always-produced FlywayService and renders the panel unavailable; the panel is reported unavailable
+            // in the manifest (FLYWAY_PRESENT_KEY defaults to false).
+            excludedTypes.produce(new ExcludedTypeBuildItem(FLYWAY_PRODUCER_CLASS));
         }
     }
 }

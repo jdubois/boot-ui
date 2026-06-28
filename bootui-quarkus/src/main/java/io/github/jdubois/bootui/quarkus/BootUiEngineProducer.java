@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
@@ -33,6 +34,7 @@ import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.CacheProvider;
+import io.github.jdubois.bootui.spi.FlywayProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -376,6 +378,21 @@ public class BootUiEngineProducer {
         CacheProvider provider = cacheProviders.isUnsatisfied() ? null : cacheProviders.get();
         MeterSelfFilter meterFilter = new MeterSelfFilter(transformClassifier(config));
         return new CacheService(provider, () -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
+    }
+
+    /**
+     * The Flyway panel service. Produced <em>unconditionally</em> because it holds no {@code org.flywaydb.*}
+     * type: the Flyway-API-importing {@link FlywayProvider} lives behind the gated {@link BootUiFlywayProducer}
+     * that is wired only when the {@code FLYWAY} capability is present (R2). When that provider is unsatisfied
+     * the engine is given a {@code null} provider, so {@code GET /flyway/migrations} renders the panel
+     * unavailable ({@code flywayPresent=false}) and the {@code migrate}/{@code clean} actions report it
+     * unavailable instead of failing.
+     */
+    @Produces
+    @Singleton
+    public FlywayService flywayService(Instance<FlywayProvider> flywayProviders) {
+        FlywayProvider provider = flywayProviders.isUnsatisfied() ? null : flywayProviders.get();
+        return new FlywayService(provider);
     }
 
     private static List<String> activeProfiles(Config config) {

@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
+import io.github.jdubois.bootui.autoconfigure.flyway.SpringFlywayProvider;
 import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
@@ -20,6 +21,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
+import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
 import io.github.jdubois.bootui.engine.health.HealthService;
@@ -45,6 +47,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
 import java.util.List;
+import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -486,6 +489,26 @@ public class BootUiEngineConfiguration {
                                 : meterRegistries.orderedStream().findFirst().orElse(null);
                     },
                     selfDataFilter::shouldIncludeMeter);
+        }
+    }
+
+    /**
+     * The Spring Flyway panel backend is only wired when the Flyway {@link Flyway} type is on the classpath.
+     * The Flyway-specific wiring lives in this nested, {@code @ConditionalOnClass}-gated configuration (never
+     * inline in the always-active root config), so the Flyway types are never linked in a Flyway-absent
+     * application. The engine {@code FlywayService} owns the neutral concerns (counting, sorting, totals,
+     * action orchestration); the byte-identical {@code SpringFlywayProvider} owns the Spring-specific bean
+     * discovery, the {@code migrate}/{@code clean} primitives and the Spring-Modulith module-aware behaviour.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(Flyway.class)
+    static class FlywayBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        FlywayService bootUiFlywayService(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
+            return new FlywayService(new SpringFlywayProvider(beanFactoryProvider));
         }
     }
 }

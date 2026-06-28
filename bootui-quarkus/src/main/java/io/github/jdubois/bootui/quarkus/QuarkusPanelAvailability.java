@@ -75,6 +75,18 @@ import org.eclipse.microprofile.config.Config;
  * shared {@code LocalhostGuard} write floor); Quarkus has no runtime cached-operation registry (its caching
  * annotations are build-time woven), so the operations list is empty by design.</p>
  *
+ * <p>The <strong>Flyway</strong> panel is likewise available <em>dynamically</em>: it is lit up only when the
+ * application uses Quarkus Flyway. The deployment processor detects the {@code FLYWAY} capability at build time
+ * and feeds the decision back as the {@code bootui.internal.flyway-present} runtime-config default (see
+ * {@link #FLYWAY_PRESENT_KEY}); when {@code quarkus-flyway} is absent the panel reports an honest capability
+ * hint rather than the generic "not yet ported" reason. The Flyway-API-free engine {@code FlywayService} and
+ * its {@code GET}/{@code POST migrate}/{@code POST clean} resource are always wired regardless — only the
+ * {@code org.flywaydb.*}/{@code io.quarkus.flyway.*}-reading {@code FlywayProvider} impl is capability-gated
+ * (R2), so the panel renders {@code flywayPresent:false} rather than failing when the extension is absent. The
+ * {@code migrate}/{@code clean} actions make Flyway action-capable on Quarkus (behind the shared
+ * {@code LocalhostGuard} write floor); {@code clean} preserves Flyway's disabled-by-default, confirmation-gated
+ * semantics. Quarkus has no Spring-Modulith analogue, so the module-aware read-only views never appear.</p>
+ *
  * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
  * endpoint is the shared shell's framework-neutral chrome/CSRF-priming source, which the shell needs on
@@ -126,6 +138,15 @@ public class QuarkusPanelAvailability {
      */
     public static final String CACHE_PRESENT_KEY = "bootui.internal.cache-present";
 
+    /**
+     * Runtime-config key carrying the build-time {@code FLYWAY} capability decision. The deployment processor
+     * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}) whenever
+     * {@code quarkus-flyway} is present in a non-production launch; this bean reads it back to decide whether
+     * the dynamically-available Flyway panel is lit up (true even with zero managed datasources). Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #CACHE_PRESENT_KEY}.
+     */
+    public static final String FLYWAY_PRESENT_KEY = "bootui.internal.flyway-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
@@ -139,6 +160,10 @@ public class QuarkusPanelAvailability {
     private static final String CACHE_ABSENT =
             "Not available: this application does not use Quarkus Cache. Add the quarkus-cache extension to"
                     + " enable the cache panel.";
+
+    private static final String FLYWAY_ABSENT =
+            "Not available: this application does not use Flyway. Add the quarkus-flyway extension to enable"
+                    + " the Flyway migrations panel.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -177,6 +202,8 @@ public class QuarkusPanelAvailability {
 
     private final boolean cachePresent;
 
+    private final boolean flywayPresent;
+
     private final List<String> githubAllowedApiHosts;
 
     @Inject
@@ -187,6 +214,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(SCHEDULED_PRESENT_KEY, Boolean.class).orElse(false);
         this.cachePresent =
                 config.getOptionalValue(CACHE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.flywayPresent =
+                config.getOptionalValue(FLYWAY_PRESENT_KEY, Boolean.class).orElse(false);
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
     }
 
@@ -201,6 +230,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent)
                 || (BootUiPanels.SCHEDULED.equals(panel.id()) && schedulingPresent)
                 || (BootUiPanels.SPRING_CACHE.equals(panel.id()) && cachePresent)
+                || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
@@ -215,6 +245,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.SPRING_CACHE.equals(panelId)) {
             return CACHE_ABSENT;
+        }
+        if (BootUiPanels.FLYWAY.equals(panelId)) {
+            return FLYWAY_ABSENT;
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();

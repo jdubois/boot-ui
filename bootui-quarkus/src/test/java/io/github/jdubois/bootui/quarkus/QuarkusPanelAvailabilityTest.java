@@ -109,6 +109,28 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void flywayIsUnavailableWithACapabilityHintWhenFlywayIsAbsent() {
+        // Default: bootui.internal.flyway-present is unset, so the deployment processor never saw the FLYWAY
+        // capability. The panel must surface an honest capability hint, NOT the generic reason.
+        PanelDto flyway = manifestById().get(BootUiPanels.FLYWAY);
+        assertThat(flyway.available()).isFalse();
+        assertThat(flyway.unavailableReason())
+                .isNotNull()
+                .doesNotContain("Not yet available")
+                .containsIgnoringCase("quarkus-flyway");
+    }
+
+    @Test
+    void flywayIsAvailableWhenTheBuildTimeFlagIsSet() {
+        StubConfig withFlyway = new StubConfig(Map.of(QuarkusPanelAvailability.FLYWAY_PRESENT_KEY, "true"));
+        PanelDto flyway = manifestById(withFlyway).get(BootUiPanels.FLYWAY);
+        assertThat(flyway.available())
+                .as("Flyway is lit up when quarkus-flyway is present")
+                .isTrue();
+        assertThat(flyway.unavailableReason()).isNull();
+    }
+
+    @Test
     void githubAvailabilityRoutesThroughTheRepositoryDetector() {
         // GitHub availability is dynamic (mirrors Spring's PanelsController.githubAvailable()): it is computed
         // from the shared GitHubRepositoryDetector, never the static "not yet" fallback. This module is itself

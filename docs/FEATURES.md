@@ -697,6 +697,14 @@ Flyway's own `clean-disabled=false` setting. Spring Modulith module-aware entrie
 module-specific history tables are managed by Spring Modulith's migration strategy. The panel degrades to a clear empty
 state when Flyway is not on the classpath or no `Flyway` beans are present.
 
+On Quarkus the panel is identical, running over the same framework-neutral engine `FlywayService` and the same report
+contract — because both frameworks use the same `org.flywaydb.core.Flyway` library. The Quarkus adapter reads the active
+`io.quarkus.flyway.runtime.FlywayContainer` beans (one per datasource, default or `@FlywayDataSource`-named) and exposes
+the same confirmation-gated `migrate`/`clean` actions, with `clean` likewise honoring Flyway's disabled-by-default
+setting (`quarkus.flyway.clean-disabled`). The optional `quarkus-flyway` extension is capability-gated, so when it is
+absent the panel reports an honest "add the quarkus-flyway extension" reason rather than failing. The Spring Modulith
+module-aware history block is Spring-specific and is not reported on Quarkus.
+
 ![BootUI Flyway panel](./images/bootui-flyway.webp)
 
 ### Liquibase
