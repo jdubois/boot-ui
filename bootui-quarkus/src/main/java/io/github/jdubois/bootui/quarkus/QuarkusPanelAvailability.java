@@ -4,8 +4,10 @@ import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.util.Map;
 import java.util.Set;
+import org.eclipse.microprofile.config.Config;
 
 /**
  * Computes the BootUI panel manifest for the Quarkus adapter.
@@ -27,6 +29,16 @@ import java.util.Set;
  * — note Traces (its buffer can be cleared), Loggers (a logger level can be set), HTTP Probe (it issues a
  * request) and Architecture (it runs a scan and dismisses rules) are action-capable, so they are the Quarkus
  * panels exposing state-changing actions.</p>
+ *
+ * <p>The <strong>Hibernate</strong> (ORM mapping) advisor is available <em>dynamically</em>: unlike the
+ * statically-available panels above, it is lit up only when the application actually uses Hibernate ORM. The
+ * deployment processor detects the {@code HIBERNATE_ORM} capability at build time and feeds the decision back
+ * as the {@code bootui.internal.hibernate-present} runtime-config default (see
+ * {@link #HIBERNATE_PRESENT_KEY}); when Hibernate ORM is absent the panel reports an honest capability hint
+ * rather than the generic "not yet ported" reason. The engine scanner and its {@code GET}/{@code POST /scan}
+ * resource are always wired regardless — only the optional {@code jakarta.persistence}-reading entity
+ * discovery is capability-gated (R2) — so the panel renders a not-configured report rather than failing when
+ * the extension is absent.</p>
  *
  * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
@@ -54,7 +66,20 @@ import java.util.Set;
 @ApplicationScoped
 public class QuarkusPanelAvailability {
 
+    /**
+     * Runtime-config key carrying the build-time {@code HIBERNATE_ORM} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean
+     * reads it back to decide whether the dynamically-available Hibernate advisor panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@code QUARKUS_VERSION_KEY} /
+     * {@code BASE_PACKAGES_KEY}.
+     */
+    public static final String HIBERNATE_PRESENT_KEY = "bootui.internal.hibernate-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
+
+    private static final String HIBERNATE_ABSENT =
+            "Not available: this application does not use Hibernate ORM. Add the quarkus-hibernate-orm"
+                    + " extension to enable the JPA mapping advisor.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -84,6 +109,14 @@ public class QuarkusPanelAvailability {
             BootUiPanels.TRACES,
             BootUiPanels.AI);
 
+    private final boolean hibernatePresent;
+
+    @Inject
+    public QuarkusPanelAvailability(Config config) {
+        this.hibernatePresent =
+                config.getOptionalValue(HIBERNATE_PRESENT_KEY, Boolean.class).orElse(false);
+    }
+
     public PanelsReport manifest() {
         return new PanelsReport(
                 PanelsReport.PLATFORM_QUARKUS,
@@ -91,8 +124,16 @@ public class QuarkusPanelAvailability {
     }
 
     private PanelDto toDto(BootUiPanels.Panel panel) {
-        boolean available = AVAILABLE_PANELS.contains(panel.id());
-        String unavailableReason = available ? null : NOT_APPLICABLE.getOrDefault(panel.id(), NOT_YET_AVAILABLE);
+        boolean available = AVAILABLE_PANELS.contains(panel.id())
+                || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent);
+        String unavailableReason = available ? null : unavailableReason(panel.id());
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
+    }
+
+    private String unavailableReason(String panelId) {
+        if (BootUiPanels.HIBERNATE.equals(panelId)) {
+            return HIBERNATE_ABSENT;
+        }
+        return NOT_APPLICABLE.getOrDefault(panelId, NOT_YET_AVAILABLE);
     }
 }

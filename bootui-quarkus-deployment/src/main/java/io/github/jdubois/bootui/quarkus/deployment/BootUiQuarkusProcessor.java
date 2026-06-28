@@ -58,6 +58,12 @@ class BootUiQuarkusProcessor {
     // type and link a type that must stay absent — R2).
     private static final String HEALTH_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiHealthProducer";
 
+    // Referenced by class name only: this is the sole jakarta.persistence-importing type in the extension, and
+    // the deployment classloader must never load it while augmenting an application that has no
+    // quarkus-hibernate-orm on its classpath (loading it would resolve its EntityManagerFactory parameter type
+    // and link the JPA API that must stay absent — R2).
+    private static final String HIBERNATE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiHibernateProducer";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -223,6 +229,51 @@ class BootUiQuarkusProcessor {
             // Arc never tries to resolve its SmallRyeHealthReporter parameter. The Health panel still wires via
             // the always-produced HealthService and renders setup guidance.
             excludedTypes.produce(new ExcludedTypeBuildItem(HEALTH_PRODUCER_CLASS));
+        }
+    }
+
+    /**
+     * Registers the optional Hibernate-entity-discovery producer ({@code BootUiHibernateProducer})
+     * <strong>only when Hibernate ORM is on the application classpath</strong> and not in production, otherwise
+     * <strong>excludes it from bean discovery entirely</strong>, and feeds the build-time capability decision
+     * back to {@link QuarkusPanelAvailability} so the dynamically-available Hibernate advisor panel lights up.
+     *
+     * <p>{@code BootUiHibernateProducer} has a {@code @Produces EntityDiscoverySource} method whose parameter
+     * type is {@code jakarta.persistence.EntityManagerFactory}, and the extension runtime jar is Jandex-indexed
+     * (so Arc discovers the always-on beans). Arc treats a producer method as bean-defining, so the indexed
+     * producer would be discovered <em>unconditionally</em> — and Arc would fail to resolve its
+     * {@code EntityManagerFactory} parameter type in an application without {@code quarkus-hibernate-orm},
+     * linking the JPA API that must stay absent (R2). A missing CDI scope on the class is therefore <em>not</em>
+     * enough; the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from discovery when
+     * Hibernate ORM is absent. When it is present, the producer is registered (and pinned unremovable, since the
+     * engine {@code HibernateScanner} that consumes its {@code EntityDiscoverySource} is itself injected into the
+     * RESTEasy-mediated {@code HibernateResource}, which Arc's usage analysis cannot see). The always-produced
+     * {@code HibernateScanner} (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives
+     * an empty discovery when absent and renders a not-configured report, so the panel never fails — it is simply
+     * reported unavailable in the manifest until the extension is added.</p>
+     */
+    @BuildStep
+    void registerHibernateAdvisor(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present =
+                launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.HIBERNATE_ORM);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(HIBERNATE_PRODUCER_CLASS)
+                    .setUnremovable()
+                    .build());
+            runtimeDefaults.produce(
+                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.HIBERNATE_PRESENT_KEY, "true"));
+        } else {
+            // No Hibernate ORM (or production): keep the jakarta.persistence-importing producer out of bean
+            // discovery so Arc never tries to resolve its EntityManagerFactory parameter. The Hibernate scanner
+            // still wires via the always-produced HibernateScanner and renders a not-configured report; the panel
+            // is reported unavailable in the manifest (HIBERNATE_PRESENT_KEY defaults to false).
+            excludedTypes.produce(new ExcludedTypeBuildItem(HIBERNATE_PRODUCER_CLASS));
         }
     }
 }

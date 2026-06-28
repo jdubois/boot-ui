@@ -362,8 +362,8 @@ hide newer ones. Keep API, UI,
   metadata at build time, and CRaC targets the Spring startup model, so both report a panel-specific "not applicable on
   Quarkus" reason (`QuarkusPanelAvailability.NOT_APPLICABLE`) rather than the generic "not yet" message. Use the shared
   registry + per-adapter availability rather than forking the route list.
-- As of today the Quarkus adapter reports these panels **available**: Architecture, Threads, Heap Dump, Live Memory, JVM
-  Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, and AI Usage. Architecture is the first **advisor** lit up on
+- As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Threads, Heap Dump, Live
+  Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, and AI Usage. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -387,7 +387,20 @@ hide newer ones. Keep API, UI,
   meters stay hidden, exactly as the Spring adapter feeds `BootUiSelfDataFilter::shouldIncludeMeter`). Traces and AI Usage
   reuse the engine telemetry services; their read endpoints are always wired (so the panels render even with no data), but spans
   are only captured when the application adds `quarkus-opentelemetry` (in-process via a CDI `SpanProcessor`, no OTLP
-  receiver). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  receiver). Hibernate is the second **advisor** on Quarkus and the first **optional-dependency** advisor port: the
+  shared engine `HibernateScanner` runs the same mapping/identifier/fetch ruleset, but the optional `jakarta.persistence`
+  API is confined to two runtime classes (`BootUiHibernateProducer`, `QuarkusEntityDiscovery`) that the deployment
+  `registerHibernateAdvisor` build step **excludes** (`ExcludedTypeBuildItem`, referenced by string name) unless
+  `Capability.HIBERNATE_ORM` is present and the launch mode is non-prod — so Arc never links the JPA API in an
+  ORM-absent app (the capability gate, not `@Lazy`, is the safety mechanism, mirroring the SmallRye-Health/OpenTelemetry
+  producers). When present, entities are discovered from the live `EntityManagerFactory` metamodel (all persistence
+  units, de-duplicated by identity); when absent the scanner is fed an empty-discovery supplier so `POST /scan` renders
+  DISABLED rather than failing, and only the panel's *availability* tracks the build-time `bootui.internal.hibernate-present`
+  flag. Persistence configuration is read through `QuarkusHibernatePropertyLookup`, which maps the Spring property names
+  the engine rules expect onto their `quarkus.hibernate-orm.*` equivalents (`ddl-auto` → `database.generation` with the
+  `drop-and-create` ↔ `create-drop` value alias, `show-sql`/`format_sql`/`batch_size`); the Open-Session-in-View rule is
+  correctly inert (Quarkus has no OSIV, so the lookup returns the effective-disabled constant and the rule never fires),
+  and Spring Data repository hints are Spring-only. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

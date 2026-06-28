@@ -18,7 +18,11 @@ import org.junit.jupiter.api.Test;
 class QuarkusPanelAvailabilityTest {
 
     private Map<String, PanelDto> manifestById() {
-        return new QuarkusPanelAvailability()
+        return manifestById(StubConfig.empty());
+    }
+
+    private Map<String, PanelDto> manifestById(StubConfig config) {
+        return new QuarkusPanelAvailability(config)
                 .manifest().panels().stream().collect(Collectors.toMap(PanelDto::id, Function.identity()));
     }
 
@@ -55,5 +59,27 @@ class QuarkusPanelAvailabilityTest {
                 .as("Architecture is lit up on Quarkus")
                 .isTrue();
         assertThat(architecture.unavailableReason()).isNull();
+    }
+
+    @Test
+    void hibernateIsUnavailableWithACapabilityHintWhenHibernateOrmIsAbsent() {
+        // Default: bootui.internal.hibernate-present is unset, so the deployment processor never saw the
+        // HIBERNATE_ORM capability. The panel must surface an honest capability hint, NOT the generic reason.
+        PanelDto hibernate = manifestById().get(BootUiPanels.HIBERNATE);
+        assertThat(hibernate.available()).isFalse();
+        assertThat(hibernate.unavailableReason())
+                .isNotNull()
+                .doesNotContain("Not yet available")
+                .containsIgnoringCase("quarkus-hibernate-orm");
+    }
+
+    @Test
+    void hibernateIsAvailableWhenTheBuildTimeFlagIsSet() {
+        StubConfig withHibernate = new StubConfig(Map.of(QuarkusPanelAvailability.HIBERNATE_PRESENT_KEY, "true"));
+        PanelDto hibernate = manifestById(withHibernate).get(BootUiPanels.HIBERNATE);
+        assertThat(hibernate.available())
+                .as("Hibernate is lit up when quarkus-hibernate-orm is present")
+                .isTrue();
+        assertThat(hibernate.unavailableReason()).isNull();
     }
 }

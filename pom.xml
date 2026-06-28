@@ -276,15 +276,17 @@
 
     <profiles>
         <!--
-            The Quarkus sample app depends on Hibernate ORM, whose build-time ByteBuddy enhancement (via
-            the Quarkus 3.20 platform) cannot read class files newer than the JDKs that platform supports
-            (17 and 21). It is therefore wired into the reactor only on a supported JDK so that:
-              - CI and releases (JDK 17) build and augment it, exercising the full extension wiring; while
-              - a local `./mvnw install` on a newer JDK (e.g. 25/26) stays green by skipping it.
-            Build it explicitly on a supported JDK, e.g. with JAVA_HOME pointed at a JDK 17/21:
+            These modules depend on Hibernate ORM, whose build-time ByteBuddy enhancement (via the Quarkus 3.20
+            platform) cannot read class files newer than the JDKs that platform supports (17 and 21). They are
+            therefore wired into the reactor only on a supported JDK so that:
+              - CI and releases (JDK 17) build and augment them, exercising the full extension wiring; while
+              - a local `./mvnw install` on a newer JDK (e.g. 25/26) stays green by skipping them.
+            Build them explicitly on a supported JDK, e.g. with JAVA_HOME pointed at a JDK 17/21:
               JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am install
-            The extension's own modules (bootui-quarkus*, integration-tests) have no Hibernate dependency
-            and stay in the always-on reactor above, so they are built and tested on every JDK.
+            The extension's own modules (bootui-quarkus*, the non-Hibernate integration-tests) have no Hibernate
+            dependency and stay in the always-on reactor above, so they are built and tested on every JDK. The
+            bootui-quarkus-hibernate-integration-tests module DOES add quarkus-hibernate-orm (to prove the
+            Hibernate advisor light-up end to end), so it is gated here alongside the Quarkus sample app.
         -->
         <profile>
             <id>quarkus-sample-app</id>
@@ -293,6 +295,7 @@
             </activation>
             <modules>
                 <module>bootui-quarkus-sample-app</module>
+                <module>bootui-quarkus-hibernate-integration-tests</module>
             </modules>
         </profile>
         <profile>

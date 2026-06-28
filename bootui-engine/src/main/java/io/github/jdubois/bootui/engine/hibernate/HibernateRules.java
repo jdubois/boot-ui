@@ -808,7 +808,7 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateRule {
                             + " is 7.4 or newer, where pagination over a collection JOIN FETCH is handled in memory with a warning instead of the legacy silent full-table fetch.");
         }
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         return violation(HibernateRuleModelSupport.paginatedCollectionFetchFindings(context));
     }
@@ -1732,7 +1732,7 @@ final class ModifyingClearAutomaticallyRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         List<String> details = new ArrayList<>();
         for (HibernateRepositoryModel repository : context.repositories()) {
@@ -1766,7 +1766,7 @@ final class StreamReturningMethodRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         List<String> details = new ArrayList<>();
         for (HibernateRepositoryModel repository : context.repositories()) {
@@ -1796,7 +1796,7 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         List<String> details = new ArrayList<>();
         for (HibernateRepositoryModel repository : context.repositories()) {
@@ -1832,7 +1832,7 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         List<String> details = new ArrayList<>();
         for (HibernateRepositoryModel repository : context.repositories()) {
@@ -2399,7 +2399,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         List<String> details = new ArrayList<>();
         for (HibernateRepositoryModel repository : context.repositories()) {
@@ -2483,7 +2483,7 @@ final class EntityProjectionQueryRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         List<String> details = new ArrayList<>();
         for (HibernateRepositoryModel repository : context.repositories()) {
@@ -2664,7 +2664,7 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.repositories().isEmpty()) {
-            return skipped("No Spring Data repository metadata was detected.");
+            return skipped("No repository metadata was detected.");
         }
         List<String> bagDetails = new ArrayList<>();
         List<String> collectionDetails = new ArrayList<>();

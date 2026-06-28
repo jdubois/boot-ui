@@ -252,6 +252,19 @@ generators, collection fetch pagination, unsafe cascades, cache misconfiguration
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
 
+On Quarkus the panel is identical, running the same shared rule engine over the same report contract when
+`quarkus-hibernate-orm` is present: entities are discovered from the live JPA `EntityManagerFactory` metamodel (across
+all persistence units, de-duplicated by identity), and the mapping/identifier/fetch rules apply unchanged. Two platform
+differences are worth noting. First, persistence configuration is read through a key-mapping layer that translates the
+Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
+`quarkus.hibernate-orm.database.generation` (including the `drop-and-create` ↔ `create-drop` value alias),
+`show-sql` → `quarkus.hibernate-orm.log.sql`, `format_sql` → `quarkus.hibernate-orm.log.format-sql`, and `batch_size` →
+`quarkus.hibernate-orm.jdbc.statement-batch-size`. Unmapped configuration rules find no value and stay silent, and
+their INFO advisories may still cite the Spring-flavored property name. Second, the Open-Session-in-View check is
+correctly **inert** on Quarkus: Quarkus has no OSIV concept, so the effective state is always disabled and the rule never
+fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour). Spring Data repository hints are
+specific to the Spring adapter and are not reported on Quarkus.
+
 ![BootUI Hibernate panel](./images/bootui-hibernate.webp)
 
 ### Memory

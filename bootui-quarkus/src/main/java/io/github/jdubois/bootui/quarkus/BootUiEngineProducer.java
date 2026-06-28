@@ -5,6 +5,9 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
+import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
+import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
@@ -14,10 +17,12 @@ import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
+import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.Instance;
@@ -28,6 +33,7 @@ import java.nio.file.Paths;
 import java.time.Clock;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import org.eclipse.microprofile.config.Config;
 
 /**
@@ -203,5 +209,41 @@ public class BootUiEngineProducer {
                 : null;
         String dir = (parent != null) ? parent.toString() : ".bootui";
         return new DismissedRulesStore(Paths.get(dir, "boot-ui.yml"));
+    }
+
+    /**
+     * The Hibernate (ORM mapping) advisor scanner. Produced <em>unconditionally</em> because it holds no
+     * {@code jakarta.persistence} type: the JPA-importing entity discovery lives behind the gated
+     * {@link EntityDiscoverySource} that {@link BootUiHibernateProducer} produces only when
+     * {@code quarkus-hibernate-orm} is present (R2). When that source is unsatisfied the scanner is given a
+     * supplier yielding an {@link EntityDiscovery#empty(String) empty discovery}, so {@code POST /scan}
+     * renders a DISABLED report instead of failing.
+     *
+     * <p>Configuration is read through {@link QuarkusHibernatePropertyLookup}, which maps the engine rules'
+     * Spring/native-Hibernate keys onto the {@code quarkus.hibernate-orm.*} namespace (and neutralizes the
+     * Spring-only Open-Session-in-View concern). The active profiles come from {@link SmallRyeConfig}, exactly
+     * as {@link QuarkusApplicationInfo#activeProfiles()} resolves them — never the {@code quarkus.profile}
+     * key — so the production-profile-sensitive rules behave identically to Spring.</p>
+     */
+    @Produces
+    @Singleton
+    public HibernateScanner hibernateScanner(Instance<EntityDiscoverySource> sources, Config config) {
+        Supplier<EntityDiscovery> discovery;
+        if (sources.isUnsatisfied()) {
+            discovery = () -> EntityDiscovery.empty("Hibernate ORM is not configured on this Quarkus application.");
+        } else {
+            EntityDiscoverySource source = sources.get();
+            discovery = source::discover;
+        }
+        return HibernateScanner.using(
+                discovery, new QuarkusHibernatePropertyLookup(config), () -> activeProfiles(config), Clock.systemUTC());
+    }
+
+    private static List<String> activeProfiles(Config config) {
+        try {
+            return List.copyOf(config.unwrap(SmallRyeConfig.class).getProfiles());
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
     }
 }
