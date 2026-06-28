@@ -146,6 +146,20 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Agroal extension, compile-only (provided): needed solely to compile the optional Database
+             Connection Pools panel path (BootUiAgroalProducer / QuarkusAgroalConnectionPoolProvider), which
+             reads the live pool configuration and AgroalDataSourceMetrics from the application's active Agroal
+             datasources. provided scope is NOT transitive, so an application that depends on this extension but
+             does not add a JDBC datasource extension never gets io.agroal on its classpath, and the
+             capability-gated build step excludes the producer that would reference it (R2). When an app DOES add
+             a JDBC datasource (e.g. quarkus-jdbc-h2), the API is supplied (at the same quarkus-bom-managed
+             version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-agroal</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). The runtime module carries a small same-package unit test for
              QuarkusHealthProvider.map(), which needs SmallRye's jakarta.json API + the Parsson implementation —
              both already on the test classpath via the provided smallrye-health dependency above. Keeping the

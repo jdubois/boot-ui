@@ -89,6 +89,12 @@ class BootUiQuarkusProcessor {
     private static final String FLYWAY_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiFlywayProducer";
     private static final String LIQUIBASE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiLiquibaseProducer";
 
+    // Referenced by class name only: BootUiAgroalProducer @Produces a ConnectionPoolProvider whose
+    // implementation (QuarkusAgroalConnectionPoolProvider) imports io.agroal.*; the deployment classloader must
+    // never load it while augmenting an application without a JDBC datasource extension on its classpath
+    // (loading it would link the Agroal API that must stay absent — R2).
+    private static final String AGROAL_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiAgroalProducer";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -584,6 +590,55 @@ class BootUiQuarkusProcessor {
             // the always-produced LiquibaseService and renders the panel unavailable; the panel is reported
             // unavailable in the manifest (LIQUIBASE_PRESENT_KEY defaults to false).
             excludedTypes.produce(new ExcludedTypeBuildItem(LIQUIBASE_PRODUCER_CLASS));
+        }
+    }
+
+    /**
+     * Capability-gated registration of the Database Connection Pools panel's Agroal-API-importing producer
+     * (R2), mirroring {@link #registerCacheAdvisor} exactly.
+     *
+     * <p>{@code BootUiAgroalProducer} has a {@code @Produces ConnectionPoolProvider} method that
+     * {@code new}-constructs {@code QuarkusAgroalConnectionPoolProvider}, the sole {@code io.agroal}-importing
+     * type in the extension, and the extension runtime jar is Jandex-indexed (so Arc discovers the always-on
+     * beans). Arc treats a producer method as bean-defining, so the indexed producer would be discovered
+     * <em>unconditionally</em> — and loading it in an application without a JDBC datasource extension would link
+     * the {@code io.agroal} API that must stay absent (R2). A missing CDI scope on the class is therefore
+     * <em>not</em> enough; the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from
+     * discovery when the {@code AGROAL} capability is absent. When it is present, the producer is registered
+     * (and pinned unremovable, since the engine {@code ConnectionPoolService} that consumes its
+     * {@code ConnectionPoolProvider} is itself injected into the RESTEasy-mediated {@code ConnectionPoolsResource},
+     * which Arc's usage analysis cannot see). The always-produced {@code ConnectionPoolService} (see
+     * {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives a {@code null} provider when
+     * absent and renders the panel unavailable, so it never fails — it is simply reported unavailable in the
+     * manifest until a JDBC datasource extension is added.</p>
+     *
+     * <p>The {@code AGROAL} capability is present whenever a JDBC datasource extension (e.g.
+     * {@code quarkus-jdbc-h2}) is on the classpath, independent of whether a datasource URL is actually
+     * configured. The present-key therefore tracks Agroal availability; an application with Agroal present but
+     * no datasource configured produces an empty pool list and the panel renders its empty state, matching the
+     * Spring adapter (HikariCP on the classpath with zero pools).</p>
+     */
+    @BuildStep
+    void registerConnectionPools(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.AGROAL);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(AGROAL_PRODUCER_CLASS)
+                    .setUnremovable()
+                    .build());
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true"));
+        } else {
+            // No JDBC datasource extension (or production): keep the io.agroal-importing producer out of bean
+            // discovery so Arc never links the Agroal API. The connection-pool service still wires via the
+            // always-produced ConnectionPoolService and renders the panel unavailable; the panel is reported
+            // unavailable in the manifest (CONNECTION_POOLS_PRESENT_KEY defaults to false).
+            excludedTypes.produce(new ExcludedTypeBuildItem(AGROAL_PRODUCER_CLASS));
         }
     }
 }

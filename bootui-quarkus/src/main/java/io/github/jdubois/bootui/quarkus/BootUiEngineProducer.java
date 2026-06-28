@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
@@ -35,6 +36,7 @@ import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.CacheProvider;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import io.github.jdubois.bootui.spi.FlywayProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
@@ -410,6 +412,26 @@ public class BootUiEngineProducer {
     public LiquibaseService liquibaseService(Instance<LiquibaseProvider> liquibaseProviders) {
         LiquibaseProvider provider = liquibaseProviders.isUnsatisfied() ? null : liquibaseProviders.get();
         return new LiquibaseService(provider);
+    }
+
+    /**
+     * The Database Connection Pools panel service. Produced <em>unconditionally</em> because it holds no
+     * {@code io.agroal} type: the Agroal-API-importing {@link ConnectionPoolProvider} lives behind the gated
+     * {@link BootUiAgroalProducer} that is wired only when the {@code AGROAL} capability is present (R2). When
+     * that provider is unsatisfied the engine is given a {@code null} provider, so
+     * {@code GET /database-connection-pools/pools} renders the panel unavailable (empty report).
+     *
+     * <p>It is given the concrete {@link QuarkusExposurePolicy} bean (not the {@code ExposurePolicy} SPI
+     * interface) so the engine masks the JDBC URL and pool username live — mirroring the Spring backend config
+     * passing {@code BootUiExposure} — and so adding more {@code ExposurePolicy} beans later can never make
+     * this wiring ambiguous.</p>
+     */
+    @Produces
+    @Singleton
+    public ConnectionPoolService connectionPoolService(
+            Instance<ConnectionPoolProvider> providers, QuarkusExposurePolicy exposure) {
+        ConnectionPoolProvider provider = providers.isUnsatisfied() ? null : providers.get();
+        return new ConnectionPoolService(provider, exposure);
     }
 
     private static List<String> activeProfiles(Config config) {

@@ -143,4 +143,26 @@ class QuarkusPanelAvailabilityTest {
                 .isTrue();
         assertThat(github.unavailableReason()).isNull();
     }
+
+    @Test
+    void connectionPoolsIsUnavailableWithAHintWhenNoDatasourceIsPresent() {
+        // Default: bootui.internal.connection-pools-present is unset, so the deployment processor never saw the
+        // AGROAL capability (no JDBC datasource). The panel must surface an honest hint, NOT the generic reason.
+        PanelDto pools = manifestById().get(BootUiPanels.DATABASE_CONNECTION_POOLS);
+        assertThat(pools.available()).isFalse();
+        assertThat(pools.unavailableReason())
+                .doesNotContain("Not yet available")
+                .containsIgnoringCase("JDBC datasource");
+    }
+
+    @Test
+    void connectionPoolsIsAvailableWhenTheBuildTimeFlagIsSet() {
+        StubConfig withDatasource =
+                new StubConfig(Map.of(QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true"));
+        PanelDto pools = manifestById(withDatasource).get(BootUiPanels.DATABASE_CONNECTION_POOLS);
+        assertThat(pools.available())
+                .as("Database Connection Pools is lit up when a JDBC datasource (Agroal) is present")
+                .isTrue();
+        assertThat(pools.unavailableReason()).isNull();
+    }
 }

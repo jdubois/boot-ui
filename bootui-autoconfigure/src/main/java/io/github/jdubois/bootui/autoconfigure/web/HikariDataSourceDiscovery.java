@@ -13,15 +13,15 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.util.ClassUtils;
 
-final class HikariDataSourceDiscovery {
+public final class HikariDataSourceDiscovery {
 
     private HikariDataSourceDiscovery() {}
 
-    static boolean hasAny(ListableBeanFactory factory) {
+    public static boolean hasAny(ListableBeanFactory factory) {
         return !discover(factory).isEmpty();
     }
 
-    static List<PoolEntry> discover(ListableBeanFactory factory) {
+    public static List<PoolEntry> discover(ListableBeanFactory factory) {
         List<PoolEntry> entries = new ArrayList<>();
         Set<String> seenBeanNames = new HashSet<>();
         Set<HikariDataSource> seenDataSources = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -143,5 +143,5 @@ final class HikariDataSourceDiscovery {
         return beanName.startsWith("&") ? beanName.substring(1) : beanName;
     }
 
-    record PoolEntry(String beanName, HikariDataSource dataSource) {}
+    public record PoolEntry(String beanName, HikariDataSource dataSource) {}
 }

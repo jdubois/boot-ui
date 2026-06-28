@@ -365,7 +365,7 @@ hide newer ones. Keep API, UI,
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
   Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, Beans, Scheduled Tasks, Cache, Flyway, and Liquibase. Architecture is the first **advisor** lit up on
+  GitHub, Beans, Scheduled Tasks, Cache, Flyway, Liquibase, and Database Connection Pools. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -516,7 +516,34 @@ hide newer ones. Keep API, UI,
   in try-with-resources, with a `ResettableSystemProperties` (`io.quarkus.runtime.*`, always present) declared *after* the
   `Liquibase` so it closes first — matching the Quarkus `LiquibaseRecorder` order. `GET /bootui/api/liquibase` lists
   databases + change sets network-free; only the explicit `POST /bootui/api/liquibase/update` mutates, behind the shared
-  `LocalhostGuard` write floor. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  `LocalhostGuard` write floor. Database Connection
+  Pools (panel id `database-connection-pools`, kept identical to Spring) is the first **`Database`** panel on Quarkus and
+  the first **different-pool-library** port: Spring reads HikariCP, Quarkus reads **Agroal**, but the **`HikariPool*` wire
+  contract is deliberately kept unchanged** (its JSON field names are already pool-neutral and the Vue UI carries no
+  "Hikari" labels, so Spring stays byte-identical and the SPA/conformance are untouched — same precedent as Cache keeping
+  the `spring-cache` id and Beans keeping reduced fidelity). The shared engine `ConnectionPoolService` owns the neutral
+  half — assembly, sort, and the `SecretMasker` JDBC-URL/username masking orchestration (honoring both `valueExposure()`
+  and `maskSecrets()`) — while the `ConnectionPoolProvider` SPI (returning neutral `ConnectionPoolInfo`/`…Snapshot`
+  carriers) is the seam each adapter implements (`SpringConnectionPoolProvider` over `HikariDataSource` beans +
+  `HikariPoolMXBean`; `QuarkusAgroalConnectionPoolProvider` over `AgroalDataSource` enumerated via
+  `AgroalDataSourceUtil.activeDataSourceNames()`, mapping `AgroalDataSourceMetrics`/config into the kept DTO). It is the
+  read-only twin of the Cache optional-dependency port (so **no R7 write gate**): the sole `io.agroal.*` importer
+  (`QuarkusAgroalConnectionPoolProvider` + `BootUiAgroalProducer`) is compiled `<scope>provided</scope>` and **excluded**
+  by the deployment `registerConnectionPools` build step (`ExcludedTypeBuildItem` by string name) unless
+  `Capability.AGROAL` is present and the launch mode is non-prod — so Arc never links the absent Agroal API; only the
+  panel's *availability* tracks the build-time `bootui.internal.connection-pools-present` flag, while the Agroal-API-free
+  engine `ConnectionPoolService` is `@Produces`'d unconditionally (its `ConnectionPoolProvider` `Instance` resolves empty →
+  renders `hikariPresent:false`, empty state). `Capability.AGROAL` is present whenever any JDBC datasource extension is on
+  the classpath, so the present-key tracks real datasource availability and a zero-datasource app renders the empty state
+  exactly like Spring with HikariCP-on-classpath-but-no-pools. The **Agroal→Hikari mapping** is documented honestly:
+  active←activeCount, idle←availableCount, total←active+idle, pending←awaitingCount; min/max-size and the
+  acquisition/reap/max-lifetime timeouts map across, but a few Hikari-specific fields have no faithful Agroal analogue and
+  are neutral defaults (`validationTimeoutMs`/`keepaliveTimeMs`←`-1` → render "—", `readOnly`←`false` because agroal-api
+  2.5 has no `readOnly()` accessor, `driverClassName` often null). Pool metrics require
+  `quarkus.datasource.jdbc.enable-metrics=true`; with metrics disabled the configuration still renders but the live
+  snapshot is `null` and the pool is marked unavailable with a specific reason (no throw). `GET
+  /bootui/api/database-connection-pools/pools` lists pools network-free and `…/pools/{name}/snapshot` returns a bounded
+  live snapshot; the panel is strictly read-only (no mutating route). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

@@ -635,6 +635,14 @@ uninitialized pools. A local live chart polls bounded snapshots of active, idle,
 seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
 pools.
 
+On the Quarkus adapter the same panel is served over **Agroal** (Quarkus' pool library) instead of HikariCP: the shared
+engine `ConnectionPoolService` and the `HikariPool*` wire contract are unchanged, and a Quarkus provider maps the live
+Agroal pool configuration and `AgroalDataSourceMetrics` (active/available/awaiting counts) into the same DTO shape — so
+the panel looks and behaves identically. Pool metrics require `quarkus.datasource.jdbc.enable-metrics=true`; with metrics
+disabled the pool configuration still renders but the live snapshot is marked unavailable. A few Hikari-specific fields
+have no faithful Agroal equivalent and are reported as neutral defaults (per-call validation timeout, keepalive interval,
+and read-only flag).
+
 ![BootUI Database Connection Pools panel](./images/bootui-database-connection-pools.webp)
 
 ### SQL Trace

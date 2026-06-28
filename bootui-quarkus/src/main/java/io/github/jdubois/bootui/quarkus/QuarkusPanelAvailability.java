@@ -137,6 +137,13 @@ public class QuarkusPanelAvailability {
      * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #HIBERNATE_PRESENT_KEY}.
      */
     public static final String CACHE_PRESENT_KEY = "bootui.internal.cache-present";
+    /**
+     * Runtime-config key carrying the build-time {@code AGROAL} capability decision. The deployment processor
+     * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean reads it
+     * back to decide whether the dynamically-available Database Connection Pools panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #CACHE_PRESENT_KEY}.
+     */
+    public static final String CONNECTION_POOLS_PRESENT_KEY = "bootui.internal.connection-pools-present";
 
     /**
      * Runtime-config key carrying the build-time {@code FLYWAY} capability decision. The deployment processor
@@ -177,6 +184,10 @@ public class QuarkusPanelAvailability {
             "Not available: this application does not use Liquibase. Add the quarkus-liquibase extension and a"
                     + " change log to enable the Liquibase panel.";
 
+    private static final String CONNECTION_POOLS_ABSENT =
+            "Not available: this application has no JDBC datasource. Add a JDBC datasource extension (e.g."
+                    + " quarkus-jdbc-postgresql) to enable the Database Connection Pools panel.";
+
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
      * Quarkus equivalent — as opposed to the generic {@link #NOT_YET_AVAILABLE} panels that simply have not
@@ -216,6 +227,7 @@ public class QuarkusPanelAvailability {
 
     private final boolean flywayPresent;
     private final boolean liquibasePresent;
+    private final boolean connectionPoolsPresent;
 
     private final List<String> githubAllowedApiHosts;
 
@@ -231,6 +243,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(FLYWAY_PRESENT_KEY, Boolean.class).orElse(false);
         this.liquibasePresent =
                 config.getOptionalValue(LIQUIBASE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.connectionPoolsPresent = config.getOptionalValue(CONNECTION_POOLS_PRESENT_KEY, Boolean.class)
+                .orElse(false);
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
     }
 
@@ -247,6 +261,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.SPRING_CACHE.equals(panel.id()) && cachePresent)
                 || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
                 || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
+                || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panel.id()) && connectionPoolsPresent)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
@@ -267,6 +282,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.LIQUIBASE.equals(panelId)) {
             return LIQUIBASE_ABSENT;
+        }
+        if (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId)) {
+            return CONNECTION_POOLS_ABSENT;
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();

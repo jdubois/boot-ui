@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
+import io.github.jdubois.bootui.autoconfigure.datasource.SpringConnectionPoolProvider;
 import io.github.jdubois.bootui.autoconfigure.flyway.SpringFlywayProvider;
 import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
@@ -22,6 +23,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
+import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
@@ -532,6 +534,27 @@ public class BootUiEngineConfiguration {
         @ConditionalOnMissingBean
         LiquibaseService bootUiLiquibaseService(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
             return new LiquibaseService(new SpringLiquibaseProvider(beanFactoryProvider));
+        }
+    }
+
+    /**
+     * The Database Connection Pools panel backend is only wired when HikariCP is on the classpath. The
+     * Hikari-typed discovery lives in {@link SpringConnectionPoolProvider}, constructed only in this nested,
+     * {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root config), so the
+     * {@code com.zaxxer.hikari} types are never linked in a pool-absent application. The engine
+     * {@code ConnectionPoolService} owns the neutral concerns (URL/username masking, sorting, assembly), so the
+     * panel's wire output is unchanged after the extraction.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "com.zaxxer.hikari.HikariDataSource")
+    static class ConnectionPoolsBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        ConnectionPoolService bootUiConnectionPoolService(
+                ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiExposure exposure) {
+            return new ConnectionPoolService(new SpringConnectionPoolProvider(beanFactoryProvider), exposure);
         }
     }
 }
