@@ -3,12 +3,14 @@ package io.github.jdubois.bootui.quarkus.deployment;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
 import io.github.jdubois.bootui.quarkus.BootUiTelemetryProducer;
+import io.github.jdubois.bootui.quarkus.QuarkusApplicationInfo;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
+import io.quarkus.builder.Version;
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.Capability;
 import io.quarkus.deployment.annotations.BuildProducer;
@@ -16,6 +18,7 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
+import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
 import io.quarkus.runtime.LaunchMode;
 
 /**
@@ -70,10 +73,26 @@ class BootUiQuarkusProcessor {
                         QuarkusTelemetrySettings.class,
                         QuarkusExposurePolicy.class,
                         QuarkusMemoryRuntimeConfig.class,
+                        QuarkusApplicationInfo.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());
+    }
+
+    /**
+     * Exposes the Quarkus core version to runtime config as {@code bootui.internal.quarkus-version} so
+     * {@code QuarkusApplicationInfo} can report it as the overview {@code frameworkVersion}.
+     *
+     * <p>The version is only reliably available at build time via {@link Version#getVersion()}; the
+     * runtime {@code Package#getImplementationVersion()} returns {@code null} under the Quarkus
+     * classloader in dev/test. This default is harmless in production (the console is not wired, so the
+     * key is simply never read).</p>
+     */
+    @BuildStep
+    RunTimeConfigurationDefaultBuildItem quarkusVersion() {
+        return new RunTimeConfigurationDefaultBuildItem(
+                QuarkusApplicationInfo.QUARKUS_VERSION_KEY, Version.getVersion());
     }
 
     /**

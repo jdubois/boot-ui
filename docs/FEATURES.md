@@ -43,6 +43,11 @@ contributes a score derived from open security alerts. The overall score is the 
 scored, and only scanners whose panels are available for the current application are shown, so the dashboard degrades
 gracefully when optional infrastructure is missing.
 
+On Quarkus the Overview scoring *dashboard* is not yet ported, so the panel itself is reported unavailable. The shared
+shell chrome around every panel — the header application name, framework and version (for example "Quarkus 3.20"), Java
+version, active profiles, and the active/disabled status — is still populated on Quarkus, because it is served by the
+same framework-neutral `GET /bootui/api/overview` endpoint that both adapters expose for the shell.
+
 ![BootUI Overview panel](./images/bootui-overview.webp)
 
 ## Live Activity

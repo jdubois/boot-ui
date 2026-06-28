@@ -169,6 +169,47 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .isEqualTo(403);
     }
 
+    @Test
+    void overviewEndpointServesShellContract() {
+        // GET /bootui/api/overview is the shared shell's framework-neutral chrome source: it powers the
+        // header subtitle/status and primes the CSRF cookie, so it must answer on every platform
+        // regardless of whether the Overview dashboard *panel* is reported available (on Quarkus the
+        // panel is not yet ported, but the endpoint still serves the shell). This is a shape contract:
+        // it pins the fields the shell binds to, not their platform-varying values (so it asserts that
+        // frameworkVersion is present, not its value, and never asserts the activation.localhostOnly
+        // flag, which differs by platform).
+        Response response = probe().get("/bootui/api/overview");
+        assertThat(response.status()).as("GET /bootui/api/overview status").isEqualTo(200);
+        assertThat(response.isJson())
+                .as("GET /bootui/api/overview content-type (%s)", response.contentType())
+                .isTrue();
+
+        JsonNode overview = response.json();
+        assertThat(overview.path("applicationName").isTextual())
+                .as("$.applicationName must be a string")
+                .isTrue();
+        assertThat(overview.path("frameworkName").isTextual())
+                .as("$.frameworkName must be a string (e.g. 'Spring Boot' or 'Quarkus')")
+                .isTrue();
+        assertThat(!overview.path("frameworkVersion").isMissingNode())
+                .as("$.frameworkVersion must be present (its value is platform-specific)")
+                .isTrue();
+        assertThat(overview.path("javaVersion").isTextual())
+                .as("$.javaVersion must be a string")
+                .isTrue();
+        assertThat(overview.path("activeProfiles").isArray())
+                .as("$.activeProfiles must be an array")
+                .isTrue();
+
+        JsonNode activation = overview.path("activation");
+        assertThat(activation.path("enabled").isBoolean())
+                .as("$.activation.enabled must be a boolean")
+                .isTrue();
+        assertThat(activation.path("reason").isTextual())
+                .as("$.activation.reason must be a string")
+                .isTrue();
+    }
+
     private void assertPanelShape(ExpectedPanel expectedPanel, JsonNode panel) {
         String id = expectedPanel.id();
         assertThat(panel.path("id").isTextual())

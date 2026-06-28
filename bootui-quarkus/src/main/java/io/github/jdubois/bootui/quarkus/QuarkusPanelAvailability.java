@@ -19,6 +19,11 @@ import java.util.Set;
  * with a clear reason until its Quarkus backing is ported. Read-only is not yet modelled, so no panel is
  * read-only ({@code readOnlyReason} stays {@code null}) — note Traces is action-capable (its buffer can be
  * cleared), so it is the first Quarkus panel exposing a state-changing action.</p>
+ *
+ * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
+ * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
+ * endpoint is the shared shell's framework-neutral chrome/CSRF-priming source, which the shell needs on
+ * every platform, whereas the Overview dashboard panel itself has not yet been ported.</p>
  */
 @ApplicationScoped
 public class QuarkusPanelAvailability {
