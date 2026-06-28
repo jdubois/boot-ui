@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
+import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
@@ -31,6 +32,7 @@ import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationC
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
+import io.github.jdubois.bootui.spi.CacheProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -353,6 +355,27 @@ public class BootUiEngineProducer {
         }
         return HibernateScanner.using(
                 discovery, new QuarkusHibernatePropertyLookup(config), () -> activeProfiles(config), Clock.systemUTC());
+    }
+
+    /**
+     * The Cache panel service. Produced <em>unconditionally</em> because it holds no {@code io.quarkus.cache}
+     * type: the cache-API-importing {@link CacheProvider} lives behind the gated {@link BootUiCacheProducer}
+     * that is wired only when the {@code CACHE} capability is present (R2). When that provider is unsatisfied
+     * the engine is given a {@code null} provider, so {@code GET /spring-cache} renders the panel unavailable
+     * and {@code POST /clear} reports it unavailable instead of failing.
+     *
+     * <p>Cache metrics are read live from the same {@link MeterRegistry} the Metrics panel uses (present only
+     * when the application adds a {@code quarkus-micrometer} registry), through the identical
+     * {@link MeterSelfFilter} self-visibility predicate, so BootUI's own meters stay hidden — exactly as the
+     * Spring adapter feeds {@code BootUiSelfDataFilter::shouldIncludeMeter}.</p>
+     */
+    @Produces
+    @Singleton
+    public CacheService cacheService(
+            Instance<CacheProvider> cacheProviders, Instance<MeterRegistry> registries, Config config) {
+        CacheProvider provider = cacheProviders.isUnsatisfied() ? null : cacheProviders.get();
+        MeterSelfFilter meterFilter = new MeterSelfFilter(transformClassifier(config));
+        return new CacheService(provider, () -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
     }
 
     private static List<String> activeProfiles(Config config) {

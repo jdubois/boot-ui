@@ -10,6 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.sample.SampleCachedService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -47,7 +50,19 @@ class SpringCacheControllerTests {
         when(meterRegistryProvider.orderedStream())
                 .thenReturn(meterRegistry == null ? Stream.empty() : Stream.of(meterRegistry));
 
-        return new SpringCacheController(factoryProvider, operationSourceProvider, meterRegistryProvider, properties);
+        BootUiSelfDataFilter selfDataFilter = BootUiSelfDataFilter.defaults();
+        SpringCacheProvider provider =
+                new SpringCacheProvider(factoryProvider, operationSourceProvider, properties, selfDataFilter);
+        CacheService service = new CacheService(
+                provider,
+                () -> {
+                    MeterRegistry unique = meterRegistryProvider.getIfUnique();
+                    return unique != null
+                            ? unique
+                            : meterRegistryProvider.orderedStream().findFirst().orElse(null);
+                },
+                selfDataFilter::shouldIncludeMeter);
+        return new SpringCacheController(service);
     }
 
     private static BootUiProperties clearEnabledProperties() {

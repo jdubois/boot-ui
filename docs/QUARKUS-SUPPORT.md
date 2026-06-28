@@ -182,7 +182,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | Spring panel     | Quarkus replacement                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------------ |
 | `Spring` advisor | **`Quarkus` advisor** — new ruleset over the same scanning engine (CDI/Arc, config, build-time idioms) |
-| `Spring Cache`   | **`Quarkus Cache`** — backed by `quarkus-cache` (Caffeine)                                             |
+| `Spring Cache`   | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `spring-cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
 
 ### 5.5 Dropped on Quarkus (11)
 

@@ -42,8 +42,8 @@ import org.eclipse.microprofile.config.Config;
  * Spring-Security and Actuator checks stay inert on Quarkus). Read-only is not yet modelled, so no panel is
  * read-only ({@code readOnlyReason} stays {@code null})
  * — note Traces (its buffer can be cleared), Loggers (a logger level can be set), HTTP Probe (it issues a
- * request), Architecture (it runs a scan and dismisses rules), Pentesting (it runs a scan) and
- * Vulnerabilities (it runs an OSV scan) are
+ * request), Architecture (it runs a scan and dismisses rules), Pentesting (it runs a scan), Vulnerabilities
+ * (it runs an OSV scan) and Cache (it clears caches) are
  * action-capable, so they are the Quarkus panels exposing state-changing actions.</p>
  *
  * <p>The <strong>Hibernate</strong> (ORM mapping) advisor is available <em>dynamically</em>: unlike the
@@ -63,6 +63,17 @@ import org.eclipse.microprofile.config.Config;
  * capability-gated — the panel captures {@code @Scheduled} metadata at build time (no runtime
  * {@code io.quarkus.scheduler.*} import), so the engine service and its read resource always wire and render an
  * empty {@code schedulingPresent=false} report when the scheduler is absent.</p>
+ * <p>The <strong>Cache</strong> panel (kept under the shared id {@code spring-cache}) is likewise available
+ * <em>dynamically</em>: it is lit up only when the application uses Quarkus Cache. The deployment processor
+ * detects the {@code CACHE} capability at build time and feeds the decision back as the
+ * {@code bootui.internal.cache-present} runtime-config default (see {@link #CACHE_PRESENT_KEY}); when
+ * {@code quarkus-cache} is absent the panel reports an honest capability hint rather than the generic "not yet
+ * ported" reason. The cache-API-free engine {@code CacheService} and its {@code GET}/{@code POST /clear}
+ * resource are always wired regardless — only the {@code io.quarkus.cache.*}-reading {@code CacheProvider}
+ * impl is capability-gated (R2), so the panel renders {@code cacheAvailable:false} rather than failing when
+ * the extension is absent. The {@code POST /clear} action makes Cache action-capable on Quarkus (behind the
+ * shared {@code LocalhostGuard} write floor); Quarkus has no runtime cached-operation registry (its caching
+ * annotations are build-time woven), so the operations list is empty by design.</p>
  *
  * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
@@ -107,6 +118,13 @@ public class QuarkusPanelAvailability {
      * methods). Mirrors {@link #HIBERNATE_PRESENT_KEY}.
      */
     public static final String SCHEDULED_PRESENT_KEY = "bootui.internal.scheduled-present";
+    /**
+     * Runtime-config key carrying the build-time {@code CACHE} capability decision. The deployment processor
+     * emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean reads it
+     * back to decide whether the dynamically-available Cache panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String CACHE_PRESENT_KEY = "bootui.internal.cache-present";
 
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
@@ -117,6 +135,10 @@ public class QuarkusPanelAvailability {
     private static final String SCHEDULED_ABSENT =
             "Not available: this application has no scheduler. Add the quarkus-scheduler extension and"
                     + " annotate a method with @Scheduled to enable the Scheduled Tasks panel.";
+
+    private static final String CACHE_ABSENT =
+            "Not available: this application does not use Quarkus Cache. Add the quarkus-cache extension to"
+                    + " enable the cache panel.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -153,6 +175,8 @@ public class QuarkusPanelAvailability {
 
     private final boolean schedulingPresent;
 
+    private final boolean cachePresent;
+
     private final List<String> githubAllowedApiHosts;
 
     @Inject
@@ -161,6 +185,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(HIBERNATE_PRESENT_KEY, Boolean.class).orElse(false);
         this.schedulingPresent =
                 config.getOptionalValue(SCHEDULED_PRESENT_KEY, Boolean.class).orElse(false);
+        this.cachePresent =
+                config.getOptionalValue(CACHE_PRESENT_KEY, Boolean.class).orElse(false);
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
     }
 
@@ -174,6 +200,7 @@ public class QuarkusPanelAvailability {
         boolean available = AVAILABLE_PANELS.contains(panel.id())
                 || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent)
                 || (BootUiPanels.SCHEDULED.equals(panel.id()) && schedulingPresent)
+                || (BootUiPanels.SPRING_CACHE.equals(panel.id()) && cachePresent)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
@@ -185,6 +212,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.SCHEDULED.equals(panelId)) {
             return SCHEDULED_ABSENT;
+        }
+        if (BootUiPanels.SPRING_CACHE.equals(panelId)) {
+            return CACHE_ABSENT;
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();

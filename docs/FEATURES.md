@@ -763,6 +763,15 @@ confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
 ![BootUI Spring Cache panel](./images/bootui-spring-cache.webp)
 
+On Quarkus the same panel (kept under the shared id `spring-cache`) is served over `quarkus-cache`: the shared engine
+`CacheService` reads the live cache topology from the application's `io.quarkus.cache.CacheManager`, overlays the same
+Micrometer cache metrics (when a `quarkus-micrometer` registry is present and per-cache metrics are enabled), and the
+clear action evicts via `cache.invalidateAll()`. Because Quarkus binds caching with build-time annotations
+(`@CacheResult`, `@CacheInvalidate`, `@CacheInvalidateAll`) woven into methods, there is no runtime registry of cached
+operations, so the operations table is replaced by a short explanatory note and the panel shows cache names + metrics +
+clear. The panel is gated on the `quarkus-cache` extension (the `CACHE` capability) and is reported unavailable, with a
+capability hint, on applications that do not use it.
+
 ### AI Usage
 
 The AI Usage panel summarizes Spring AI and LangChain4j activity collected from OpenTelemetry spans emitted by their

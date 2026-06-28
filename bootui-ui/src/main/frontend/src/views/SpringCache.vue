@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -15,6 +15,8 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const panels = inject('panels', ref(null))
+const platform = computed(() => panels.value?.platform ?? 'spring-boot')
 const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
@@ -175,7 +177,9 @@ function showReadOnlyMessage() {
       title="Spring Cache"
       :subtitle="
         report
-          ? `${report.managerCount} manager${report.managerCount === 1 ? '' : 's'} · ${report.cacheCount} cache${report.cacheCount === 1 ? '' : 's'} · ${report.operationCount} annotation operation${report.operationCount === 1 ? '' : 's'}`
+          ? platform === 'quarkus'
+            ? `${report.managerCount} manager${report.managerCount === 1 ? '' : 's'} · ${report.cacheCount} cache${report.cacheCount === 1 ? '' : 's'}`
+            : `${report.managerCount} manager${report.managerCount === 1 ? '' : 's'} · ${report.cacheCount} cache${report.cacheCount === 1 ? '' : 's'} · ${report.operationCount} annotation operation${report.operationCount === 1 ? '' : 's'}`
           : null
       "
       :loading="loading"
@@ -285,7 +289,7 @@ function showReadOnlyMessage() {
         <div v-else-if="report.cacheAvailable" class="text-muted small">No caches match the current filter.</div>
       </section>
 
-      <section>
+      <section v-if="platform !== 'quarkus'">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
           <h5 class="mb-0">
             Annotation operations <span class="badge bg-secondary">{{ report.operationCount }}</span>
@@ -367,6 +371,16 @@ function showReadOnlyMessage() {
         </div>
 
         <div v-else class="text-muted small">No annotation operations match the current filter.</div>
+      </section>
+
+      <section v-else>
+        <h5 class="mb-2">Cached operations</h5>
+        <div class="alert alert-secondary small mb-0">
+          Quarkus binds caching with build-time annotations (<code>@CacheResult</code>,
+          <code>@CacheInvalidate</code>, <code>@CacheInvalidateAll</code>) woven into your methods at compile time, so
+          there is no runtime registry of cached operations to list here. The caches above are read live from the
+          Quarkus <code>CacheManager</code>; exercise a cached method to populate their metrics.
+        </div>
       </section>
     </template>
   </div>

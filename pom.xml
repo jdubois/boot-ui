@@ -52,6 +52,7 @@
         <module>bootui-quarkus-health-integration-tests</module>
         <module>bootui-quarkus-micrometer-integration-tests</module>
         <module>bootui-quarkus-scheduler-integration-tests</module>
+        <module>bootui-quarkus-cache-integration-tests</module>
     </modules>
 
     <properties>

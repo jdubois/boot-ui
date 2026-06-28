@@ -84,6 +84,8 @@ class BootUiQuarkusProcessor {
     // and link the JPA API that must stay absent — R2).
     private static final String HIBERNATE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiHibernateProducer";
 
+    private static final String CACHE_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiCacheProducer";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -452,5 +454,47 @@ class BootUiQuarkusProcessor {
     private static String enumMember(AnnotationInstance annotation, String name, String defaultValue) {
         AnnotationValue value = annotation.value(name);
         return value == null ? defaultValue : value.asEnum();
+    }
+
+    /**
+     * Capability-gated registration of the Cache panel's cache-API-importing producer (R2), mirroring
+     * {@link #registerHibernateAdvisor} exactly.
+     *
+     * <p>{@code BootUiCacheProducer} has a {@code @Produces CacheProvider} method whose parameter type is
+     * {@code io.quarkus.cache.CacheManager}, and the extension runtime jar is Jandex-indexed (so Arc discovers
+     * the always-on beans). Arc treats a producer method as bean-defining, so the indexed producer would be
+     * discovered <em>unconditionally</em> — and Arc would fail to resolve its {@code CacheManager} parameter
+     * type in an application without {@code quarkus-cache}, linking the {@code io.quarkus.cache} API that must
+     * stay absent (R2). A missing CDI scope on the class is therefore <em>not</em> enough; the producer must be
+     * actively {@linkplain ExcludedTypeBuildItem excluded} from discovery when the {@code CACHE} capability is
+     * absent. When it is present, the producer is registered (and pinned unremovable, since the engine
+     * {@code CacheService} that consumes its {@code CacheProvider} is itself injected into the RESTEasy-mediated
+     * {@code CacheResource}, which Arc's usage analysis cannot see). The always-produced {@code CacheService}
+     * (see {@link io.github.jdubois.bootui.quarkus.BootUiEngineProducer}) then receives a {@code null} provider
+     * when absent and renders the panel unavailable, so it never fails — it is simply reported unavailable in
+     * the manifest until {@code quarkus-cache} is added.</p>
+     */
+    @BuildStep
+    void registerCacheAdvisor(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.CACHE);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(CACHE_PRODUCER_CLASS)
+                    .setUnremovable()
+                    .build());
+            runtimeDefaults.produce(
+                    new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.CACHE_PRESENT_KEY, "true"));
+        } else {
+            // No quarkus-cache (or production): keep the io.quarkus.cache-importing producer out of bean
+            // discovery so Arc never tries to resolve its CacheManager parameter. The cache service still wires
+            // via the always-produced CacheService and renders the panel unavailable; the panel is reported
+            // unavailable in the manifest (CACHE_PRESENT_KEY defaults to false).
+            excludedTypes.produce(new ExcludedTypeBuildItem(CACHE_PRODUCER_CLASS));
+        }
     }
 }

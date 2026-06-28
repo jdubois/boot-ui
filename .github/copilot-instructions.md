@@ -354,9 +354,10 @@ hide newer ones. Keep API, UI,
 - **Diagnostics**: Traces, Log Tail, Exceptions, HTTP Exchanges, HTTP Probe
 - **Developer Tools**: MCP Server, DevTools, Dev Services, Copilot, Claude Code
 
-- Some panels are framework-specific. The **plan** (not yet implemented — tracked in `docs/QUARKUS-SUPPORT.md`) is to
-  replace the **Spring advisor** with a **Quarkus advisor** and **Spring Cache** with a **Quarkus Cache** panel on the
-  Quarkus adapter; a few Spring-only panels (e.g. DevTools, Conditions) have no Quarkus equivalent and stay unavailable
+- Some panels are framework-specific. The **plan** (partly implemented — tracked in `docs/QUARKUS-SUPPORT.md`) is to
+  replace the **Spring advisor** with a **Quarkus advisor** on the Quarkus adapter; the Cache panel (kept under the
+  shared id `spring-cache`) is **already** served on Quarkus over `quarkus-cache` (see the Cache entry below). A few
+  Spring-only panels (e.g. DevTools, Conditions) have no Quarkus equivalent and stay unavailable
   there. The **GraalVM** and **CRaC** advisors are deliberately **not** ported to Quarkus (they are not "not yet" — they
   have no meaningful Quarkus equivalent): Quarkus compiles native images itself and generates its own reachability
   metadata at build time, and CRaC targets the Spring startup model, so both report a panel-specific "not applicable on
@@ -364,7 +365,7 @@ hide newer ones. Keep API, UI,
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
   Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, Beans, and Scheduled Tasks. Architecture is the first **advisor** lit up on
+  GitHub, Beans, Scheduled Tasks, and Cache. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -445,7 +446,7 @@ hide newer ones. Keep API, UI,
   change. The provider filters out BootUI's own beans by FQN prefix and classifies with Quarkus-aware framework prefixes;
   a few fields are reduced-fidelity because Arc does not expose them at runtime (`resource`/`dependencies` empty, CDI
   `scope` vocabulary, synthetic name for unnamed beans, and only Arc-retained beans appear).
-  `HttpClient` + always-present Jackson 2), so the panel is statically available. Scheduled Tasks is the first
+  Scheduled Tasks is the first
   **build-time-capture optional-dependency** panel that needs no `ExcludedTypeBuildItem`: the shared engine
   `ScheduledTasksService` owns only the sort + `schedulingPresent`/`total` wrapping, and because the shared
   `ScheduledTaskDto` carries only static `@Scheduled` config (no runtime next-fire/id, which is all the runtime
@@ -462,7 +463,25 @@ hide newer ones. Keep API, UI,
   quarkus-core `DurationConverter` (best-effort MicroProfile `Config` resolution of `{prop}`/`${prop}` references, else
   rendered raw), and self-filters via the shared engine `InternalPackageMatcher`; the read-only `ScheduledResource`
   mirrors the Spring `ScheduledController`. Annotation-discovered tasks only (programmatic `Scheduler.newJob()` jobs are
-  not captured). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  not captured).
+  Cache (panel id `spring-cache`, kept
+  identical to Spring) is the first **`Services`** panel and the first **action-capable optional-dependency data panel**
+  on Quarkus: the shared engine `CacheService` owns the neutral half — cache topology → Micrometer metric overlay
+  (hit/miss/size/eviction, same meter conventions both frameworks via the shared `MeterSelfFilter`), ordering, and the
+  state-changing **clear** orchestration — while the `CacheProvider` SPI is the seam each adapter implements
+  (`SpringCacheProvider` over Spring `CacheManager` + `CacheOperationSource`; `QuarkusCacheProvider` over
+  `io.quarkus.cache.CacheManager`, sizes via `CaffeineCache.keySet()`, clear via `cache.invalidateAll()`). It is an
+  optional-dependency port like Hibernate: the sole `io.quarkus.cache.*` importer (`QuarkusCacheProvider` +
+  `BootUiCacheProducer`) is compiled `<scope>provided</scope>` and **excluded** by the deployment `registerCacheAdvisor`
+  build step (`ExcludedTypeBuildItem` by string name) unless `Capability.CACHE` is present and the launch mode is
+  non-prod — so Arc never links the absent cache API; only the panel's *availability* tracks the build-time
+  `bootui.internal.cache-present` flag, while the cache-API-free engine `CacheService` is `@Produces`'d unconditionally
+  (its `CacheProvider` `Instance` resolves empty → renders `cacheAvailable:false`). The one reduced-fidelity gap is
+  honest to the "replacement" framing: Quarkus binds caching with **build-time** annotations (`@CacheResult`,
+  `@CacheInvalidate`) woven into methods, so there is no runtime registry of cached operations — `operations()` is empty
+  and `SpringCache.vue` renders a Quarkus-specific "Cached operations" note (via the `platform` discriminator) instead of
+  the Spring `@Cacheable` table. `GET /bootui/api/spring-cache` lists caches + metrics network-free; only the explicit
+  `POST /bootui/api/spring-cache/clear` mutates, behind the shared `LocalhostGuard` write floor. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
+import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
@@ -17,6 +18,7 @@ import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvi
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
+import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
@@ -52,6 +54,7 @@ import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
+import org.springframework.cache.interceptor.CacheOperationSource;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -445,6 +448,44 @@ public class BootUiEngineConfiguration {
                 ObjectProvider<ScheduledTaskHolder> scheduledTaskHolders, BootUiSelfDataFilter selfDataFilter) {
             return new SpringScheduledTaskProvider(
                     scheduledTaskHolders.orderedStream().toList(), selfDataFilter);
+        }
+    }
+
+    /**
+     * The Spring Cache panel backend is only wired when the Spring {@code CacheManager} type is on the
+     * classpath. The cache-specific parameters live in this nested, {@code @ConditionalOnClass}-gated
+     * configuration (never inline in the always-active root config), so the cache types are never linked in
+     * a cache-absent application. The engine {@code CacheService} owns the neutral concerns (metric overlay,
+     * ordering, clear orchestration); the byte-identical {@code SpringCacheProvider} owns the Spring-specific
+     * topology + operation discovery.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.cache.CacheManager")
+    static class CacheBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        CacheService bootUiCacheService(
+                ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+                ObjectProvider<CacheOperationSource> cacheOperationSources,
+                ObjectProvider<MeterRegistry> meterRegistries,
+                BootUiProperties properties,
+                BootUiSelfDataFilter selfDataFilter) {
+            // The provider reproduces the former SpringCacheService manager/cache/operation discovery
+            // byte-for-byte; the engine reads cache meters from the same registry the old service used
+            // (unique-or-first) and applies the identical self-filter predicate.
+            SpringCacheProvider provider =
+                    new SpringCacheProvider(beanFactoryProvider, cacheOperationSources, properties, selfDataFilter);
+            return new CacheService(
+                    provider,
+                    () -> {
+                        MeterRegistry unique = meterRegistries.getIfUnique();
+                        return unique != null
+                                ? unique
+                                : meterRegistries.orderedStream().findFirst().orElse(null);
+                    },
+                    selfDataFilter::shouldIncludeMeter);
         }
     }
 }
