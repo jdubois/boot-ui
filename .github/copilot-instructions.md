@@ -242,6 +242,18 @@ Spring's `PanelAccessFilter` yet, so per-panel enable / read-only gating is Spri
   (local Actuator/tracing defaults; host `management.*` settings still win), `BootUiStartupEnvironmentPostProcessor`
   (startup-timeline buffer), and `BootUiWebApplicationTypeEnvironmentPostProcessor` (forces servlet web type when active
   and otherwise non-web). Add new post-processors to that same file.
+- **All four EPPs are Spring-bootstrap-only and stay in the Spring adapter** (R8 classification): none encodes a semantic
+  default the shared DTO contract needs both adapters to apply identically, so there is no engine-level equivalent and no
+  Quarkus EPP. Each compensates for a Spring-bootstrap concept Quarkus does not have, or its target panel is reached
+  differently on Quarkus: web-type (`spring.main.web-application-type`) has no Vert.x analog; the Actuator/tracing defaults
+  are Spring Actuator + Micrometer keys with no Quarkus counterpart (the Health panel reads SmallRye directly, and Traces/AI
+  capture is the in-process OTel exporter); the startup buffer is `BufferingApplicationStartup` (the Startup Timeline panel
+  is a separate, still-unported Quarkus capture concern); and the overrides property source is Spring precedence (the
+  Quarkus equivalent would be a SmallRye `ConfigSource`, deferred until the Configuration panel is ported). Note the
+  overrides EPP is the one that does **not** gate on `BootUiActivationCondition` — it always loads the overrides file. On
+  Quarkus, local Traces/AI full-fidelity capture relies on Quarkus OpenTelemetry's own default sampler
+  (`parentbased_always_on`) rather than a BootUI-contributed `quarkus.otel.traces.sampler` default; this is at parity with
+  Spring's parent-based `probability=1.0` for the typical host-unconfigured dev case, and the host's own sampler still wins.
 
 ### Quarkus
 
