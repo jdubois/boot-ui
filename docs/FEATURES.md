@@ -304,6 +304,13 @@ infrastructure is clear, and shows setup guidance instead of a healthy-looking s
 is not available. When Actuator health is present but only Spring Boot's default indicators are reported, it keeps the
 live statuses visible and shows guidance for adding application or dependency health contributors.
 
+On Quarkus the panel is identical, served over SmallRye Health (the MicroProfile Health implementation Quarkus uses): it
+reads the aggregated liveness and readiness report in-process and maps each check onto the same neutral status tree, with
+every check's reported data shown as nested details. When `quarkus-smallrye-health` is absent the panel stays visible and
+shows setup guidance for adding it instead of a healthy-looking status. SmallRye has no fixed framework-default
+contributors — every check is application-authored — so the Spring-only "default indicators only" guidance does not apply
+on Quarkus.
+
 ![BootUI Health panel](./images/bootui-health.webp)
 
 ### HTTP Sessions

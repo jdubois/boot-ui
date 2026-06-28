@@ -112,9 +112,35 @@ describe('Health', () => {
     expect(fetch).toHaveBeenCalledWith('api/health', expect.anything())
     expect(wrapper.text()).toContain('DISABLED')
     expect(wrapper.text()).toContain('Spring Boot Actuator health endpoint is not available')
-    expect(wrapper.text()).toContain('Set up Spring Boot Actuator health')
+    expect(wrapper.text()).toContain('Set up health monitoring')
     expect(wrapper.text()).toContain('org.springframework.boot:spring-boot-starter-actuator')
     expect(wrapper.text()).toContain('management.endpoint.health.probes.enabled=true')
+    expect(wrapper.text()).not.toContain('Component tree')
+  })
+
+  it('renders Quarkus SmallRye setup guidance from backend fields when health is unavailable', async () => {
+    await mountWithHealth(
+      healthRoot({
+        status: 'DISABLED',
+        available: false,
+        unavailableReason: 'Quarkus SmallRye Health is not available',
+        setup: [
+          {
+            title: 'Add Quarkus SmallRye Health',
+            description: 'Add the quarkus-smallrye-health extension.',
+            snippets: ['io.quarkus:quarkus-smallrye-health']
+          }
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('DISABLED')
+    expect(wrapper.text()).toContain('Quarkus SmallRye Health is not available')
+    expect(wrapper.text()).toContain('Set up health monitoring')
+    expect(wrapper.text()).toContain('io.quarkus:quarkus-smallrye-health')
+    // The panel chrome carries no hardcoded Spring/Actuator copy — all platform specifics come from the backend.
+    expect(wrapper.text()).not.toContain('Spring')
+    expect(wrapper.text()).not.toContain('Actuator')
     expect(wrapper.text()).not.toContain('Component tree')
   })
 
@@ -158,9 +184,8 @@ describe('Health', () => {
     expect(wrapper.text()).toContain('UP')
     expect(wrapper.text()).toContain('Only Spring Boot default health indicators are available')
     expect(wrapper.text()).toContain('Add application health contributors')
-    expect(wrapper.text()).toContain('Actuator health is available')
-    expect(wrapper.text()).toContain('Spring Boot default health indicators: livenessState, readinessState, ssl')
-    expect(wrapper.text()).toContain('The SSL indicator only appears when Spring has SSL bundles to validate.')
+    expect(wrapper.text()).toContain("only the framework's built-in health indicators")
+    expect(wrapper.text()).toContain('built-in health indicators: livenessState, readinessState, ssl')
     expect(wrapper.text()).toContain('Component tree')
     expect(wrapper.text()).toContain('livenessState')
     expect(wrapper.text()).toContain('readinessState')
@@ -196,6 +221,6 @@ describe('Health', () => {
     expect(wrapper.text()).toContain('All reported components are healthy')
     expect(wrapper.text()).toContain('Component tree')
     expect(wrapper.text()).toContain('diskSpace')
-    expect(wrapper.text()).not.toContain('Set up Spring Boot Actuator health')
+    expect(wrapper.text()).not.toContain('Set up health monitoring')
   })
 })

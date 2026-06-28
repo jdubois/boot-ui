@@ -33,9 +33,7 @@ const componentCount = computed(() => Math.max(nodes.value.length - 1, 0))
 const healthUnavailable = computed(() => root.value?.available === false)
 const setupSteps = computed(() => root.value?.setup || [])
 const hasHealthComponents = computed(() => componentCount.value > 0)
-const defaultOnlyHealth = computed(
-  () => root.value?.guidanceReason === 'Only Spring Boot default health indicators are available'
-)
+const defaultOnlyHealth = computed(() => !healthUnavailable.value && Boolean(root.value?.guidanceReason))
 const healthGuidance = computed(
   () => healthUnavailable.value || Boolean(root.value?.guidanceReason) || setupSteps.value.length > 0
 )
@@ -43,17 +41,16 @@ const defaultContributorNames = computed(() =>
   (root.value?.components || []).map((component) => component.name).join(', ')
 )
 const setupTitle = computed(() =>
-  defaultOnlyHealth.value ? 'Add application health contributors' : 'Set up Spring Boot Actuator health'
+  defaultOnlyHealth.value ? 'Add application health contributors' : 'Set up health monitoring'
 )
 const setupIntro = computed(() => {
   if (defaultOnlyHealth.value) {
     const contributors = defaultContributorNames.value ? `: ${defaultContributorNames.value}` : ''
-    return `Actuator health is available, but the reported tree contains only Spring Boot default health indicators${contributors}. These framework checks are useful, but they do not prove that your application dependencies are healthy. The SSL indicator only appears when Spring has SSL bundles to validate.`
+    return `Health is reporting, but the tree contains only the framework's built-in health indicators${contributors}. These framework checks are useful, but they do not prove that your application dependencies are healthy.`
   }
   return (
-    'The Health panel is disabled until a Spring Boot Actuator HealthEndpoint is available. Once it is configured, ' +
-    'BootUI will render the application status, liveness/readiness probes, SSL certificate checks, and any dependency ' +
-    'contributors reported by Actuator.'
+    'The Health panel renders the application status and dependency contributors once a health backend is ' +
+    'available. Use the steps below to light up real dependency health in local development.'
   )
 })
 const problemNodes = computed(() =>
@@ -69,7 +66,7 @@ const detailsHidden = computed(
 
 const statusMessage = computed(() => {
   if (!root.value) return ''
-  if (healthUnavailable.value) return root.value.unavailableReason || 'Actuator health data is unavailable'
+  if (healthUnavailable.value) return root.value.unavailableReason || 'Health data is unavailable'
   if (root.value.guidanceReason) return root.value.guidanceReason
   if (problemNodes.value.length) {
     return `${problemNodes.value.length} component${problemNodes.value.length === 1 ? ' needs' : 's need'} attention`
@@ -85,7 +82,7 @@ const statusMessage = computed(() => {
     <PanelHeader
       icon="bi-heart-pulse"
       title="Health"
-      subtitle="Inspect application and dependency health without reading raw Actuator JSON."
+      subtitle="Inspect application and dependency health at a glance."
       :loading="loading"
       :error="error"
       :last-fetched="lastFetched"
@@ -121,7 +118,7 @@ const statusMessage = computed(() => {
               <div class="health-summary__metric">
                 <dt>Contributors</dt>
                 <dd>{{ componentCount }}</dd>
-                <small class="health-summary__hint">Nested health components reported by Actuator</small>
+                <small class="health-summary__hint">Nested health components reported by the health backend</small>
               </div>
               <div class="health-summary__metric">
                 <dt>Attention needed</dt>
@@ -134,8 +131,8 @@ const statusMessage = computed(() => {
       </div>
 
       <div v-if="detailsHidden" class="alert alert-info small">
-        Health contributor details are not available. In local development, set
-        <code>management.endpoint.health.show-details=always</code> to show component details.
+        Health contributor details are not available. Configure your health backend to report component details so
+        BootUI can show them in local development.
       </div>
 
       <div v-if="healthGuidance" class="card border-info mb-3">

@@ -45,6 +45,12 @@ class BootUiQuarkusProcessor {
     // link the OTel SDK that must stay absent — R2/BF2).
     private static final String OTEL_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiOtelProducer";
 
+    // Referenced by class name only: this is the sole SmallRye-Health-importing type in the extension, and the
+    // deployment classloader must never load it while augmenting an application that has no
+    // quarkus-smallrye-health on its classpath (loading it would resolve its SmallRyeHealthReporter parameter
+    // type and link a type that must stay absent — R2).
+    private static final String HEALTH_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiHealthProducer";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -130,6 +136,46 @@ class BootUiQuarkusProcessor {
             // discovery so Arc never tries to resolve its SpanProcessor return type. Traces/AI still wire
             // via BootUiTelemetryProducer and render empty.
             excludedTypes.produce(new ExcludedTypeBuildItem(OTEL_PRODUCER_CLASS));
+        }
+    }
+
+    /**
+     * Registers the in-process health-capture producer ({@code BootUiHealthProducer}) <strong>only when SmallRye
+     * Health is on the application classpath</strong> and not in production, and otherwise <strong>excludes it
+     * from bean discovery entirely</strong>.
+     *
+     * <p>The mechanism mirrors {@link #registerOpenTelemetryCapture} exactly. {@code BootUiHealthProducer} has a
+     * {@code @Produces HealthProvider} method whose parameter is SmallRye's {@code SmallRyeHealthReporter}, and
+     * the extension runtime jar is Jandex-indexed (so Arc discovers the always-on beans). Arc treats a producer
+     * method as bean-defining, so the indexed producer would be discovered <em>unconditionally</em> — and Arc
+     * would fail to resolve its {@code SmallRyeHealthReporter} parameter in an application without
+     * {@code quarkus-smallrye-health}, linking a type that must stay absent (R2). A missing CDI scope on the
+     * class is therefore <em>not</em> enough; the producer must be actively {@linkplain ExcludedTypeBuildItem
+     * excluded} from discovery when SmallRye Health is absent. When it is present, the producer is registered
+     * (and pinned unremovable, since the engine {@code HealthService} that consumes its {@code HealthProvider}
+     * is itself injected into the RESTEasy-mediated {@code HealthResource}, which Arc's usage analysis cannot
+     * see). The always-produced {@code HealthService} (see {@link io.github.jdubois.bootui.quarkus
+     * .BootUiEngineProducer}) then receives a {@code null} provider when absent and renders the DISABLED root
+     * with setup guidance, so the Health panel works on every Quarkus app.</p>
+     */
+    @BuildStep
+    void registerSmallRyeHealthCapture(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean enableCapture =
+                launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SMALLRYE_HEALTH);
+        if (enableCapture) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(HEALTH_PRODUCER_CLASS)
+                    .setUnremovable()
+                    .build());
+        } else {
+            // No SmallRye Health (or production): keep the SmallRye-importing producer out of bean discovery so
+            // Arc never tries to resolve its SmallRyeHealthReporter parameter. The Health panel still wires via
+            // the always-produced HealthService and renders setup guidance.
+            excludedTypes.produce(new ExcludedTypeBuildItem(HEALTH_PRODUCER_CLASS));
         }
     }
 }

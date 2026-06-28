@@ -1,14 +1,18 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
+import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
+import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 import java.util.List;
@@ -84,5 +88,22 @@ public class BootUiEngineProducer {
         Predicate<String> readVisible = name -> !excludeSelf || !internalPackages.matchesName(name);
         Predicate<String> writeBlocked = internalPackages::matchesName;
         return new LoggersService(provider, readVisible, writeBlocked);
+    }
+
+    /**
+     * The Health service over the Quarkus {@link HealthProvider}. The provider is gated by the deployment
+     * processor on the {@code quarkus-smallrye-health} capability (R2), so when SmallRye Health is absent there
+     * is no {@code HealthProvider} bean: {@code providers.isUnsatisfied()} is {@code true} and the service is
+     * built with a {@code null} provider, which makes the engine render the DISABLED root with
+     * {@link QuarkusHealthGuidance}'s setup steps. The service is produced <em>unconditionally</em> (it holds no
+     * SmallRye types) so {@code HealthResource} is wired and the panel renders its guidance on every platform.
+     * {@code isUnsatisfied()} (rather than {@code isResolvable()}) is used deliberately: an impossible-but-future
+     * ambiguous {@code HealthProvider} surfaces loudly via {@link Instance#get()} instead of silently disabling.
+     */
+    @Produces
+    @Singleton
+    public HealthService healthService(Instance<HealthProvider> healthProviders) {
+        HealthProvider provider = healthProviders.isUnsatisfied() ? null : healthProviders.get();
+        return new HealthService(provider, QuarkusHealthGuidance.INSTANCE);
     }
 }

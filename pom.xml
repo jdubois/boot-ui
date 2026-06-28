@@ -49,6 +49,7 @@
         <module>bootui-quarkus-deployment</module>
         <module>bootui-quarkus-integration-tests</module>
         <module>bootui-quarkus-otel-integration-tests</module>
+        <module>bootui-quarkus-health-integration-tests</module>
     </modules>
 
     <properties>
