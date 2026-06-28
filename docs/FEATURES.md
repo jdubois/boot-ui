@@ -333,6 +333,11 @@ not running on embedded Tomcat, the panel shows an unavailable state instead of 
 The Metrics panel browses Micrometer meters exposed by Actuator. You can inspect meter descriptions, base units, tags,
 available measurements, and render a local live chart for a selected metric/tag combination.
 
+On Quarkus the panel is identical, served over Micrometer directly (Quarkus has no Actuator): it reads the live composite
+`MeterRegistry` when the application adds a `quarkus-micrometer` registry (for example
+`quarkus-micrometer-registry-prometheus`), and otherwise renders as unavailable while staying in the sidebar. As on Spring
+Boot, meters describing BootUI's own `/bootui/**` traffic are hidden so the console never reports on itself.
+
 ![BootUI Metrics panel](./images/bootui-metrics.webp)
 
 ### Live Memory

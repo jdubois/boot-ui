@@ -13,15 +13,16 @@ import java.util.Set;
  * and order are identical and the shared Vue UI renders the same sidebar on both platforms. Availability
  * is platform-specific and computed here (the Spring adapter's {@code PanelsController} computes its own
  * over Actuator/bean presence). This release lights up the framework-neutral Threads, Heap Dump,
- * Live Memory, JVM Tuning and Loggers panels, the HTTP Probe panel (which probes the application's own
- * loopback port), the Health panel (always available: it reports real SmallRye
- * Health when {@code quarkus-smallrye-health} is present and otherwise renders setup guidance), plus the
- * OpenTelemetry-backed Traces and AI Usage panels (whose read services are always wired — they simply render
- * empty until spans are captured, which requires {@code quarkus-opentelemetry} on the application classpath);
- * every other panel is reported unavailable with a clear reason until its Quarkus backing is ported. Read-only
- * is not yet modelled, so no panel is read-only ({@code readOnlyReason} stays {@code null}) — note Traces (its
- * buffer can be cleared), Loggers (a logger level can be set) and HTTP Probe (it issues a request) are
- * action-capable, so they are the Quarkus panels exposing state-changing actions.</p>
+ * Live Memory, JVM Tuning and Loggers panels, the Metrics panel (which reports real Micrometer meters when a
+ * {@code quarkus-micrometer} registry is present and otherwise renders as unavailable), the HTTP Probe panel
+ * (which probes the application's own loopback port), the Health panel (always available: it reports real
+ * SmallRye Health when {@code quarkus-smallrye-health} is present and otherwise renders setup guidance), plus
+ * the OpenTelemetry-backed Traces and AI Usage panels (whose read services are always wired — they simply
+ * render empty until spans are captured, which requires {@code quarkus-opentelemetry} on the application
+ * classpath); every other panel is reported unavailable with a clear reason until its Quarkus backing is
+ * ported. Read-only is not yet modelled, so no panel is read-only ({@code readOnlyReason} stays {@code null})
+ * — note Traces (its buffer can be cleared), Loggers (a logger level can be set) and HTTP Probe (it issues a
+ * request) are action-capable, so they are the Quarkus panels exposing state-changing actions.</p>
  *
  * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
@@ -47,6 +48,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.LIVE_MEMORY,
             BootUiPanels.JVM_TUNING,
+            BootUiPanels.METRICS,
             BootUiPanels.LOGGERS,
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_PROBE,

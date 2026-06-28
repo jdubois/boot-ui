@@ -5,14 +5,19 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
+import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
+import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
+import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
@@ -61,6 +66,46 @@ public class BootUiEngineProducer {
     @Singleton
     public HttpProbeService httpProbeService(QuarkusServerPortSupplier serverPort) {
         return new HttpProbeService(serverPort);
+    }
+
+    /**
+     * The Metrics service over Micrometer. Micrometer is a sanctioned {@code bootui-engine} dependency, so
+     * its API is always on the classpath, but a {@link MeterRegistry} <em>bean</em> exists only when the
+     * application adds a {@code quarkus-micrometer} registry. The registry is therefore resolved live per
+     * request through an {@link Instance} (mirroring the Spring adapter's {@code ObjectProvider} handle):
+     * absent &rarr; {@code null} &rarr; the engine renders the panel as unavailable; present &rarr; the live
+     * composite registry is read on every report. The meter-visibility predicate is the shared engine
+     * {@link MeterSelfFilter} built from the same transform-side {@link SelfTelemetryClassifier} the Traces
+     * read model uses (honoring {@code bootui.monitoring.exclude-self} and {@code bootui.path}), so the panel
+     * never reports BootUI's own {@code /bootui/**} traffic — exactly as the Spring adapter feeds
+     * {@code BootUiSelfDataFilter::shouldIncludeMeter}.
+     */
+    @Produces
+    @Singleton
+    public MetricsReportProvider metricsReportProvider(Instance<MeterRegistry> registries, Config config) {
+        MeterSelfFilter meterFilter = new MeterSelfFilter(transformClassifier(config));
+        return new MetricsReportProvider(() -> resolveRegistry(registries), meterFilter::shouldIncludeMeter);
+    }
+
+    static MeterRegistry resolveRegistry(Instance<MeterRegistry> registries) {
+        if (registries.isUnsatisfied()) {
+            return null;
+        }
+        try {
+            return registries.get();
+        } catch (AmbiguousResolutionException ex) {
+            // Multiple registries (e.g. several Micrometer backends): pick the first, like the Spring adapter.
+            return registries.stream().findFirst().orElse(null);
+        }
+    }
+
+    private static SelfTelemetryClassifier transformClassifier(Config config) {
+        boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
+                .orElse(Boolean.TRUE);
+        String path = config.getOptionalValue("bootui.path", String.class).orElse("/bootui");
+        String apiPath =
+                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
+        return new SelfTelemetryClassifier(excludeSelf, path, apiPath);
     }
 
     @Produces
