@@ -18,7 +18,6 @@ import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
-import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.micrometer.metrics.actuate.endpoint.MetricsEndpoint;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.cache.CacheManager;
@@ -100,7 +99,9 @@ public class PanelsController {
                 availability(
                         !nativeImageDetected(), "JVM Tuning is not applicable when running as a GraalVM native image");
             case BootUiPanels.HEALTH ->
-                availability(beanPresent(HealthEndpoint.class), "Actuator health endpoint not available");
+                availability(
+                        beanPresent("org.springframework.boot.health.actuate.endpoint.HealthEndpoint"),
+                        "Actuator health endpoint not available");
             case BootUiPanels.HTTP_SESSIONS -> availability(httpSessionsAvailable(), httpSessionsUnavailableReason());
             case BootUiPanels.METRICS ->
                 availability(

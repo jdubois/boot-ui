@@ -5,6 +5,8 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
 import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
+import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
+import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
@@ -13,6 +15,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
+import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
@@ -24,6 +27,7 @@ import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
+import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
@@ -35,6 +39,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -232,6 +237,18 @@ public class BootUiEngineConfiguration {
                 selfDataFilter::isBootUiLoggerName);
     }
 
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    HealthService bootUiHealthService(ObjectProvider<HealthProvider> healthProviders) {
+        // R2 optional-dependency port: the actuator-typed SpringHealthProvider is gated below, so this
+        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
+        // class-absent case) by rendering the DISABLED root with setup guidance. The platform-specific
+        // defaults and copy come from SpringHealthGuidance, which references only neutral DTOs so it is
+        // available even when Actuator is absent (exactly when the unavailable guidance is needed).
+        return new HealthService(healthProviders.getIfAvailable(), SpringHealthGuidance.INSTANCE);
+    }
+
     /**
      * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
      * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
@@ -277,6 +294,26 @@ public class BootUiEngineConfiguration {
             // The endpoint bean may be absent (Actuator present but the loggers endpoint disabled); the
             // provider resolves it live so it can report itself unavailable in that case.
             return new SpringLoggerProvider(endpoints::getIfAvailable);
+        }
+    }
+
+    /**
+     * R2 optional-dependency port: the Actuator-backed health provider is only wired when the Actuator
+     * {@code HealthEndpoint} type is on the classpath. The {@code HealthEndpoint}-typed parameter lives in
+     * this nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root
+     * config), so the type is never linked in an Actuator-absent application.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.boot.health.actuate.endpoint.HealthEndpoint")
+    static class HealthBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        SpringHealthProvider bootUiSpringHealthProvider(ObjectProvider<HealthEndpoint> endpoints) {
+            // The endpoint bean may be absent (Actuator present but the health endpoint not exposed); the
+            // provider resolves it live so it reports the backend unavailable (engine renders DISABLED).
+            return new SpringHealthProvider(endpoints::getIfAvailable);
         }
     }
 }

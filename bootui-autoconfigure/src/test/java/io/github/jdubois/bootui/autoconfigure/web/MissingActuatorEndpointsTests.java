@@ -6,8 +6,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
+import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -18,7 +21,6 @@ import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReport
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
-import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -92,8 +94,10 @@ class MissingActuatorEndpointsTests {
 
     @Test
     void healthControllerReturnsDisabledRootWhenEndpointMissing() throws Exception {
-        ObjectProvider<HealthEndpoint> provider = emptyProvider();
-        MockMvc mvc = standaloneSetup(new HealthController(provider)).build();
+        // No health backend: the gated SpringHealthProvider reports the endpoint absent, so the engine
+        // service renders a stable DISABLED root with setup guidance from SpringHealthGuidance.
+        HealthService service = new HealthService(new SpringHealthProvider(() -> null), SpringHealthGuidance.INSTANCE);
+        MockMvc mvc = standaloneSetup(new HealthController(service)).build();
 
         mvc.perform(get("/bootui/api/health"))
                 .andExpect(status().isOk())

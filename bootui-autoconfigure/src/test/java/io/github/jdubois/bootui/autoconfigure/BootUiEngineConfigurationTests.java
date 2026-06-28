@@ -8,16 +8,19 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
+import io.github.jdubois.bootui.core.dto.HealthNodeDto;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.core.dto.LoggerDto;
 import io.github.jdubois.bootui.core.dto.LoggersReport;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
+import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -149,7 +152,48 @@ class BootUiEngineConfigurationTests {
         assertThat(provider.lastSetName).isEqualTo(appLogger);
     }
 
-    /** Records the last {@code setLevel} target so the write-guard pin can prove the provider was not reached. */
+    @Test
+    void healthServiceFactoryWiresTheSpringGuidanceAndResolvesTheProvider() {
+        // With a provider that returns a tree of only default Spring contributors, the factory must wire
+        // SpringHealthGuidance.INSTANCE so the engine recognizes the default-name set and emits Spring's
+        // default-contributor guidance copy. Proves the platform-specific defaults/copy reach the engine.
+        HealthNodeDto onlyDefaults = new HealthNodeDto(
+                "application",
+                "UP",
+                null,
+                List.of(
+                        new HealthNodeDto("livenessState", "UP", null, List.of()),
+                        new HealthNodeDto("readinessState", "UP", null, List.of())));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<HealthProvider> providers = mock(ObjectProvider.class);
+        when(providers.getIfAvailable()).thenReturn(() -> onlyDefaults);
+
+        HealthService service = new BootUiEngineConfiguration().bootUiHealthService(providers);
+        HealthNodeDto node = service.health();
+
+        assertThat(node.status()).isEqualTo("UP");
+        assertThat(node.available()).isTrue();
+        assertThat(node.guidanceReason()).isEqualTo("Only Spring Boot default health indicators are available");
+        assertThat(node.setup().get(0).title()).isEqualTo("Add application health contributors");
+    }
+
+    @Test
+    void healthServiceFactoryRendersDisabledRootWhenNoProviderIsPresent() {
+        // No SpringHealthProvider bean (the Actuator-absent class-gated case): the factory must still build
+        // a service from SpringHealthGuidance.INSTANCE that renders the DISABLED root with Spring's reason.
+        @SuppressWarnings("unchecked")
+        ObjectProvider<HealthProvider> providers = mock(ObjectProvider.class);
+        when(providers.getIfAvailable()).thenReturn(null);
+
+        HealthNodeDto node =
+                new BootUiEngineConfiguration().bootUiHealthService(providers).health();
+
+        assertThat(node.status()).isEqualTo("DISABLED");
+        assertThat(node.available()).isFalse();
+        assertThat(node.unavailableReason()).isEqualTo("Spring Boot Actuator health endpoint is not available");
+        assertThat(node.setup().get(0).title()).isEqualTo("Add Spring Boot Actuator");
+    }
+
     private static final class RecordingLoggerProvider implements LoggerProvider {
 
         private final List<LoggerDto> loggers;
