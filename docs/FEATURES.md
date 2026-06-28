@@ -192,6 +192,15 @@ violating rules, sorted by severity and violation count. See
 > `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
 > application is detected to be running as a native image.
 
+On Quarkus the panel is identical, running the same shared ArchUnit ruleset and on-demand scan over the same report
+contract — the framework-agnostic hygiene rules apply unchanged, while the Spring-stereotype rules simply find no
+matching classes on a Quarkus application. The one platform difference is base-package discovery: Quarkus has no
+`@SpringBootApplication` to read and no reliable runtime package scan under its classloader, so the application's base
+packages are discovered at **build time** from the Jandex application index and supplied to the scanner. Discovery is
+single-module today (sibling modules in a multi-module build are not auto-discovered; the `bootui.internal.base-packages`
+config key — a comma-separated package list — overrides it when needed). The scan still runs on demand and caches the
+last report, and dismissing a rule persists to `.bootui/boot-ui.yml` exactly as on Spring Boot.
+
 ![BootUI Architecture panel](./images/bootui-architecture.webp)
 
 ### REST API

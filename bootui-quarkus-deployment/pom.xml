@@ -50,6 +50,19 @@
             <artifactId>bootui-quarkus</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <!-- Plain JUnit 5 + AssertJ (versions managed by quarkus-bom) for the BasePackageRoots antichain
+             unit test. The base-package reduction is pure logic, so it needs no Quarkus bootstrap. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

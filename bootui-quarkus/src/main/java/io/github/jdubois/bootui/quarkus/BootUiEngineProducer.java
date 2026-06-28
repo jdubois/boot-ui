@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
@@ -21,6 +23,9 @@ import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Clock;
 import java.util.List;
 import java.util.function.Predicate;
 import org.eclipse.microprofile.config.Config;
@@ -164,5 +169,39 @@ public class BootUiEngineProducer {
     public HealthService healthService(Instance<HealthProvider> healthProviders) {
         HealthProvider provider = healthProviders.isUnsatisfied() ? null : healthProviders.get();
         return new HealthService(provider, QuarkusHealthGuidance.INSTANCE);
+    }
+
+    /**
+     * The Architecture (ArchUnit) hygiene scanner over the {@link QuarkusBasePackageProvider}. Mirrors the
+     * live-policy shape: the concrete {@link QuarkusBasePackageProvider} bean is injected (not the
+     * {@link io.github.jdubois.bootui.spi.BasePackageProvider} interface) so adding another provider later
+     * can never make this wiring ambiguous. The base packages are read <em>live</em> on every scan through
+     * the supplier (never snapshotted at construction), exactly as the Spring adapter binds its scanner over
+     * {@code AutoConfigurationPackages}; the ArchUnit import itself runs only on the explicit
+     * {@code POST /scan} action, never at construction.
+     */
+    @Produces
+    @Singleton
+    public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages) {
+        return ArchitectureScanner.usingClasspath(basePackages::basePackages, Clock.systemUTC());
+    }
+
+    /**
+     * The shared advisor dismissed-rules store. Resolves the same {@code .bootui/boot-ui.yml} path the Spring
+     * adapter's {@code bootUiDismissedRulesStore} factory builds: the parent directory of
+     * {@code bootui.overrides-file} (default {@code .bootui/application-bootui.properties}), falling back to
+     * {@code .bootui}. The store is pure {@code java.nio} and shared by every ArchUnit advisor, so the
+     * Architecture dismiss controls round-trip identically on both platforms.
+     */
+    @Produces
+    @Singleton
+    public DismissedRulesStore dismissedRulesStore(Config config) {
+        String overridesFile = config.getOptionalValue("bootui.overrides-file", String.class)
+                .orElse(".bootui/application-bootui.properties");
+        Path parent = (overridesFile != null && !overridesFile.isBlank())
+                ? Paths.get(overridesFile).getParent()
+                : null;
+        String dir = (parent != null) ? parent.toString() : ".bootui";
+        return new DismissedRulesStore(Paths.get(dir, "boot-ui.yml"));
     }
 }

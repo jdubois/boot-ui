@@ -358,8 +358,18 @@ hide newer ones. Keep API, UI,
   replace the **Spring advisor** with a **Quarkus advisor** and **Spring Cache** with a **Quarkus Cache** panel on the
   Quarkus adapter; a few Spring-only panels (e.g. DevTools, Conditions) have no Quarkus equivalent and stay unavailable
   there. Use the shared registry + per-adapter availability rather than forking the route list.
-- As of today the Quarkus adapter reports these panels **available**: Threads, Heap Dump, Live Memory, JVM Tuning,
-  Metrics, Loggers, Health, HTTP Probe, Traces, and AI Usage. Loggers is served over the JBoss LogManager that Quarkus uses at
+- As of today the Quarkus adapter reports these panels **available**: Architecture, Threads, Heap Dump, Live Memory, JVM
+  Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, and AI Usage. Architecture is the first **advisor** lit up on
+  Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
+  classes, bounded to base packages discovered at **build time** from the Jandex application index by a
+  `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
+  analogue, and runtime package scanning isn't reliable under the Quarkus classloader). The build step reduces the indexed
+  classes to an antichain of root packages (`BasePackageRoots`, dropping default/single-segment packages that would scan
+  the whole classpath) and emits them as a `RunTimeConfigurationDefaultBuildItem` that `QuarkusBasePackageProvider` reads
+  back. `POST /bootui/api/architecture/scan` triggers the scan and dismissals persist to `.bootui/boot-ui.yml` via
+  `DismissedRulesResource`, exactly as on Spring. Discovery is single-module today (sibling modules in a multi-module build
+  aren't auto-discovered; override with the `bootui.internal.base-packages` config key — a comma-separated package list —
+  if needed). Loggers is served over the JBoss LogManager that Quarkus uses at
   runtime (the Spring adapter uses Actuator's loggers endpoint) and was the first Quarkus panel with a state-changing
   action: `POST /bootui/api/loggers/{name}` sets a level, guarded by the shared engine `LocalhostGuard` write floor and
   the engine's refusal to mutate BootUI's own loggers (per-panel read-only gating is still Spring-only). HTTP Probe is

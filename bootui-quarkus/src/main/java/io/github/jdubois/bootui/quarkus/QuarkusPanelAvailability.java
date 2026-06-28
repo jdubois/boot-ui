@@ -16,13 +16,16 @@ import java.util.Set;
  * Live Memory, JVM Tuning and Loggers panels, the Metrics panel (which reports real Micrometer meters when a
  * {@code quarkus-micrometer} registry is present and otherwise renders as unavailable), the HTTP Probe panel
  * (which probes the application's own loopback port), the Health panel (always available: it reports real
- * SmallRye Health when {@code quarkus-smallrye-health} is present and otherwise renders setup guidance), plus
- * the OpenTelemetry-backed Traces and AI Usage panels (whose read services are always wired — they simply
+ * SmallRye Health when {@code quarkus-smallrye-health} is present and otherwise renders setup guidance), the
+ * Architecture (ArchUnit) advisor (which bounds its bytecode import to the application base packages discovered
+ * from the build-time Jandex index and runs the shared curated rule registry on demand), plus the
+ * OpenTelemetry-backed Traces and AI Usage panels (whose read services are always wired — they simply
  * render empty until spans are captured, which requires {@code quarkus-opentelemetry} on the application
  * classpath); every other panel is reported unavailable with a clear reason until its Quarkus backing is
  * ported. Read-only is not yet modelled, so no panel is read-only ({@code readOnlyReason} stays {@code null})
- * — note Traces (its buffer can be cleared), Loggers (a logger level can be set) and HTTP Probe (it issues a
- * request) are action-capable, so they are the Quarkus panels exposing state-changing actions.</p>
+ * — note Traces (its buffer can be cleared), Loggers (a logger level can be set), HTTP Probe (it issues a
+ * request) and Architecture (it runs a scan and dismisses rules) are action-capable, so they are the Quarkus
+ * panels exposing state-changing actions.</p>
  *
  * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
@@ -52,6 +55,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.LOGGERS,
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_PROBE,
+            BootUiPanels.ARCHITECTURE,
             BootUiPanels.TRACES,
             BootUiPanels.AI);
 

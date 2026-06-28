@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
 import io.github.jdubois.bootui.quarkus.BootUiTelemetryProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusApplicationInfo;
+import io.github.jdubois.bootui.quarkus.QuarkusBasePackageProvider;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
@@ -16,11 +17,16 @@ import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.Capability;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
 import io.quarkus.runtime.LaunchMode;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import org.jboss.jandex.ClassInfo;
 
 /**
  * Build-time wiring for the BootUI Quarkus extension — the analogue of the Spring adapter's
@@ -82,6 +88,7 @@ class BootUiQuarkusProcessor {
                         QuarkusMemoryRuntimeConfig.class,
                         QuarkusServerPortSupplier.class,
                         QuarkusApplicationInfo.class,
+                        QuarkusBasePackageProvider.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
@@ -101,6 +108,44 @@ class BootUiQuarkusProcessor {
     RunTimeConfigurationDefaultBuildItem quarkusVersion() {
         return new RunTimeConfigurationDefaultBuildItem(
                 QuarkusApplicationInfo.QUARKUS_VERSION_KEY, Version.getVersion());
+    }
+
+    /**
+     * Discovers the host application's own base packages at build time and exposes them to runtime config as
+     * {@code bootui.internal.base-packages} (a comma-separated list) so {@link QuarkusBasePackageProvider}
+     * can hand them to the engine's ArchUnit advisors — the Quarkus analogue of the Spring adapter resolving
+     * {@code AutoConfigurationPackages}.
+     *
+     * <p>The roots are read from {@link ApplicationIndexBuildItem} — the Jandex index of the application root
+     * archive, which contains the application's <em>own</em> classes only and excludes dependency jars (so
+     * the discovered roots never leak BootUI's own or third-party packages into the scan). Each class's
+     * package name is reduced to a minimal, bounded antichain by {@link BasePackageRoots#reduce}, which drops
+     * the default and single-segment packages that would otherwise make ArchUnit scan the whole classpath.</p>
+     *
+     * <p>The step is gated to non-production launch modes: in {@link LaunchMode#NORMAL} the console is never
+     * wired, so iterating the index would be wasted build work and the key would never be read. Because the
+     * key is a runtime <em>default</em>, an application split across sibling modules (which the application
+     * root index does not span) can override it explicitly in {@code application.properties}.</p>
+     */
+    @BuildStep
+    void registerBasePackages(
+            LaunchModeBuildItem launchMode,
+            ApplicationIndexBuildItem applicationIndex,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return; // production: the console is dark, so nothing reads the key
+        }
+        Set<String> packageNames = new HashSet<>();
+        for (ClassInfo classInfo : applicationIndex.getIndex().getKnownClasses()) {
+            String fqn = classInfo.name().toString();
+            int lastDot = fqn.lastIndexOf('.');
+            packageNames.add(lastDot < 0 ? "" : fqn.substring(0, lastDot));
+        }
+        List<String> roots = BasePackageRoots.reduce(packageNames);
+        if (!roots.isEmpty()) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusBasePackageProvider.BASE_PACKAGES_KEY, String.join(",", roots)));
+        }
     }
 
     /**
