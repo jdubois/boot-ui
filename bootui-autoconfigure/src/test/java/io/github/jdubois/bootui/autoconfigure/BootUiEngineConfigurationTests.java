@@ -1,18 +1,24 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import io.github.jdubois.bootui.core.dto.LoggerDto;
+import io.github.jdubois.bootui.core.dto.LoggersReport;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
+import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
@@ -110,6 +116,65 @@ class BootUiEngineConfigurationTests {
                 .orElseThrow(
                         () -> new AssertionError("ddl-auto rule did not surface; property/profile seam not wired"));
         assertThat(ddlAuto.sampleViolations()).anyMatch(detail -> detail.contains("production-like profile"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void loggersServiceFactoryWiresReadVisibilityAndWriteGuardSeparately() {
+        // Pins the B3 read/write split: both seams are Predicate<String>, so a transposition would compile.
+        // The read predicate must be shouldIncludeLogger (hides BootUI's own loggers from the panel); the
+        // write predicate must be isBootUiLoggerName (blocks mutating BootUI's loggers regardless of the
+        // read preference). Swapping them would expose BootUI's loggers and/or block writes to ordinary
+        // application loggers.
+        String bootUiLogger = "io.github.jdubois.bootui.autoconfigure.web.LoggersController";
+        String appLogger = "com.example.OrderService";
+        RecordingLoggerProvider provider = new RecordingLoggerProvider(
+                List.of(new LoggerDto(bootUiLogger, "DEBUG", "DEBUG"), new LoggerDto(appLogger, "INFO", "INFO")));
+        ObjectProvider<LoggerProvider> providers = mock(ObjectProvider.class);
+        when(providers.getIfAvailable()).thenReturn(provider);
+
+        LoggersService service =
+                new BootUiEngineConfiguration().bootUiLoggersService(providers, BootUiSelfDataFilter.defaults());
+
+        // Read predicate = shouldIncludeLogger: BootUI's own logger is hidden, the app logger is shown.
+        assertThat(service.report(null, null, null).loggers())
+                .extracting(LoggerDto::name)
+                .containsExactly(appLogger);
+
+        // Write predicate = isBootUiLoggerName: the app logger is writable, BootUI's own logger is rejected
+        // before the provider is touched.
+        service.setLevel(appLogger, "WARN");
+        assertThat(provider.lastSetName).isEqualTo(appLogger);
+        assertThatThrownBy(() -> service.setLevel(bootUiLogger, "WARN")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(provider.lastSetName).isEqualTo(appLogger);
+    }
+
+    /** Records the last {@code setLevel} target so the write-guard pin can prove the provider was not reached. */
+    private static final class RecordingLoggerProvider implements LoggerProvider {
+
+        private final List<LoggerDto> loggers;
+
+        private String lastSetName;
+
+        RecordingLoggerProvider(List<LoggerDto> loggers) {
+            this.loggers = loggers;
+        }
+
+        @Override
+        public boolean available() {
+            return true;
+        }
+
+        @Override
+        public LoggersReport rawLoggers() {
+            return new LoggersReport(List.of("OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"), loggers);
+        }
+
+        @Override
+        public LoggerDto setLevel(String name, String level) {
+            this.lastSetName = name;
+            return new LoggerDto(name, level, level);
+        }
     }
 
     /**

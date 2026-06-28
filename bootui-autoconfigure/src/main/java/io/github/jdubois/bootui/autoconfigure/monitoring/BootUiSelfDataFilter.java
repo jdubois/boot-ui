@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.monitoring;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.micrometer.core.instrument.Meter;
@@ -22,6 +23,9 @@ public final class BootUiSelfDataFilter {
 
     private static final List<String> INTERNAL_PACKAGES =
             List.of("io.github.jdubois.bootui.autoconfigure", "io.github.jdubois.bootui.core");
+
+    private static final InternalPackageMatcher INTERNAL_PACKAGE_MATCHER =
+            new InternalPackageMatcher(INTERNAL_PACKAGES);
 
     private static final Set<String> STARTUP_CLASS_TAGS =
             Set.of("bean.type", "beanType", "class", "configurationClass", "target.type", "targetType");
@@ -202,16 +206,7 @@ public final class BootUiSelfDataFilter {
     }
 
     private boolean isInternalPackageName(String value) {
-        if (isBlank(value)) {
-            return false;
-        }
-        String normalized = value.replace('$', '.');
-        for (String packageName : INTERNAL_PACKAGES) {
-            if (normalized.equals(packageName) || normalized.startsWith(packageName + ".")) {
-                return true;
-            }
-        }
-        return false;
+        return INTERNAL_PACKAGE_MATCHER.matchesName(value);
     }
 
     private boolean containsPackage(String value, String packageName) {

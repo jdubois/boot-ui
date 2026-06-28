@@ -6,6 +6,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
@@ -13,7 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
-import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
@@ -105,8 +107,12 @@ class MissingActuatorEndpointsTests {
 
     @Test
     void loggersControllerReturnsEmptyReportWhenEndpointMissing() throws Exception {
-        ObjectProvider<LoggersEndpoint> provider = emptyProvider();
-        MockMvc mvc = standaloneSetup(new LoggersController(provider)).build();
+        // No logging backend: the gated SpringLoggerProvider is absent, so the engine service is wired
+        // with a provider that reports itself unavailable and serves a stable empty report.
+        BootUiSelfDataFilter self = BootUiSelfDataFilter.defaults();
+        LoggersService service = new LoggersService(
+                new SpringLoggerProvider(() -> null), self::shouldIncludeLogger, self::isBootUiLoggerName);
+        MockMvc mvc = standaloneSetup(new LoggersController(service)).build();
 
         mvc.perform(get("/bootui/api/loggers"))
                 .andExpect(status().isOk())

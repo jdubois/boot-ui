@@ -14,7 +14,6 @@ import java.util.regex.Pattern;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
-import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
@@ -114,7 +113,9 @@ public class PanelsController {
             case BootUiPanels.PROFILE_DIFF ->
                 availability(profilesAvailable(), "No active profiles or profile-specific config sources available");
             case BootUiPanels.LOGGERS ->
-                availability(beanPresent(LoggersEndpoint.class), "Actuator loggers endpoint not available");
+                availability(
+                        beanPresent("org.springframework.boot.actuate.logging.LoggersEndpoint"),
+                        "Actuator loggers endpoint not available");
             case BootUiPanels.BEANS ->
                 availability(beanPresent(BeansEndpoint.class), "Actuator beans endpoint not available");
             case BootUiPanels.CONDITIONS ->

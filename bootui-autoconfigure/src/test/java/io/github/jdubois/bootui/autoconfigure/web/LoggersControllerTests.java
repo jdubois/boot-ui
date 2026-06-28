@@ -7,8 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint.SingleLoggerLevelsDescriptor;
 import org.springframework.boot.logging.LogLevel;
@@ -24,11 +26,12 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class LoggersControllerTests {
 
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> providerOf(T value) {
-        ObjectProvider<T> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(value);
-        return provider;
+    /** Builds the full Spring delegation chain over a mocked Actuator endpoint. */
+    private static LoggersController controllerFor(LoggersEndpoint endpoint) {
+        BootUiSelfDataFilter self = BootUiSelfDataFilter.defaults();
+        LoggersService service = new LoggersService(
+                new SpringLoggerProvider(() -> endpoint), self::shouldIncludeLogger, self::isBootUiLoggerName);
+        return new LoggersController(service);
     }
 
     @Test
@@ -38,8 +41,7 @@ class LoggersControllerTests {
                 .thenReturn(new SingleLoggerLevelsDescriptor(
                         new LoggerConfiguration("com.example", LogLevel.DEBUG, LogLevel.DEBUG)));
 
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -59,8 +61,7 @@ class LoggersControllerTests {
                 .thenReturn(
                         new SingleLoggerLevelsDescriptor(new LoggerConfiguration("com.example", null, LogLevel.INFO)));
 
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -76,8 +77,7 @@ class LoggersControllerTests {
     @Test
     void postWithInvalidLevelReturnsBadRequest() throws Exception {
         LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
                         .contentType(MediaType.APPLICATION_JSON)

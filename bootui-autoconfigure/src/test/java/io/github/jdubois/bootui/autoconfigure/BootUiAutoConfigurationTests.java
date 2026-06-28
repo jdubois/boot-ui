@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
@@ -11,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
+import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
@@ -22,6 +24,7 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
 import java.net.URI;
 import java.nio.file.Path;
@@ -340,6 +343,36 @@ class BootUiAutoConfigurationTests {
     @Test
     void doesNotRegisterStaticResourceConfigurerWhenInactive() {
         runner.run(context -> assertThat(context).doesNotHaveBean(BootUiStaticResourceConfigurer.class));
+    }
+
+    @Test
+    void loggersPanelGatesClosedAndServesEmptyWhenLoggersEndpointClassAbsent() {
+        // Simulates an Actuator-less application: the LoggersEndpoint type is removed from the classpath.
+        // The always-active engine LoggersService must stay wired (B1) while the actuator-typed
+        // SpringLoggerProvider is gated off, and the panels manifest must not fail to classload on the
+        // (now neutralized) LoggersEndpoint reference in PanelsController (B2).
+        webMvcRunner()
+                .withClassLoader(new FilteredClassLoader("org.springframework.boot.actuate.logging.LoggersEndpoint"))
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    assertThat(context.getStartupFailure()).isNull();
+                    assertThat(context).doesNotHaveBean(SpringLoggerProvider.class);
+                    assertThat(context).hasSingleBean(LoggersService.class);
+
+                    MockMvc mvc = MockMvcBuilders.webAppContextSetup(
+                                    (WebApplicationContext) context.getSourceApplicationContext())
+                            .build();
+                    // B2: the panels manifest renders and gates the loggers panel closed.
+                    mvc.perform(get("/bootui/api/panels"))
+                            .andExpect(status().isOk())
+                            .andExpect(jsonPath(
+                                    "$.panels[?(@.id=='loggers')].available", org.hamcrest.Matchers.hasItem(false)));
+                    // B1: the loggers endpoint itself serves a stable empty report rather than failing.
+                    mvc.perform(get("/bootui/api/loggers"))
+                            .andExpect(status().isOk())
+                            .andExpect(jsonPath("$.loggers").isEmpty())
+                            .andExpect(jsonPath("$.availableLevels").isEmpty());
+                });
     }
 
     private static WebApplicationContextRunner webMvcRunner() {

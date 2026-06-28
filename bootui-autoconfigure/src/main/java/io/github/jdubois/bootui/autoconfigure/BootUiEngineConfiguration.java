@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
 import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRepository;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
+import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
@@ -15,6 +16,7 @@ import io.github.jdubois.bootui.engine.graalvm.GraalVmReadinessScanner;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
@@ -22,6 +24,7 @@ import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
+import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
@@ -29,6 +32,7 @@ import java.util.List;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.ApplicationContext;
@@ -212,6 +216,22 @@ public class BootUiEngineConfiguration {
         }
     }
 
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    LoggersService bootUiLoggersService(
+            ObjectProvider<LoggerProvider> loggerProviders, BootUiSelfDataFilter selfDataFilter) {
+        // R2 optional-dependency port: the actuator-typed SpringLoggerProvider is gated below, so this
+        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
+        // class-absent case) by serving an empty report. BootUI's self-data filter feeds two distinct
+        // predicates: read-visibility (honors bootui.monitoring.exclude-self) and a write guard pinned to
+        // BootUI-owned loggers (independent of that preference, so it can never fail open).
+        return new LoggersService(
+                loggerProviders.getIfAvailable(),
+                selfDataFilter::shouldIncludeLogger,
+                selfDataFilter::isBootUiLoggerName);
+    }
+
     /**
      * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
      * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
@@ -237,6 +257,26 @@ public class BootUiEngineConfiguration {
                     environment::getProperty,
                     () -> List.of(environment.getActiveProfiles()),
                     Clock.systemUTC());
+        }
+    }
+
+    /**
+     * R2 optional-dependency port: the Actuator-backed logger provider is only wired when the Actuator
+     * loggers endpoint type is on the classpath. The {@code LoggersEndpoint}-typed parameter lives in this
+     * nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root
+     * config), so the type is never linked in an Actuator-absent application.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.logging.LoggersEndpoint")
+    static class LoggersBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        SpringLoggerProvider bootUiSpringLoggerProvider(ObjectProvider<LoggersEndpoint> endpoints) {
+            // The endpoint bean may be absent (Actuator present but the loggers endpoint disabled); the
+            // provider resolves it live so it can report itself unavailable in that case.
+            return new SpringLoggerProvider(endpoints::getIfAvailable);
         }
     }
 }

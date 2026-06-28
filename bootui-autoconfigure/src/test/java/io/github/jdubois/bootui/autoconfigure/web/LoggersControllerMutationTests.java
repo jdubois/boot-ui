@@ -9,11 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeSet;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint.LoggerLevelsDescriptor;
 import org.springframework.boot.actuate.logging.LoggersEndpoint.LoggersDescriptor;
@@ -30,50 +32,22 @@ import org.springframework.test.web.servlet.MockMvc;
  * reading back the effect of a level-change through a subsequent GET, clearing a
  * level via a JSON {@code null} value, and the round-trip from POST clear to GET
  * showing only an inherited effective level.</p>
+ *
+ * <p>The controller is now a thin delegate over the engine {@link LoggersService}; these tests build
+ * the full Spring chain ({@code SpringLoggerProvider} over the mocked Actuator endpoint, wired into the
+ * engine service) so the end-to-end behavior stays covered.</p>
  */
 class LoggersControllerMutationTests {
 
+    /** Builds the full Spring delegation chain over an Actuator endpoint (or {@code null} when absent). */
+    private static LoggersController controllerFor(LoggersEndpoint endpoint) {
+        BootUiSelfDataFilter self = BootUiSelfDataFilter.defaults();
+        LoggersService service = new LoggersService(
+                new SpringLoggerProvider(() -> endpoint), self::shouldIncludeLogger, self::isBootUiLoggerName);
+        return new LoggersController(service);
+    }
+
     // ── set level → GET reflects it ──────────────────────────────────────────
-
-    private static final ObjectProvider<Object> EMPTY = new ObjectProvider<>() {
-        @Override
-        public Object getObject(Object... args) {
-            return null;
-        }
-
-        @Override
-        public Object getIfAvailable() {
-            return null;
-        }
-
-        @Override
-        public Object getIfUnique() {
-            return null;
-        }
-
-        @Override
-        public Object getObject() {
-            return null;
-        }
-    };
-
-    // ── clear level with explicit null JSON field ─────────────────────────────
-
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> providerOf(T value) {
-        ObjectProvider<T> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(value);
-        return provider;
-    }
-
-    // ── clear level → GET shows only inherited effective level ────────────────
-
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> emptyProvider() {
-        return (ObjectProvider<T>) EMPTY;
-    }
-
-    // ── rejects invalid levels ────────────────────────────────────────────────
 
     @Test
     void setLevel_thenGetAll_reflectsNewConfiguredLevel() throws Exception {
@@ -101,8 +75,7 @@ class LoggersControllerMutationTests {
                 LogLevel.OFF));
         when(endpoint.loggers()).thenReturn(new LoggersDescriptor(levels, loggersMap, Map.of()));
 
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         // POST to configure the level
         mvc.perform(post("/bootui/api/loggers/com.example")
@@ -140,8 +113,7 @@ class LoggersControllerMutationTests {
         LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
         when(endpoint.loggers()).thenReturn(new LoggersDescriptor(new TreeSet<>(), loggersMap, Map.of()));
 
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         mvc.perform(get("/bootui/api/loggers")
                         .param("q", "com.example")
@@ -170,16 +142,13 @@ class LoggersControllerMutationTests {
         LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
         when(endpoint.loggers()).thenReturn(new LoggersDescriptor(new TreeSet<>(), loggersMap, Map.of()));
 
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         mvc.perform(get("/bootui/api/loggers"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.loggers.length()").value(1))
                 .andExpect(jsonPath("$.loggers[0].name").value("io.github.jdubois.bootui.sample.SampleApplication"));
     }
-
-    // ── missing endpoint + POST ───────────────────────────────────────────────
 
     @Test
     void clearLevel_withNullLevelJson_callsConfigureWithNullLevel() throws Exception {
@@ -189,8 +158,7 @@ class LoggersControllerMutationTests {
                 .thenReturn(new SingleLoggerLevelsDescriptor(
                         new LoggerConfiguration("com.example", (LogLevel) null, LogLevel.INFO)));
 
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -202,8 +170,6 @@ class LoggersControllerMutationTests {
 
         verify(endpoint, times(1)).configureLogLevel(eq("com.example"), eq((LogLevel) null));
     }
-
-    // ── helpers ───────────────────────────────────────────────────────────────
 
     @Test
     void clearLevel_thenGetAll_showsNullConfiguredAndInheritedEffectiveLevel() throws Exception {
@@ -222,8 +188,7 @@ class LoggersControllerMutationTests {
                         new LoggerConfiguration("com.example", (LogLevel) null, LogLevel.WARN)));
         when(endpoint.loggers()).thenReturn(new LoggersDescriptor(new TreeSet<>(), loggersMap, Map.of()));
 
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         // Clearing the level
         mvc.perform(post("/bootui/api/loggers/com.example")
@@ -248,8 +213,7 @@ class LoggersControllerMutationTests {
     @Test
     void postWithUnrecognisedLevel_returnsBadRequestAndErrorBody() throws Exception {
         LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
-        MockMvc mvc =
-                standaloneSetup(new LoggersController(providerOf(endpoint))).build();
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
         mvc.perform(post("/bootui/api/loggers/com.example")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -259,10 +223,26 @@ class LoggersControllerMutationTests {
     }
 
     @Test
-    void postWhenEndpointMissing_propagatesError() {
-        MockMvc mvc = standaloneSetup(new LoggersController(emptyProvider())).build();
+    void postToBootUiOwnLogger_isRejectedAsBadRequest() throws Exception {
+        LoggersEndpoint endpoint = mock(LoggersEndpoint.class);
+        MockMvc mvc = standaloneSetup(controllerFor(endpoint)).build();
 
-        // When LoggersEndpoint is absent the controller throws IllegalStateException.
+        // The write guard rejects BootUI's own loggers before touching the backend, regardless of the
+        // read-side self-data preference, so a level change can never fall through to a real mutation.
+        mvc.perform(post("/bootui/api/loggers/io.github.jdubois.bootui.autoconfigure.web.LoggersController")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"level\":\"DEBUG\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").isString());
+
+        verify(endpoint, never()).configureLogLevel(any(), any());
+    }
+
+    @Test
+    void postWhenEndpointMissing_propagatesError() {
+        MockMvc mvc = standaloneSetup(controllerFor(null)).build();
+
+        // When the logging backend is absent the engine service throws IllegalStateException.
         // Spring MVC propagates it out of perform() as a wrapped servlet exception.
         Exception ex = org.junit.jupiter.api.Assertions.assertThrows(
                 Exception.class,
