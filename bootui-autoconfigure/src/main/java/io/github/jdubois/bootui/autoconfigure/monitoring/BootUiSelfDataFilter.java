@@ -1,11 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.monitoring;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.micrometer.core.instrument.Meter;
-import io.micrometer.core.instrument.Tag;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +36,8 @@ public final class BootUiSelfDataFilter {
 
     private final SelfTelemetryClassifier classifier;
 
+    private final MeterSelfFilter meterFilter;
+
     public BootUiSelfDataFilter(BootUiProperties properties) {
         this(properties.getMonitoring().isExcludeSelf(), properties.getPath(), properties.getApiPath());
     }
@@ -43,6 +45,7 @@ public final class BootUiSelfDataFilter {
     private BootUiSelfDataFilter(boolean excludeSelf, String path, String apiPath) {
         this.excludeSelf = excludeSelf;
         this.classifier = new SelfTelemetryClassifier(excludeSelf, path, apiPath);
+        this.meterFilter = new MeterSelfFilter(this.classifier);
     }
 
     public static BootUiSelfDataFilter defaults() {
@@ -142,15 +145,7 @@ public final class BootUiSelfDataFilter {
     }
 
     public boolean isBootUiMeter(Meter meter) {
-        if (meter == null || meter.getId() == null) {
-            return false;
-        }
-        for (Tag tag : meter.getId().getTags()) {
-            if (isPathTag(tag.getKey()) && isBootUiPath(tag.getValue())) {
-                return true;
-            }
-        }
-        return false;
+        return meterFilter.isBootUiMeter(meter);
     }
 
     public boolean isBootUiSpan(NormalizedSpan span) {
@@ -186,10 +181,6 @@ public final class BootUiSelfDataFilter {
 
     private boolean isBootUiBeanName(String value) {
         return value != null && value.startsWith("bootUi");
-    }
-
-    private boolean isPathTag(String key) {
-        return classifier.isPathTag(key);
     }
 
     private boolean isInternalPackageValue(String value) {
