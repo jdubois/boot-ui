@@ -69,6 +69,15 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void vulnerabilitiesIsStaticallyAvailableOnQuarkus() {
+        PanelDto vulnerabilities = manifestById().get(BootUiPanels.VULNERABILITIES);
+        assertThat(vulnerabilities.available())
+                .as("Vulnerabilities is lit up on Quarkus (local inventory + user-initiated OSV scan)")
+                .isTrue();
+        assertThat(vulnerabilities.unavailableReason()).isNull();
+    }
+
+    @Test
     void hibernateIsUnavailableWithACapabilityHintWhenHibernateOrmIsAbsent() {
         // Default: bootui.internal.hibernate-present is unset, so the deployment processor never saw the
         // HIBERNATE_ORM capability. The panel must surface an honest capability hint, NOT the generic reason.

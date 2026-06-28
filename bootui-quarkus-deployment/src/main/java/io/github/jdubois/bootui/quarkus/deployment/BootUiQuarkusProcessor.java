@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
 import io.github.jdubois.bootui.quarkus.BootUiTelemetryProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusApplicationInfo;
 import io.github.jdubois.bootui.quarkus.QuarkusBasePackageProvider;
+import io.github.jdubois.bootui.quarkus.QuarkusDependencyProvider;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
@@ -22,8 +23,11 @@ import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
+import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
+import io.quarkus.maven.dependency.ResolvedDependency;
 import io.quarkus.runtime.LaunchMode;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.jboss.jandex.ClassInfo;
@@ -95,6 +99,7 @@ class BootUiQuarkusProcessor {
                         QuarkusServerPortSupplier.class,
                         QuarkusApplicationInfo.class,
                         QuarkusBasePackageProvider.class,
+                        QuarkusDependencyProvider.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
@@ -151,6 +156,56 @@ class BootUiQuarkusProcessor {
         if (!roots.isEmpty()) {
             runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
                     QuarkusBasePackageProvider.BASE_PACKAGES_KEY, String.join(",", roots)));
+        }
+    }
+
+    /**
+     * Captures the host application's resolved Maven dependency inventory at build time and exposes it to
+     * runtime config as {@code bootui.internal.dependencies} (a comma-separated list of
+     * {@code groupId:artifactId:version} coordinates) so {@link QuarkusDependencyProvider} can feed the
+     * Vulnerabilities panel — the Quarkus analogue of the Spring adapter's {@code DependencyCatalog}
+     * classpath scan, which is unreliable under the Quarkus runtime classloader.
+     *
+     * <p>The coordinates are read from {@link CurateOutcomeBuildItem#getApplicationModel()}'s
+     * {@code getRuntimeDependencies()} — the fully-resolved runtime classpath of the application, in every
+     * packaging layout (jar / fast-jar / native), filtered to {@code jar} artifacts. The application's own
+     * artifact is intentionally excluded (it is not an OSV-published package). Each coordinate is
+     * defensively skipped if it contains a comma, {@code $} or whitespace, so the comma-delimited channel
+     * (split back as a plain {@code String}, never a config list) can never be corrupted nor trip SmallRye
+     * {@code ${...}} expression expansion — such characters do not occur in real Maven coordinates.</p>
+     *
+     * <p>This mirrors {@link #registerBasePackages} exactly: build-time discovery surfaced as a runtime
+     * config <em>default</em>. The step is gated to non-production launch modes (in {@link LaunchMode#NORMAL}
+     * the console is never wired, so the key is never read). For a typical application this is a few KB,
+     * well within the generated default config source's string-constant ceiling; a pathological app with
+     * thousands of runtime dependencies could instead use a {@code @Recorder} + {@code SyntheticBeanBuildItem}
+     * channel (the structured-data pattern reserved for the Mappings panel).</p>
+     */
+    @BuildStep
+    void registerDependencyInventory(
+            LaunchModeBuildItem launchMode,
+            CurateOutcomeBuildItem curateOutcome,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return; // production: the console is dark, so nothing reads the key
+        }
+        Set<String> coordinates = new LinkedHashSet<>();
+        for (ResolvedDependency dependency : curateOutcome.getApplicationModel().getRuntimeDependencies()) {
+            if (!"jar".equals(dependency.getType())) {
+                continue;
+            }
+            String coordinate =
+                    dependency.getGroupId() + ":" + dependency.getArtifactId() + ":" + dependency.getVersion();
+            if (coordinate.indexOf(',') >= 0
+                    || coordinate.indexOf('$') >= 0
+                    || coordinate.chars().anyMatch(Character::isWhitespace)) {
+                continue; // would corrupt the comma channel or trip ${...} expansion — never a real coordinate
+            }
+            coordinates.add(coordinate);
+        }
+        if (!coordinates.isEmpty()) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusDependencyProvider.DEPENDENCIES_KEY, String.join(",", coordinates)));
         }
     }
 

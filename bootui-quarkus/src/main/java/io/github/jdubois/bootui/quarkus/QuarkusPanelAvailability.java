@@ -27,7 +27,10 @@ import org.eclipse.microprofile.config.Config;
  * from the build-time Jandex index and runs the shared curated rule registry on demand), plus the
  * OpenTelemetry-backed Traces and AI Usage panels (whose read services are always wired — they simply
  * render empty until spans are captured, which requires {@code quarkus-opentelemetry} on the application
- * classpath); every other panel is reported unavailable with a clear reason until its Quarkus backing is
+ * classpath), plus the Vulnerabilities panel (statically available: it lists the application's local
+ * dependency inventory, captured from the build-time application model, and reaches out to OSV.dev only on
+ * the user-initiated {@code POST /scan} — never on render); every other panel is reported unavailable with
+ * a clear reason until its Quarkus backing is
  * ported. The <strong>Pentesting</strong> (local OWASP hygiene) advisor is also lit up: it reuses the shared
  * engine {@code PentestingScanner}, whose framework-neutral value comes from two synthetic loopback probes
  * (security headers, cookies, CORS, TRACE, technology disclosure), so the Quarkus adapter supplies only the
@@ -35,7 +38,8 @@ import org.eclipse.microprofile.config.Config;
  * Spring-Security and Actuator checks stay inert on Quarkus). Read-only is not yet modelled, so no panel is
  * read-only ({@code readOnlyReason} stays {@code null})
  * — note Traces (its buffer can be cleared), Loggers (a logger level can be set), HTTP Probe (it issues a
- * request), Architecture (it runs a scan and dismisses rules) and Pentesting (it runs a scan) are
+ * request), Architecture (it runs a scan and dismisses rules), Pentesting (it runs a scan) and
+ * Vulnerabilities (it runs an OSV scan) are
  * action-capable, so they are the Quarkus panels exposing state-changing actions.</p>
  *
  * <p>The <strong>Hibernate</strong> (ORM mapping) advisor is available <em>dynamically</em>: unlike the
@@ -116,7 +120,8 @@ public class QuarkusPanelAvailability {
             BootUiPanels.ARCHITECTURE,
             BootUiPanels.PENTESTING,
             BootUiPanels.TRACES,
-            BootUiPanels.AI);
+            BootUiPanels.AI,
+            BootUiPanels.VULNERABILITIES);
 
     private final boolean hibernatePresent;
 

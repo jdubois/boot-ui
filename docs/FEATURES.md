@@ -336,6 +336,13 @@ The Vulnerabilities panel shows dependency inventory and local OSV vulnerability
 vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
 ordered by severity first, with dependencies and advisories alphabetized within the same severity.
 
+On Quarkus the panel is identical, listing the local inventory first and contacting OSV.dev only on the user-initiated
+scan, over the same report contract. The one platform difference is dependency discovery: the Spring adapter scans the
+classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus runtime classloader, so the
+Quarkus inventory is captured at build time from the application's resolved runtime dependency model and read back at
+runtime (mirroring the Architecture panel's build-time base-package discovery). The OSV lookup itself is identical, and
+`bootui.vulnerabilities.osv-enabled=false` disables on-demand scanning on both adapters.
+
 ![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.webp)
 
 ## Runtime

@@ -337,4 +337,20 @@ public class BootUiEngineProducer {
             return List.of();
         }
     }
+
+    /**
+     * The OSV.dev vulnerability scanner over the JDK {@link java.net.http.HttpClient} and Jackson 2. It
+     * follows the engine's <em>static settings record</em> extraction template: vulnerabilities has no live
+     * UI override / re-bind path, so the immutable {@link QuarkusVulnerabilitySettings} is mapped once from
+     * {@code bootui.vulnerabilities.*} (matching the Spring factory's defaults). The companion
+     * {@link QuarkusDependencyProvider} (the build-time-captured local inventory) is a plain {@code @Singleton}
+     * bean rather than a producer-method bean. The scanner is produced (not annotated as a bean itself) so its
+     * concrete type can be injected into {@code VulnerabilitiesResource} without making CDI resolution
+     * ambiguous — and it is never invoked except by the user-initiated {@code POST /scan}.
+     */
+    @Produces
+    @Singleton
+    public OsvVulnerabilityScanner osvVulnerabilityScanner(Config config) {
+        return new OsvVulnerabilityScanner(QuarkusVulnerabilitySettings.from(config));
+    }
 }

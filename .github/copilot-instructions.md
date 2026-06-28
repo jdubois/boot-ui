@@ -362,8 +362,9 @@ hide newer ones. Keep API, UI,
   metadata at build time, and CRaC targets the Spring startup model, so both report a panel-specific "not applicable on
   Quarkus" reason (`QuarkusPanelAvailability.NOT_APPLICABLE`) rather than the generic "not yet" message. Use the shared
   registry + per-adapter availability rather than forking the route list.
-- As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting, Threads, Heap
-  Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage, and GitHub. Architecture is the first **advisor** lit up on
+- As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
+  Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
+  and GitHub. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -422,7 +423,21 @@ hide newer ones. Keep API, UI,
   deployment build step is needed (the `@Produces PentestingScanner` rides on the already-registered `BootUiEngineProducer`
   and the `PentestingResource` is auto-discovered from the indexed runtime jar). One honesty caveat: the engine-owned
   OWASP coverage matrix copy is Spring-worded, so a no-finding category renders a Spring-flavored `PASS`/`REVIEW` even on
-  Quarkus. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  Quarkus. Vulnerabilities is the first **non-advisor data panel with a
+  user-initiated network action** on Quarkus: the local dependency inventory is captured at **build time** from
+  `CurateOutcomeBuildItem.getApplicationModel().getRuntimeDependencies()` (jar-filtered) by a `registerDependencyInventory`
+  build step and surfaced as the runtime config default `bootui.internal.dependencies` (comma-joined
+  `groupId:artifactId:version`, each coordinate defensively skipped if it contains a comma/`$`/whitespace so the
+  comma channel can't be corrupted nor trip SmallRye `${...}` expansion), read back by `QuarkusDependencyProvider` — the
+  Quarkus analogue of Spring's `DependencyCatalog` classpath scan, which is unreliable under the Quarkus classloader (this
+  mirrors the Architecture base-package discovery exactly). `GET /bootui/api/vulnerabilities` lists that inventory and
+  **never** calls OSV on render; only the user-initiated `POST /bootui/api/vulnerabilities/scan` invokes the adapter-side
+  `OsvVulnerabilityScanner` (a Jackson-2 port — `com.fasterxml.jackson`, from `quarkus-rest-jackson` — of the Spring scanner,
+  delegating all aggregation/ordering to the engine `DependencyReports`), behind the shared `LocalhostGuard` write floor.
+  It honors `bootui.vulnerabilities.osv-enabled=false` (→ `DISABLED`, no network call) and the `request-timeout` /
+  `max-packages` / `max-advisories` limits; failures return an `ERROR` status while preserving the local inventory. No
+  optional-dependency `Capability`/`ExcludedTypeBuildItem` gate is needed (inventory is build-time; OSV uses the JDK
+  `HttpClient` + always-present Jackson 2), so the panel is statically available. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing
