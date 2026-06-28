@@ -56,6 +56,14 @@ import org.eclipse.microprofile.config.Config;
  * discovery is capability-gated (R2) — so the panel renders a not-configured report rather than failing when
  * the extension is absent.</p>
  *
+ * <p>The <strong>Scheduled Tasks</strong> panel is available <em>dynamically</em> in the same way: the deployment
+ * processor detects the {@code SCHEDULER} capability at build time and feeds it back as the
+ * {@code bootui.internal.scheduled-present} runtime-config default (see {@link #SCHEDULED_PRESENT_KEY}); when
+ * {@code quarkus-scheduler} is absent the panel reports an honest capability hint. Unlike Hibernate, no producer is
+ * capability-gated — the panel captures {@code @Scheduled} metadata at build time (no runtime
+ * {@code io.quarkus.scheduler.*} import), so the engine service and its read resource always wire and render an
+ * empty {@code schedulingPresent=false} report when the scheduler is absent.</p>
+ *
  * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
  * endpoint is the shared shell's framework-neutral chrome/CSRF-priming source, which the shell needs on
@@ -91,11 +99,24 @@ public class QuarkusPanelAvailability {
      */
     public static final String HIBERNATE_PRESENT_KEY = "bootui.internal.hibernate-present";
 
+    /**
+     * Runtime-config key carrying the build-time {@code SCHEDULER} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}) whenever
+     * {@code quarkus-scheduler} is present in a non-production launch; this bean reads it back to decide
+     * whether the dynamically-available Scheduled Tasks panel is lit up (true even with zero {@code @Scheduled}
+     * methods). Mirrors {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String SCHEDULED_PRESENT_KEY = "bootui.internal.scheduled-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
             "Not available: this application does not use Hibernate ORM. Add the quarkus-hibernate-orm"
                     + " extension to enable the JPA mapping advisor.";
+
+    private static final String SCHEDULED_ABSENT =
+            "Not available: this application has no scheduler. Add the quarkus-scheduler extension and"
+                    + " annotate a method with @Scheduled to enable the Scheduled Tasks panel.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -130,12 +151,16 @@ public class QuarkusPanelAvailability {
 
     private final boolean hibernatePresent;
 
+    private final boolean schedulingPresent;
+
     private final List<String> githubAllowedApiHosts;
 
     @Inject
     public QuarkusPanelAvailability(Config config) {
         this.hibernatePresent =
                 config.getOptionalValue(HIBERNATE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.schedulingPresent =
+                config.getOptionalValue(SCHEDULED_PRESENT_KEY, Boolean.class).orElse(false);
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
     }
 
@@ -148,6 +173,7 @@ public class QuarkusPanelAvailability {
     private PanelDto toDto(BootUiPanels.Panel panel) {
         boolean available = AVAILABLE_PANELS.contains(panel.id())
                 || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent)
+                || (BootUiPanels.SCHEDULED.equals(panel.id()) && schedulingPresent)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
@@ -156,6 +182,9 @@ public class QuarkusPanelAvailability {
     private String unavailableReason(String panelId) {
         if (BootUiPanels.HIBERNATE.equals(panelId)) {
             return HIBERNATE_ABSENT;
+        }
+        if (BootUiPanels.SCHEDULED.equals(panelId)) {
+            return SCHEDULED_ABSENT;
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();

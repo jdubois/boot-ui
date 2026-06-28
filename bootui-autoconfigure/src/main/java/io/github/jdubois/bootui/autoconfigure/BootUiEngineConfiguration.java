@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
+import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
@@ -29,6 +30,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
@@ -36,6 +38,7 @@ import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
+import io.github.jdubois.bootui.spi.ScheduledTaskProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
@@ -54,6 +57,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
@@ -282,6 +286,18 @@ public class BootUiEngineConfiguration {
         return new BeansService(beanProviders.getIfAvailable());
     }
 
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    ScheduledTasksService bootUiScheduledTasksService(ObjectProvider<ScheduledTaskProvider> scheduledTaskProviders) {
+        // R2 optional-dependency port: the scheduling-typed SpringScheduledTaskProvider is gated below, so this
+        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
+        // class-absent case) by serving an empty report. The provider maps and self-filters the raw tasks
+        // (where the framework trigger types and the runnable description still exist, for byte-identical
+        // filtering); the engine service only sorts and wraps.
+        return new ScheduledTasksService(scheduledTaskProviders.getIfAvailable());
+    }
+
     /**
      * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
      * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
@@ -404,6 +420,31 @@ public class BootUiEngineConfiguration {
             // The endpoint bean may be absent (Actuator present but the beans endpoint not exposed); the
             // provider resolves it live so it reports itself unavailable in that case.
             return new SpringBeanProvider(endpoints::getIfAvailable, selfDataFilter);
+        }
+    }
+
+    /**
+     * R2 optional-dependency port: the scheduling-backed task provider is only wired when the scheduling
+     * infrastructure type ({@code ScheduledTaskHolder}) is on the classpath. The {@code ScheduledTaskHolder}-
+     * typed parameter (and the {@code org.springframework.scheduling.config.*} trigger types the provider maps)
+     * live in this nested, {@code @ConditionalOnClass}-gated configuration (never inline in the always-active
+     * root config), so they are never linked in an application without the scheduling infrastructure. The
+     * always-active {@code bootUiScheduledTasksService} resolves this provider through an {@code ObjectProvider}
+     * and serves an empty report when it is absent — though the {@code ScheduledController} that exposes the
+     * panel is itself {@code @ConditionalOnClass(ScheduledTaskHolder)}, so the endpoint is only registered when
+     * this provider can exist (byte-identical to the original controller's bean-presence).
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.scheduling.config.ScheduledTaskHolder")
+    static class ScheduledTasksBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        SpringScheduledTaskProvider bootUiSpringScheduledTaskProvider(
+                ObjectProvider<ScheduledTaskHolder> scheduledTaskHolders, BootUiSelfDataFilter selfDataFilter) {
+            return new SpringScheduledTaskProvider(
+                    scheduledTaskHolders.orderedStream().toList(), selfDataFilter);
         }
     }
 }

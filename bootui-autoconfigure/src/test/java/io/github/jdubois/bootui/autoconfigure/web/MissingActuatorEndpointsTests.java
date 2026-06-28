@@ -15,8 +15,8 @@ import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
@@ -159,7 +159,8 @@ class MissingActuatorEndpointsTests {
 
     @Test
     void scheduledControllerReturnsAbsentSchedulingReportWhenHolderMissing() throws Exception {
-        MockMvc mvc = standaloneSetup(new ScheduledController(List.of())).build();
+        MockMvc mvc = standaloneSetup(new ScheduledController(new ScheduledTasksService(null)))
+                .build();
 
         mvc.perform(get("/bootui/api/scheduled"))
                 .andExpect(status().isOk())

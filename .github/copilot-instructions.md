@@ -364,7 +364,7 @@ hide newer ones. Keep API, UI,
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
   Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, and Beans. Architecture is the first **advisor** lit up on
+  GitHub, Beans, and Scheduled Tasks. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -444,7 +444,25 @@ hide newer ones. Keep API, UI,
   dependency, so Beans is always-available like Architecture/Metrics — no capability gate, no `BootUiQuarkusProcessor`
   change. The provider filters out BootUI's own beans by FQN prefix and classifies with Quarkus-aware framework prefixes;
   a few fields are reduced-fidelity because Arc does not expose them at runtime (`resource`/`dependencies` empty, CDI
-  `scope` vocabulary, synthetic name for unnamed beans, and only Arc-retained beans appear). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  `scope` vocabulary, synthetic name for unnamed beans, and only Arc-retained beans appear).
+  `HttpClient` + always-present Jackson 2), so the panel is statically available. Scheduled Tasks is the first
+  **build-time-capture optional-dependency** panel that needs no `ExcludedTypeBuildItem`: the shared engine
+  `ScheduledTasksService` owns only the sort + `schedulingPresent`/`total` wrapping, and because the shared
+  `ScheduledTaskDto` carries only static `@Scheduled` config (no runtime next-fire/id, which is all the runtime
+  `io.quarkus.scheduler.Scheduler` exposes), no runtime class imports `io.quarkus.scheduler.*` — so there is no R2
+  classloading trap, no provided-scope dep, and `Capability.SCHEDULER` + non-prod is the entire gate. The deployment
+  `registerScheduledTasks` `@Record(STATIC_INIT)` build step scans the `BeanArchiveIndexBuildItem` Jandex index for
+  `@Scheduled` (and the `@Scheduled$Schedules` repeatable container, unwrapped manually), records the verbatim member
+  strings into a `RawScheduledTask` list (the codebase's first `@Recorder` + `SyntheticBeanBuildItem` — records are
+  recordable via a `@RecordableConstructor` canonical constructor, the module compiling with `-parameters`), and emits
+  `bootui.internal.scheduled-present=true` so `QuarkusPanelAvailability` lights up the panel dynamically (Hibernate-style,
+  not the static set). The runtime `QuarkusScheduledTaskProvider` injects `Instance<QuarkusScheduledTasks>`
+  (unsatisfied → unavailable), maps `cron`→`CRON`/`every`→`FIXED_RATE` with the Quarkus `SimpleScheduler` initial-delay
+  semantics (`delay`>0 in `delayUnit` default `MINUTES` wins over `delayed`), parses durations via the always-present
+  quarkus-core `DurationConverter` (best-effort MicroProfile `Config` resolution of `{prop}`/`${prop}` references, else
+  rendered raw), and self-filters via the shared engine `InternalPackageMatcher`; the read-only `ScheduledResource`
+  mirrors the Spring `ScheduledController`. Annotation-discovered tasks only (programmatic `Scheduler.newJob()` jobs are
+  not captured). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

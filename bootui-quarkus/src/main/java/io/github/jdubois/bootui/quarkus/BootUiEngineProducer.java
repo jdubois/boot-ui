@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
@@ -27,6 +28,7 @@ import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
+import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.HealthProvider;
@@ -375,5 +377,24 @@ public class BootUiEngineProducer {
     @Singleton
     public OsvVulnerabilityScanner osvVulnerabilityScanner(Config config) {
         return new OsvVulnerabilityScanner(QuarkusVulnerabilitySettings.from(config));
+    }
+
+    /**
+     * The Scheduled Tasks service over the Quarkus {@link QuarkusScheduledTaskProvider}. Mirrors the Spring
+     * {@code bootUiScheduledTasksService} factory: the engine {@link ScheduledTasksService} owns only the
+     * framework-neutral sort + {@code schedulingPresent}/{@code total} wrapping, while the provider (the
+     * adapter) maps the build-time-captured {@code @Scheduled} metadata to the neutral DTO and self-filters.
+     *
+     * <p>The service is produced <em>unconditionally</em> (it holds no scheduler types), so
+     * {@code ScheduledResource} is wired and the panel renders on every platform; when {@code quarkus-scheduler}
+     * is absent the provider's captured-tasks {@code Instance} is unsatisfied, so it reports unavailable and
+     * the engine renders an empty {@code schedulingPresent=false} report. The concrete
+     * {@link QuarkusScheduledTaskProvider} is injected (not the {@code ScheduledTaskProvider} interface) so
+     * adding another provider later can never make this wiring ambiguous, exactly as the other producers do.
+     */
+    @Produces
+    @Singleton
+    public ScheduledTasksService scheduledTasksService(QuarkusScheduledTaskProvider provider) {
+        return new ScheduledTasksService(provider);
     }
 }

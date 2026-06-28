@@ -744,6 +744,16 @@ trigger metadata so background activity is visible during local development.
 
 ![BootUI Scheduled Tasks panel](./images/bootui-scheduled-tasks.webp)
 
+On Quarkus the panel is identical, running over the same framework-neutral engine `ScheduledTasksService` and the same
+`/bootui/api/scheduled` contract. The data source differs because the runtime `io.quarkus.scheduler.Scheduler` exposes
+only trigger ids and next-fire times — neither of which the shared task contract carries — while the cron/`every`
+expressions and target method are known only at build time. So the Quarkus adapter captures every `@Scheduled` method
+from the application's Jandex index at **build time** (the same pattern as Architecture base-package and Vulnerabilities
+dependency-inventory capture) and maps it onto the same trigger/expression/initial-delay fields: a `cron` member becomes a
+`CRON` row, an `every` member a `FIXED_RATE` row (with the duration parsed to milliseconds), and a `delay`/`delayed`
+initial delay is carried through. The panel is available only when the `quarkus-scheduler` extension is present;
+programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered tasks only).
+
 ### Spring Cache
 
 The Spring Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native

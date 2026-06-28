@@ -71,7 +71,7 @@ function formatExpression(task) {
 
     <PanelSkeleton v-if="initialLoading && !report" />
     <div v-else-if="report && !report.schedulingPresent" class="alert alert-info">
-      No Spring Scheduling detected on the classpath.
+      No scheduling detected on the classpath.
     </div>
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">No scheduled tasks registered.</div>
     <template v-else-if="report">

@@ -1,120 +1,38 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.ScheduledReport;
-import io.github.jdubois.bootui.core.dto.ScheduledTaskDto;
-import java.time.Duration;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
-import org.springframework.beans.factory.annotation.Autowired;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.scheduling.config.*;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Framework-neutral Scheduled Tasks controller. It serves {@code GET /bootui/api/scheduled} by delegating to
+ * the engine {@link ScheduledTasksService}, which sorts and wraps the mapped, self-filtered tasks supplied by
+ * the (optional) {@code ScheduledTaskProvider}.
+ *
+ * <p>Unlike the neutral {@code MappingsController}, this controller keeps its class-level
+ * {@code @ConditionalOnClass(ScheduledTaskHolder)}: the panel's whole reason to exist is the scheduling
+ * infrastructure, so when {@code org.springframework.scheduling.config.ScheduledTaskHolder} is absent the
+ * endpoint should not be registered at all (byte-identical to the original controller, whose bean-presence
+ * the autoconfiguration tests assert). The {@code org.springframework.scheduling.config.*} trigger types are
+ * confined to the gated {@code SpringScheduledTaskProvider}, so this controller carries no scheduling import
+ * itself.</p>
+ */
 @RestController
 @ConditionalOnClass(name = "org.springframework.scheduling.config.ScheduledTaskHolder")
 @RequestMapping("/bootui/api/scheduled")
 public class ScheduledController {
 
-    private final List<ScheduledTaskHolder> scheduledTaskHolders;
+    private final ScheduledTasksService scheduledTasksService;
 
-    private final BootUiSelfDataFilter selfDataFilter;
-
-    public ScheduledController(List<ScheduledTaskHolder> scheduledTaskHolders) {
-        this(scheduledTaskHolders, BootUiSelfDataFilter.defaults());
-    }
-
-    @Autowired
-    public ScheduledController(List<ScheduledTaskHolder> scheduledTaskHolders, BootUiSelfDataFilter selfDataFilter) {
-        this.scheduledTaskHolders = scheduledTaskHolders;
-        this.selfDataFilter = selfDataFilter;
+    public ScheduledController(ScheduledTasksService scheduledTasksService) {
+        this.scheduledTasksService = scheduledTasksService;
     }
 
     @GetMapping
     public ScheduledReport scheduled() {
-        if (scheduledTaskHolders.isEmpty()) {
-            return new ScheduledReport(false, 0, List.of());
-        }
-        List<ScheduledTaskDto> tasks = scheduledTaskHolders.stream()
-                .map(ScheduledTaskHolder::getScheduledTasks)
-                .filter(Objects::nonNull)
-                .flatMap(Collection::stream)
-                .map(this::toDto)
-                .filter(task -> selfDataFilter.shouldIncludeScheduledTask(task.runnable()))
-                .sorted(Comparator.comparing(ScheduledTaskDto::runnable, Comparator.nullsLast(String::compareTo)))
-                .toList();
-        return new ScheduledReport(true, tasks.size(), tasks);
-    }
-
-    private ScheduledTaskDto toDto(ScheduledTask scheduledTask) {
-        Task task = scheduledTask.getTask();
-        Runnable runnable = task.getRunnable();
-        String runnableName = runnableName(runnable);
-        if (task instanceof CronTask cronTask) {
-            return new ScheduledTaskDto(runnableName, "CRON", cronTask.getExpression(), null, null);
-        }
-        if (task instanceof FixedRateTask fixedRateTask) {
-            long intervalMs = fixedRateTask.getIntervalDuration().toMillis();
-            Long initialDelayMs = toMillis(fixedRateTask.getInitialDelayDuration());
-            return new ScheduledTaskDto(
-                    runnableName,
-                    "FIXED_RATE",
-                    Long.toString(intervalMs),
-                    initialDelayMs,
-                    intervalUnit(intervalMs, initialDelayMs));
-        }
-        if (task instanceof FixedDelayTask fixedDelayTask) {
-            long intervalMs = fixedDelayTask.getIntervalDuration().toMillis();
-            Long initialDelayMs = toMillis(fixedDelayTask.getInitialDelayDuration());
-            return new ScheduledTaskDto(
-                    runnableName,
-                    "FIXED_DELAY",
-                    Long.toString(intervalMs),
-                    initialDelayMs,
-                    intervalUnit(intervalMs, initialDelayMs));
-        }
-        if (task instanceof OneTimeTask oneTimeTask) {
-            Long initialDelayMs = toMillis(oneTimeTask.getInitialDelayDuration());
-            return new ScheduledTaskDto(
-                    runnableName, "ONE_SHOT", null, initialDelayMs, intervalUnit(null, initialDelayMs));
-        }
-        if (task instanceof TriggerTask triggerTask) {
-            return new ScheduledTaskDto(runnableName, "ONE_SHOT", String.valueOf(triggerTask.getTrigger()), null, null);
-        }
-        return new ScheduledTaskDto(runnableName, "ONE_SHOT", null, null, null);
-    }
-
-    private String runnableName(Runnable runnable) {
-        if (runnable == null) {
-            return null;
-        }
-        String typeName = runnable.getClass().getName();
-        String description = runnable.toString();
-        if (description != null
-                && !description.isBlank()
-                && !description.equals(typeName)
-                && !description.startsWith(typeName + "@")) {
-            return description;
-        }
-        return typeName;
-    }
-
-    private Long toMillis(Duration duration) {
-        return duration == null ? null : duration.toMillis();
-    }
-
-    private String intervalUnit(Long intervalMs, Long initialDelayMs) {
-        if (isWholeSeconds(intervalMs) && isWholeSeconds(initialDelayMs)) {
-            return "s";
-        }
-        return "ms";
-    }
-
-    private boolean isWholeSeconds(Long value) {
-        return value == null || value % 1000 == 0;
+        return scheduledTasksService.report();
     }
 }

@@ -11,13 +11,21 @@ import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
+import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
+import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
+import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
+import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
+import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
+import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
 import io.quarkus.builder.Version;
 import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.Capability;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.annotations.ExecutionTime;
+import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
@@ -26,11 +34,19 @@ import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
 import io.quarkus.maven.dependency.ResolvedDependency;
 import io.quarkus.runtime.LaunchMode;
+import jakarta.inject.Singleton;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.jboss.jandex.AnnotationInstance;
+import org.jboss.jandex.AnnotationTarget;
+import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
+import org.jboss.jandex.DotName;
+import org.jboss.jandex.IndexView;
+import org.jboss.jandex.MethodInfo;
 
 /**
  * Build-time wiring for the BootUI Quarkus extension — the analogue of the Spring adapter's
@@ -100,6 +116,7 @@ class BootUiQuarkusProcessor {
                         QuarkusApplicationInfo.class,
                         QuarkusBasePackageProvider.class,
                         QuarkusDependencyProvider.class,
+                        QuarkusScheduledTaskProvider.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
@@ -330,5 +347,110 @@ class BootUiQuarkusProcessor {
             // is reported unavailable in the manifest (HIBERNATE_PRESENT_KEY defaults to false).
             excludedTypes.produce(new ExcludedTypeBuildItem(HIBERNATE_PRODUCER_CLASS));
         }
+    }
+
+    /**
+     * Captures the host application's {@code @io.quarkus.scheduler.Scheduled} methods at build time and exposes
+     * them to the runtime as a synthetic {@link QuarkusScheduledTasks} bean (via {@link ScheduledTasksRecorder}),
+     * plus a {@code bootui.internal.scheduled-present=true} runtime-config default that lights up the Scheduled
+     * Tasks panel in the manifest. This is the build-time-capture pattern (like Architecture base packages and
+     * the Vulnerabilities dependency inventory), chosen because the {@code ScheduledTaskDto} contract carries
+     * only the static cron/every/initial-delay configuration and target method — all known at build time —
+     * whereas the runtime {@code io.quarkus.scheduler.Scheduler} exposes only trigger ids and next-fire times,
+     * which the contract does not carry. So no runtime class imports {@code io.quarkus.scheduler.*} (no R2
+     * classloading trap, no provided-scope dependency, no {@link ExcludedTypeBuildItem}); the
+     * {@link Capability#SCHEDULER} capability gate is the entire safety mechanism.
+     *
+     * <p>Gated to a non-production launch with {@code quarkus-scheduler} present: when absent (or in
+     * {@link LaunchMode#NORMAL}) the synthetic bean is not produced, so {@link QuarkusScheduledTaskProvider}'s
+     * {@code Instance} is unsatisfied and the panel is reported unavailable ({@code SCHEDULED_PRESENT_KEY}
+     * defaults to {@code false}). The annotation metadata is read from the {@link BeanArchiveIndexBuildItem}
+     * Jandex index (the bean archives, which span the application beans the scheduler enhances), and only
+     * annotation-discovered jobs are captured — programmatic {@code Scheduler.newJob()} jobs are not, matching
+     * the panel's documented scope.</p>
+     */
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    void registerScheduledTasks(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BeanArchiveIndexBuildItem beanArchiveIndex,
+            ScheduledTasksRecorder recorder,
+            BuildProducer<SyntheticBeanBuildItem> syntheticBeans,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present =
+                launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SCHEDULER);
+        if (!present) {
+            return; // no scheduler (or production): the panel stays unavailable (key defaults to false)
+        }
+        List<RawScheduledTask> tasks = scanScheduledTasks(beanArchiveIndex.getIndex());
+        syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusScheduledTasks.class)
+                .scope(Singleton.class)
+                .runtimeValue(recorder.create(tasks))
+                .unremovable()
+                .done());
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.SCHEDULED_PRESENT_KEY, "true"));
+    }
+
+    private static final DotName SCHEDULED_ANNOTATION = DotName.createSimple("io.quarkus.scheduler.Scheduled");
+
+    private static final DotName SCHEDULES_ANNOTATION =
+            DotName.createSimple("io.quarkus.scheduler.Scheduled$Schedules");
+
+    /**
+     * Reads every {@code @Scheduled} method from {@code index} into a verbatim {@link RawScheduledTask} list.
+     * Both a directly-declared {@code @Scheduled} and the {@code @Schedules} repeatable container (whose nested
+     * instances are unwrapped manually — {@code getAnnotationsWithRepeatable} is avoided because the container
+     * type is not necessarily indexed) are handled; the nested instances inherit the container's method target.
+     * Annotation members absent from the Jandex instance fall back to the annotation defaults ({@code ""} for
+     * the strings, {@code 0} for {@code delay}, {@code MINUTES} for {@code delayUnit}).
+     */
+    private static List<RawScheduledTask> scanScheduledTasks(IndexView index) {
+        List<RawScheduledTask> tasks = new ArrayList<>();
+        for (AnnotationInstance annotation : index.getAnnotations(SCHEDULED_ANNOTATION)) {
+            if (annotation.target() != null && annotation.target().kind() == AnnotationTarget.Kind.METHOD) {
+                tasks.add(toRawScheduledTask(annotation.target().asMethod(), annotation));
+            }
+        }
+        for (AnnotationInstance container : index.getAnnotations(SCHEDULES_ANNOTATION)) {
+            if (container.target() == null || container.target().kind() != AnnotationTarget.Kind.METHOD) {
+                continue;
+            }
+            MethodInfo method = container.target().asMethod();
+            AnnotationValue nested = container.value();
+            if (nested != null) {
+                for (AnnotationInstance scheduled : nested.asNestedArray()) {
+                    tasks.add(toRawScheduledTask(method, scheduled));
+                }
+            }
+        }
+        return tasks;
+    }
+
+    private static RawScheduledTask toRawScheduledTask(MethodInfo method, AnnotationInstance annotation) {
+        String methodDescription = method.declaringClass().name().toString() + "#" + method.name();
+        return new RawScheduledTask(
+                methodDescription,
+                stringMember(annotation, "cron"),
+                stringMember(annotation, "every"),
+                stringMember(annotation, "delayed"),
+                longMember(annotation, "delay"),
+                enumMember(annotation, "delayUnit", "MINUTES"));
+    }
+
+    private static String stringMember(AnnotationInstance annotation, String name) {
+        AnnotationValue value = annotation.value(name);
+        return value == null ? "" : value.asString();
+    }
+
+    private static long longMember(AnnotationInstance annotation, String name) {
+        AnnotationValue value = annotation.value(name);
+        return value == null ? 0L : value.asLong();
+    }
+
+    private static String enumMember(AnnotationInstance annotation, String name, String defaultValue) {
+        AnnotationValue value = annotation.value(name);
+        return value == null ? defaultValue : value.asEnum();
     }
 }
