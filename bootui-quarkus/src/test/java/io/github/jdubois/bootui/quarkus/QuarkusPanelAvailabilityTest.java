@@ -82,4 +82,18 @@ class QuarkusPanelAvailabilityTest {
                 .isTrue();
         assertThat(hibernate.unavailableReason()).isNull();
     }
+
+    @Test
+    void githubAvailabilityRoutesThroughTheRepositoryDetector() {
+        // GitHub availability is dynamic (mirrors Spring's PanelsController.githubAvailable()): it is computed
+        // from the shared GitHubRepositoryDetector, never the static "not yet" fallback. This module is itself
+        // a checkout of github.com/jdubois/boot-ui, so the detector finds the repo and the panel lights up with
+        // no unavailable reason — exactly as it does in CI and in a developer's own GitHub-hosted project.
+        PanelDto github = manifestById().get(BootUiPanels.GITHUB);
+        assertThat(github).as("GitHub panel is present in the manifest").isNotNull();
+        assertThat(github.available())
+                .as("GitHub lights up when the working directory is a GitHub checkout")
+                .isTrue();
+        assertThat(github.unavailableReason()).isNull();
+    }
 }

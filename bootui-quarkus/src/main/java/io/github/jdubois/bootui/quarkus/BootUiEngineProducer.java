@@ -1,7 +1,11 @@
 package io.github.jdubois.bootui.quarkus;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
+import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
+import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
+import io.github.jdubois.bootui.engine.github.GitHubDashboardService;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
@@ -19,6 +23,8 @@ import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
+import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
+import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -28,9 +34,12 @@ import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Clock;
+import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -190,6 +199,69 @@ public class BootUiEngineProducer {
     @Singleton
     public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages) {
         return ArchitectureScanner.usingClasspath(basePackages::basePackages, Clock.systemUTC());
+    }
+
+    /**
+     * The GitHub dashboard service over a Jackson-2 {@link GitHubApiClient}. The shared engine
+     * {@link GitHubDashboardService} is framework- and JSON-library-free; this factory mirrors the Spring
+     * adapter's {@code GitHubController} composition root, reading the same {@code bootui.github.*} keys (with
+     * the same defaults) from MicroProfile {@link Config} and feeding the engine an already-wired client.
+     *
+     * <p>The host allow-list is read once and passed to <em>both</em> the engine
+     * {@link GitHubDashboardConfig} (which the engine consults during repository detection) and the client's
+     * {@link QuarkusGitHubSettings} (which the client enforces before issuing any request), exactly as Spring
+     * shares one {@code BootUiProperties.GitHub}. {@code Arrays.asList(...)} is used (not {@code List.of(...)})
+     * to stay null-safe, matching the Spring factory. The credential lookup reuses the framework-free shared
+     * {@link DefaultGitHubTokenProvider} (env tokens + {@code gh} CLI). No network call happens at construction
+     * or on render: only the explicit {@code POST /bootui/api/github/refresh} action calls GitHub.</p>
+     */
+    @Produces
+    @Singleton
+    public GitHubDashboardService gitHubDashboardService(Config config) {
+        boolean apiEnabled = config.getOptionalValue("bootui.github.api-enabled", Boolean.class)
+                .orElse(Boolean.TRUE);
+        Duration requestTimeout = config.getOptionalValue("bootui.github.request-timeout", Duration.class)
+                .orElse(Duration.ofSeconds(5));
+        int maxPullRequests = config.getOptionalValue("bootui.github.max-pull-requests", Integer.class)
+                .orElse(10);
+        int maxIssues = config.getOptionalValue("bootui.github.max-issues", Integer.class)
+                .orElse(25);
+        int maxWorkflowRuns = config.getOptionalValue("bootui.github.max-workflow-runs", Integer.class)
+                .orElse(20);
+        int quotaSafetyThreshold = config.getOptionalValue("bootui.github.quota-safety-threshold", Integer.class)
+                .orElse(10);
+        int maxApiCalls = config.getOptionalValue("bootui.github.max-api-calls", Integer.class)
+                .orElse(17);
+        List<String> allowedApiHosts = gitHubAllowedApiHosts(config);
+
+        QuarkusGitHubSettings settings = new QuarkusGitHubSettings(
+                requestTimeout,
+                maxPullRequests,
+                maxIssues,
+                maxWorkflowRuns,
+                quotaSafetyThreshold,
+                maxApiCalls,
+                allowedApiHosts);
+        GitHubApiClient client = new GitHubApiClient(
+                settings,
+                HttpClient.newBuilder().connectTimeout(requestTimeout).build(),
+                new ObjectMapper(),
+                DefaultGitHubTokenProvider.create());
+        return GitHubDashboardService.using(
+                Path.of(System.getProperty("user.dir", ".")),
+                new GitHubDashboardConfig(apiEnabled, allowedApiHosts),
+                client);
+    }
+
+    /**
+     * Reads {@code bootui.github.allowed-api-hosts} (comma-separated) from MicroProfile {@link Config}, falling
+     * back to {@code api.github.com}. {@code Arrays.asList} keeps it null-safe, matching the Spring adapter's
+     * {@code Arrays.asList(properties.getGithub().getAllowedApiHosts())}.
+     */
+    static List<String> gitHubAllowedApiHosts(Config config) {
+        String[] hosts = config.getOptionalValue("bootui.github.allowed-api-hosts", String[].class)
+                .orElse(new String[] {"api.github.com"});
+        return Arrays.asList(hosts);
     }
 
     /**

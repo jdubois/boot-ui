@@ -363,7 +363,7 @@ hide newer ones. Keep API, UI,
   Quarkus" reason (`QuarkusPanelAvailability.NOT_APPLICABLE`) rather than the generic "not yet" message. Use the shared
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Threads, Heap Dump, Live
-  Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, and AI Usage. Architecture is the first **advisor** lit up on
+  Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage, and GitHub. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -400,7 +400,17 @@ hide newer ones. Keep API, UI,
   the engine rules expect onto their `quarkus.hibernate-orm.*` equivalents (`ddl-auto` → `database.generation` with the
   `drop-and-create` ↔ `create-drop` value alias, `show-sql`/`format_sql`/`batch_size`); the Open-Session-in-View rule is
   correctly inert (Quarkus has no OSIV, so the lookup returns the effective-disabled constant and the rule never fires),
-  and Spring Data repository hints are Spring-only. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  and Spring Data repository hints are Spring-only. GitHub is the first **Overview** panel lit up on Quarkus: the shared
+  engine `GitHubDashboardService` is framework- and JSON-library-free, so the Quarkus adapter only supplies a Jackson 2
+  (`com.fasterxml.jackson.*`, from `quarkus-rest-jackson`) `GitHubClient` impl in `...quarkus.web.GitHubApiClient` (the
+  Spring adapter's is the Jackson 3 twin), reuses the framework-free `DefaultGitHubTokenProvider` (env + `gh` CLI), and
+  `@Produces` the engine service from `BootUiEngineProducer` over the same `bootui.github.*` MicroProfile Config keys and
+  defaults (null-safe `Arrays.asList` for the host allow-list). Availability is **dynamic** like Spring's
+  `PanelsController.githubAvailable()` — `QuarkusPanelAvailability` special-cases it through
+  `GitHubRepositoryDetector.detect(user.dir, allowed-hosts)` rather than the static `AVAILABLE_PANELS` set. The thin
+  `GitHubResource` mirrors `GitHubController`: `GET /bootui/api/github` renders network-free, only the explicit
+  `POST /bootui/api/github/refresh` calls GitHub (gated by `api-enabled` + host allow-list); cache-on-success and the
+  api-disabled `DISABLED` short-circuit live in the shared engine, so both adapters behave identically. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

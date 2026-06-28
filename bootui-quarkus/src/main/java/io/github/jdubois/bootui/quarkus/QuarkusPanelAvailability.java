@@ -2,9 +2,12 @@ package io.github.jdubois.bootui.quarkus;
 
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
+import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.eclipse.microprofile.config.Config;
@@ -111,10 +114,13 @@ public class QuarkusPanelAvailability {
 
     private final boolean hibernatePresent;
 
+    private final List<String> githubAllowedApiHosts;
+
     @Inject
     public QuarkusPanelAvailability(Config config) {
         this.hibernatePresent =
                 config.getOptionalValue(HIBERNATE_PRESENT_KEY, Boolean.class).orElse(false);
+        this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
     }
 
     public PanelsReport manifest() {
@@ -125,7 +131,8 @@ public class QuarkusPanelAvailability {
 
     private PanelDto toDto(BootUiPanels.Panel panel) {
         boolean available = AVAILABLE_PANELS.contains(panel.id())
-                || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent);
+                || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent)
+                || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
     }
@@ -134,6 +141,29 @@ public class QuarkusPanelAvailability {
         if (BootUiPanels.HIBERNATE.equals(panelId)) {
             return HIBERNATE_ABSENT;
         }
+        if (BootUiPanels.GITHUB.equals(panelId)) {
+            return githubUnavailableReason();
+        }
         return NOT_APPLICABLE.getOrDefault(panelId, NOT_YET_AVAILABLE);
+    }
+
+    /**
+     * GitHub panel availability is <em>dynamic</em>, mirroring the Spring adapter's
+     * {@code PanelsController.githubAvailable()}: the panel is available only when the host application's
+     * working directory is a git checkout with a GitHub-origin remote on an allow-listed API host. Uses the
+     * shared engine {@link GitHubRepositoryDetector}, so both adapters light up the panel under identical
+     * conditions. Detection is local-only (reads the git config / filesystem) and never calls the network.
+     */
+    private boolean githubAvailable() {
+        return GitHubRepositoryDetector.detect(githubWorkingDirectory(), githubAllowedApiHosts)
+                .isPresent();
+    }
+
+    private String githubUnavailableReason() {
+        return GitHubRepositoryDetector.unavailableReason(githubWorkingDirectory(), githubAllowedApiHosts);
+    }
+
+    private static Path githubWorkingDirectory() {
+        return Path.of(System.getProperty("user.dir", "."));
     }
 }

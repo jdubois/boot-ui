@@ -144,6 +144,16 @@ token is never sent to the browser, persisted by BootUI, or included in warnings
 GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
 safety threshold that skips optional sections before exhausting the core API quota.
 
+On Quarkus the panel is identical, running over the same framework-neutral engine `GitHubDashboardService` and the same
+`/bootui/api/github` contract. The Quarkus adapter supplies a Jackson 2 (`com.fasterxml.jackson.*`)
+`GitHubClient` implementation in place of the Spring adapter's Jackson 3 one — the only difference, since Quarkus ships
+Jackson 2 while Spring Boot 4 ships Jackson 3 — and reuses the shared, framework-free `DefaultGitHubTokenProvider` (env
+tokens + `gh` CLI) for credentials. The same `bootui.github.*` keys and defaults bind from MicroProfile Config, panel
+availability is computed the same way (the host application's working directory is a GitHub-origin git checkout on an
+allow-listed API host), and the no-network-on-render rule holds: `GET /bootui/api/github` never calls GitHub, and only the
+explicit `POST /bootui/api/github/refresh` action does (gated by `bootui.github.api-enabled` and the host allow-list).
+
+
 ![BootUI GitHub panel](./images/bootui-github.webp)
 
 ## Advisors
