@@ -140,7 +140,7 @@ class MissingActuatorEndpointsTests {
     @Test
     void mappingsControllerReturnsNoContentWhenEndpointMissing() throws Exception {
         ObjectProvider<MappingsEndpoint> provider = emptyProvider();
-        MockMvc mvc = standaloneSetup(new MappingsController(provider)).build();
+        MockMvc mvc = standaloneSetup(new ActuatorMappingsController(provider)).build();
 
         mvc.perform(get("/bootui/api/mappings")).andExpect(status().isNoContent());
     }

@@ -540,6 +540,11 @@ produces/consumes metadata so the running application's web surface is visible w
 Large mapping lists load through a stable, paged BootUI DTO, and the filter continues to search every discovered route
 on the server.
 
+This panel is Spring Boot only. Quarkus exposes no clean runtime route-enumeration API (Vert.x reports paths but not the
+per-route methods and produces/consumes the panel renders, and RESTEasy Reactive's resource model is a build-time
+artifact), so the panel is reported unavailable on Quarkus rather than showing a partial route list. A future build-step
+capture could light it up; until then it stays available on Spring Boot and unavailable on Quarkus.
+
 ![BootUI Mappings panel](./images/bootui-mappings.webp)
 
 ## Database

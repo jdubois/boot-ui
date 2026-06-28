@@ -68,7 +68,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
 
     /**
      * Web MVC actuator mapping-condition description types whose array forms Jackson reflectively
-     * instantiates while serializing the raw descriptor returned by {@code MappingsController#mappings()}.
+     * instantiates while serializing the raw descriptor returned by {@code ActuatorMappingsController#mappings()}.
      */
     private static final String[] MAPPINGS_EXPRESSION_DESCRIPTIONS = {
         "org.springframework.boot.webmvc.actuate.web.mappings.RequestMappingConditionsDescription$MediaTypeExpressionDescription",

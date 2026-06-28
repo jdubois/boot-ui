@@ -14,6 +14,8 @@ import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.core.dto.LoggerDto;
 import io.github.jdubois.bootui.core.dto.LoggersReport;
+import io.github.jdubois.bootui.core.dto.MappingDto;
+import io.github.jdubois.bootui.core.dto.MappingsReport;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
@@ -22,6 +24,7 @@ import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.MappingProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
@@ -192,6 +195,50 @@ class BootUiEngineConfigurationTests {
         assertThat(node.available()).isFalse();
         assertThat(node.unavailableReason()).isEqualTo("Spring Boot Actuator health endpoint is not available");
         assertThat(node.setup().get(0).title()).isEqualTo("Add Spring Boot Actuator");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void mappingsServiceFactoryResolvesTheProviderAndSortsThePagedReport() {
+        // The factory wires the (optional) MappingProvider into the engine MappingsService via an
+        // ObjectProvider. A provider returning unsorted mappings must come back sorted by pattern, proving
+        // the resolved provider is actually fed to the service rather than dropped.
+        MappingProvider provider = new MappingProvider() {
+            @Override
+            public boolean available() {
+                return true;
+            }
+
+            @Override
+            public List<MappingDto> mappings() {
+                return List.of(
+                        new MappingDto("GET", "/zebra", "Z#z", null, null),
+                        new MappingDto("GET", "/alpha", "A#a", null, null));
+            }
+        };
+        ObjectProvider<MappingProvider> providers = mock(ObjectProvider.class);
+        when(providers.getIfAvailable()).thenReturn(provider);
+
+        MappingsReport report =
+                new BootUiEngineConfiguration().bootUiMappingsService(providers).report(null, null, null);
+
+        assertThat(report.total()).isEqualTo(2);
+        assertThat(report.mappings()).extracting(MappingDto::pattern).containsExactly("/alpha", "/zebra");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void mappingsServiceFactoryServesEmptyReportWhenNoProviderIsPresent() {
+        // The Actuator-absent class-gated case: no MappingProvider bean. The always-active factory must
+        // still build a service that reports an empty (available=false) result rather than failing.
+        ObjectProvider<MappingProvider> providers = mock(ObjectProvider.class);
+        when(providers.getIfAvailable()).thenReturn(null);
+
+        MappingsReport report =
+                new BootUiEngineConfiguration().bootUiMappingsService(providers).report(null, null, null);
+
+        assertThat(report.total()).isZero();
+        assertThat(report.mappings()).isEmpty();
     }
 
     private static final class RecordingLoggerProvider implements LoggerProvider {

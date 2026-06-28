@@ -16,7 +16,6 @@ import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReport
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.startup.StartupEndpoint;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
-import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.micrometer.metrics.actuate.endpoint.MetricsEndpoint;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
@@ -122,7 +121,9 @@ public class PanelsController {
             case BootUiPanels.CONDITIONS ->
                 availability(beanPresent(ConditionsReportEndpoint.class), "Actuator conditions endpoint not available");
             case BootUiPanels.MAPPINGS ->
-                availability(beanPresent(MappingsEndpoint.class), "Actuator mappings endpoint not available");
+                availability(
+                        beanPresent("org.springframework.boot.actuate.web.mappings.MappingsEndpoint"),
+                        "Actuator mappings endpoint not available");
             case BootUiPanels.DATA ->
                 availability(
                         classPresent("org.springframework.data.repository.Repository"),

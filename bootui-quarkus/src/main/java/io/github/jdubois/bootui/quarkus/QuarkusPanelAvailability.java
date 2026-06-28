@@ -26,6 +26,15 @@ import java.util.Set;
  * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
  * endpoint is the shared shell's framework-neutral chrome/CSRF-priming source, which the shell needs on
  * every platform, whereas the Overview dashboard panel itself has not yet been ported.</p>
+ *
+ * <p>The Mappings panel is a deliberate, possibly permanent, exception rather than a not-yet-ported one:
+ * unlike the Spring adapter (which flattens Actuator's {@code MappingsEndpoint} descriptor), Quarkus
+ * exposes no clean <em>runtime</em> route-enumeration API. Vert.x {@code Router.getRoutes()} yields paths
+ * but not the per-route method/produces/consumes the {@code MappingDto} contract needs, and RESTEasy
+ * Reactive's resource model is a build-time artifact
+ * ({@code ResteasyReactiveResourceMethodEntriesBuildItem}). Capturing it would require a new build-step +
+ * {@code @Recorder} + {@code SyntheticBeanBuildItem} data-capture pattern (its own slice and critic
+ * round); until then Mappings stays unavailable on Quarkus while remaining fully available on Spring.</p>
  */
 @ApplicationScoped
 public class QuarkusPanelAvailability {

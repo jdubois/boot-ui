@@ -9,8 +9,10 @@ import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
+import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
+import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.graalvm.GraalVmDependencySettings;
@@ -20,6 +22,7 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
+import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
@@ -29,6 +32,7 @@ import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.MappingProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
@@ -37,6 +41,7 @@ import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
+import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
@@ -249,6 +254,18 @@ public class BootUiEngineConfiguration {
         return new HealthService(healthProviders.getIfAvailable(), SpringHealthGuidance.INSTANCE);
     }
 
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    MappingsService bootUiMappingsService(ObjectProvider<MappingProvider> mappingProviders) {
+        // R2 optional-dependency port: the actuator-typed SpringMappingProvider is gated below, so this
+        // always-active service resolves it through an ObjectProvider and tolerates its absence (the
+        // class-absent case) by serving an empty report. The provider flattens and self-filters the raw
+        // mappings (where the predicate string still exists, for byte-identical filtering); the engine
+        // service only sorts, queries and pages.
+        return new MappingsService(mappingProviders.getIfAvailable());
+    }
+
     /**
      * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
      * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
@@ -314,6 +331,40 @@ public class BootUiEngineConfiguration {
             // The endpoint bean may be absent (Actuator present but the health endpoint not exposed); the
             // provider resolves it live so it reports the backend unavailable (engine renders DISABLED).
             return new SpringHealthProvider(endpoints::getIfAvailable);
+        }
+    }
+
+    /**
+     * R2 optional-dependency port: the Actuator-backed mappings provider and the raw descriptor
+     * passthrough controller are only wired when the Actuator {@code MappingsEndpoint} type is on the
+     * classpath. The {@code MappingsEndpoint}-typed parameters live in this nested,
+     * {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root config), so
+     * the type and the Web MVC mapping descriptor types are never linked in an Actuator-absent
+     * application. The neutral {@code MappingsController} ({@code /flat}) stays unconditional and serves
+     * an empty report when this backend is absent.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.web.mappings.MappingsEndpoint")
+    static class MappingsBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        SpringMappingProvider bootUiSpringMappingProvider(
+                ObjectProvider<MappingsEndpoint> endpoints, BootUiSelfDataFilter selfDataFilter) {
+            // The endpoint bean may be absent (Actuator present but the mappings endpoint not exposed);
+            // the provider resolves it live so it reports itself unavailable in that case.
+            return new SpringMappingProvider(endpoints::getIfAvailable, selfDataFilter);
+        }
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        ActuatorMappingsController bootUiActuatorMappingsController(ObjectProvider<MappingsEndpoint> endpoints) {
+            // The raw GET /bootui/api/mappings descriptor passthrough (not used by the UI). It is the only
+            // touch-point for the Actuator MappingsEndpoint on this path, so it is registered here rather
+            // than imported unconditionally, keeping the neutral MappingsController actuator-free.
+            return new ActuatorMappingsController(endpoints);
         }
     }
 }
