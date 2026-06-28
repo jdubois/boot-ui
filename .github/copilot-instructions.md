@@ -206,9 +206,15 @@ Central through the `release` profile and the Sonatype Central Publishing plugin
 ## Activation & safety model (critical)
 
 Both adapters **fail closed at activation**: when activation is ambiguous, BootUI stays **disabled and silent**. The
-request-time guards are **not yet at parity**, though — the Spring filter fully fails closed (loopback-source trust + `Host`
-allow-list + cross-site CSRF defense), while the Quarkus filter today is only a reduced cross-site-write floor (see below),
-so do not assume Quarkus has Spring's full localhost protection.
+request-time access policy is **shared**: both adapters are thin bindings over the framework-neutral
+`io.github.jdubois.bootui.engine.safety.LocalhostGuard`, which is the single source of truth for the local-only policy
+(loopback-source trust on the raw TCP peer, `Host` allow-list / DNS-rebinding defense, and cross-site-write / CSRF
+defense), the check order, and the **exact canonical 403 messages**. The Spring `LocalhostOnlyFilter` and the Quarkus
+`BootUiQuarkusSafetyFilter` only translate their native request/config into the guard's neutral
+`LocalhostGuardRequest`/`LocalhostGuardConfig` and render the `LocalhostGuardDecision`, so the two adapters reject
+identically (same JSON `{"error":"…"}` body). The pure policy is pinned by `LocalhostGuardTests` in `bootui-engine`;
+each binding adds thin per-adapter tests that it feeds the guard correctly. One gap remains: Quarkus has no equivalent of
+Spring's `PanelAccessFilter` yet, so per-panel enable / read-only gating is Spring-only for now.
 
 ### Spring Boot
 
@@ -221,10 +227,13 @@ so do not assume Quarkus has Spring's full localhost protection.
 - Activation (`BootUiActivationCondition.resolve`): `bootui.enabled=ON|OFF` wins, otherwise an active profile in
   `bootui.enabled-profiles` (`dev`, `local` by default) or `spring-boot-devtools` on the classpath turns BootUI on.
   `bootui.disabled-profiles` (`prod`, `production`) force-off unless `bootui.enabled=ON`.
-- `LocalhostOnlyFilter` (order `Integer.MIN_VALUE`, on `/bootui/*` and `/bootui/api/*`) fails closed for non-loopback
-  callers. Beyond the loopback source check it validates the `Host` header against the built-in loopback names plus
-  `bootui.allowed-hosts` (DNS-rebinding defense) and rejects cross-site state-changing requests via `Origin`/
-  `Sec-Fetch-Site` (CSRF defense that works without Spring Security). The only opt-out is `bootui.allow-non-localhost=true`.
+- `LocalhostOnlyFilter` (order `Integer.MIN_VALUE`, on `/bootui/*` and `/bootui/api/*`) is a **thin binding over the engine
+  `LocalhostGuard`**. It fails closed for non-loopback callers; beyond the loopback source check the guard validates the
+  `Host` header against the built-in loopback names plus `bootui.allowed-hosts` (DNS-rebinding defense) and rejects
+  cross-site state-changing requests via `Origin`/`Sec-Fetch-Site` (CSRF defense that works without Spring Security). The
+  only opt-out is `bootui.allow-non-localhost=true`. The filter owns only the Spring-side plumbing (the trusted-proxies
+  parse cache, the resolve-once container-gateway snapshot, per-reason logging, the JSON 403 render); the policy lives in
+  the engine.
 - `PanelAccessFilter` runs after it and enforces per-panel `bootui.panels.*` settings via the `BootUiPanels` registry:
   it blocks requests to disabled panels and rejects state-changing methods on action-capable panels marked read-only.
   Register new action endpoints in `BootUiPanels` so these toggles apply.
@@ -247,14 +256,19 @@ so do not assume Quarkus has Spring's full localhost protection.
 - `BootUiQuarkusSafetyFilter` is a **global Vert.x HTTP route filter** (registered via the `@Observes Filters` event), not
   a JAX-RS `@PreMatching` filter — a Vert.x filter runs for every request before routing, including unmatched paths (an
   unmatched `POST /bootui/api/overview` is 404'd by the Vert.x router before the RESTEasy chain, which a pre-matching
-  filter would miss). It rejects cross-site state-changing requests under `/bootui/api/` (403), passing safe GET/HEAD/
-  OPTIONS, with host-only `Origin`/`Host` comparison and fail-closed on opaque/blank `Origin`.
-- This is currently a **reduced safety floor** (cross-site-write rejection only). The full shared `LocalhostGuard` port —
-  loopback-source trust, `Host` allow-list, fail-closed on missing headers, per-panel read-only gating — is still being
-  ported from the Spring filter; see the `TODO(R7)` notes in the filter. When you extend it, mirror the Spring behavior and
-  keep the **exact 403 reason strings** consistent across adapters (the SPA / e2e may key on them).
-- Config is read live from MicroProfile `Config` in the SPI impls (e.g. `QuarkusExposurePolicy`), fail-closed on
-  missing/invalid values.
+  filter would miss). It is a **thin binding over the same engine `LocalhostGuard`** as the Spring filter, so it enforces
+  the full policy at parity over the whole `/bootui` surface: loopback-source trust on the raw Vert.x TCP peer
+  (`remoteAddress()`, never a forwarded header), the `Host` allow-list (sourced from the `Host` header, falling back to
+  the Vert.x `authority()` for HTTP/2 `:authority`), and cross-site-write rejection — rendering the **same** canonical
+  `{"error":"…"}` JSON 403. The binding owns the Quarkus plumbing: it reads `bootui.allow-non-localhost` /
+  `allowed-hosts` / `trusted-proxies` / `trust-container-gateway` live from MicroProfile `Config` (fail-closed), and
+  resolves the container-gateway snapshot **eagerly at startup, off the Vert.x event loop** (the detector does blocking
+  `/proc`/DNS work; lazy first-request resolution would trip the `BlockedThreadChecker`), and only when gateway trust is
+  not `OFF`. When you change the policy, change the engine guard (not a binding) and keep the **exact 403 reason strings**
+  identical across adapters (the SPA / e2e may key on them). Per-panel read-only gating is still Spring-only (no Quarkus
+  `PanelAccessFilter` yet).
+- Config is read live from MicroProfile `Config` in the SPI impls (e.g. `QuarkusExposurePolicy`) and the safety filter,
+  fail-closed on missing/invalid values.
 
 ## API & DTO conventions
 

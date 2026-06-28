@@ -156,17 +156,29 @@ public abstract class AbstractBootUiApiConformanceTest {
     void crossSiteStateChangingRequestIsRejected() {
         // Black-box safety floor: a state-changing request whose Origin host differs from the request
         // host must be rejected (CSRF / DNS-rebind defense), on every platform, before it can mutate
-        // anything. Spring enforces this in LocalhostOnlyFilter (and Spring Security); Quarkus enforces
-        // it in its Vert.x safety handler. Fine-grained safety semantics (trusted source, Host
-        // allow-list, Sec-Fetch-Site, host-only Origin compare, exact 403 body) are pinned separately as
-        // pure-function LocalhostGuard contract tests. Uses only non-restricted headers so it behaves
-        // identically across JDKs and across the Spring/Quarkus transports.
+        // anything. Both adapters are thin bindings over the shared engine LocalhostGuard, so they must
+        // return the *same* 403: a JSON body of {"error":"<canonical message>"} with an application/json
+        // content-type. Fine-grained safety semantics that cannot be reproduced over loopback HTTP
+        // (trusted source, non-loopback peer, Host allow-list/rebinding, the host-only Origin compare)
+        // are pinned separately as pure-function LocalhostGuard contract tests plus per-adapter binding
+        // tests. Uses only non-restricted headers so it behaves identically across JDKs and across the
+        // Spring/Quarkus transports.
+        //
+        // The expected message is asserted as a literal (not imported from the engine) on purpose: this
+        // is the black-box wire contract the SPA/e2e may key on, so a change to the constant must show up
+        // here as a deliberate contract change rather than passing silently.
         Response rejected = probe().post(
                         "/bootui/api/overview",
                         Map.of("Origin", "http://evil.example.com", "Sec-Fetch-Site", "cross-site"));
         assertThat(rejected.status())
                 .as("cross-site POST to /bootui/api/overview must be rejected with 403")
                 .isEqualTo(403);
+        assertThat(rejected.isJson())
+                .as("cross-site 403 content-type must be JSON (%s)", rejected.contentType())
+                .isTrue();
+        assertThat(rejected.json().path("error").asText())
+                .as("cross-site 403 body must carry the canonical LocalhostGuard message")
+                .isEqualTo("BootUI rejected a cross-site request to a state-changing endpoint.");
     }
 
     @Test
