@@ -69,7 +69,8 @@ const panelOrder = [
 const overview = {
   bootUiVersion: '0.5.0',
   applicationName: 'bootui-sample',
-  springBootVersion: '4.0.6',
+  frameworkName: 'Spring Boot',
+  frameworkVersion: '4.0.6',
   javaVersion: '17',
   javaVendor: 'Eclipse Temurin',
   activeProfiles: ['dev', 'local'],

@@ -62,7 +62,12 @@ public final class BootUiPanels {
     public static final String ACTIVITY = "activity";
 
     private static final List<Panel> PANELS = List.of(
-            new Panel(OVERVIEW, "Overview", false, "/overview"),
+            // Overview registers no API prefix on purpose: GET /bootui/api/overview is the shell's
+            // framework-neutral chrome data source (it also primes the CSRF cookie), so it must answer
+            // regardless of the Overview dashboard panel's enabled/read-only toggle. The panel id still
+            // gates the MCP get_overview tool and drives the sidebar entry; only PanelAccessFilter's
+            // path-based gating is intentionally bypassed.
+            new Panel(OVERVIEW, "Overview", false, List.of()),
             new Panel(HEALTH, "Health", false, "/health"),
             new Panel(HTTP_SESSIONS, "HTTP Sessions", true, "/http-sessions"),
             new Panel(METRICS, "Metrics", false, "/metrics"),

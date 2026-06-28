@@ -139,6 +139,21 @@ class PanelAccessFilterTests {
     @Test
     void globalReadOnlyDoesNotBlockReadOnlyPanelWithoutActions() throws Exception {
         properties.setReadOnly(true);
+        MockHttpServletRequest request = request("GET", "/bootui/api/metrics");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void overviewShellEndpointIsNeverGatedByPanelToggle() throws Exception {
+        // GET /bootui/api/overview is the shell's framework-neutral chrome data source (and CSRF-cookie
+        // primer), so disabling the Overview dashboard panel must not 403 it — otherwise the whole console,
+        // and every state-changing action that needs the CSRF token, would break. The panel id still gates
+        // the MCP get_overview tool; only this path-based gating is intentionally bypassed.
+        properties.panel(BootUiPanels.OVERVIEW).setEnabled(false);
         MockHttpServletRequest request = request("GET", "/bootui/api/overview");
         MockHttpServletResponse response = new MockHttpServletResponse();
 

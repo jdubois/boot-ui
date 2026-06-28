@@ -168,7 +168,8 @@ const runtimeSummary = computed(() => {
   if (shellServerUnreachable.value) return 'The application is not responding. Restart it and retry.'
   if (shellError.value && !overview.value) return 'Unable to load BootUI runtime details.'
   if (!overview.value) return 'Loading runtime details'
-  return `Spring Boot ${overview.value.springBootVersion} · Java ${overview.value.javaVersion}`
+  const framework = [overview.value.frameworkName, overview.value.frameworkVersion].filter(Boolean).join(' ')
+  return framework ? `${framework} · Java ${overview.value.javaVersion}` : `Java ${overview.value.javaVersion}`
 })
 const activeProfiles = computed(() => overview.value?.activeProfiles ?? [])
 const shellErrorMessage = computed(() => shellError.value?.message ?? null)

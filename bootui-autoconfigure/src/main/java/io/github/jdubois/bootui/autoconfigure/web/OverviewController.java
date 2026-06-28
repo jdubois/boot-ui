@@ -41,6 +41,7 @@ public class OverviewController {
         return new OverviewDto(
                 BootUiInfo.VERSION,
                 name,
+                "Spring Boot",
                 SpringBootVersion.getVersion(),
                 System.getProperty("java.version"),
                 System.getProperty("java.vendor"),

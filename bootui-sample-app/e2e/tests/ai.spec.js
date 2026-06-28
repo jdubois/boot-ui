@@ -185,7 +185,8 @@ async function stubShell(page, aiAvailable) {
         body: JSON.stringify({
           bootUiVersion: 'test',
           applicationName: 'bootui-sample',
-          springBootVersion: '4.0.6',
+          frameworkName: 'Spring Boot',
+          frameworkVersion: '4.0.6',
           javaVersion: '25',
           javaVendor: 'test',
           activeProfiles: ['dev'],

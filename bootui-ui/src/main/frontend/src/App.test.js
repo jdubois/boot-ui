@@ -27,7 +27,8 @@ function mockShellFetch(platform = 'spring-boot') {
         return Promise.resolve(
           jsonResponse({
             applicationName: 'bootui-sample',
-            springBootVersion: '4.0.6',
+            frameworkName: 'Spring Boot',
+            frameworkVersion: '4.0.6',
             javaVersion: '17',
             activeProfiles: ['dev'],
             activation: {enabled: true}

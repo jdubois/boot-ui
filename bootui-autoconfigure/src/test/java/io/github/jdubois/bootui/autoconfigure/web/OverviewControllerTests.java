@@ -48,7 +48,8 @@ class OverviewControllerTests {
                 .andExpect(jsonPath("$.activation.enabled").value(true))
                 .andExpect(jsonPath("$.activation.localhostOnly").value(true))
                 .andExpect(jsonPath("$.activation.reason").value("activated by spring.profiles.active=dev"))
-                .andExpect(jsonPath("$.springBootVersion").exists())
+                .andExpect(jsonPath("$.frameworkName").value("Spring Boot"))
+                .andExpect(jsonPath("$.frameworkVersion").exists())
                 .andExpect(jsonPath("$.javaVersion").exists())
                 .andExpect(jsonPath("$.bootUiVersion").exists());
     }
