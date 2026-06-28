@@ -472,7 +472,7 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public LocalhostOnlyFilter bootUiLocalhostOnlyFilter(BootUiProperties properties) {
-        // The filter constructs its own (Spring-free, package-private) ContainerGatewayDetector so it
+        // The filter constructs its own (framework-neutral, engine-owned) ContainerGatewayDetector so it
         // can auto-trust the container default gateway per bootui.trust-container-gateway.
         return new LocalhostOnlyFilter(properties);
     }

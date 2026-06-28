@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.safety;
+package io.github.jdubois.bootui.engine.safety;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -30,8 +30,8 @@ import java.util.Set;
  *       {@link #dockerDesktopGateways()}.</li>
  * </ul>
  *
- * <p>{@link LocalhostOnlyFilter} uses this detector to optionally trust those addresses without
- * requiring a broad {@code bootui.trusted-proxies} CIDR.</p>
+ * <p>The localhost guard uses this detector to optionally trust those addresses without requiring a
+ * broad {@code bootui.trusted-proxies} CIDR.</p>
  *
  * <p>All detection is guarded: every method fails closed (reports "not a container" / "no gateway")
  * rather than throwing when the relevant files are missing, unreadable, or malformed, or when the
@@ -43,7 +43,7 @@ import java.util.Set;
  * a {@link HostResolver}) are provided so tests can point it at temporary fixtures and a fake
  * resolver.</p>
  */
-class ContainerGatewayDetector {
+public class ContainerGatewayDetector {
 
     private static final Path DEFAULT_ROUTE_FILE = Paths.get("/proc/net/route");
 
@@ -72,7 +72,7 @@ class ContainerGatewayDetector {
     private final HostResolver hostResolver;
 
     /** Production constructor wired against the real Linux {@code /proc} paths and system resolver. */
-    ContainerGatewayDetector() {
+    public ContainerGatewayDetector() {
         this(DEFAULT_ROUTE_FILE, DEFAULT_CONTAINER_MARKERS, DEFAULT_CGROUP_FILE, InetAddress::getAllByName);
     }
 
@@ -109,7 +109,7 @@ class ContainerGatewayDetector {
      * configured marker file exists (Docker's {@code /.dockerenv}, Podman's {@code /run/.containerenv})
      * or when {@code /proc/1/cgroup} mentions {@code docker}, {@code containerd}, or {@code kubepods}.
      */
-    boolean isInContainer() {
+    public boolean isInContainer() {
         for (Path marker : containerMarkerFiles) {
             if (existsQuietly(marker)) {
                 return true;
@@ -124,7 +124,7 @@ class ContainerGatewayDetector {
      * @return the container's default gateway, or empty on a non-Linux host, a missing/unreadable
      *     route file, a malformed file, or when there is no default route with a non-zero gateway
      */
-    Optional<InetAddress> defaultGateway() {
+    public Optional<InetAddress> defaultGateway() {
         List<String> lines = readAllLinesQuietly(routeFile);
         if (lines == null) {
             return Optional.empty();
@@ -165,7 +165,7 @@ class ContainerGatewayDetector {
      *     on hosts where the name does not resolve (native Linux Docker Engine, or no container at
      *     all). Never throws.
      */
-    Set<InetAddress> dockerDesktopGateways() {
+    public Set<InetAddress> dockerDesktopGateways() {
         InetAddress[] resolved;
         try {
             resolved = hostResolver.resolve(DOCKER_DESKTOP_GATEWAY_HOST);

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.Mode;
+import io.github.jdubois.bootui.engine.safety.ContainerGatewayDetector;
 import jakarta.servlet.FilterChain;
 import java.net.InetAddress;
 import java.util.Optional;
@@ -504,17 +505,17 @@ class LocalhostOnlyFilterTests {
         }
 
         @Override
-        boolean isInContainer() {
+        public boolean isInContainer() {
             return inContainer;
         }
 
         @Override
-        Optional<InetAddress> defaultGateway() {
+        public Optional<InetAddress> defaultGateway() {
             return Optional.ofNullable(routeGateway);
         }
 
         @Override
-        Set<InetAddress> dockerDesktopGateways() {
+        public Set<InetAddress> dockerDesktopGateways() {
             return dockerDesktopGateways;
         }
     }

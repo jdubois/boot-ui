@@ -1,18 +1,18 @@
-package io.github.jdubois.bootui.autoconfigure.safety;
+package io.github.jdubois.bootui.engine.safety;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Locale;
 
 /**
- * An immutable IPv4 or IPv6 CIDR range used by {@link LocalhostOnlyFilter} to widen the trusted
- * source set beyond loopback (for example a local Docker bridge subnet).
+ * An immutable IPv4 or IPv6 CIDR range used by the localhost guard to widen the trusted source set
+ * beyond loopback (for example a local Docker bridge subnet).
  *
  * <p>Matching is done on raw address bytes so it never performs DNS resolution and never mixes
  * address families: an IPv4 candidate is only ever compared against an IPv4 range and likewise for
  * IPv6.</p>
  */
-final class CidrRange {
+public final class CidrRange {
 
     private final byte[] network;
     private final int prefixLength;
@@ -28,7 +28,7 @@ final class CidrRange {
      *
      * @return the parsed range, or {@code null} when the entry is blank or malformed
      */
-    static CidrRange parse(String cidr) {
+    public static CidrRange parse(String cidr) {
         if (cidr == null) {
             return null;
         }

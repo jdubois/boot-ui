@@ -3,17 +3,25 @@ package io.github.jdubois.bootui.autoconfigure.safety;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties.Mode;
 import io.github.jdubois.bootui.autoconfigure.web.AbstractBootUiFilter;
+import io.github.jdubois.bootui.engine.safety.CidrRange;
+import io.github.jdubois.bootui.engine.safety.ContainerGatewayDetector;
+import io.github.jdubois.bootui.engine.safety.GatewayTrust;
+import io.github.jdubois.bootui.engine.safety.LocalhostGuard;
+import io.github.jdubois.bootui.engine.safety.LocalhostGuardConfig;
+import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision;
+import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Allow;
+import io.github.jdubois.bootui.engine.safety.LocalhostGuardDecision.Reject;
+import io.github.jdubois.bootui.engine.safety.LocalhostGuardRequest;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,29 +29,29 @@ import org.slf4j.LoggerFactory;
 /**
  * Rejects any BootUI request that does not originate from the local machine.
  *
- * <p>The filter enforces three independent defenses and is bypassed entirely only when
- * {@code bootui.allow-non-localhost=true}:</p>
+ * <p>This Spring servlet filter is a thin binding over the framework-neutral
+ * {@link LocalhostGuard}: it translates the {@link HttpServletRequest} and the BootUI configuration
+ * into a {@link LocalhostGuardRequest} / {@link LocalhostGuardConfig}, asks the guard to
+ * {@link LocalhostGuard#decide decide}, and renders the {@link LocalhostGuardDecision}. The access
+ * policy itself (trusted-source / Host allow-list / cross-site-write defenses, their evaluation
+ * order, and the canonical 403 messages) lives in the engine so the Quarkus adapter shares it.</p>
+ *
+ * <p>The three defenses are bypassed entirely only when {@code bootui.allow-non-localhost=true}:</p>
  * <ol>
  *   <li><strong>Trusted source</strong> — the remote address must be a loopback address, fall
  *       within a range configured via {@code bootui.trusted-proxies} (CIDR notation), or equal an
  *       auto-detected container gateway when {@code bootui.trust-container-gateway} permits it (see
- *       {@link ContainerGatewayDetector} — this covers both the Linux Docker Engine bridge gateway
- *       and the Docker Desktop {@code gateway.docker.internal} address). Each of these is an opt-in
- *       narrow relaxation for local Docker callers: it widens only this source check and leaves the
- *       Host allow-list and cross-site write protection below fully in force, unlike the
- *       all-or-nothing {@code bootui.allow-non-localhost}.</li>
- *   <li><strong>Host allow-list (DNS-rebinding defense)</strong> — when a {@code Host} header is
- *       present it must resolve to a known loopback name or a configured
- *       {@code bootui.allowed-hosts} entry. A browser victim of a DNS-rebinding attack always sends
- *       the attacker's hostname in {@code Host}, so this blocks the rebinding even though the socket
- *       still terminates on loopback. A missing {@code Host} header is allowed: browsers always set
- *       it (and cannot suppress it from script), so its absence indicates a non-browser local client
- *       rather than an attack.</li>
- *   <li><strong>Cross-site write protection (CSRF defense)</strong> — for state-changing methods the
- *       request is rejected when {@code Sec-Fetch-Site: cross-site} is present, or when an
- *       {@code Origin} header is present and its host does not match the request host. This protects
- *       mutating endpoints even when Spring Security (and its CSRF tokens) is not on the classpath.</li>
+ *       {@link ContainerGatewayDetector}).</li>
+ *   <li><strong>Host allow-list (DNS-rebinding defense)</strong> — a present {@code Host} header
+ *       must resolve to a known loopback name or a configured {@code bootui.allowed-hosts} entry.</li>
+ *   <li><strong>Cross-site write protection (CSRF defense)</strong> — state-changing methods are
+ *       rejected on {@code Sec-Fetch-Site: cross-site} or an {@code Origin} host mismatch.</li>
  * </ol>
+ *
+ * <p>This binding owns the per-instance caches and side effects the guard intentionally does not:
+ * the {@code bootui.trusted-proxies} parse cache, the resolve-once container-gateway snapshot, the
+ * once-only "trusting container gateway" warning (emitted when a request is ultimately allowed via a
+ * gateway), and the per-reason rejection logging.</p>
  *
  * <p>BootUI is a developer tool, not a production endpoint, so we fail closed by default.</p>
  */
@@ -51,10 +59,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
 
     private static final Logger log = LoggerFactory.getLogger(LocalhostOnlyFilter.class);
 
-    private static final Set<String> BUILT_IN_ALLOWED_HOSTS =
-            Set.of("localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
-
-    private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+    private final LocalhostGuard guard = new LocalhostGuard();
 
     private volatile String[] parsedFrom;
     private volatile List<CidrRange> trustedRanges = List.of();
@@ -85,188 +90,96 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        if (properties.isAllowNonLocalhost()) {
-            chain.doFilter(request, response);
+        LocalhostGuardRequest guardRequest = new LocalhostGuardRequest(
+                request.getMethod(),
+                request.getRemoteAddr(),
+                request.getHeader("Host"),
+                request.getHeader("Origin"),
+                request.getHeader("Sec-Fetch-Site"));
+
+        LocalhostGuardDecision decision = guard.decide(guardRequest, buildConfig());
+
+        if (decision instanceof Reject reject) {
+            logRejection(reject, request);
+            reject(response, reject.message());
             return;
         }
 
-        String remote = request.getRemoteAddr();
-        if (!isTrustedSource(remote)) {
-            reject(
-                    response,
-                    "BootUI is restricted to loopback requests. Set bootui.allow-non-localhost=true to override, "
-                            + "add a trusted source range to bootui.trusted-proxies, or (when running in a container) "
-                            + "set bootui.trust-container-gateway=AUTO to trust the auto-detected container gateway.",
-                    "non-loopback request from {} to {}",
-                    remote,
-                    request.getRequestURI());
-            return;
+        if (decision instanceof Allow allow && allow.trustedViaGateway()) {
+            warnTrustedGatewayOnce(allow.trustedGateway());
         }
-
-        String hostHeader = request.getHeader("Host");
-        String requestHost = extractHost(hostHeader);
-        if (requestHost != null && !isAllowedHost(requestHost)) {
-            reject(
-                    response,
-                    "BootUI rejected an unrecognized Host header. "
-                            + "Add it to bootui.allowed-hosts to allow this hostname.",
-                    "request with disallowed Host '{}' to {}",
-                    hostHeader,
-                    request.getRequestURI());
-            return;
-        }
-
-        if (!isSafeMethod(request) && isCrossSiteWrite(request, requestHost)) {
-            reject(
-                    response,
-                    "BootUI rejected a cross-site request to a state-changing endpoint.",
-                    "cross-site {} request to {}",
-                    request.getMethod(),
-                    request.getRequestURI());
-            return;
-        }
-
         chain.doFilter(request, response);
     }
 
-    private boolean isSafeMethod(HttpServletRequest request) {
-        String method = request.getMethod();
-        return method != null && SAFE_METHODS.contains(method.toUpperCase(Locale.ROOT));
-    }
-
-    private boolean isCrossSiteWrite(HttpServletRequest request, String requestHost) {
-        String fetchSite = request.getHeader("Sec-Fetch-Site");
-        if (fetchSite != null && fetchSite.equalsIgnoreCase("cross-site")) {
-            return true;
-        }
-        String origin = request.getHeader("Origin");
-        if (origin == null || origin.isBlank()) {
-            return false;
-        }
-        // Compare host only (not scheme/port) on purpose: the remote cross-site threat is already blocked by the Host
-        // allow-list, and a stricter port match would break the supported Vite dev-server proxy (browser Origin
-        // localhost:5173 proxied to a Host of localhost:8080) for state-changing actions.
-        String originHost = extractHost(origin);
-        return originHost == null || !originHost.equalsIgnoreCase(requestHost);
-    }
-
-    private boolean isAllowedHost(String host) {
-        if (BUILT_IN_ALLOWED_HOSTS.contains(host)) {
-            return true;
-        }
-        String[] configured = properties.getAllowedHosts();
-        if (configured != null) {
-            for (String allowed : configured) {
-                if (allowed != null && host.equalsIgnoreCase(allowed.trim())) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
     /**
-     * Extracts the lowercased host from a {@code Host} or {@code Origin} header value, stripping any
-     * scheme, port, path, and IPv6 brackets. Returns {@code null} for blank or malformed input.
+     * Builds the per-request guard configuration. The container-gateway snapshot is resolved (and
+     * cached) lazily on the first request only when {@code bootui.trust-container-gateway} is not
+     * {@code OFF}, so an {@code OFF} deployment never touches {@code /proc} or DNS.
      */
-    private String extractHost(String value) {
-        if (value == null) {
-            return null;
-        }
-        String candidate = value.trim();
-        if (candidate.isEmpty()) {
-            return null;
-        }
-        int scheme = candidate.indexOf("://");
-        if (scheme >= 0) {
-            candidate = candidate.substring(scheme + 3);
-        }
-        int slash = candidate.indexOf('/');
-        if (slash >= 0) {
-            candidate = candidate.substring(0, slash);
-        }
-        if (candidate.isEmpty()) {
-            return null;
-        }
-        String host;
-        if (candidate.startsWith("[")) {
-            int close = candidate.indexOf(']');
-            if (close < 0) {
-                return null;
-            }
-            host = candidate.substring(1, close);
+    private LocalhostGuardConfig buildConfig() {
+        GatewayTrust gatewayTrust = toGatewayTrust(properties.getTrustContainerGateway());
+        boolean container;
+        Set<InetAddress> gateways;
+        if (gatewayTrust == GatewayTrust.OFF) {
+            container = false;
+            gateways = Set.of();
         } else {
-            int colon = candidate.indexOf(':');
-            host = colon >= 0 ? candidate.substring(0, colon) : candidate;
+            resolveGatewayOnce();
+            container = this.inContainer;
+            gateways = this.containerGateways;
         }
-        host = host.trim().toLowerCase(Locale.ROOT);
-        return host.isEmpty() ? null : host;
+        String[] allowedHosts = properties.getAllowedHosts();
+        return new LocalhostGuardConfig(
+                properties.isAllowNonLocalhost(),
+                allowedHosts == null ? List.of() : Arrays.asList(allowedHosts),
+                trustedRanges(),
+                gatewayTrust,
+                container,
+                gateways);
     }
 
-    private boolean isTrustedSource(String remoteAddr) {
-        if (remoteAddr == null || remoteAddr.isBlank()) {
-            return false;
+    private static GatewayTrust toGatewayTrust(Mode mode) {
+        if (mode == null) {
+            return GatewayTrust.OFF;
         }
-        InetAddress address;
-        try {
-            address = InetAddress.getByName(remoteAddr);
-        } catch (UnknownHostException e) {
-            return false;
-        }
-        if (address.isLoopbackAddress()) {
-            return true;
-        }
-        for (CidrRange range : trustedRanges()) {
-            if (range.contains(address)) {
-                return true;
-            }
-        }
-        return isTrustedContainerGateway(address);
+        return switch (mode) {
+            case AUTO -> GatewayTrust.AUTO;
+            case ON -> GatewayTrust.ON;
+            case OFF -> GatewayTrust.OFF;
+        };
     }
 
     /**
-     * Returns {@code true} when {@code address} equals one of the auto-detected container gateways
-     * and {@code bootui.trust-container-gateway} permits trusting it. This relaxes only the
-     * source-address check by a single {@code /32} (or {@code /128}); the Host allow-list and
-     * cross-site write defenses still apply. The mode is read per request (so tests can flip it),
-     * while the underlying container detection and gateway lookup are resolved once and cached.
-     *
-     * <p>Two gateways may be trusted, covering both container runtimes (see
-     * {@link ContainerGatewayDetector}): the route-table default gateway (the SNAT source on Linux
-     * Docker Engine) and the Docker Desktop host gateway resolved from {@code gateway.docker.internal}
-     * (the SNAT source on Docker Desktop, which is absent from the route table).</p>
-     *
-     * <ul>
-     *   <li>{@code OFF} (default) — never trust a gateway.</li>
-     *   <li>{@code AUTO} — trust them only when container heuristics indicate we are running inside a
-     *       container.</li>
-     *   <li>{@code ON} — trust them whenever at least one gateway was detected, even if the container
-     *       heuristics were inconclusive.</li>
-     * </ul>
+     * Emits the once-only operator warning that a container gateway is being trusted as
+     * loopback-equivalent. Mirrors the legacy message; it now fires when a request is actually
+     * allowed via the gateway (rather than the instant source trust is granted), which is invisible
+     * to behavior — no response status or body depends on it.
      */
-    private boolean isTrustedContainerGateway(InetAddress address) {
-        Mode mode = properties.getTrustContainerGateway();
-        if (mode == Mode.OFF) {
-            return false;
+    private void warnTrustedGatewayOnce(InetAddress gateway) {
+        if (loggedTrustedGateway) {
+            return;
         }
-        resolveGatewayOnce();
-        Set<InetAddress> gateways = containerGateways;
-        if (gateways.isEmpty()) {
-            return false;
+        loggedTrustedGateway = true;
+        log.warn(
+                "BootUI trusting auto-detected container gateway {} (/32) for loopback-equivalent access.",
+                gateway != null ? gateway.getHostAddress() : null);
+    }
+
+    private void logRejection(Reject reject, HttpServletRequest request) {
+        switch (reject.reason()) {
+            case NON_LOOPBACK_SOURCE ->
+                log.warn(
+                        "BootUI rejected non-loopback request from {} to {}",
+                        request.getRemoteAddr(),
+                        request.getRequestURI());
+            case DISALLOWED_HOST ->
+                log.warn(
+                        "BootUI rejected request with disallowed Host '{}' to {}",
+                        request.getHeader("Host"),
+                        request.getRequestURI());
+            case CROSS_SITE_WRITE ->
+                log.warn("BootUI rejected cross-site {} request to {}", request.getMethod(), request.getRequestURI());
         }
-        if (mode == Mode.AUTO && !inContainer) {
-            return false;
-        }
-        if (!gateways.contains(address)) {
-            return false;
-        }
-        if (!loggedTrustedGateway) {
-            loggedTrustedGateway = true;
-            log.warn(
-                    "BootUI trusting auto-detected container gateway {} (/32) for loopback-equivalent access.",
-                    address.getHostAddress());
-        }
-        return true;
     }
 
     /**
@@ -318,9 +231,7 @@ public class LocalhostOnlyFilter extends AbstractBootUiFilter {
         return immutable;
     }
 
-    private void reject(HttpServletResponse response, String message, String logFormat, Object... logArgs)
-            throws IOException {
-        log.warn("BootUI rejected " + logFormat, logArgs);
+    private void reject(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
         response.getWriter().write("{\"error\":\"" + message + "\"}");

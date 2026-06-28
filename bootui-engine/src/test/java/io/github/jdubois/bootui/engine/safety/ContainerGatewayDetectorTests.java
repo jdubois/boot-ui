@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.safety;
+package io.github.jdubois.bootui.engine.safety;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
