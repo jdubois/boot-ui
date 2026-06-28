@@ -799,6 +799,12 @@ state instead of implying that no traffic has occurred.
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers,
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
 
+On Quarkus the panel is identical: the probe always targets the application's *own* loopback address, so it can never
+reach an external host. The only platform difference is how the live local port is resolved — Quarkus has no single
+config key that always equals the bound port, so the adapter selects `quarkus.http.test-port` or `quarkus.http.port` by
+launch mode (and a random `=0` port still resolves, because Quarkus rewrites the property to the actual port once the
+server is up). As a state-changing action it is gated by the same localhost-only safety floor as every other write.
+
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
 
 ## Developer tools

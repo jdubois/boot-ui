@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusApplicationInfo;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
@@ -79,6 +80,7 @@ class BootUiQuarkusProcessor {
                         QuarkusTelemetrySettings.class,
                         QuarkusExposurePolicy.class,
                         QuarkusMemoryRuntimeConfig.class,
+                        QuarkusServerPortSupplier.class,
                         QuarkusApplicationInfo.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)

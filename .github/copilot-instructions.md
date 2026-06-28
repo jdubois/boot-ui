@@ -359,10 +359,14 @@ hide newer ones. Keep API, UI,
   Quarkus adapter; a few Spring-only panels (e.g. DevTools, Conditions) have no Quarkus equivalent and stay unavailable
   there. Use the shared registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Threads, Heap Dump, Live Memory, JVM Tuning,
-  Loggers, Traces, and AI Usage. Loggers is served over the JBoss LogManager that Quarkus uses at runtime (the Spring
-  adapter uses Actuator's loggers endpoint) and is the first Quarkus panel with a state-changing action: `POST
-  /bootui/api/loggers/{name}` sets a level, guarded by the shared engine `LocalhostGuard` write floor and the engine's
-  refusal to mutate BootUI's own loggers (per-panel read-only gating is still Spring-only). Traces and AI Usage reuse the
+  Loggers, Health, HTTP Probe, Traces, and AI Usage. Loggers is served over the JBoss LogManager that Quarkus uses at
+  runtime (the Spring adapter uses Actuator's loggers endpoint) and was the first Quarkus panel with a state-changing
+  action: `POST /bootui/api/loggers/{name}` sets a level, guarded by the shared engine `LocalhostGuard` write floor and
+  the engine's refusal to mutate BootUI's own loggers (per-panel read-only gating is still Spring-only). HTTP Probe is
+  also action-capable (`POST /bootui/api/http-probe`): it issues a local-only request to the application's *own* loopback
+  port — resolved per-probe by `QuarkusServerPortSupplier`, which selects `quarkus.http.test-port` vs `quarkus.http.port`
+  by `LaunchMode` so the probe targets the actually-bound port (incl. a random `=0` port, which Quarkus rewrites the
+  property to after binding) — behind the same `LocalhostGuard` write floor. Traces and AI Usage reuse the
   engine telemetry services; their read endpoints are always wired (so the panels render even with no data), but spans
   are only captured when the application adds `quarkus-opentelemetry` (in-process via a CDI `SpanProcessor`, no OTLP
   receiver). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
+import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
@@ -47,6 +48,19 @@ public class BootUiEngineProducer {
     @Singleton
     public MemoryReportProvider memoryReportProvider(QuarkusMemoryRuntimeConfig runtimeConfig) {
         return new MemoryReportProvider(runtimeConfig);
+    }
+
+    /**
+     * The HTTP Probe service over the Quarkus {@link QuarkusServerPortSupplier}. Mirrors the live-policy
+     * shape: the concrete {@link QuarkusServerPortSupplier} bean is injected (not the
+     * {@link io.github.jdubois.bootui.spi.ServerPortSupplier} interface) so adding another supplier later
+     * can never make this wiring ambiguous. The engine probes the application's own loopback port, read
+     * live on every probe.
+     */
+    @Produces
+    @Singleton
+    public HttpProbeService httpProbeService(QuarkusServerPortSupplier serverPort) {
+        return new HttpProbeService(serverPort);
     }
 
     @Produces
