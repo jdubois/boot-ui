@@ -15,7 +15,7 @@ describe('loadError', () => {
     expect(description).toEqual({
       title: 'Server unreachable',
       message:
-        'BootUI could not reach the Spring Boot app. The server may have been stopped. Start it again, then retry or refresh this page.',
+        'BootUI could not reach the application. The server may have been stopped. Start it again, then retry or refresh this page.',
       serverUnreachable: true
     })
   })
@@ -26,7 +26,7 @@ describe('loadError', () => {
 
   it('formats browser fetch failures with the same backend-down message', () => {
     expect(formatLoadError(new TypeError('Failed to fetch'), 'Unable to load health')).toBe(
-      'Server unreachable: BootUI could not reach the Spring Boot app. The server may have been stopped. Start it again, then retry or refresh this page.'
+      'Server unreachable: BootUI could not reach the application. The server may have been stopped. Start it again, then retry or refresh this page.'
     )
   })
 

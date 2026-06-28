@@ -163,9 +163,9 @@ const activePanelUnavailableReason = computed(() => {
 })
 const activePanelReadOnly = computed(() => activePanel.value?.readOnly === true && !activePanelUnavailable.value)
 const activePanelReadOnlyReason = computed(() => activePanel.value?.readOnlyReason || 'This panel is read-only.')
-const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
+const applicationTitle = computed(() => overview.value?.applicationName || 'application')
 const runtimeSummary = computed(() => {
-  if (shellServerUnreachable.value) return 'Spring Boot app is not responding. Restart it and retry.'
+  if (shellServerUnreachable.value) return 'The application is not responding. Restart it and retry.'
   if (shellError.value && !overview.value) return 'Unable to load BootUI runtime details.'
   if (!overview.value) return 'Loading runtime details'
   return `Spring Boot ${overview.value.springBootVersion} · Java ${overview.value.javaVersion}`
@@ -203,10 +203,21 @@ const activationTitle = computed(
       disabled: 'BootUI answered the local API but is disabled for this application.',
       error: 'BootUI reached the local API but could not load the shell data.',
       checking: 'Checking the BootUI API connection.',
-      unreachable: 'BootUI cannot reach the Spring Boot app. It may have been stopped.'
+      unreachable: 'BootUI cannot reach the application. It may have been stopped.'
     })[connectionState.value]
 )
 const statusPillClass = computed(() => `status-pill--${connectionState.value}`)
+const frameworkLabel = computed(() => {
+  const platform = panels.value?.platform
+  if (platform === 'quarkus') return 'Quarkus'
+  if (platform === 'spring-boot') return 'Spring Boot'
+  return null
+})
+const footerText = computed(() =>
+  frameworkLabel.value
+    ? `BootUI - The missing developer UI for ${frameworkLabel.value}!`
+    : 'BootUI - The missing developer UI!'
+)
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
 const navigationSections = computed(() => {
   const sections = [
@@ -670,7 +681,7 @@ function onGlobalKeydown(e) {
 
       <footer class="bootui-footer">
         <a :href="githubProjectUrl" rel="noopener noreferrer" target="_blank">
-          BootUI - The missing developer UI for Spring Boot!
+          {{ footerText }}
         </a>
       </footer>
     </div>
