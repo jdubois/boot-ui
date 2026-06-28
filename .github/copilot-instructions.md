@@ -365,7 +365,7 @@ hide newer ones. Keep API, UI,
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
   Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, Beans, Scheduled Tasks, Cache, and Flyway. Architecture is the first **advisor** lit up on
+  GitHub, Beans, Scheduled Tasks, Cache, Flyway, and Liquibase. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -498,7 +498,25 @@ hide newer ones. Keep API, UI,
   clean-disabled message names the framework-correct property (`spring.flyway.clean-disabled` vs `quarkus.flyway.clean-disabled`)
   from the provider. `GET /bootui/api/flyway/migrations` lists history network-free; only the explicit
   `POST /bootui/api/flyway/migrate` and `POST /bootui/api/flyway/clean` mutate, behind the shared `LocalhostGuard` write
-  floor, with `clean` preserving Flyway's disabled-by-default, confirmation-gated semantics. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  floor, with `clean` preserving Flyway's disabled-by-default, confirmation-gated semantics. Liquibase is the first
+  **`Database`** panel on Quarkus and a second optional-dependency port that reuses the **same** underlying library on
+  both adapters (`liquibase.Liquibase` + `RanChangeSet` — only *discovery* differs): the shared engine `LiquibaseService`
+  owns the neutral half — applied+pending change-set assembly/ordering/total and the confirmation-gated **update**
+  orchestration (404 unavailable / 403 read-only / 400 confirmation-required / 200 / 500, byte-identical to the old
+  controller) — while the `LiquibaseProvider` SPI is the seam each adapter implements (`SpringLiquibaseProvider` over
+  `SpringLiquibase` beans + a `StandardChangeLogHistoryService` JDBC read; `QuarkusLiquibaseProvider` over
+  `LiquibaseFactoryUtil.getActiveLiquibaseFactories()` — which resolves `@LiquibaseDataSource`-named datasource
+  qualifiers a plain `Instance<LiquibaseFactory>` would miss). It is an optional-dependency port like Hibernate/Cache:
+  the sole `liquibase.*` importer on Quarkus (`QuarkusLiquibaseProvider` + `BootUiLiquibaseProducer`) is compiled
+  `<scope>provided</scope>` and **excluded** by the deployment `registerLiquibase` build step (`ExcludedTypeBuildItem` by
+  string name) unless `Capability.LIQUIBASE` is present and the launch mode is non-prod — so Arc never links the absent
+  Liquibase API; only the panel's *availability* tracks the build-time `bootui.internal.liquibase-present` flag, while
+  the liquibase-API-free engine `LiquibaseService` is `@Produces`'d unconditionally (its `LiquibaseProvider` `Instance`
+  resolves empty → renders unavailable). The provider opens/closes a `Liquibase` plus its JDBC connection **per request**
+  in try-with-resources, with a `ResettableSystemProperties` (`io.quarkus.runtime.*`, always present) declared *after* the
+  `Liquibase` so it closes first — matching the Quarkus `LiquibaseRecorder` order. `GET /bootui/api/liquibase` lists
+  databases + change sets network-free; only the explicit `POST /bootui/api/liquibase/update` mutates, behind the shared
+  `LocalhostGuard` write floor. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

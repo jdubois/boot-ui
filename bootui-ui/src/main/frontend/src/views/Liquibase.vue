@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, onMounted, ref} from 'vue'
+import {computed, inject, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
@@ -14,6 +14,8 @@ import UnavailableState from './components/UnavailableState.vue'
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const {confirm} = useConfirm()
+const panels = inject('panels', ref(null))
+const platform = computed(() => panels.value?.platform ?? 'spring-boot')
 const report = ref(null)
 const error = ref(null)
 const liquibasePresent = ref(true)
@@ -116,12 +118,23 @@ onMounted(load)
     <FlashBanner :message="banner" @dismiss="clear" />
 
     <UnavailableState v-if="!liquibasePresent" variant="info">
-      Liquibase is not on the classpath of this application. Add the <code>liquibase-core</code> dependency to see
-      change sets here.
+      <template v-if="platform === 'quarkus'">
+        Liquibase is not configured on this application. Add the <code>quarkus-liquibase</code> extension and a change
+        log to see change sets here.
+      </template>
+      <template v-else>
+        Liquibase is not on the classpath of this application. Add the <code>liquibase-core</code> dependency to see
+        change sets here.
+      </template>
     </UnavailableState>
 
     <UnavailableState v-else-if="report && report.databases.length === 0">
-      Liquibase is on the classpath, but no Liquibase beans were detected in the application context.
+      <template v-if="platform === 'quarkus'">
+        Liquibase is on the classpath, but no Liquibase datasource was detected on this application.
+      </template>
+      <template v-else>
+        Liquibase is on the classpath, but no Liquibase beans were detected in the application context.
+      </template>
     </UnavailableState>
 
     <template v-else-if="report">

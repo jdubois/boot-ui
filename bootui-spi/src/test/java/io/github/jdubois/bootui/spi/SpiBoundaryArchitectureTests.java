@@ -25,6 +25,7 @@ class SpiBoundaryArchitectureTests {
                     "jakarta.ws.rs..",
                     "io.quarkus..",
                     "io.vertx..",
-                    "org.jboss..")
+                    "org.jboss..",
+                    "liquibase..")
             .because("bootui-spi must stay framework-neutral so every host-framework adapter can implement it");
 }

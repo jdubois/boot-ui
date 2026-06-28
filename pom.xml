@@ -54,6 +54,7 @@
         <module>bootui-quarkus-scheduler-integration-tests</module>
         <module>bootui-quarkus-cache-integration-tests</module>
         <module>bootui-quarkus-flyway-integration-tests</module>
+        <module>bootui-quarkus-liquibase-integration-tests</module>
     </modules>
 
     <properties>

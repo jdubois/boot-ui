@@ -709,15 +709,16 @@ module-aware history block is Spring-specific and is not reported on Quarkus.
 
 ### Liquibase
 
-The Liquibase panel shows change sets for each `SpringLiquibase` bean in the context. It reads the change-log history and
-configured changelog, then lists applied and pending change sets per database (id, author, change-log, description,
-comments, execution type, date executed, order executed, checksum, tag, deployment id, contexts, and labels). Multiple or
-named datasources appear independently.
+The Liquibase panel shows change sets for each discovered Liquibase database (on Spring Boot, each `SpringLiquibase`
+bean; on Quarkus, each active `LiquibaseFactory` — including `@LiquibaseDataSource`-named datasources). It reads the
+change-log history and configured changelog, then lists applied and pending change sets per database (id, author,
+change-log, description, comments, execution type, date executed, order executed, checksum, tag, deployment id,
+contexts, and labels). Multiple or named datasources appear independently.
 
 The panel also exposes a confirmation-gated `update` action that applies pending change sets. It is available by default
-for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`. The panel
-fails closed per bean when its history cannot be read and degrades to a clear empty state when Liquibase is not on the
-classpath or no `SpringLiquibase` beans are present.
+for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`
+(per-panel read-only gating is Spring-only today). The panel fails closed per database when its history cannot be read
+and degrades to a clear empty state when Liquibase is not on the classpath or no Liquibase databases are present.
 
 ![BootUI Liquibase panel](./images/bootui-liquibase.webp)
 

@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.HttpReachabilityMetadataRe
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthGuidance;
 import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
+import io.github.jdubois.bootui.autoconfigure.liquibase.SpringLiquibaseProvider;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
@@ -28,6 +29,7 @@ import io.github.jdubois.bootui.engine.health.HealthService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
@@ -509,6 +511,27 @@ public class BootUiEngineConfiguration {
         @ConditionalOnMissingBean
         FlywayService bootUiFlywayService(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
             return new FlywayService(new SpringFlywayProvider(beanFactoryProvider));
+        }
+    }
+
+    /**
+     * The Liquibase panel backend is only wired when the {@code liquibase.integration.spring.SpringLiquibase}
+     * type is on the classpath. The Liquibase-specific parameters live in this nested,
+     * {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root config), so the
+     * {@code liquibase.*} types are never linked in a Liquibase-absent application. The engine
+     * {@code LiquibaseService} owns the neutral concerns (change-set assembly, ordering, update
+     * orchestration); the byte-identical {@code SpringLiquibaseProvider} owns the Spring-specific discovery,
+     * change-history reading and the update primitive.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "liquibase.integration.spring.SpringLiquibase")
+    static class LiquibaseBackendConfiguration {
+
+        @Bean
+        @Lazy
+        @ConditionalOnMissingBean
+        LiquibaseService bootUiLiquibaseService(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
+            return new LiquibaseService(new SpringLiquibaseProvider(beanFactoryProvider));
         }
     }
 }

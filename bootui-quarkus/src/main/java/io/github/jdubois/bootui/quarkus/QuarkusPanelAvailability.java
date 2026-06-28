@@ -147,6 +147,14 @@ public class QuarkusPanelAvailability {
      */
     public static final String FLYWAY_PRESENT_KEY = "bootui.internal.flyway-present";
 
+    /**
+     * Runtime-config key carrying the build-time {@code LIQUIBASE} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean
+     * reads it back to decide whether the dynamically-available Liquibase panel is lit up. Shared with
+     * {@code BootUiQuarkusProcessor} (the producer of the value), mirroring {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String LIQUIBASE_PRESENT_KEY = "bootui.internal.liquibase-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
@@ -164,6 +172,10 @@ public class QuarkusPanelAvailability {
     private static final String FLYWAY_ABSENT =
             "Not available: this application does not use Flyway. Add the quarkus-flyway extension to enable"
                     + " the Flyway migrations panel.";
+
+    private static final String LIQUIBASE_ABSENT =
+            "Not available: this application does not use Liquibase. Add the quarkus-liquibase extension and a"
+                    + " change log to enable the Liquibase panel.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -203,6 +215,7 @@ public class QuarkusPanelAvailability {
     private final boolean cachePresent;
 
     private final boolean flywayPresent;
+    private final boolean liquibasePresent;
 
     private final List<String> githubAllowedApiHosts;
 
@@ -216,6 +229,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(CACHE_PRESENT_KEY, Boolean.class).orElse(false);
         this.flywayPresent =
                 config.getOptionalValue(FLYWAY_PRESENT_KEY, Boolean.class).orElse(false);
+        this.liquibasePresent =
+                config.getOptionalValue(LIQUIBASE_PRESENT_KEY, Boolean.class).orElse(false);
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
     }
 
@@ -231,6 +246,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.SCHEDULED.equals(panel.id()) && schedulingPresent)
                 || (BootUiPanels.SPRING_CACHE.equals(panel.id()) && cachePresent)
                 || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
+                || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
@@ -248,6 +264,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.FLYWAY.equals(panelId)) {
             return FLYWAY_ABSENT;
+        }
+        if (BootUiPanels.LIQUIBASE.equals(panelId)) {
+            return LIQUIBASE_ABSENT;
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();

@@ -132,6 +132,20 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Liquibase extension, compile-only (provided): needed solely to compile the optional
+             Liquibase panel path (BootUiLiquibaseProducer / QuarkusLiquibaseProvider), which reads the
+             change-log history and runs the update action through the application's
+             io.quarkus.liquibase.LiquibaseFactory beans. provided scope is NOT transitive, so an application
+             that depends on this extension but does not add quarkus-liquibase never gets io.quarkus.liquibase /
+             liquibase on its classpath, and the capability-gated build step excludes the producer that would
+             reference it (R2). When an app DOES add quarkus-liquibase, the API is supplied (at the same
+             quarkus-bom-managed version) by that extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-liquibase</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). The runtime module carries a small same-package unit test for
              QuarkusHealthProvider.map(), which needs SmallRye's jakarta.json API + the Parsson implementation —
              both already on the test classpath via the provided smallrye-health dependency above. Keeping the

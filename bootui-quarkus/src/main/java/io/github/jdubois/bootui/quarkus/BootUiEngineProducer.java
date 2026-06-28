@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.engine.heapdump.HeapDumpSettings;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
@@ -36,6 +37,7 @@ import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.CacheProvider;
 import io.github.jdubois.bootui.spi.FlywayProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
+import io.github.jdubois.bootui.spi.LiquibaseProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.smallrye.config.SmallRyeConfig;
@@ -393,6 +395,21 @@ public class BootUiEngineProducer {
     public FlywayService flywayService(Instance<FlywayProvider> flywayProviders) {
         FlywayProvider provider = flywayProviders.isUnsatisfied() ? null : flywayProviders.get();
         return new FlywayService(provider);
+    }
+
+    /**
+     * The Liquibase panel service. Produced <em>unconditionally</em> because it holds no {@code liquibase} /
+     * {@code io.quarkus.liquibase} type: the liquibase-API-importing {@link LiquibaseProvider} lives behind the
+     * gated {@link BootUiLiquibaseProducer} that is wired only when the {@code LIQUIBASE} capability is present
+     * (R2). When that provider is unsatisfied the engine is given a {@code null} provider, so
+     * {@code GET /liquibase/changesets} renders the panel unavailable and {@code POST /update} reports it
+     * unavailable instead of failing.
+     */
+    @Produces
+    @Singleton
+    public LiquibaseService liquibaseService(Instance<LiquibaseProvider> liquibaseProviders) {
+        LiquibaseProvider provider = liquibaseProviders.isUnsatisfied() ? null : liquibaseProviders.get();
+        return new LiquibaseService(provider);
     }
 
     private static List<String> activeProfiles(Config config) {

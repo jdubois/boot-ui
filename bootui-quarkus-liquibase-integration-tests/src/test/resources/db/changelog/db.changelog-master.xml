@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="create-customers" author="bootui">
+        <comment>Create the customers table.</comment>
+        <createTable tableName="customers">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="seed-customers" author="bootui">
+        <comment>Seed a single customer row.</comment>
+        <insert tableName="customers">
+            <column name="id" valueNumeric="1"/>
+            <column name="name" value="Ada Lovelace"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

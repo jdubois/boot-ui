@@ -31,6 +31,7 @@ class EngineBoundaryArchitectureTests {
                     "io.quarkus..",
                     "io.vertx..",
                     "org.jboss..",
+                    "liquibase..",
                     "tools.jackson..",
                     "com.fasterxml.jackson..")
             .because("bootui-engine must stay framework-neutral; adapters wire it via @Bean / @Produces and "

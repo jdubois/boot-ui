@@ -158,7 +158,9 @@ Quarkus/LangChain4j export it) · `GitHub` (`HttpClient`) · `Copilot` · `Claud
 Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quarkus API.
 
 `Health` (→ SmallRye Health) · `Configuration` (→ SmallRye Config) · `Loggers` (→ JBoss LogManager) · `Mappings`
-(→ Vert.x/RESTEasy registry) · `Flyway` (→ `quarkus-flyway`) · `Liquibase` (→ `quarkus-liquibase`) · `Scheduled Tasks`
+(→ Vert.x/RESTEasy registry) · `Flyway` (→ `quarkus-flyway`) · `Liquibase` (**Implemented** — → `quarkus-liquibase`;
+discovered via `LiquibaseFactoryUtil.getActiveLiquibaseFactories()`, the shared `RanChangeSet` history read + `update`
+action behind the same DTO contract) · `Scheduled Tasks`
 (→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine shared; Spring-stereotype rules get CDI/JAX-RS
 variants) · `Overview` (aggregator; reports Quarkus version and the supported panels).
 
