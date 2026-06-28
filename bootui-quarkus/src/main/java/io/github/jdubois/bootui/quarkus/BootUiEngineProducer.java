@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
@@ -23,6 +24,7 @@ import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
+import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.HealthProvider;
@@ -184,6 +186,23 @@ public class BootUiEngineProducer {
     public HealthService healthService(Instance<HealthProvider> healthProviders) {
         HealthProvider provider = healthProviders.isUnsatisfied() ? null : healthProviders.get();
         return new HealthService(provider, QuarkusHealthGuidance.INSTANCE);
+    }
+
+    /**
+     * The Pentesting (local OWASP hygiene) scanner. Mirrors the Spring {@code bootUiPentestingScanner}
+     * factory: the framework-neutral observation (server port + context path, plus a deliberately neutral
+     * endpoint/security/config snapshot — see {@link QuarkusPentestingObservationCollector}) is collected
+     * live on every scan, and the engine owns the probe methodology (synthetic loopback URI assembly +
+     * GET/OPTIONS probes), firing them only on demand ({@code POST /scan}), never at construction. The
+     * concrete {@link QuarkusServerPortSupplier} bean is injected (not the
+     * {@link io.github.jdubois.bootui.spi.ServerPortSupplier} interface) so adding another supplier later
+     * can never make this wiring ambiguous, exactly as the HTTP Probe and Architecture producers do.
+     */
+    @Produces
+    @Singleton
+    public PentestingScanner pentestingScanner(QuarkusServerPortSupplier serverPort, Config config) {
+        QuarkusPentestingObservationCollector collector = new QuarkusPentestingObservationCollector(config, serverPort);
+        return PentestingScanner.usingObservation(collector::collect, Clock.systemUTC());
     }
 
     /**

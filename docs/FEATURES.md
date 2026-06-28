@@ -316,6 +316,18 @@ Each hygiene check is registered with a stable identifier, OWASP 2025 category, 
 new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
 full catalogue of checks and what each one inspects.
 
+On Quarkus the panel is identical, running the same shared scanner over the same report contract and the same on-demand
+`POST /bootui/api/pentesting/scan` action. The framework-neutral value comes entirely from the engine's bounded synthetic
+loopback probes (missing or unsafe security headers, cookie flags, CORS, TRACE, technology disclosure, verbose error
+bodies); the Quarkus adapter supplies only the inputs those probes need — the live server port (resolved per scan by the
+same launch-mode-aware port supplier the HTTP Probe panel uses) and the `quarkus.http.root-path` context path. The
+Spring-specific inputs are deliberately neutral: the adapter reports an **empty endpoint inventory** (a non-zero mapping
+count would otherwise flag every Quarkus application as "spring-security-web is not present", a false positive), no Spring
+Security wiring, and an absent Spring/Actuator configuration snapshot, so the Spring-Security and Actuator-exposure checks
+stay correctly silent rather than misfiring. One honesty caveat: the OWASP coverage matrix copy is engine-owned and
+Spring-worded, so a category in which nothing fired (for example A07) renders a Spring-flavored `PASS`/`REVIEW` line even
+though no Spring-specific probe ran on Quarkus.
+
 ![BootUI Pentesting panel](./images/bootui-pentesting.webp)
 
 ### Vulnerabilities

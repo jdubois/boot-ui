@@ -62,6 +62,13 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void pentestingIsLitUpOnQuarkus() {
+        PanelDto pentesting = manifestById().get(BootUiPanels.PENTESTING);
+        assertThat(pentesting.available()).as("Pentesting is lit up on Quarkus").isTrue();
+        assertThat(pentesting.unavailableReason()).isNull();
+    }
+
+    @Test
     void hibernateIsUnavailableWithACapabilityHintWhenHibernateOrmIsAbsent() {
         // Default: bootui.internal.hibernate-present is unset, so the deployment processor never saw the
         // HIBERNATE_ORM capability. The panel must surface an honest capability hint, NOT the generic reason.

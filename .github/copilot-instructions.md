@@ -362,8 +362,8 @@ hide newer ones. Keep API, UI,
   metadata at build time, and CRaC targets the Spring startup model, so both report a panel-specific "not applicable on
   Quarkus" reason (`QuarkusPanelAvailability.NOT_APPLICABLE`) rather than the generic "not yet" message. Use the shared
   registry + per-adapter availability rather than forking the route list.
-- As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Threads, Heap Dump, Live
-  Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage, and GitHub. Architecture is the first **advisor** lit up on
+- As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting, Threads, Heap
+  Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage, and GitHub. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus
@@ -410,7 +410,19 @@ hide newer ones. Keep API, UI,
   `GitHubRepositoryDetector.detect(user.dir, allowed-hosts)` rather than the static `AVAILABLE_PANELS` set. The thin
   `GitHubResource` mirrors `GitHubController`: `GET /bootui/api/github` renders network-free, only the explicit
   `POST /bootui/api/github/refresh` calls GitHub (gated by `api-enabled` + host allow-list); cache-on-success and the
-  api-disabled `DISABLED` short-circuit live in the shared engine, so both adapters behave identically. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  api-disabled `DISABLED` short-circuit live in the shared engine, so both adapters behave identically. Pentesting is the
+  third **advisor** on Quarkus and the first **action-capable** advisor port (`POST /bootui/api/pentesting/scan`, behind
+  the shared engine `LocalhostGuard` write floor): the shared engine `PentestingScanner` owns the bounded
+  synthetic-loopback probe methodology unchanged, so `QuarkusPentestingObservationCollector` supplies only a
+  framework-neutral `PentestingObservation` — the live server port (reusing the `QuarkusServerPortSupplier` launch-mode
+  resolution the HTTP Probe panel uses) and the `quarkus.http.root-path` context path the probes need, plus a
+  deliberately neutral endpoint/security/config snapshot. The empty endpoint inventory is load-bearing, not lazy: a
+  non-zero `applicationMappings` would fire the engine's `PT-A07-001` (HIGH, "spring-security-web not present") false
+  positive on every Quarkus app, so the inventory stays empty and the Spring-Security/Actuator checks short-circuit. No
+  deployment build step is needed (the `@Produces PentestingScanner` rides on the already-registered `BootUiEngineProducer`
+  and the `PentestingResource` is auto-discovered from the indexed runtime jar). One honesty caveat: the engine-owned
+  OWASP coverage matrix copy is Spring-worded, so a no-finding category renders a Spring-flavored `PASS`/`REVIEW` even on
+  Quarkus. Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

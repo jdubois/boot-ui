@@ -28,10 +28,15 @@ import org.eclipse.microprofile.config.Config;
  * OpenTelemetry-backed Traces and AI Usage panels (whose read services are always wired — they simply
  * render empty until spans are captured, which requires {@code quarkus-opentelemetry} on the application
  * classpath); every other panel is reported unavailable with a clear reason until its Quarkus backing is
- * ported. Read-only is not yet modelled, so no panel is read-only ({@code readOnlyReason} stays {@code null})
+ * ported. The <strong>Pentesting</strong> (local OWASP hygiene) advisor is also lit up: it reuses the shared
+ * engine {@code PentestingScanner}, whose framework-neutral value comes from two synthetic loopback probes
+ * (security headers, cookies, CORS, TRACE, technology disclosure), so the Quarkus adapter supplies only the
+ * live server port + context path and a deliberately neutral endpoint/security/config snapshot (the
+ * Spring-Security and Actuator checks stay inert on Quarkus). Read-only is not yet modelled, so no panel is
+ * read-only ({@code readOnlyReason} stays {@code null})
  * — note Traces (its buffer can be cleared), Loggers (a logger level can be set), HTTP Probe (it issues a
- * request) and Architecture (it runs a scan and dismisses rules) are action-capable, so they are the Quarkus
- * panels exposing state-changing actions.</p>
+ * request), Architecture (it runs a scan and dismisses rules) and Pentesting (it runs a scan) are
+ * action-capable, so they are the Quarkus panels exposing state-changing actions.</p>
  *
  * <p>The <strong>Hibernate</strong> (ORM mapping) advisor is available <em>dynamically</em>: unlike the
  * statically-available panels above, it is lit up only when the application actually uses Hibernate ORM. The
@@ -109,6 +114,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_PROBE,
             BootUiPanels.ARCHITECTURE,
+            BootUiPanels.PENTESTING,
             BootUiPanels.TRACES,
             BootUiPanels.AI);
 
