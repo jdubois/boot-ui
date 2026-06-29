@@ -81,9 +81,13 @@ Load-bearing rules:
   `npm.version` in root `pom.xml`); do not add a manual Node install step for the Maven build.
 - **JDK caveat for the Quarkus sample app:** Hibernate ORM's build-time ByteBuddy enhancement (via the Quarkus 3.33
   platform) cannot read class files newer than the JDKs that platform supports (17, 21 and 25). So `bootui-quarkus-sample-app`
-  is wired into the reactor only on JDK 17/21/25 via the root-pom `quarkus-sample-app` profile (`<jdk>[17,26)</jdk>`). CI and
-  releases run Java 17 and build it; a local `./mvnw install` on a newer, unsupported JDK (e.g. 26) stays green by skipping it. The
-  extension's own modules (`bootui-quarkus*`, integration tests) have no Hibernate dependency and build on every JDK.
+  stays in the always-on reactor (so IDEs such as IntelliJ import it on any JDK), but its Hibernate/Quarkus build-time
+  augmentation is gated: a `skip-quarkus-build-on-unsupported-jdk` profile (`<jdk>[26,)</jdk>`) in the module's own pom
+  unbinds the quarkus-maven-plugin (`<phase>none</phase>`) on JDK 26+, so plain compile (release 17) + jar still run
+  everywhere and the module has no tests to fail. The root-pom `quarkus-sample-app` profile (`<jdk>[17,26)</jdk>`) now gates
+  only the Hibernate integration-test module (its `@QuarkusTest` tests force augmentation). CI and releases run Java 17 and
+  augment the sample app fully; the extension's own modules (`bootui-quarkus*`, integration tests) have no Hibernate
+  dependency and build on every JDK.
 
 ## Build, run, test
 
