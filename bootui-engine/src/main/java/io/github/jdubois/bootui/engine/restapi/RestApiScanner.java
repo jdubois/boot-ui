@@ -31,6 +31,10 @@ public final class RestApiScanner {
                     + "only. These checks complement, but do not replace, an API design review or contract testing. "
                     + "Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.";
     private static final List<String> SEVERITIES = List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO");
+
+    /** Rules tied to Spring-only types (RFC 9457 ProblemDetail) with no JAX-RS equivalent; skipped on JAX-RS. */
+    private static final Set<String> SPRING_ONLY_RULE_IDS = Set.of("RAPI-ERR-003", "RAPI-ERR-006");
+
     private static final Comparator<RestApiRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (RestApiRuleResultDto result) -> severityRank(result.severity()))
             .thenComparing(Comparator.comparingInt(RestApiRuleResultDto::violationCount)
@@ -144,10 +148,11 @@ public final class RestApiScanner {
                 model.exceptionHandlers(),
                 safeSpringdocPresent(),
                 model.hasExceptionHandling(),
-                model.responseStatusExceptionClasses());
+                model.responseStatusExceptionClasses(),
+                model.framework());
 
         List<RestApiRuleResultDto> results = RestApiRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
+                .map(rule -> evaluate(rule, context))
                 .toList();
 
         return report(
@@ -160,6 +165,15 @@ public final class RestApiScanner {
                 model.handlers().size(),
                 results.size(),
                 results);
+    }
+
+    private static RestApiRuleResultDto evaluate(RestApiRule rule, RestApiContext context) {
+        RestApiRuleDefinition definition = rule.definition();
+        if (context.jaxRs() && SPRING_ONLY_RULE_IDS.contains(definition.id())) {
+            return RestApiRuleSupport.skipped(
+                    definition, "Not applicable on JAX-RS: Spring ProblemDetail (RFC 9457) types are not available.");
+        }
+        return rule.evaluate(context);
     }
 
     private List<String> safeBasePackages() {

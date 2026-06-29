@@ -29,6 +29,7 @@ import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
+import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
@@ -353,6 +354,19 @@ public class BootUiEngineProducer {
     @Singleton
     public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages) {
         return ArchitectureScanner.usingClasspath(basePackages::basePackages, Clock.systemUTC());
+    }
+
+    /**
+     * The REST API advisor over the application's JAX-RS resources. Mirrors {@link #architectureScanner}: the
+     * shared engine {@link RestApiScanner} imports the host classes with ArchUnit bounded to the build-time
+     * discovered base packages and runs the same curated ruleset (the engine now models JAX-RS resources
+     * alongside Spring controllers and skips the few Spring-only rules honestly). springdoc is Spring-only, so
+     * the OpenAPI documentation rules are reported as skipped on Quarkus; the import runs only on POST /scan.
+     */
+    @Produces
+    @Singleton
+    public RestApiScanner restApiScanner(QuarkusBasePackageProvider basePackages) {
+        return RestApiScanner.usingClasspath(basePackages::basePackages, () -> false, Clock.systemUTC());
     }
 
     /**

@@ -16,7 +16,8 @@ record RestApiContext(
         List<ExceptionHandlerModel> exceptionHandlers,
         boolean springdocPresent,
         boolean hasExceptionHandling,
-        List<String> responseStatusExceptionClasses) {
+        List<String> responseStatusExceptionClasses,
+        RestApiModel.Framework framework) {
 
     RestApiContext {
         basePackages = List.copyOf(basePackages);
@@ -24,5 +25,9 @@ record RestApiContext(
         handlers = List.copyOf(handlers);
         exceptionHandlers = List.copyOf(exceptionHandlers);
         responseStatusExceptionClasses = List.copyOf(responseStatusExceptionClasses);
+    }
+
+    boolean jaxRs() {
+        return framework == RestApiModel.Framework.JAX_RS;
     }
 }

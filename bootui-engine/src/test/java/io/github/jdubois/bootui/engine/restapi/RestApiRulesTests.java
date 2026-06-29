@@ -30,7 +30,8 @@ class RestApiRulesTests {
                 model.exceptionHandlers(),
                 springdocPresent,
                 model.hasExceptionHandling(),
-                model.responseStatusExceptionClasses());
+                model.responseStatusExceptionClasses(),
+                model.framework());
     }
 
     private String status(RestApiRule rule, RestApiContext context) {

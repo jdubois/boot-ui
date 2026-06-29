@@ -172,7 +172,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 
 | Panel                 | Quarkus source / limitation                                                                                                                    |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `REST API` advisor    | Conventions (status codes, versioning, pagination) are shared; the handler-model builder is rewritten for JAX-RS `@Path` instead of Spring MVC |
+| `REST API` advisor    | **Implemented** — conventions (status codes, versioning, pagination) shared; the engine models JAX-RS `@Path` resources alongside Spring MVC, and irreducibly-Spring rules (ProblemDetail, ResponseEntity codes) SKIP honestly on JAX-RS |
 | `DB Connection Pools` | Read **Agroal** metrics instead of HikariCP MXBeans                                                                                            |
 | `SQL Trace`           | Capture via Agroal / a JDBC interceptor instead of datasource-proxy                                                                            |
 | `Live Activity`       | Capture requests via a Vert.x filter instead of `ServletRequestHandledEvent`                                                                   |

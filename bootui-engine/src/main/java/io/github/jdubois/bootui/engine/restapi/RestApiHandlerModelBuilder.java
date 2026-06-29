@@ -100,11 +100,39 @@ final class RestApiHandlerModelBuilder {
     private static final Set<String> PAGE_PARAM_NAMES =
             Set.of("page", "size", "limit", "offset", "pagenumber", "pagesize", "perpage", "cursor", "after", "before");
 
+    private static final List<String> JAXRS_METHOD_ANNOTATIONS = List.of(
+            Types.JAXRS_GET,
+            Types.JAXRS_POST,
+            Types.JAXRS_PUT,
+            Types.JAXRS_DELETE,
+            Types.JAXRS_PATCH,
+            Types.JAXRS_HEAD,
+            Types.JAXRS_OPTIONS);
+
+    /** Parameter annotations that bind a non-body source; any param carrying one is not the request entity. */
+    private static final Set<String> JAXRS_BOUND_PARAM_ANNOTATIONS = Set.of(
+            Types.JAXRS_PATH_PARAM,
+            Types.JAXRS_QUERY_PARAM,
+            Types.JAXRS_HEADER_PARAM,
+            Types.JAXRS_COOKIE_PARAM,
+            Types.JAXRS_MATRIX_PARAM,
+            Types.JAXRS_FORM_PARAM,
+            Types.JAXRS_BEAN_PARAM,
+            Types.JAXRS_CONTEXT,
+            Types.REST_PATH,
+            Types.REST_QUERY,
+            Types.REST_HEADER,
+            Types.REST_FORM,
+            Types.REST_COOKIE,
+            Types.REST_MATRIX);
+
     private final List<ControllerModel> controllers = new ArrayList<>();
     private final List<HandlerMethodModel> handlers = new ArrayList<>();
     private final List<ExceptionHandlerModel> exceptionHandlers = new ArrayList<>();
     private final List<String> responseStatusExceptionClasses = new ArrayList<>();
     private boolean hasExceptionHandling;
+    private int springControllerCount;
+    private int jaxRsResourceCount;
 
     private RestApiHandlerModelBuilder() {}
 
@@ -140,12 +168,30 @@ final class RestApiHandlerModelBuilder {
         return hasExceptionHandling;
     }
 
+    /**
+     * The framework the modelled handlers were derived from: {@code JAX_RS} when the application's
+     * resources are JAX-RS (and no Spring controllers were found), {@code SPRING} otherwise. Drives
+     * which framework-specific rules apply versus skip honestly.
+     */
+    RestApiModel.Framework framework() {
+        return jaxRsResourceCount > 0 && springControllerCount == 0
+                ? RestApiModel.Framework.JAX_RS
+                : RestApiModel.Framework.SPRING;
+    }
+
     private void inspect(JavaClass type) {
         scanResponseStatusException(type);
         collectExceptionHandlers(type);
-        if (!isController(type)) {
-            return;
+        collectJaxRsExceptionMapper(type);
+        if (isController(type)) {
+            inspectSpringController(type);
+        } else if (isJaxRsResource(type)) {
+            inspectJaxRsResource(type);
         }
+    }
+
+    private void inspectSpringController(JavaClass type) {
+        springControllerCount++;
         boolean restController = annotated(type, Types.REST_CONTROLLER) || metaAnnotated(type, Types.REST_CONTROLLER);
         boolean classValidated = annotated(type, Types.VALIDATED);
         boolean hasTag = annotated(type, Types.TAG);
@@ -193,6 +239,236 @@ final class RestApiHandlerModelBuilder {
                 hasTag,
                 hidden,
                 handlerCount));
+    }
+
+    /** A class is a JAX-RS resource when it carries {@code @Path} or any JAX-RS HTTP-method method. */
+    private static boolean isJaxRsResource(JavaClass type) {
+        if (annotated(type, Types.JAXRS_PATH)) {
+            return true;
+        }
+        try {
+            for (JavaMethod method : type.getMethods()) {
+                for (String httpAnnotation : JAXRS_METHOD_ANNOTATIONS) {
+                    if (method.isAnnotatedWith(httpAnnotation)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+        return false;
+    }
+
+    private void inspectJaxRsResource(JavaClass type) {
+        jaxRsResourceCount++;
+        boolean classValidated = annotated(type, Types.VALIDATED) || annotated(type, Types.VALID);
+        boolean hasTag = annotated(type, Types.TAG);
+        boolean hidden = annotated(type, Types.HIDDEN);
+        List<String> typeLevelPaths = mappingPaths(type, Types.JAXRS_PATH);
+        List<String> typeLevelProduces = mappingAttribute(type, Types.JAXRS_PRODUCES, "value");
+        List<String> typeLevelConsumes = mappingAttribute(type, Types.JAXRS_CONSUMES, "value");
+
+        int handlerCount = 0;
+        for (JavaMethod method : type.getMethods()) {
+            try {
+                HandlerMethodModel model = toJaxRsHandler(
+                        type, method, classValidated, hidden, typeLevelPaths, typeLevelProduces, typeLevelConsumes);
+                if (model != null) {
+                    handlers.add(model);
+                    handlerCount++;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a method that cannot be introspected.
+            }
+        }
+        controllers.add(new ControllerModel(
+                type.getName(),
+                safeSimpleName(type),
+                true,
+                typeLevelPaths,
+                classValidated,
+                hasTag,
+                hidden,
+                handlerCount));
+    }
+
+    private HandlerMethodModel toJaxRsHandler(
+            JavaClass type,
+            JavaMethod method,
+            boolean classValidated,
+            boolean classHidden,
+            List<String> typeLevelPaths,
+            List<String> typeLevelProduces,
+            List<String> typeLevelConsumes) {
+
+        Set<String> httpMethods = new LinkedHashSet<>();
+        for (String annotation : JAXRS_METHOD_ANNOTATIONS) {
+            if (method.isAnnotatedWith(annotation)) {
+                httpMethods.add(simpleName(annotation));
+            }
+        }
+        if (httpMethods.isEmpty()) {
+            // A @Path-only method with no HTTP verb is a sub-resource locator, not a request handler.
+            return null;
+        }
+
+        List<String> mappingPaths = method.isAnnotatedWith(Types.JAXRS_PATH)
+                ? stringValues(method.getAnnotationOfType(Types.JAXRS_PATH), "value")
+                : List.of();
+        List<String> effectivePaths = effectivePaths(typeLevelPaths, mappingPaths);
+        List<String> produces = methodStringAttr(method, Types.JAXRS_PRODUCES, "value");
+        List<String> consumes = methodStringAttr(method, Types.JAXRS_CONSUMES, "value");
+        List<String> effectiveProduces = produces.isEmpty() ? List.copyOf(typeLevelProduces) : dedupe(produces);
+        List<String> effectiveConsumes = consumes.isEmpty() ? List.copyOf(typeLevelConsumes) : dedupe(consumes);
+
+        JavaType returnType = method.getReturnType();
+        JavaClass rawReturn = returnType.toErasure();
+        String returnTypeName = rawReturn.getName();
+        boolean returnsResponseEntity =
+                Types.JAXRS_RESPONSE.equals(returnTypeName) || Types.QUARKUS_REST_RESPONSE.equals(returnTypeName);
+        boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
+
+        JavaType bodyType = unwrapWrappers(returnType);
+        JavaClass bodyErasure = bodyType.toErasure();
+        boolean returnsCollection = isCollection(bodyErasure);
+        if (returnsCollection) {
+            JavaType element = firstTypeArgument(bodyType);
+            if (element != null) {
+                bodyType = element;
+                bodyErasure = element.toErasure();
+            }
+        }
+        String bodyTypeName = bodyErasure.getName();
+        boolean bodyIsEntity = safeAnnotated(bodyErasure, Types.ENTITY);
+        boolean bodyIsUntyped = UNTYPED_TYPES.contains(bodyTypeName);
+        boolean bodyIsScalar = SCALAR_TYPES.contains(bodyTypeName) || isPrimitive(bodyErasure);
+        boolean bodyIsRecord = safeIsRecord(bodyErasure);
+        boolean bodyExposesSetters = exposesPublicSetters(bodyErasure, bodyIsRecord, bodyIsEntity);
+        boolean bodyHasLegacyDateField = hasLegacyDateField(bodyErasure);
+
+        boolean hasRequestBody = false;
+        boolean requestBodyValidated = false;
+        boolean requestBodyIsEntity = false;
+        boolean requestBodyIsSimple = false;
+        boolean hasConstrainedSimpleParam = false;
+        boolean hasExplicitPageParam = false;
+        List<String> pathVariableNames = new ArrayList<>();
+
+        for (JavaParameter parameter : method.getParameters()) {
+            try {
+                if (isJaxRsEntityParam(parameter)) {
+                    hasRequestBody = true;
+                    requestBodyValidated |= parameter.isAnnotatedWith(Types.VALID) || classValidated;
+                    requestBodyIsEntity |= safeAnnotated(parameter.getRawType(), Types.ENTITY);
+                    requestBodyIsSimple |= isSimpleBodyType(parameter.getRawType());
+                } else if (hasConstraintAnnotation(parameter)) {
+                    hasConstrainedSimpleParam = true;
+                }
+                String pathName = explicitBindingName(parameter, Types.JAXRS_PATH_PARAM);
+                if (pathName == null) {
+                    pathName = explicitBindingName(parameter, Types.REST_PATH);
+                }
+                if (pathName != null) {
+                    pathVariableNames.add(pathName);
+                }
+                String query = explicitBindingName(parameter, Types.JAXRS_QUERY_PARAM);
+                if (query == null) {
+                    query = explicitBindingName(parameter, Types.REST_QUERY);
+                }
+                if (query != null && PAGE_PARAM_NAMES.contains(query.toLowerCase(Locale.ROOT))) {
+                    hasExplicitPageParam = true;
+                }
+            } catch (RuntimeException | LinkageError ex) {
+                // Skip a parameter that cannot be introspected.
+            }
+        }
+
+        boolean stateChanging = startsWithWord(method.getName(), STATE_CHANGING_PREFIXES);
+        String lowerName = method.getName().toLowerCase(Locale.ROOT);
+        boolean findAll = lowerName.startsWith("findall")
+                || lowerName.startsWith("getall")
+                || lowerName.startsWith("listall")
+                || lowerName.equals("list")
+                || lowerName.startsWith("fetchall")
+                || lowerName.startsWith("readall");
+        boolean hidden = classHidden || method.isAnnotatedWith(Types.HIDDEN) || operationHidden(method);
+
+        return new HandlerMethodModel(
+                type.getName(),
+                safeSimpleName(type),
+                method.getName(),
+                true,
+                classValidated,
+                List.copyOf(httpMethods),
+                true,
+                List.copyOf(mappingPaths),
+                effectivePaths,
+                dedupe(produces),
+                dedupe(consumes),
+                returnTypeName,
+                simpleName(returnTypeName),
+                returnsVoid,
+                returnsResponseEntity,
+                returnsCollection,
+                false,
+                bodyTypeName,
+                bodyIsEntity,
+                bodyIsUntyped,
+                bodyIsScalar,
+                bodyExposesSetters,
+                bodyIsRecord,
+                bodyHasLegacyDateField,
+                hasRequestBody,
+                requestBodyValidated,
+                requestBodyIsEntity,
+                hasConstrainedSimpleParam,
+                false,
+                false,
+                false,
+                hasExplicitPageParam,
+                false,
+                false,
+                "",
+                false,
+                method.isAnnotatedWith(Types.OPERATION),
+                stateChanging,
+                findAll,
+                true,
+                "",
+                effectiveProduces,
+                effectiveConsumes,
+                List.of(),
+                List.of(),
+                List.copyOf(pathVariableNames),
+                requestBodyIsSimple,
+                method.isAnnotatedWith(Types.TAG),
+                hidden,
+                false);
+    }
+
+    /** A JAX-RS body parameter is one with neither a binding annotation nor {@code @Context}. */
+    private static boolean isJaxRsEntityParam(JavaParameter parameter) {
+        for (JavaAnnotation<JavaParameter> annotation : parameter.getAnnotations()) {
+            if (JAXRS_BOUND_PARAM_ANNOTATIONS.contains(annotation.getRawType().getName())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Models a JAX-RS {@code ExceptionMapper}/{@code @Provider} as centralized exception handling. */
+    private void collectJaxRsExceptionMapper(JavaClass type) {
+        try {
+            boolean mapper = type.isAnnotatedWith(Types.JAXRS_PROVIDER)
+                    && type.getAllRawInterfaces().stream()
+                            .anyMatch(i -> Types.JAXRS_EXCEPTION_MAPPER.equals(i.getName()));
+            if (mapper) {
+                hasExceptionHandling = true;
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Skip unresolvable class.
+        }
     }
 
     private void collectExceptionHandlers(JavaClass type) {
@@ -513,6 +789,15 @@ final class RestApiHandlerModelBuilder {
 
     private static List<String> mappingAttribute(JavaClass type, String annotationName, String key) {
         Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
+        if (annotation.isEmpty()) {
+            return List.of();
+        }
+        return stringValues(annotation.get(), key);
+    }
+
+    /** Reads a string-array attribute from a method-level annotation (e.g. JAX-RS {@code @Produces}). */
+    private static List<String> methodStringAttr(JavaMethod method, String annotationName, String key) {
+        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(annotationName);
         if (annotation.isEmpty()) {
             return List.of();
         }

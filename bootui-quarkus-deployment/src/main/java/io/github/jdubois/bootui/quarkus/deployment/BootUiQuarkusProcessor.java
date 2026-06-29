@@ -224,6 +224,38 @@ class BootUiQuarkusProcessor {
     }
 
     /**
+     * Determines whether the application declares any JAX-RS resources and exposes the decision to runtime
+     * config as {@link QuarkusPanelAvailability#REST_API_PRESENT_KEY} (default {@code false}) so the REST API
+     * advisor panel is available only when there are application controllers to analyse. Counts HTTP-method
+     * annotations ({@code @GET/@POST/...}) on methods in {@link ApplicationIndexBuildItem} (the app's own
+     * classes only — never BootUI's or dependency jars). A capability gate would be tautological because
+     * BootUI itself depends on quarkus-rest. Dev/test only; in {@link LaunchMode#NORMAL} the console is dark.
+     */
+    @BuildStep
+    void registerRestApi(
+            LaunchModeBuildItem launchMode,
+            ApplicationIndexBuildItem applicationIndex,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return;
+        }
+        IndexView index = applicationIndex.getIndex();
+        boolean present = List.of(
+                        "jakarta.ws.rs.GET",
+                        "jakarta.ws.rs.POST",
+                        "jakarta.ws.rs.PUT",
+                        "jakarta.ws.rs.DELETE",
+                        "jakarta.ws.rs.PATCH",
+                        "jakarta.ws.rs.HEAD",
+                        "jakarta.ws.rs.OPTIONS")
+                .stream()
+                .anyMatch(http -> index.getAnnotations(DotName.createSimple(http)).stream()
+                        .anyMatch(ann -> ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD));
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.REST_API_PRESENT_KEY, "" + present));
+    }
+
+    /**
      * Captures build-time authorization-annotation counts for the Quarkus Security advisor: how many
      * {@code @RolesAllowed}/{@code @PermitAll}/{@code @DenyAll}/{@code @Authenticated} sites and JAX-RS
      * endpoints the application declares, emitted as runtime config defaults the advisor reads. Dev/test only.

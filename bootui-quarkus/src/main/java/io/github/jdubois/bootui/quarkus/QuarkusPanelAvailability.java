@@ -134,6 +134,16 @@ public class QuarkusPanelAvailability {
     public static final String HIBERNATE_PRESENT_KEY = "bootui.internal.hibernate-present";
 
     /**
+     * Runtime-config key carrying whether the application declares any JAX-RS resources (a {@code @Path}
+     * class with HTTP-method handlers). The deployment processor counts them in the build-time
+     * {@code ApplicationIndexBuildItem} and emits the flag (default {@code false}); when no application
+     * resource exists the REST API advisor reports an honest "no JAX-RS resources" reason rather than the
+     * generic "not yet ported" reason. A simple capability gate would be tautological because BootUI itself
+     * depends on quarkus-rest. Mirrors {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String REST_API_PRESENT_KEY = "bootui.internal.rest-api-present";
+
+    /**
      * Runtime-config key carrying the build-time {@code SCHEDULER} capability decision. The deployment
      * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}) whenever
      * {@code quarkus-scheduler} is present in a non-production launch; this bean reads it back to decide
@@ -275,6 +285,8 @@ public class QuarkusPanelAvailability {
 
     private final boolean profilesActive;
 
+    private final boolean restApiPresent;
+
     @Inject
     public QuarkusPanelAvailability(Config config) {
         this.hibernatePresent =
@@ -296,6 +308,8 @@ public class QuarkusPanelAvailability {
         this.securityLogsAvailable = securityPresent && eventsEnabled;
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
         this.profilesActive = activeProfiles(config);
+        this.restApiPresent =
+                config.getOptionalValue(REST_API_PRESENT_KEY, Boolean.class).orElse(false);
     }
 
     private static boolean activeProfiles(Config config) {
@@ -323,6 +337,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.SECURITY_LOGS.equals(panel.id()) && securityLogsAvailable)
                 || (BootUiPanels.SQL_TRACE.equals(panel.id()) && connectionPoolsPresent)
                 || (BootUiPanels.PROFILE_DIFF.equals(panel.id()) && profilesActive)
+                || (BootUiPanels.REST_API.equals(panel.id()) && restApiPresent)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         boolean readOnly = available && BootUiPanels.CONFIG.equals(panel.id());
@@ -359,6 +374,10 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();
+        }
+        if (BootUiPanels.REST_API.equals(panelId)) {
+            return "Not available: no JAX-RS resources were found under the application base packages. Add a"
+                    + " @Path resource so the REST API advisor has controllers to analyse.";
         }
         if (BootUiPanels.SECURITY_LOGS.equals(panelId)) {
             return "Not available: Quarkus security events are disabled. Set quarkus.security.events.enabled=true"

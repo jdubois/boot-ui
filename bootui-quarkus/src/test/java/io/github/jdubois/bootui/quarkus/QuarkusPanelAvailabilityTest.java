@@ -30,9 +30,8 @@ class QuarkusPanelAvailabilityTest {
     @Test
     void graalVmCracConditionsAndStartupAreDeliberatelyNotApplicableOnQuarkus() {
         Map<String, PanelDto> panels = manifestById();
-        for (String id : new String[] {
-            BootUiPanels.GRAALVM, BootUiPanels.CRAC, BootUiPanels.CONDITIONS, BootUiPanels.STARTUP
-        }) {
+        for (String id :
+                new String[] {BootUiPanels.GRAALVM, BootUiPanels.CRAC, BootUiPanels.CONDITIONS, BootUiPanels.STARTUP}) {
             PanelDto panel = panels.get(id);
             assertThat(panel).as("panel %s is present in the manifest", id).isNotNull();
             assertThat(panel.available())
@@ -141,6 +140,28 @@ class QuarkusPanelAvailabilityTest {
                 .isNotNull()
                 .doesNotContain("Not yet available")
                 .containsIgnoringCase("quarkus-flyway");
+    }
+
+    @Test
+    void restApiIsUnavailableWithAJaxRsHintWhenNoResourcesArePresent() {
+        // Default: bootui.internal.rest-api-present is unset, so the deployment processor saw no application
+        // @Path resources. The panel must surface an honest JAX-RS hint, NOT the generic reason.
+        PanelDto restApi = manifestById().get(BootUiPanels.REST_API);
+        assertThat(restApi.available()).isFalse();
+        assertThat(restApi.unavailableReason())
+                .isNotNull()
+                .doesNotContain("Not yet available")
+                .containsIgnoringCase("@Path");
+    }
+
+    @Test
+    void restApiIsAvailableWhenTheBuildTimeFlagIsSet() {
+        StubConfig withRestApi = new StubConfig(Map.of(QuarkusPanelAvailability.REST_API_PRESENT_KEY, "true"));
+        PanelDto restApi = manifestById(withRestApi).get(BootUiPanels.REST_API);
+        assertThat(restApi.available())
+                .as("REST API advisor is lit up when the application declares JAX-RS resources")
+                .isTrue();
+        assertThat(restApi.unavailableReason()).isNull();
     }
 
     @Test
