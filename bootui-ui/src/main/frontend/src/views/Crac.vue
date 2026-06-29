@@ -68,7 +68,67 @@ const maxSeverityCount = computed(() => {
   return Math.max(1, ...report.value.severityCounts.map((count) => count.count))
 })
 
-const visibleFindings = computed(() => [...(report.value?.findings || [])])
+const severityOrder = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+const severityFilter = ref([])
+const categoryFilter = ref('')
+const searchText = ref('')
+
+const allFindings = computed(() => report.value?.findings || [])
+
+const availableSeverities = computed(() => {
+  const present = new Set(allFindings.value.map((finding) => finding.severity))
+  const known = severityOrder.filter((severity) => present.has(severity))
+  const extra = [...present].filter((severity) => !severityOrder.includes(severity)).sort()
+  return [...known, ...extra]
+})
+
+const availableCategories = computed(() =>
+  [...new Set(allFindings.value.map((finding) => finding.category).filter(Boolean))].sort()
+)
+
+const visibleFindings = computed(() => {
+  const term = searchText.value.trim().toLowerCase()
+  return allFindings.value.filter((finding) => {
+    if (severityFilter.value.length && !severityFilter.value.includes(finding.severity)) return false
+    if (categoryFilter.value && finding.category !== categoryFilter.value) return false
+    if (term) {
+      const haystack = [
+        finding.name,
+        finding.description,
+        finding.id,
+        finding.category,
+        ...(finding.sampleOccurrences || [])
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      if (!haystack.includes(term)) return false
+    }
+    return true
+  })
+})
+
+const filtersActive = computed(
+  () => severityFilter.value.length > 0 || categoryFilter.value !== '' || searchText.value.trim() !== ''
+)
+
+function toggleSeverity(severity) {
+  if (severityFilter.value.includes(severity)) {
+    severityFilter.value = severityFilter.value.filter((value) => value !== severity)
+  } else {
+    severityFilter.value = [...severityFilter.value, severity]
+  }
+}
+
+function severityChipCount(severity) {
+  return allFindings.value.filter((finding) => finding.severity === severity).length
+}
+
+function clearFilters() {
+  severityFilter.value = []
+  categoryFilter.value = ''
+  searchText.value = ''
+}
 
 const emptyFindingsTitle = computed(() => {
   if (!hasScanData.value) return 'Run readiness checks to see checkpoint/restore concerns'
@@ -586,17 +646,71 @@ onMounted(loadReport)
             <div class="fw-semibold">Readiness concerns</div>
             <div class="text-muted small">
               <template v-if="hasScanData && report.findingsFound > 0">
-                {{ report.findingsFound }} {{ pluralize(report.findingsFound, 'concern') }}, sorted by importance
+                <template v-if="filtersActive"
+                  >Showing {{ visibleFindings.length }} of {{ report.findingsFound }}
+                  {{ pluralize(report.findingsFound, 'concern') }}</template
+                >
+                <template v-else
+                  >{{ report.findingsFound }} {{ pluralize(report.findingsFound, 'concern') }}, sorted by
+                  importance</template
+                >
               </template>
               <template v-else>{{ report.findingsFound }} concern(s) to review</template>
             </div>
           </div>
           <span v-if="hasScanData && report.findingsFound === 0" class="badge text-bg-success">No concerns</span>
         </div>
+        <div
+          v-if="hasScanData && report.findingsFound > 0"
+          class="card-header d-flex flex-wrap align-items-center gap-2 border-top"
+        >
+          <span class="small fw-semibold text-muted me-1">Filter</span>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Filter concerns by severity">
+            <button
+              v-for="sev in availableSeverities"
+              :key="sev"
+              type="button"
+              class="btn"
+              :class="severityFilter.includes(sev) ? severityClass(sev) : 'btn-outline-secondary'"
+              :aria-pressed="severityFilter.includes(sev)"
+              @click="toggleSeverity(sev)"
+            >
+              {{ sev }} <span class="opacity-75">{{ severityChipCount(sev) }}</span>
+            </button>
+          </div>
+          <select v-model="categoryFilter" class="form-select form-select-sm w-auto" aria-label="Filter by category">
+            <option value="">All categories</option>
+            <option v-for="cat in availableCategories" :key="cat" :value="cat">{{ cat }}</option>
+          </select>
+          <input
+            v-model="searchText"
+            type="search"
+            class="form-control form-control-sm w-auto"
+            placeholder="Search concerns"
+            aria-label="Search concerns"
+          />
+          <button
+            v-if="filtersActive"
+            type="button"
+            class="btn btn-sm btn-link text-decoration-none ms-auto"
+            @click="clearFilters"
+          >
+            Clear filters
+          </button>
+        </div>
         <div v-if="visibleFindings.length === 0" class="card-body text-center text-muted py-5">
-          <i class="bi bi-camera fs-2 d-block mb-2"></i>
-          <div class="fw-semibold text-body">{{ emptyFindingsTitle }}</div>
-          <div>An actual checkpoint/restore run on a CRaC-enabled JDK remains the best way to verify readiness.</div>
+          <template v-if="filtersActive">
+            <i class="bi bi-funnel fs-2 d-block mb-2"></i>
+            <div class="fw-semibold text-body">No concerns match the active filters</div>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @click="clearFilters">
+              Clear filters
+            </button>
+          </template>
+          <template v-else>
+            <i class="bi bi-camera fs-2 d-block mb-2"></i>
+            <div class="fw-semibold text-body">{{ emptyFindingsTitle }}</div>
+            <div>An actual checkpoint/restore run on a CRaC-enabled JDK remains the best way to verify readiness.</div>
+          </template>
         </div>
         <div v-else class="list-group list-group-flush">
           <div v-for="finding in visibleFindings" :key="finding.id" class="list-group-item">

@@ -427,8 +427,9 @@ release when the project has no wrapper). It can be downloaded, or written direc
 same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
 generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
 top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a
-single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. The checks
-and generated
+single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. After a
+scan, the concerns list can be filtered in place by severity, category, or free-text search to focus on a subset of
+findings without rerunning the scan. The checks and generated
 metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native
 build. See [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one
 inspects.
@@ -451,9 +452,10 @@ application's own classes (bounded to the detected base package(s)) and runs a c
 constructs that complicate checkpoint/restore — open resources and file handles held outside Spring/CRaC lifecycle,
 network listeners, live connection pools and cache managers, unmanaged threads, captured timestamps, captured
 environment/system configuration, static random seeds, eagerly captured secrets, and missing `org.crac.Resource`
-registrations. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run
-on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
-each one inspects.
+registrations. After a scan, the concerns list can be filtered in place by severity, category, or free-text search to
+focus on a subset of findings without rerunning the scan. The checks are heuristic review aids that complement, but do
+not replace, an actual checkpoint/restore run on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md)
+for the full catalogue of checks and what each one inspects.
 
 The panel also generates ready-to-use container assets for the host application: a multi-stage `Dockerfile-crac` that
 builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it

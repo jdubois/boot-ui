@@ -32,6 +32,16 @@ test.describe('CRaC view', () => {
     // The scan-status card surfaces a status badge once the scan completes.
     const scanStatusCard = page.locator('.card', {hasText: 'Scan status'}).first()
     await expect(scanStatusCard.locator('.badge').first()).toBeVisible()
+
+    // After a scan, the concerns list can be filtered. The severity/category/search controls only
+    // appear when the scan surfaced at least one concern, so guard on the sample app having any.
+    const search = page.getByPlaceholder('Search concerns')
+    if (await search.count()) {
+      await search.fill('zzz-no-such-concern')
+      await expect(page.getByText('No concerns match the active filters')).toBeVisible()
+      await page.getByRole('button', {name: 'Clear filters'}).first().click()
+      await expect(page.getByText('No concerns match the active filters')).toHaveCount(0)
+    }
   })
 
   test('offers the generated CRaC container assets', async ({openView, page}) => {

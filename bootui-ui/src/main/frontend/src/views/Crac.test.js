@@ -71,6 +71,30 @@ function cracReport({installable = true, status = 'NOT_SCANNED', files, runtimeO
   }
 }
 
+function finding(id, name, severity, occurrenceCount = 1, status = 'REVIEW', category = 'Configuration') {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description: `${name} description.`,
+    status,
+    occurrenceCount,
+    sampleOccurrences: occurrenceCount > 0 ? [`${id} detail`] : [],
+    recommendation: `${name} recommendation.`
+  }
+}
+
+function scannedReport(findings) {
+  const report = cracReport({status: 'SCANNED'})
+  report.checksRun = 6
+  report.classesAnalyzed = 24
+  report.findingsFound = findings.length
+  report.findings = findings
+  report.scan = {...report.scan, status: 'SCANNED', findingsFound: findings.length, checksRun: 6, classesAnalyzed: 24}
+  return report
+}
+
 async function mountWithReport(report) {
   vi.stubGlobal(
     'fetch',
@@ -178,5 +202,78 @@ describe('Crac', () => {
     const writeButton = dockerCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(writeButton).toBeUndefined()
     expect(wrapper.text()).toContain('Direct write unavailable')
+  })
+
+  function concernTitles(wrapper) {
+    return wrapper.findAll('.list-group-item h3').map((title) => title.text())
+  }
+
+  function severityFilterButton(wrapper, severity) {
+    return wrapper
+      .findAll('[aria-label="Filter concerns by severity"] button')
+      .find((button) => button.text().startsWith(severity))
+  }
+
+  describe('concern filtering', () => {
+    it('does not render the filter bar until a scan finds concerns', async () => {
+      const wrapper = await mountWithReport(scannedReport([]))
+
+      expect(wrapper.find('input[aria-label="Search concerns"]').exists()).toBe(false)
+      expect(wrapper.find('select[aria-label="Filter by category"]').exists()).toBe(false)
+    })
+
+    it('filters concerns by severity and reflects the visible count', async () => {
+      const wrapper = await mountWithReport(
+        scannedReport([
+          finding('CRAC-HIGH-001', 'High concern', 'HIGH'),
+          finding('CRAC-MED-001', 'Medium concern', 'MEDIUM'),
+          finding('CRAC-LOW-001', 'Low concern', 'LOW')
+        ])
+      )
+
+      const highButton = severityFilterButton(wrapper, 'HIGH')
+      expect(highButton).toBeDefined()
+      await highButton.trigger('click')
+
+      expect(concernTitles(wrapper)).toEqual(['High concern'])
+      expect(wrapper.text()).toContain('Showing 1 of 3 concerns')
+    })
+
+    it('filters concerns by category', async () => {
+      const wrapper = await mountWithReport(
+        scannedReport([
+          finding('CRAC-POOL-001', 'Pool concern', 'HIGH', 1, 'REVIEW', 'Connections'),
+          finding('CRAC-FILE-001', 'File concern', 'LOW', 1, 'REVIEW', 'Files')
+        ])
+      )
+
+      await wrapper.find('select[aria-label="Filter by category"]').setValue('Files')
+
+      expect(concernTitles(wrapper)).toEqual(['File concern'])
+    })
+
+    it('filters concerns by free-text search and clears back to all concerns', async () => {
+      const wrapper = await mountWithReport(
+        scannedReport([
+          finding('CRAC-HIGH-001', 'Open socket concern', 'HIGH'),
+          finding('CRAC-LOW-001', 'Temp file concern', 'LOW')
+        ])
+      )
+
+      await wrapper.find('input[aria-label="Search concerns"]').setValue('socket')
+      expect(concernTitles(wrapper)).toEqual(['Open socket concern'])
+
+      const clear = wrapper.findAll('button').find((button) => button.text() === 'Clear filters')
+      await clear.trigger('click')
+      expect(concernTitles(wrapper)).toEqual(['Open socket concern', 'Temp file concern'])
+    })
+
+    it('shows a no-match empty state when filters exclude every concern', async () => {
+      const wrapper = await mountWithReport(scannedReport([finding('CRAC-MED-001', 'Medium concern', 'MEDIUM')]))
+
+      await wrapper.find('input[aria-label="Search concerns"]').setValue('no-such-concern')
+
+      expect(wrapper.text()).toContain('No concerns match the active filters')
+    })
   })
 })
