@@ -15,6 +15,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   serve the shared id, so the same UI covers Spring Cache and `quarkus-cache`. The advisor sidebar label now
   follows the running framework (shows "Quarkus" on Quarkus), matching the panel header.
 
+## [1.7.0] - 2026-06-29
+
+Feature release headlined by **richer Dependabot insight in the GitHub panel** and **filterable readiness concerns on the
+GraalVM and CRaC advisors**, alongside a console-wide accessibility, motion, and design-token polish and a fix for a
+trailing-slash redirect loop.
+
+### Added
+
+- **Dependabot alert details in the GitHub panel security drawer.** The drawer previously showed only an open-alert count
+  plus a privacy note. It now lists the bounded set of open Dependabot alerts with their package, ecosystem, severity,
+  advisory ID, summary, affected range, and fixed version — non-secret advisory metadata. Code scanning and secret
+  scanning stay count-only and never inline secret values or vulnerable code snippets (#464).
+- **Concern filtering on the GraalVM and CRaC advisor panels.** Both panels listed every readiness concern with no way to
+  narrow them. A shared filter toolbar (severity chips, category dropdown, free-text search) now appears once a scan finds
+  concerns, with a live count and a no-match empty state, keeping the two advisors uniform (#463).
+
+### Changed
+
+- **Console-wide accessibility, motion, and design-token polish.** A design pass verified WCAG 2.1 AA contrast in both
+  light and dark themes (including caution body text), put a visible branded focus ring on every interactive control,
+  calmed elevation and motion (flattened card shadows, hover-lift only on interactive cards, honors
+  `prefers-reduced-motion`), and replaced native `window.confirm()` on one-click mutations with a branded confirmation
+  dialog. `DESIGN.md` and its sidecar are now the documented source of truth for the radius, severity-color, and chart
+  palettes (#459).
+- **Bumped the toolchain:** build plugins to latest (#462), Testcontainers to 2.0.5 (#461), and Node to 24.18.0 / npm to
+  11.17.0 (#460).
+- **Clarified the front-end hot-reload workflow** in the contributor and agent docs so UI iteration uses the Vite dev
+  server (`:5173/bootui/`) rather than the pre-built Maven-served console (#457).
+
 ### Fixed
 
 - **`/bootui` no longer redirects to `/bootui/`, fixing a "localhost redirected you too many times"
@@ -781,6 +810,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
+[1.7.0]: https://github.com/jdubois/boot-ui/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/jdubois/boot-ui/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/jdubois/boot-ui/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/jdubois/boot-ui/compare/v1.5.0...v1.5.1

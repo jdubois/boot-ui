@@ -730,6 +730,13 @@ public class BootUiProperties {
         private int maxIssues = 25;
 
         /**
+         * Maximum Dependabot alert details listed in one dashboard refresh. The alert count is still
+         * exact; only the inlined detail list is capped. Code scanning and secret scanning remain
+         * count-only and never inline alert details.
+         */
+        private int maxSecurityAlerts = 50;
+
+        /**
          * Maximum workflow runs returned in one dashboard refresh.
          */
         private int maxWorkflowRuns = 20;
@@ -779,6 +786,14 @@ public class BootUiProperties {
 
         public void setMaxIssues(int maxIssues) {
             this.maxIssues = maxIssues;
+        }
+
+        public int getMaxSecurityAlerts() {
+            return maxSecurityAlerts;
+        }
+
+        public void setMaxSecurityAlerts(int maxSecurityAlerts) {
+            this.maxSecurityAlerts = maxSecurityAlerts;
         }
 
         public int getMaxWorkflowRuns() {

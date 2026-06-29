@@ -1252,6 +1252,7 @@ Initial properties:
 | `bootui.github.request-timeout`              | `5s`                                    | Timeout for each GitHub API request and local `gh auth token` lookup.                             |
 | `bootui.github.max-pull-requests`            | `10`                                    | Maximum open pull requests returned in one GitHub refresh.                                        |
 | `bootui.github.max-issues`                   | `25`                                    | Maximum open issues fetched for the issue buckets and open issue list.                            |
+| `bootui.github.max-security-alerts`          | `50`                                    | Maximum Dependabot alert details listed per refresh; count stays exact, metadata only.            |
 | `bootui.github.max-workflow-runs`            | `20`                                    | Maximum recent workflow runs returned in one GitHub refresh.                                      |
 | `bootui.github.quota-safety-threshold`       | `10`                                    | Skip optional GitHub calls when remaining core quota is at or below this value.                   |
 | `bootui.github.max-api-calls`                | `17`                                    | Maximum GitHub API calls issued by one refresh.                                                   |

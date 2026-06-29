@@ -236,7 +236,28 @@ function connectedReport() {
       }
     ],
     securitySignals: [
-      {label: 'Dependabot alerts', status: 'AVAILABLE', count: 0, unavailableReason: null},
+      {
+        label: 'Dependabot alerts',
+        status: 'AVAILABLE',
+        count: 1,
+        unavailableReason: null,
+        alerts: [
+          {
+            number: 7,
+            state: 'open',
+            packageName: 'org.example:lib',
+            ecosystem: 'maven',
+            manifestPath: 'pom.xml',
+            severity: 'critical',
+            ghsaId: 'GHSA-aaaa-bbbb-cccc',
+            cveId: 'CVE-2026-1234',
+            summary: 'Remote code execution in org.example:lib',
+            vulnerableVersionRange: '< 1.2.3',
+            firstPatchedVersion: '1.2.3',
+            htmlUrl: 'https://github.com/jdubois/boot-ui/security/dependabot/7'
+          }
+        ]
+      },
       {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null},
       {label: 'Secret scanning alerts', status: 'UNAVAILABLE', count: null, unavailableReason: 'Requires admin access'}
     ],
@@ -397,6 +418,7 @@ describe('GitHub', () => {
 
     expect(wrapper.find('.details-drawer').text()).toContain('Code scanning alerts')
     expect(wrapper.find('.details-drawer').text()).toContain('At least one alert returned')
+    expect(wrapper.find('.details-drawer').text()).toContain('does not expose secret values')
     expect(wrapper.find('.details-drawer a.github-link-chip').attributes('href')).toBe(
       'https://github.com/jdubois/boot-ui/security/code-scanning'
     )
@@ -406,6 +428,11 @@ describe('GitHub', () => {
     expect(wrapper.find('.details-drawer a.github-link-chip').attributes('href')).toBe(
       'https://github.com/jdubois/boot-ui/security/dependabot'
     )
+    const dependabotDrawer = wrapper.find('.details-drawer').text()
+    expect(dependabotDrawer).toContain('org.example:lib')
+    expect(dependabotDrawer).toContain('Remote code execution in org.example:lib')
+    expect(dependabotDrawer).toContain('GHSA-aaaa-bbbb-cccc')
+    expect(dependabotDrawer).toContain('Fixed in: 1.2.3')
 
     await metricButton(wrapper, 'Secret scanning alerts').trigger('click')
     await flushPromises()

@@ -35,6 +35,16 @@ test.describe('GraalVM view', () => {
     // The readiness-concerns section renders once the scan completes.
     await expect(page.getByText('Readiness concerns')).toBeVisible()
 
+    // After a scan, the concerns list can be filtered. The severity/category/search controls only
+    // appear when the scan surfaced at least one concern. The sample app may have none, so guard on it.
+    const search = page.getByPlaceholder('Search concerns')
+    if (await search.count()) {
+      await search.fill('zzz-no-such-concern')
+      await expect(page.getByText('No concerns match the active filters')).toBeVisible()
+      await page.getByRole('button', {name: 'Clear filters'}).first().click()
+      await expect(page.getByText('No concerns match the active filters')).toHaveCount(0)
+    }
+
     // The metadata, Dockerfile and combined artifacts live in a three-drawer accordion. The combined
     // "All files" drawer is open by default and offers a single action that writes both artifacts into
     // the source tree. Drawers are located by their header button so the shared "Write into project" label

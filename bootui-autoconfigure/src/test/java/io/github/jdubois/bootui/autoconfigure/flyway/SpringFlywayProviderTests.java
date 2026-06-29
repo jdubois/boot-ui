@@ -34,9 +34,9 @@ import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.modulith.core.ApplicationModuleIdentifiers;
 import org.springframework.modulith.runtime.flyway.SpringModulithFlywayMigrationStrategy;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Behavioural tests for {@link SpringFlywayProvider}, exercised through the engine {@link FlywayService} so
@@ -51,7 +51,7 @@ class SpringFlywayProviderTests {
             "Spring Modulith module-aware Flyway migrations use module-specific history tables and are read-only in BootUI.";
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
 
     @SuppressWarnings("unchecked")
     private static <T> ObjectProvider<T> providerOf(T value) {

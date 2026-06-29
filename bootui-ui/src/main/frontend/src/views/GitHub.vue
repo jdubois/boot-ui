@@ -229,6 +229,19 @@ function securitySignalDetail(signal) {
   return signal.count > 0 ? 'At least one alert returned' : 'No alerts returned'
 }
 
+const securityAlerts = computed(() => activeSecuritySignal.value?.alerts ?? [])
+
+function dependabotSeverityClass(severity) {
+  return (
+    {
+      critical: 'text-bg-danger',
+      high: 'text-bg-danger',
+      medium: 'text-bg-warning',
+      low: 'text-bg-info'
+    }[(severity || '').toLowerCase()] || 'text-bg-secondary'
+  )
+}
+
 const displayMetrics = computed(() =>
   metrics.value.map((metric) => {
     if (drawerForMetric(metric) !== 'quotas') return metric
@@ -836,11 +849,39 @@ function securitySignalUrl(signal) {
               <div v-if="activeSecuritySignal.unavailableReason" class="alert alert-light border mb-0 flex-grow-1">
                 {{ activeSecuritySignal.unavailableReason }}
               </div>
-              <div v-else class="alert alert-light border mb-0 flex-grow-1">
-                BootUI only shows the alert count from GitHub. It does not expose alert payloads, secret values, or
-                vulnerable code snippets.
+              <div v-else-if="!securityAlerts.length" class="alert alert-light border mb-0 flex-grow-1">
+                BootUI lists Dependabot advisory metadata only. It does not expose secret values or vulnerable code
+                snippets from code or secret scanning.
               </div>
             </div>
+            <ul v-if="securityAlerts.length" class="list-group list-group-flush mt-3">
+              <li v-for="alert in securityAlerts" :key="alert.number" class="list-group-item px-0">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                  <span :class="dependabotSeverityClass(alert.severity)" class="badge text-uppercase">
+                    {{ alert.severity || 'unknown' }}
+                  </span>
+                  <code class="fw-semibold">{{ alert.packageName || 'unknown package' }}</code>
+                  <span v-if="alert.ecosystem" class="badge text-bg-light border">{{ alert.ecosystem }}</span>
+                  <a
+                    v-if="alert.htmlUrl"
+                    :href="alert.htmlUrl"
+                    class="github-link-chip ms-auto"
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    {{ alert.ghsaId || alert.cveId || `#${alert.number}` }}
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                </div>
+                <div v-if="alert.summary" class="small mt-1">{{ alert.summary }}</div>
+                <div class="text-muted small mt-1 d-flex flex-wrap gap-3">
+                  <span v-if="alert.manifestPath"><i class="bi bi-folder2-open me-1"></i>{{ alert.manifestPath }}</span>
+                  <span v-if="alert.vulnerableVersionRange">Affected: {{ alert.vulnerableVersionRange }}</span>
+                  <span v-if="alert.firstPatchedVersion">Fixed in: {{ alert.firstPatchedVersion }}</span>
+                  <span v-if="alert.cveId && alert.ghsaId">{{ alert.cveId }}</span>
+                </div>
+              </li>
+            </ul>
           </div>
         </template>
       </div>

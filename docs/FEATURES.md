@@ -136,7 +136,10 @@ time (pull requests returned by the issues endpoint are excluded). GitHub Action
 run, show the workflow, branch, event, status, and
 duration, and mirror the recent-run list from the GitHub Actions page. The workflow failure count only considers the
 latest execution for each workflow and branch, so older failures drop out once a later run fixes that workflow on that
-branch; security signal drawers link to the matching GitHub alert pages.
+branch; security signal drawers link to the matching GitHub alert pages. The Dependabot drawer additionally lists the
+bounded set of open alerts with their package, ecosystem, severity, advisory ID, summary, affected range, and fixed
+version (capped by `bootui.github.max-security-alerts`); code scanning and secret scanning stay count-only and never
+inline secret values or vulnerable code snippets.
 The quota card shows the lowest remaining quota percentage with a red-to-green threshold palette. The quota drawer is
 hidden by default, renders every resource returned by GitHub's `/rate_limit` response dynamically,
 highlights resources with 10% or less remaining or at quota, then adds best-effort cards for repository or owner quotas
@@ -504,8 +507,9 @@ release when the project has no wrapper). It can be downloaded, or written direc
 same exploded-build constraint and the same fail-closed guard (BootUI never overwrites a `Dockerfile-native` it did not
 generate). The metadata scaffold and the `Dockerfile-native` are presented in a three-drawer accordion whose default,
 top drawer is an **All files** action that generates and writes both artifacts into the project's source tree in a
-single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. The checks
-and generated
+single step (under the same exploded-build constraint and fail-closed guards), reporting each file's outcome. After a
+scan, the concerns list can be filtered in place by severity, category, or free-text search to focus on a subset of
+findings without rerunning the scan. The checks and generated
 metadata are heuristic review aids that complement, but do not replace, the GraalVM tracing agent and an actual native
 build. See [GRAALVM-READINESS-CHECKS.md](GRAALVM-READINESS-CHECKS.md) for the full catalogue of checks and what each one
 inspects.
@@ -534,9 +538,10 @@ application's own classes (bounded to the detected base package(s)) and runs a c
 constructs that complicate checkpoint/restore — open resources and file handles held outside Spring/CRaC lifecycle,
 network listeners, live connection pools and cache managers, unmanaged threads, captured timestamps, captured
 environment/system configuration, static random seeds, eagerly captured secrets, and missing `org.crac.Resource`
-registrations. The checks are heuristic review aids that complement, but do not replace, an actual checkpoint/restore run
-on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md) for the full catalogue of checks and what
-each one inspects.
+registrations. After a scan, the concerns list can be filtered in place by severity, category, or free-text search to
+focus on a subset of findings without rerunning the scan. The checks are heuristic review aids that complement, but do
+not replace, an actual checkpoint/restore run on a CRaC-enabled JDK. See [CRAC-READINESS-CHECKS.md](CRAC-READINESS-CHECKS.md)
+for the full catalogue of checks and what each one inspects.
 
 The panel also generates ready-to-use container assets for the host application: a multi-stage `Dockerfile-crac` that
 builds with a plain JDK and runs on a CRaC-enabled BellSoft Liberica JDK, plus the `checkpoint-and-run.sh` entrypoint it

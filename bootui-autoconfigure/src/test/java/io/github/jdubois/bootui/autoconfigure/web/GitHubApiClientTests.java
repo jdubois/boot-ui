@@ -183,6 +183,54 @@ class GitHubApiClientTests {
         assertThat(report.warnings()).singleElement().asString().contains("safety threshold");
     }
 
+    @Test
+    void dependabotSignalIncludesSafeAlertDetails() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        json("/rate_limit", """
+                {"resources":{"core":{"limit":5000,"used":50,"remaining":4950,"reset":1893456000}}}
+                """);
+        json("/repos/jdubois/boot-ui", """
+                {"full_name":"jdubois/boot-ui","html_url":"https://github.com/jdubois/boot-ui","default_branch":"main","owner":{"type":"User"}}
+                """);
+        json("/repos/jdubois/boot-ui/dependabot/alerts", """
+                [{"number":7,"state":"open","dependency":{"package":{"ecosystem":"maven","name":"org.example:lib"},"manifest_path":"pom.xml"},"security_advisory":{"ghsa_id":"GHSA-aaaa-bbbb-cccc","cve_id":"CVE-2026-1234","summary":"Remote code execution","severity":"high"},"security_vulnerability":{"severity":"critical","vulnerable_version_range":"< 1.2.3","first_patched_version":{"identifier":"1.2.3"}},"html_url":"https://github.com/jdubois/boot-ui/security/dependabot/7","created_at":"2026-05-01T08:00:00Z","updated_at":"2026-05-02T08:00:00Z"}]
+                """);
+        json("/repos/jdubois/boot-ui/code-scanning/alerts", "[]");
+        json("/repos/jdubois/boot-ui/secret-scanning/alerts", "[]");
+        json("/repos/jdubois/boot-ui/pulls", "[]");
+        json("/repos/jdubois/boot-ui/issues", "[]");
+        json("/repos/jdubois/boot-ui/actions/runs", "{\"workflow_runs\":[]}");
+        json("/repos/jdubois/boot-ui/actions/workflows", "{\"workflows\":[]}");
+        json("/repos/jdubois/boot-ui/actions/cache/usage", "{\"active_caches_size_in_bytes\":0}");
+        json("/repos/jdubois/boot-ui/actions/artifacts", "{\"total_count\":0}");
+        json("/users/jdubois/settings/billing/actions", "{\"included_minutes\":0,\"total_minutes_used\":0}");
+        server.start();
+
+        GitHubApiClient client = client("local-token");
+
+        GitHubDashboardReport report = client.refresh(repository());
+
+        assertThat(report.securitySignals())
+                .filteredOn(signal -> signal.label().equals("Dependabot alerts"))
+                .singleElement()
+                .satisfies(signal -> {
+                    assertThat(signal.count()).isEqualTo(1);
+                    assertThat(signal.alerts()).singleElement().satisfies(alert -> {
+                        assertThat(alert.packageName()).isEqualTo("org.example:lib");
+                        assertThat(alert.ecosystem()).isEqualTo("maven");
+                        assertThat(alert.severity()).isEqualTo("critical");
+                        assertThat(alert.ghsaId()).isEqualTo("GHSA-aaaa-bbbb-cccc");
+                        assertThat(alert.cveId()).isEqualTo("CVE-2026-1234");
+                        assertThat(alert.firstPatchedVersion()).isEqualTo("1.2.3");
+                        assertThat(alert.htmlUrl())
+                                .isEqualTo("https://github.com/jdubois/boot-ui/security/dependabot/7");
+                    });
+                });
+        assertThat(report.securitySignals())
+                .filteredOn(signal -> !signal.label().equals("Dependabot alerts"))
+                .allSatisfy(signal -> assertThat(signal.alerts()).isEmpty());
+    }
+
     private GitHubApiClient client(String token) {
         BootUiProperties.GitHub properties = new BootUiProperties.GitHub();
         properties.setRequestTimeout(Duration.ofSeconds(2));
