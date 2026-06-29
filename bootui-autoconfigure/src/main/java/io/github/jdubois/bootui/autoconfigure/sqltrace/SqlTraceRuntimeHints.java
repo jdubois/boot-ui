@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
 
@@ -23,10 +24,10 @@ public class SqlTraceRuntimeHints implements RuntimeHintsRegistrar {
 
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
-        hints.proxies().registerJdkProxy(SqlTracingProxies.DATA_SOURCE_INTERFACES);
-        hints.proxies().registerJdkProxy(SqlTracingProxies.CONNECTION_INTERFACES);
-        hints.proxies().registerJdkProxy(SqlTracingProxies.STATEMENT_INTERFACES);
-        hints.proxies().registerJdkProxy(SqlTracingProxies.PREPARED_STATEMENT_INTERFACES);
-        hints.proxies().registerJdkProxy(SqlTracingProxies.CALLABLE_STATEMENT_INTERFACES);
+        hints.proxies().registerJdkProxy(SqlTracingProxies.dataSourceInterfaces());
+        hints.proxies().registerJdkProxy(SqlTracingProxies.connectionInterfaces());
+        hints.proxies().registerJdkProxy(SqlTracingProxies.statementInterfaces());
+        hints.proxies().registerJdkProxy(SqlTracingProxies.preparedStatementInterfaces());
+        hints.proxies().registerJdkProxy(SqlTracingProxies.callableStatementInterfaces());
     }
 }

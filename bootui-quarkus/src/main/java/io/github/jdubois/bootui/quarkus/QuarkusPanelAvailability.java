@@ -305,6 +305,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
                 || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panel.id()) && connectionPoolsPresent)
                 || (BootUiPanels.SECURITY_LOGS.equals(panel.id()) && securityLogsAvailable)
+                || (BootUiPanels.SQL_TRACE.equals(panel.id()) && connectionPoolsPresent)
                 || (BootUiPanels.PROFILE_DIFF.equals(panel.id()) && profilesActive)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
@@ -331,6 +332,10 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId)) {
             return CONNECTION_POOLS_ABSENT;
+        }
+        if (BootUiPanels.SQL_TRACE.equals(panelId)) {
+            return "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"
+                    + " (e.g. quarkus-jdbc-h2) so SQL executions can be traced.";
         }
         if (BootUiPanels.PROFILE_DIFF.equals(panelId)) {
             return "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"

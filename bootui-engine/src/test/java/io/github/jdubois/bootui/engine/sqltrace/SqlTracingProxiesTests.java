@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.sqltrace;
+package io.github.jdubois.bootui.engine.sqltrace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -6,9 +6,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.CapturedStatement;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.CapturedStatement;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import java.io.Closeable;
 import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;

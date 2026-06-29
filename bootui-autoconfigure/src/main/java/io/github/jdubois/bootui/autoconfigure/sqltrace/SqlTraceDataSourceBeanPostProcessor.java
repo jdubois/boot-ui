@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

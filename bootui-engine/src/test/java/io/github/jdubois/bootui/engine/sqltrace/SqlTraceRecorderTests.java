@@ -1,11 +1,11 @@
-package io.github.jdubois.bootui.autoconfigure.sqltrace;
+package io.github.jdubois.bootui.engine.sqltrace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

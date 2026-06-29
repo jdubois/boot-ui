@@ -34,11 +34,11 @@ import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -546,6 +546,26 @@ public class BootUiAutoConfiguration {
                 sqlTrace.getMaxSqlLength(),
                 sqlTrace.getMaxParameterLength(),
                 sqlTrace.getNPlusOneThreshold());
+    }
+
+    /**
+     * Bridges the now-neutral {@link SqlTraceRecorder} (engine, implements {@code spi.IdleReclaimable})
+     * to BootUI's Spring idle-reclaim mechanism so {@link ConsoleActivityTracker} keeps suspending and
+     * resuming SQL capture while the console is idle, exactly as before the engine extraction.
+     */
+    @Bean
+    public IdleReclaimable bootUiSqlTraceRecorderIdleReclaimable(SqlTraceRecorder recorder) {
+        return new IdleReclaimable() {
+            @Override
+            public void suspendForIdle() {
+                recorder.suspendForIdle();
+            }
+
+            @Override
+            public void resumeFromIdle() {
+                recorder.resumeFromIdle();
+            }
+        };
     }
 
     @Bean

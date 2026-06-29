@@ -6,11 +6,12 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;

@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.sqltrace;
+package io.github.jdubois.bootui.engine.sqltrace;
 
 import java.io.PrintWriter;
 import java.sql.Connection;

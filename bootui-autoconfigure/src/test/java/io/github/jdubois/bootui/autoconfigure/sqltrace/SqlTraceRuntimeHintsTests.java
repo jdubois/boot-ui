@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -44,15 +46,15 @@ class SqlTraceRuntimeHintsTests {
 
     @Test
     void registrationsMatchTheInterfaceSetsUsedAtRuntime() {
-        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.DATA_SOURCE_INTERFACES))
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.dataSourceInterfaces()))
                 .accepts(hints);
-        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.CONNECTION_INTERFACES))
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.connectionInterfaces()))
                 .accepts(hints);
-        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.STATEMENT_INTERFACES))
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.statementInterfaces()))
                 .accepts(hints);
-        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.PREPARED_STATEMENT_INTERFACES))
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.preparedStatementInterfaces()))
                 .accepts(hints);
-        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.CALLABLE_STATEMENT_INTERFACES))
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.callableStatementInterfaces()))
                 .accepts(hints);
     }
 }

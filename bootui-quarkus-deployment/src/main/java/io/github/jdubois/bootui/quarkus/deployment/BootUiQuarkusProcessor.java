@@ -21,6 +21,7 @@ import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
 import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
+import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
@@ -37,6 +38,7 @@ import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationDefaultBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.NativeImageProxyDefinitionBuildItem;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
 import io.quarkus.maven.dependency.ResolvedDependency;
 import io.quarkus.runtime.LaunchMode;
@@ -110,6 +112,12 @@ class BootUiQuarkusProcessor {
     private static final String SECURITY_CAPTURE_CLASS =
             "io.github.jdubois.bootui.quarkus.web.QuarkusSecurityEventCapture";
 
+    // Referenced by class name only: BootUiSqlTraceProducer @Produces an Alternative DataSource that wraps the
+    // default Agroal pool, and imports io.agroal.*; the deployment classloader must never load it without a JDBC
+    // datasource extension on the classpath. Gated identically to AGROAL_PRODUCER_CLASS (AGROAL, dev/test).
+    private static final String SQL_TRACE_PRODUCER_CLASS =
+            "io.github.jdubois.bootui.quarkus.sqltrace.BootUiSqlTraceProducer";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -150,6 +158,7 @@ class BootUiQuarkusProcessor {
                         HttpExchangesResource.class,
                         LiveActivityResource.class,
                         SecurityLogsResource.class,
+                        SqlTraceResource.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());
@@ -862,6 +871,7 @@ class BootUiQuarkusProcessor {
         if (present) {
             additionalBeans.produce(AdditionalBeanBuildItem.builder()
                     .addBeanClass(AGROAL_PRODUCER_CLASS)
+                    .addBeanClass(SQL_TRACE_PRODUCER_CLASS)
                     .setUnremovable()
                     .build());
             runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
@@ -872,6 +882,33 @@ class BootUiQuarkusProcessor {
             // always-produced ConnectionPoolService and renders the panel unavailable; the panel is reported
             // unavailable in the manifest (CONNECTION_POOLS_PRESENT_KEY defaults to false).
             excludedTypes.produce(new ExcludedTypeBuildItem(AGROAL_PRODUCER_CLASS));
+            excludedTypes.produce(new ExcludedTypeBuildItem(SQL_TRACE_PRODUCER_CLASS));
         }
+    }
+
+    /**
+     * Registers the JDK dynamic proxies the SQL Trace capture creates ({@code DataSource}+{@code AgroalDataSource},
+     * {@code Connection}, {@code Statement}, {@code PreparedStatement}, {@code CallableStatement}) as native-image
+     * proxy metadata — the Quarkus analogue of the Spring adapter's {@code SqlTraceRuntimeHints}. Without it a
+     * native image crashes at runtime building a proxy over an unregistered interface set. Gated dev/test + AGROAL,
+     * matching the producer; the interface sets come from the shared engine constants so they cannot drift.
+     */
+    @BuildStep
+    void registerSqlTraceProxies(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<NativeImageProxyDefinitionBuildItem> proxies) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL || !capabilities.isPresent(Capability.AGROAL)) {
+            return;
+        }
+        proxies.produce(new NativeImageProxyDefinitionBuildItem(
+                "javax.sql.DataSource",
+                "java.lang.AutoCloseable",
+                "io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource",
+                "io.agroal.api.AgroalDataSource"));
+        proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.Connection"));
+        proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.Statement"));
+        proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.PreparedStatement"));
+        proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.CallableStatement"));
     }
 }

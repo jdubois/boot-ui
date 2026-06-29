@@ -1,14 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.CapturedStatement;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.ValueExposure;
-import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
-import java.util.ArrayList;
-import java.util.List;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.event.ContextClosedEvent;
@@ -120,22 +117,7 @@ public class SqlTraceController {
         }
         boolean exposeParameters =
                 recorder.isCaptureParameters() && exposure.valueExposure() != ValueExposure.METADATA_ONLY;
-        List<SqlTraceEntryDto> entries = recorder.recent().stream()
-                .map(entry -> toDto(entry, recorder, exposeParameters))
-                .toList();
-        return new SqlTraceReport(
-                true,
-                null,
-                recorder.isRecording(),
-                recorder.isCaptureParameters(),
-                recorder.getMaxEntries(),
-                recorder.totalCaptured(),
-                recorder.getSlowQueryThresholdMillis(),
-                recorder.dataSourceNames(),
-                recorder.stats(),
-                entries,
-                recorder.topStatements(),
-                warnings(recorder, exposeParameters));
+        return recorder.report(exposeParameters);
     }
 
     private String unavailableReason(SqlTraceRecorder recorder) {
@@ -146,40 +128,5 @@ public class SqlTraceController {
             return "No DataSource bean is available";
         }
         return "No DataSource has been wrapped for tracing yet.";
-    }
-
-    private List<String> warnings(SqlTraceRecorder recorder, boolean exposeParameters) {
-        List<String> warnings = new ArrayList<>();
-        if (!recorder.isRecording()) {
-            warnings.add("Recording is paused. Resume it to capture new queries.");
-        }
-        if (exposeParameters) {
-            warnings.add("Bound parameter values are captured in clear text. "
-                    + "Set bootui.sql-trace.capture-parameters=false to hide them.");
-        }
-        if (recorder.evicted() > 0) {
-            warnings.add(
-                    "Older queries were dropped; the buffer keeps the most recent " + recorder.getMaxEntries() + ".");
-        }
-        return warnings;
-    }
-
-    private SqlTraceEntryDto toDto(CapturedStatement entry, SqlTraceRecorder recorder, boolean exposeParameters) {
-        return new SqlTraceEntryDto(
-                entry.id(),
-                entry.timestamp(),
-                entry.sql(),
-                entry.statementType().name(),
-                entry.category().name(),
-                entry.durationMillis(),
-                entry.success(),
-                entry.errorMessage(),
-                entry.affectedRows(),
-                entry.batchSize(),
-                entry.connectionId(),
-                entry.thread(),
-                recorder.isSlow(entry.durationMillis()),
-                exposeParameters ? entry.parameters() : List.of(),
-                entry.traceId());
     }
 }

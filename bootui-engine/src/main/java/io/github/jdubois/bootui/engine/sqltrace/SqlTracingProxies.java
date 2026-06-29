@@ -1,7 +1,7 @@
-package io.github.jdubois.bootui.autoconfigure.sqltrace;
+package io.github.jdubois.bootui.engine.sqltrace;
 
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.Category;
-import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRecorder.StatementType;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -39,7 +39,7 @@ import javax.sql.DataSource;
  * cast a connection/statement directly to a driver-specific type must instead go
  * through {@code unwrap(...)}, which the proxy delegates to the real object.</p>
  */
-final class SqlTracingProxies {
+public final class SqlTracingProxies {
 
     private static final AtomicLong CONNECTION_IDS = new AtomicLong();
 
@@ -57,14 +57,56 @@ final class SqlTracingProxies {
 
     private SqlTracingProxies() {}
 
+    /** The connection/statement proxy interface sets, exposed so adapters can register native-image proxy hints. */
+    public static Class<?>[] connectionInterfaces() {
+        return CONNECTION_INTERFACES.clone();
+    }
+
+    public static Class<?>[] statementInterfaces() {
+        return STATEMENT_INTERFACES.clone();
+    }
+
+    public static Class<?>[] preparedStatementInterfaces() {
+        return PREPARED_STATEMENT_INTERFACES.clone();
+    }
+
+    public static Class<?>[] callableStatementInterfaces() {
+        return CALLABLE_STATEMENT_INTERFACES.clone();
+    }
+
+    /**
+     * The data-source proxy interface set for a given list of extra adapter interfaces (the Spring adapter
+     * passes none; the Quarkus adapter passes {@code AgroalDataSource} so the proxy still satisfies
+     * concrete-type injection). Adapters register the returned set as a native-image JDK proxy hint.
+     */
+    public static Class<?>[] dataSourceInterfaces(Class<?>... extraInterfaces) {
+        if (extraInterfaces == null || extraInterfaces.length == 0) {
+            return DATA_SOURCE_INTERFACES.clone();
+        }
+        Class<?>[] combined = new Class<?>[DATA_SOURCE_INTERFACES.length + extraInterfaces.length];
+        System.arraycopy(DATA_SOURCE_INTERFACES, 0, combined, 0, DATA_SOURCE_INTERFACES.length);
+        System.arraycopy(extraInterfaces, 0, combined, DATA_SOURCE_INTERFACES.length, extraInterfaces.length);
+        return combined;
+    }
+
     /** Wraps a data source so all SQL flowing through it is recorded. */
-    static DataSource wrap(DataSource dataSource, SqlTraceRecorder recorder) {
+    public static DataSource wrap(DataSource dataSource, SqlTraceRecorder recorder) {
+        return wrap(dataSource, recorder, DATA_SOURCE_INTERFACES);
+    }
+
+    /**
+     * Wraps a data source advertising additional adapter interfaces (in addition to the standard
+     * {@link #DATA_SOURCE_INTERFACES}), so concrete-type injectors — such as Quarkus's
+     * {@code AgroalDataSource} — still resolve the traced proxy. {@code unwrap} is delegated to the
+     * target so connection-pool discovery and metrics still reach the real pool.
+     */
+    public static DataSource wrap(DataSource dataSource, SqlTraceRecorder recorder, Class<?>... interfaces) {
         if (dataSource instanceof SqlTracedDataSource) {
             return dataSource;
         }
         DataSource target = unwrapForeignTracedProxy(dataSource);
         return (DataSource) Proxy.newProxyInstance(
-                dataSourceProxyClassLoader(target), DATA_SOURCE_INTERFACES, new DataSourceHandler(target, recorder));
+                dataSourceProxyClassLoader(target), interfaces, new DataSourceHandler(target, recorder));
     }
 
     /**

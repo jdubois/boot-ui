@@ -1,8 +1,10 @@
-package io.github.jdubois.bootui.autoconfigure.sqltrace;
+package io.github.jdubois.bootui.engine.sqltrace;
 
-import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
+import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
+import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.spi.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -345,6 +347,65 @@ public final class SqlTraceRecorder implements IdleReclaimable {
 
     String truncateParameter(String value) {
         return truncate(value, maxParameterLength);
+    }
+
+    /**
+     * Assembles the immutable {@link SqlTraceReport} the panel renders, shared verbatim by the Spring and
+     * Quarkus adapters so the wire is byte-identical regardless of capture mechanism. Bound parameter values
+     * are surfaced only when {@code exposeParameters} is {@code true} (capture enabled and value exposure not
+     * metadata-only); otherwise every entry's parameters collapse to an empty list. The adapter decides the
+     * unavailable case (no data source / tracing off); this method covers the available, wrapped case.
+     */
+    public SqlTraceReport report(boolean exposeParameters) {
+        List<SqlTraceEntryDto> entries =
+                recent().stream().map(entry -> toDto(entry, exposeParameters)).toList();
+        return new SqlTraceReport(
+                true,
+                null,
+                isRecording(),
+                isCaptureParameters(),
+                getMaxEntries(),
+                totalCaptured(),
+                getSlowQueryThresholdMillis(),
+                dataSourceNames(),
+                stats(),
+                entries,
+                topStatements(),
+                warnings(exposeParameters));
+    }
+
+    private List<String> warnings(boolean exposeParameters) {
+        List<String> warnings = new ArrayList<>();
+        if (!isRecording()) {
+            warnings.add("Recording is paused. Resume it to capture new queries.");
+        }
+        if (exposeParameters) {
+            warnings.add("Bound parameter values are captured in clear text. "
+                    + "Set bootui.sql-trace.capture-parameters=false to hide them.");
+        }
+        if (evicted() > 0) {
+            warnings.add("Older queries were dropped; the buffer keeps the most recent " + getMaxEntries() + ".");
+        }
+        return warnings;
+    }
+
+    private SqlTraceEntryDto toDto(CapturedStatement entry, boolean exposeParameters) {
+        return new SqlTraceEntryDto(
+                entry.id(),
+                entry.timestamp(),
+                entry.sql(),
+                entry.statementType().name(),
+                entry.category().name(),
+                entry.durationMillis(),
+                entry.success(),
+                entry.errorMessage(),
+                entry.affectedRows(),
+                entry.batchSize(),
+                entry.connectionId(),
+                entry.thread(),
+                isSlow(entry.durationMillis()),
+                exposeParameters ? entry.parameters() : List.of(),
+                entry.traceId());
     }
 
     private static String truncate(String value, int max) {
