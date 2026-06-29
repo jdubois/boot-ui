@@ -11,7 +11,7 @@ name: Publish Docker images
 #
 # Each Dockerfile copies the whole multi-module reactor and builds its sample app from
 # that reactor, so the build context is the repository root. (The four Spring images
-# build `bootui-sample-app`; the Quarkus image builds `bootui-quarkus-sample-app`.)
+# build `bootui-spring-sample-app`; the Quarkus image builds `bootui-quarkus-sample-app`.)
 #
 # The images are published once a day from the main branch (scheduled events run
 # against the default branch) and can also be built on demand from the Actions tab.
@@ -24,7 +24,7 @@ name: Publish Docker images
 #
 #   1. docker-config - validate the sample app's full Docker stack (the "docker"
 #      Spring profile: PostgreSQL, Redis and Ollama from
-#      bootui-sample-app/compose.yaml). Runs the full Maven test suite and then the
+#      bootui-spring-sample-app/compose.yaml). Runs the full Maven test suite and then the
 #      Playwright end-to-end suite against a sample app booted with the "docker"
 #      profile, catching regressions in compose.yaml, the Redis-backed cache and the
 #      Ollama / Spring AI wiring that the Docker-free build.yml does not exercise. The
@@ -121,24 +121,24 @@ jobs:
           cache: npm
           cache-dependency-path: |
             bootui-ui/src/main/frontend/package-lock.json
-            bootui-sample-app/e2e/package-lock.json
+            bootui-spring-sample-app/e2e/package-lock.json
 
       - name: Build all modules and run the full test suite
         run: ./mvnw -B -ntp clean install
 
       - name: Install Playwright dependencies
-        working-directory: bootui-sample-app/e2e
+        working-directory: bootui-spring-sample-app/e2e
         run: npm ci --ignore-scripts
 
       - name: Install Playwright browsers
-        working-directory: bootui-sample-app/e2e
+        working-directory: bootui-spring-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Pre-pull the Docker Compose images
-        run: docker compose -f bootui-sample-app/compose.yaml pull
+        run: docker compose -f bootui-spring-sample-app/compose.yaml pull
 
       - name: Run the end-to-end suite against the Docker profile
-        working-directory: bootui-sample-app/e2e
+        working-directory: bootui-spring-sample-app/e2e
         env:
           # Boot the sample app with the full Docker stack instead of the Docker-free default.
           BOOTUI_SAMPLE_PROFILES: docker
@@ -148,11 +148,11 @@ jobs:
 
       - name: Print Docker Compose logs on failure
         if: failure()
-        run: docker compose -f bootui-sample-app/compose.yaml logs --no-color
+        run: docker compose -f bootui-spring-sample-app/compose.yaml logs --no-color
 
       - name: Tear down any leftover Docker Compose services
         if: always()
-        run: docker compose -f bootui-sample-app/compose.yaml down --volumes --remove-orphans
+        run: docker compose -f bootui-spring-sample-app/compose.yaml down --volumes --remove-orphans
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
@@ -160,8 +160,8 @@ jobs:
         with:
           name: playwright-report-docker
           path: |
-            bootui-sample-app/e2e/playwright-report/
-            bootui-sample-app/e2e/test-results/
+            bootui-spring-sample-app/e2e/playwright-report/
+            bootui-spring-sample-app/e2e/test-results/
           if-no-files-found: ignore
           retention-days: 7
 

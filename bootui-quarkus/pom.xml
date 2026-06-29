@@ -13,7 +13,7 @@
     <artifactId>bootui-quarkus</artifactId>
     <name>BootUI :: Quarkus Extension (Runtime)</name>
     <description>Quarkus extension that serves the BootUI developer console — the Quarkus adapter over the
-        framework-neutral bootui-engine, the analogue of bootui-autoconfigure on Spring Boot.</description>
+        framework-neutral bootui-engine, the analogue of bootui-spring-autoconfigure on Spring Boot.</description>
 
     <!--
         This is the RUNTIME half of the BootUI Quarkus extension (deployment half: bootui-quarkus-deployment).

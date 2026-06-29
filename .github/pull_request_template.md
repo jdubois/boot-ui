@@ -11,7 +11,7 @@ Closes #
 ## How was it tested?
 
 - [ ] `./mvnw clean install` passes locally
-- [ ] Started `bootui-sample-app` and verified `/bootui` loads and the change works end-to-end
+- [ ] Started `bootui-spring-sample-app` and verified `/bootui` loads and the change works end-to-end
 - [ ] Added or updated tests where applicable
 
 ## Screenshots (UI changes)

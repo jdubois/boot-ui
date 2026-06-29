@@ -32,7 +32,7 @@ import java.util.Set;
  * treated as part of the managed section and not preserved.</p>
  *
  * <p>This class never uses a third-party YAML library so that it imposes no
- * additional classpath dependency on {@code bootui-autoconfigure}. It therefore
+ * additional classpath dependency on {@code bootui-spring-autoconfigure}. It therefore
  * understands only the minimal block format it writes: a top-level
  * {@code dismissedRules:} key followed by two-space-indented {@code - <id>} list
  * items. Inline comments or quoted scalars on those items are not interpreted.</p>

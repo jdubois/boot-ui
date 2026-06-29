@@ -62,11 +62,11 @@ SHARED (framework-neutral, built once, reused by both backends)
   bootui-ui              Vue 3 SPA + REST contract                            (unchanged — built once)
 
 SPRING ADAPTER
-  bootui-autoconfigure        Spring MVC controllers (thin) + SPI impls over
+  bootui-spring-autoconfigure        Spring MVC controllers (thin) + SPI impls over
                               Actuator/ApplicationContext/Environment +
                               servlet safety filters + EnvironmentPostProcessors
   bootui-spring-boot-starter  Drop-in starter                                 (unchanged role)
-  bootui-sample-app           Demo/integration app + Playwright e2e           (unchanged)
+  bootui-spring-sample-app           Demo/integration app + Playwright e2e           (unchanged)
 
 QUARKUS ADAPTER
   bootui-quarkus              NEW (runtime): JAX-RS/Vert.x resources (thin) +
@@ -237,7 +237,7 @@ deliberately small relative to the shared engine and UI.
 
 ## 8. Quarkus sample app & end-to-end testing
 
-Quarkus support needs its own reference application, mirroring `bootui-sample-app`: a new `bootui-quarkus-sample-app`
+Quarkus support needs its own reference application, mirroring `bootui-spring-sample-app`: a new `bootui-quarkus-sample-app`
 reactor module that is a deliberately feature-rich Quarkus **dev** application exercising every supported panel, plus a
 parallel Playwright suite. Like the Spring sample app it is **demo/integration only** and must set
 `<maven.deploy.skip>true</maven.deploy.skip>` so it is never published to Maven Central, while still building as part of
@@ -274,7 +274,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 - **Run:** `./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev` starts Quarkus dev mode and serves the console at
   `http://localhost:8080/bootui` — the analogue of the Spring sample app's `spring-boot:run` smoke-test path. Quarkus
   live reload replaces DevTools for the inner loop. (`-am` builds the upstream `bootui-quarkus` extension first.)
-- **e2e:** a `bootui-quarkus-sample-app/e2e/` Playwright project mirrors `bootui-sample-app/e2e/`. Keep the specs for the
+- **e2e:** a `bootui-quarkus-sample-app/e2e/` Playwright project mirrors `bootui-spring-sample-app/e2e/`. Keep the specs for the
   ~36 supported panels; drop the specs for panels not shipped on Quarkus (`beans`, `conditions`, `startup`,
   `profile-diff`, `spring-security`, `data`, `http-sessions`, `graalvm`, `crac`, `devtools`, `security`); add
   `quarkus-advisor.spec.js` and `quarkus-cache.spec.js`. Reuse the existing `fixtures.js` / `app-shell.spec.js` patterns.
@@ -289,7 +289,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 ## 9. Phased delivery
 
 1. **Phase 0 — Refactor in place (no behavior change).** Introduce `bootui-spi` and `bootui-engine`; move
-   framework-neutral services and advisor engines out of `bootui-autoconfigure`; reimplement the Spring controllers as
+   framework-neutral services and advisor engines out of `bootui-spring-autoconfigure`; reimplement the Spring controllers as
    thin bindings over the shared services; extract `LocalhostGuard`. Spring BootUI must stay green (all existing JUnit,
    Vitest, and Playwright suites pass) — this phase ships value even without Quarkus.
 2. **Phase 1 — Quarkus MVP.** Stand up `bootui-quarkus` + `-deployment`, serve the shared UI at `/bootui/`, wire the

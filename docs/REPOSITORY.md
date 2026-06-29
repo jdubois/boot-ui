@@ -3,10 +3,10 @@
 ## Modules
 
 - `bootui-spring-boot-starter`: dependency to add to your app.
-- `bootui-autoconfigure`: Spring Boot auto-configuration, REST controllers, and safety filter.
+- `bootui-spring-autoconfigure`: Spring Boot auto-configuration, REST controllers, and safety filter.
 - `bootui-ui`: Vue 3 frontend packaged into the starter at `META-INF/resources/bootui/`.
 - `bootui-core`: shared DTOs, secret masking, and core helpers.
-- `bootui-sample-app`: demo and integration sample app used for screenshots and Playwright coverage.
+- `bootui-spring-sample-app`: demo and integration sample app used for screenshots and Playwright coverage.
 
 ## Documentation website
 

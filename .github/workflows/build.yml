@@ -41,7 +41,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             bootui-ui/src/main/frontend/package-lock.json
-            bootui-sample-app/e2e/package-lock.json
+            bootui-spring-sample-app/e2e/package-lock.json
 
       - name: Check Maven formatting
         run: ./mvnw -B -ntp spotless:check
@@ -54,19 +54,19 @@ jobs:
         run: npm run format:check
 
       - name: Install Playwright dependencies
-        working-directory: bootui-sample-app/e2e
+        working-directory: bootui-spring-sample-app/e2e
         run: npm ci --ignore-scripts
 
       - name: Check Playwright formatting
-        working-directory: bootui-sample-app/e2e
+        working-directory: bootui-spring-sample-app/e2e
         run: npm run format:check
 
       - name: Install Playwright browsers
-        working-directory: bootui-sample-app/e2e
+        working-directory: bootui-spring-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Run Playwright end-to-end tests
-        working-directory: bootui-sample-app/e2e
+        working-directory: bootui-spring-sample-app/e2e
         run: npm test
 
       - name: Publish Java test report
@@ -94,7 +94,7 @@ jobs:
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
         with:
           name: End-to-end tests (Playwright)
-          path: bootui-sample-app/e2e/test-results/junit/results.xml
+          path: bootui-spring-sample-app/e2e/test-results/junit/results.xml
           reporter: jest-junit
           fail-on-error: false
           fail-on-empty: false
@@ -105,8 +105,8 @@ jobs:
         with:
           name: playwright-report
           path: |
-            bootui-sample-app/e2e/playwright-report/
-            bootui-sample-app/e2e/test-results/
+            bootui-spring-sample-app/e2e/playwright-report/
+            bootui-spring-sample-app/e2e/test-results/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -118,7 +118,7 @@ jobs:
           path: |
             **/target/surefire-reports/TEST-*.xml
             bootui-ui/src/main/frontend/test-results/vitest-junit.xml
-            bootui-sample-app/e2e/test-results/junit/results.xml
+            bootui-spring-sample-app/e2e/test-results/junit/results.xml
           if-no-files-found: ignore
           retention-days: 7
 
@@ -126,8 +126,8 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: bootui-sample-app
-          path: bootui-sample-app/target/*.jar
+          name: bootui-spring-sample-app
+          path: bootui-spring-sample-app/target/*.jar
           if-no-files-found: warn
           retention-days: 7
 

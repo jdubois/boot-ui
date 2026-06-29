@@ -13,7 +13,7 @@
 #
 # Combined, these reduce Spring-reported startup time by roughly 35–55 % compared
 # with the plain JVM image, at the cost of a larger image (~70–100 MB for the
-# AOT cache file). See the benchmark table in bootui-sample-app/README.md.
+# AOT cache file). See the benchmark table in bootui-spring-sample-app/README.md.
 #
 # Unlike CRaC, no CRIU privileges are required. Unlike GraalVM native, the
 # Spring profile can still be overridden at runtime.

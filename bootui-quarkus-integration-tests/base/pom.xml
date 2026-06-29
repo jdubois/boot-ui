@@ -19,7 +19,7 @@
 
     <!--
         This module deliberately has NO datasource / messaging dependencies, so a @QuarkusTest boots without
-        Docker (no Dev Services). It is the Quarkus analogue of bootui-sample-app's SpringApiConformanceTest:
+        Docker (no Dev Services). It is the Quarkus analogue of bootui-spring-sample-app's SpringApiConformanceTest:
         it proves the engine-backed /bootui/api/** surface and the safety floor behave on Quarkus exactly as
         the shared contract requires. Never published.
     -->

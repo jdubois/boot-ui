@@ -15,7 +15,7 @@
     <description>Reference Quarkus application that demonstrates the BootUI developer console (see docs/QUARKUS-SUPPORT.md).</description>
 
     <!--
-        Quarkus analogue of bootui-sample-app: a reference Quarkus application that demonstrates the
+        Quarkus analogue of bootui-spring-sample-app: a reference Quarkus application that demonstrates the
         BootUI developer console (see docs/QUARKUS-SUPPORT.md §8).
 
         This module lives in the root pom's always-on <modules> list so that IDEs (e.g. IntelliJ) import it
@@ -30,7 +30,7 @@
     -->
 
     <properties>
-        <!-- Demo/integration module only: never publish to Maven Central (mirrors bootui-sample-app). -->
+        <!-- Demo/integration module only: never publish to Maven Central (mirrors bootui-spring-sample-app). -->
         <maven.deploy.skip>true</maven.deploy.skip>
 
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>

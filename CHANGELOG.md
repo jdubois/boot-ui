@@ -17,6 +17,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   API path `GET /bootui/api/spring-cache` has been removed with no server-side alias (use `/bootui/api/cache`),
   and the old `bootui.panels.spring-cache.*` config keys are no longer read (rename them to
   `bootui.panels.cache.*`).
+- **Renamed the Spring adapter modules to carry a `spring` token**, matching the Quarkus adapter's naming
+  (`bootui-quarkus*`): the auto-configuration module `bootui-autoconfigure` is now `bootui-spring-autoconfigure`,
+  and the reference app `bootui-sample-app` is now `bootui-spring-sample-app`. **The only breaking change is the
+  published Maven Central coordinate `com.julien-dubois.bootui:bootui-autoconfigure` → `…:bootui-spring-autoconfigure`.**
+  Consumers who depend on `bootui-spring-boot-starter` (the recommended path) need no change — the starter pulls in
+  the renamed module transitively. Only projects that declared a direct dependency on `bootui-autoconfigure` must
+  update the artifact id. The `bootui-spring-boot-starter` artifact id is unchanged, Java package names
+  (`io.github.jdubois.bootui.*`) are unchanged, and the published Docker image names (`jdubois/bootui-sample-app*`)
+  are unchanged.
 
 ## [1.7.0] - 2026-06-29
 

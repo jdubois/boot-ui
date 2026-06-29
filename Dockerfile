@@ -4,7 +4,7 @@
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into
 # the build stage and the sample app is built together with the modules it
-# depends on (`-pl bootui-sample-app -am`).
+# depends on (`-pl bootui-spring-sample-app -am`).
 #
 # This image is deliberately kept small and low-CVE with three techniques:
 #   1. The repackaged Spring Boot jar is exploded into its layers
@@ -75,14 +75,14 @@ RUN chmod +x mvnw
 # image size. (Requires BuildKit, the default in modern Docker.)
 RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
-    ./mvnw -DskipTests -pl bootui-sample-app -am clean package
+    ./mvnw -DskipTests -pl bootui-spring-sample-app -am clean package
 
 # Explode the repackaged Spring Boot jar into its layers (dependencies,
 # spring-boot-loader, snapshot-dependencies, application). These are copied
 # separately into the runtime stage so the large, rarely-changing dependency
 # layer is reused from cache across rebuilds, and the app runs exploded via the
 # JarLauncher rather than re-copying the whole fat jar.
-RUN cp bootui-sample-app/target/bootui-sample-app-*.jar app.jar && \
+RUN cp bootui-spring-sample-app/target/bootui-spring-sample-app-*.jar app.jar && \
     java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 # ---------------------------------------------------------------------------

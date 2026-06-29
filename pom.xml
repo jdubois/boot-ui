@@ -40,11 +40,11 @@
         <module>bootui-core</module>
         <module>bootui-spi</module>
         <module>bootui-engine</module>
-        <module>bootui-autoconfigure</module>
+        <module>bootui-spring-autoconfigure</module>
         <module>bootui-spring-boot-starter</module>
         <module>bootui-ui</module>
         <module>bootui-conformance</module>
-        <module>bootui-sample-app</module>
+        <module>bootui-spring-sample-app</module>
         <module>bootui-quarkus</module>
         <module>bootui-quarkus-deployment</module>
         <module>bootui-quarkus-integration-tests</module>
@@ -124,7 +124,7 @@
             </dependency>
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>bootui-autoconfigure</artifactId>
+                <artifactId>bootui-spring-autoconfigure</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

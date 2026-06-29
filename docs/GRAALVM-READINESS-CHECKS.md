@@ -5,9 +5,9 @@ readiness and can generate a `reachability-metadata.json` scaffold from the scan
 with BootUI today, what it inspects, when it fires, and what to do about it.
 
 Each check is a small class registered in
-[`GraalVmCheckRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmCheckRegistry.java)
+[`GraalVmCheckRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmCheckRegistry.java)
 and implemented in
-[`GraalVmChecks.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmChecks.java).
+[`GraalVmChecks.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmChecks.java).
 The list intentionally stays compact and reviewable; adding a new check means adding one focused class plus a registry
 entry.
 
@@ -59,7 +59,7 @@ package is resolvable from the running application. If no classes can be importe
 report with an explanatory reason rather than failing.
 
 Separately from the panel scan, BootUI registers Spring AOT runtime hints for its own native-image needs from
-[`BootUiRuntimeHints`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java).
+[`BootUiRuntimeHints`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java).
 Those built-in hints cover BootUI's runtime-scanned classpath resources, BootUI DTO records used by Jackson, and the
 well-known reflective calls used by the Heap Dump, Security, and Pentesting panels. They are contributed by
 `BootUiAutoConfiguration`, so applications using the starter should not need to copy BootUI-specific hints into their own

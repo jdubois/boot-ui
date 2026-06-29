@@ -17,7 +17,7 @@
 # Running the sample app against a real PostgreSQL + Redis under CRaC is possible
 # but needs extra care (those services must be up both when the checkpoint is
 # taken and when it is restored, and an open pooled connection at checkpoint time
-# aborts CRaC). See the "Run it with CRaC" section of bootui-sample-app/README.md.
+# aborts CRaC). See the "Run it with CRaC" section of bootui-spring-sample-app/README.md.
 
 services:
   app:

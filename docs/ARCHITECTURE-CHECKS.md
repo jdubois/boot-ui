@@ -5,9 +5,9 @@ application's own classes. This page lists every rule that ships with BootUI tod
 what to do about it.
 
 Each rule is a small class registered in
-[`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRuleRegistry.java)
+[`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRuleRegistry.java)
 and implemented in
-[`ArchitectureRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRules.java).
+[`ArchitectureRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRules.java).
 The list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry
 entry.
 

@@ -1,7 +1,7 @@
 # BootUI Quarkus Sample App
 
 A reference [Quarkus](https://quarkus.io/) application that demonstrates the BootUI developer console,
-the Quarkus analogue of [`bootui-sample-app`](../bootui-sample-app). It exists so every BootUI panel that
+the Quarkus analogue of [`bootui-spring-sample-app`](../bootui-spring-sample-app). It exists so every BootUI panel that
 ships on Quarkus has realistic, non-sensitive data to show, and as the integration target for the Quarkus
 e2e suite.
 
@@ -100,6 +100,6 @@ docker run --rm -p 8080:8080 \
 
 ## Not published
 
-Like `bootui-sample-app`, this module sets `<maven.deploy.skip>true</maven.deploy.skip>` and is never released
+Like `bootui-spring-sample-app`, this module sets `<maven.deploy.skip>true</maven.deploy.skip>` and is never released
 to Maven Central. The Docker image above is built from this repository; unlike the Spring sample images it is
 not (yet) published to Docker Hub.

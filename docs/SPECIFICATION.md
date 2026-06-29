@@ -1000,10 +1000,10 @@ BootUI/
 │   └── PLAN.md
 ├── pom.xml
 ├── bootui-core/
-├── bootui-autoconfigure/
+├── bootui-spring-autoconfigure/
 ├── bootui-spring-boot-starter/
 ├── bootui-ui/
-└── bootui-sample-app/
+└── bootui-spring-sample-app/
 ```
 
 ### 6.2 Modules
@@ -1020,7 +1020,7 @@ Responsibilities:
 - Safe value rendering.
 - Common error model.
 
-#### `bootui-autoconfigure`
+#### `bootui-spring-autoconfigure`
 
 Spring Boot 4 auto-configuration module.
 
@@ -1038,7 +1038,7 @@ Spring Boot 4 starter dependency for users.
 
 Responsibilities:
 
-- Pull `bootui-autoconfigure`.
+- Pull `bootui-spring-autoconfigure`.
 - Pull `bootui-ui`, `spring-boot-starter-web`, and `spring-boot-starter-actuator`.
 - Avoid bringing production-heavy dependencies.
 
@@ -1066,14 +1066,14 @@ Build requirements:
 
 - The Maven build must install/use the configured Node.js and npm versions for reproducible frontend builds.
 - The frontend build must run before Java resources are packaged.
-- The generated Vue assets must be copied into a classpath location served by `bootui-autoconfigure`, such as
+- The generated Vue assets must be copied into a classpath location served by `bootui-spring-autoconfigure`, such as
   `META-INF/resources/bootui/`.
 - `./mvnw clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue
   UI.
 - Consumer Spring Boot 4 applications should only need the `bootui-spring-boot-starter` dependency; they must not run
   `npm install` or `npm run build` themselves.
 
-#### `bootui-sample-app`
+#### `bootui-spring-sample-app`
 
 Sample Spring Boot app used for demos and integration tests.
 
@@ -1495,7 +1495,7 @@ Future compatibility:
 
 ### 9.4 Browser/UI tests
 
-- Playwright smoke tests for all visible panels in `bootui-sample-app/e2e`.
+- Playwright smoke tests for all visible panels in `bootui-spring-sample-app/e2e`.
 - Search and filter behavior.
 - Masked values stay masked.
 - Empty states are readable.

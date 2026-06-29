@@ -24,9 +24,9 @@ bootui-conformance  Test-support: one abstract HTTP contract suite + golden pane
 bootui-ui      Vue 3 + Vite SPA, built once into META-INF/resources/bootui/
 
 # Spring Boot adapter
-bootui-autoconfigure        Thin @RestController endpoints + SPI impls + safety filters + EnvironmentPostProcessors
+bootui-spring-autoconfigure        Thin @RestController endpoints + SPI impls + safety filters + EnvironmentPostProcessors
 bootui-spring-boot-starter  Drop-in dependency (autoconfigure + ui + spring-boot-starter-web + actuator)
-bootui-sample-app           Reference Spring Boot 4 app for demos + Playwright e2e
+bootui-spring-sample-app           Reference Spring Boot 4 app for demos + Playwright e2e
 
 # Quarkus adapter
 bootui-quarkus              Runtime: JAX-RS resources + SPI impls + CDI @Produces + Vert.x safety filter
@@ -100,12 +100,12 @@ Load-bearing rules:
 
 ```bash
 # Backend + UI iteration loop. NOTE: -am pulls in bootui-ui (the starter depends on it), so the Vue app IS rebuilt.
-./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
+./mvnw -pl bootui-core,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-sample-app -am install
 # To genuinely skip the Vue rebuild, drop -am (works once bootui-ui has been installed at least once).
-./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app install
+./mvnw -pl bootui-core,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-sample-app install
 
 # Fastest sample app launch (smoke-test path: http://localhost:8080/bootui).
-./mvnw -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -o -ntp -pl bootui-spring-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
 # If offline mode misses a dependency, drop -o once.
 
 # Single test class / single test method.
@@ -115,7 +115,7 @@ Load-bearing rules:
 
 Do **not** add `-am` to `spring-boot:run`: Maven applies the goal to every selected reactor project, including the
 parent/core/UI modules, and those modules have no main class. Use `-am` for build/test reactor work instead
-(`./mvnw -pl bootui-sample-app -am test`).
+(`./mvnw -pl bootui-spring-sample-app -am test`).
 
 ### Quarkus adapter
 
@@ -143,7 +143,7 @@ deliberately Docker-free.
 ./mvnw -pl bootui-ui install
 
 # Browser end-to-end suite (required for UI, browser-facing API, or sample-app changes).
-(cd bootui-sample-app/e2e && npm ci && npx playwright install --with-deps chromium && npm test)
+(cd bootui-spring-sample-app/e2e && npm ci && npx playwright install --with-deps chromium && npm test)
 ```
 
 ### Isolating parallel worktrees
@@ -154,8 +154,8 @@ isolated local repository and run from that same repo (per-invocation, or via a 
 `.mvn/maven.config`):
 
 ```bash
-./mvnw -Dmaven.repo.local=.m2 -ntp -pl bootui-sample-app -am -DskipTests install
-./mvnw -Dmaven.repo.local=.m2 -o -ntp -pl bootui-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -Dmaven.repo.local=.m2 -ntp -pl bootui-spring-sample-app -am -DskipTests install
+./mvnw -Dmaven.repo.local=.m2 -o -ntp -pl bootui-spring-sample-app -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 ### Live UI iteration (hot reload)
@@ -177,7 +177,7 @@ so the browser's `:5173` origin is accepted against the `:8080`/`$COPILOT_PORT` 
 
 CI (`.github/workflows/build.yml`) runs `./mvnw -B -ntp clean install` on Java 17 — which builds both adapters, runs the
 shared conformance suite against both, runs the frontend Vitest suite through Maven, builds + augments the Quarkus sample
-app (JDK-gated profile), installs Playwright Chromium, and runs `bootui-sample-app/e2e` with `npm test`. CodeQL covers
+app (JDK-gated profile), installs Playwright Chromium, and runs `bootui-spring-sample-app/e2e` with `npm test`. CodeQL covers
 Java/Kotlin and JavaScript/TypeScript when code scanning is enabled. The release workflow publishes `v*` tags to Maven
 Central through the `release` profile and the Sonatype Central Publishing plugin.
 
@@ -189,7 +189,7 @@ Central through the `release` profile and the Sonatype Central Publishing plugin
 ```bash
 ./mvnw -B -ntp spotless:apply
 (cd bootui-ui/src/main/frontend && npm run format)
-(cd bootui-sample-app/e2e && npm run format)
+(cd bootui-spring-sample-app/e2e && npm run format)
 ```
 
 - Do not commit or create/update a PR until the same formatting checks CI uses pass:
@@ -197,7 +197,7 @@ Central through the `release` profile and the Sonatype Central Publishing plugin
 ```bash
 ./mvnw -B -ntp spotless:check
 (cd bootui-ui/src/main/frontend && npm run format:check)
-(cd bootui-sample-app/e2e && npm run format:check)
+(cd bootui-spring-sample-app/e2e && npm run format:check)
 ```
 
 - **`spotless:check` runs over the whole reactor.** On Java 17 that includes `bootui-quarkus-sample-app` (the JDK-gated
@@ -582,7 +582,7 @@ hide newer ones. Keep API, UI,
   advisor logic.
 - The Claude Code panel reuses `views/Copilot.vue` (`component: Copilot`); there is no separate `ClaudeCode.vue`.
 - The route order and `meta.group` keys in `routes.js` (each `group` must exist in its `groups` map), `docs/FEATURES.md`,
-  and the sample-app navigation test (`bootui-sample-app/e2e/tests/app-shell.spec.js`) must stay consistent when panels are
+  and the sample-app navigation test (`bootui-spring-sample-app/e2e/tests/app-shell.spec.js`) must stay consistent when panels are
   added, renamed, hidden, or reordered. When renaming a route path, add a redirect from the old path (see the redirect
   block at the end of `routes.js`).
 - New browser-facing behavior usually needs a stable DTO, controller tests where practical, Vue route/view updates,
@@ -641,7 +641,7 @@ hide newer ones. Keep API, UI,
 
 Subtle constraints that have burned past releases — preserve them when touching `pom.xml` files or the release profile.
 The published artifacts are the shared modules and both adapters (`bootui-core`, `-spi`, `-engine`, `-ui`,
-`-autoconfigure`, `-spring-boot-starter`, `-quarkus`, `-quarkus-deployment`); the demo/test modules (`bootui-sample-app`,
+`-autoconfigure`, `-spring-boot-starter`, `-quarkus`, `-quarkus-deployment`); the demo/test modules (`bootui-spring-sample-app`,
 `bootui-quarkus-sample-app`, `bootui-quarkus-integration-tests`, `bootui-conformance`) set
 `<maven.deploy.skip>true</maven.deploy.skip>` — they must still build so the publishing plugin sees the full reactor, but
 must not be published.
@@ -666,7 +666,7 @@ must not be published.
 - **Use the `Release` workflow (`.github/workflows/release.yml`) to bump versions** rather than running `versions:set` by
   hand. It runs `versions:set`, updates the `docs/SETUP.md` install snippet (the public `README.md` only links to the docs
   site), *and* bumps every npm `package.json` / `package-lock.json` (root docs site, `bootui-ui` frontend, the
-  `bootui-sample-app/e2e` suite) via `npm version --no-git-tag-version`, then verify-builds, commits, tags, and publishes.
+  `bootui-spring-sample-app/e2e` suite) via `npm version --no-git-tag-version`, then verify-builds, commits, tags, and publishes.
   Manual `versions:set` skips the install-snippet rewrite and the npm bumps, leaving them pointing at a stale version. When
   touching version strings, keep the Quarkus modules' `quarkus.platform.version` independent of the project version.
 

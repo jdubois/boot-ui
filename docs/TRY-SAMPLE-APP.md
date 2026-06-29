@@ -81,7 +81,7 @@ docker run --rm -p 8080:8080 \
 
 The first start boots once to write the checkpoint into the `bootui-sample-app-crac` volume; every later start restores
 the warmed-up JVM in tens of milliseconds. Delete the volume (`docker volume rm bootui-sample-app-crac`) to force a fresh
-checkpoint. See the ["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md)
+checkpoint. See the ["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md)
 section of the sample app README for details.
 
 ## BootUI on Quarkus
@@ -117,5 +117,5 @@ Startup Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools) and are
 ## Want the full experience?
 
 To exercise every panel with PostgreSQL, Redis, and Ollama, run the sample app with the `docker` profile from a checkout
-of the repository — see the [sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md#run-it-with-docker)
+of the repository — see the [sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md#run-it-with-docker)
 for details.

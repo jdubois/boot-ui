@@ -2,7 +2,7 @@
 
 [Playwright](https://playwright.dev/) end-to-end tests that drive the BootUI console served by the
 [`bootui-quarkus-sample-app`](../) Quarkus module from a real Chromium browser. They are the Quarkus
-analogue of [`bootui-sample-app/e2e`](../../bootui-sample-app/e2e) and exist to prove that the **one
+analogue of [`bootui-spring-sample-app/e2e`](../../bootui-spring-sample-app/e2e) and exist to prove that the **one
 shared Vue UI** works end to end against the **Quarkus** adapter, not just Spring Boot.
 
 The suite is deliberately focused rather than a 1:1 copy of the ~40 Spring specs. Per-panel UI logic is

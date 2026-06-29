@@ -6,7 +6,7 @@ import {defineConfig, devices} from '@playwright/test'
  *
  * The tests drive the BootUI console served at `http://localhost:8080/bootui/`
  * by the `bootui-quarkus-sample-app` Quarkus module, using a real Chromium browser.
- * It is the Quarkus analogue of `bootui-sample-app/e2e` and proves that the one shared
+ * It is the Quarkus analogue of `bootui-spring-sample-app/e2e` and proves that the one shared
  * Vue UI works end-to-end against the Quarkus adapter, not just the Spring one.
  *
  * By default Playwright boots the sample app for you via `./mvnw quarkus:dev` (requires a prior
