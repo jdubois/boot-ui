@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProv
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
 import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
 import io.github.jdubois.bootui.autoconfigure.datasource.SpringConnectionPoolProvider;
@@ -19,9 +20,11 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
+import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
@@ -67,6 +70,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.util.ClassUtils;
@@ -302,6 +306,18 @@ public class BootUiEngineConfiguration {
         // raw beans (where the live Class and the Spring-specific FRAMEWORK prefix matter, for
         // byte-identical behavior); the engine service only sorts, filters and pages.
         return new BeansService(beanProviders.getIfAvailable());
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    ConfigService bootUiConfigService(ConfigurableEnvironment environment, BootUiExposure exposure) {
+        // The engine ConfigService owns masking, sorting, filtering, paging and profile grouping; the
+        // SpringConfigProvider only enumerates the live environment and supplies suggestion metadata (read
+        // via Jackson, which the engine must not touch). Built inline like MemoryReportProvider.
+        SpringConfigProvider provider = new SpringConfigProvider(
+                environment, new ConfigMetadataCatalog(BootUiEngineConfiguration.class.getClassLoader()));
+        return new ConfigService(provider, exposure);
     }
 
     @Bean

@@ -153,12 +153,14 @@ metadata + OSV) · `Pentesting` · `HTTP Probe` (local HTTP probing) · `AI Usag
 Quarkus/LangChain4j export it) · `GitHub` (`HttpClient`) · `Copilot` · `Claude Code` (read `~/.copilot` / `~/.claude`) ·
 `MCP Server` (BootUI's own server) · `Dev Services` (a Quarkus-native concept — read Quarkus Dev Services state).
 
-### 5.2 Ported by swapping the data source (9)
+### 5.2 Ported by swapping the data source (10)
 
 Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quarkus API.
 
-`Health` (→ SmallRye Health) · `Configuration` (→ SmallRye Config) · `Loggers` (→ JBoss LogManager) · `Mappings`
-(→ Vert.x/RESTEasy registry) · `Flyway` (→ `quarkus-flyway`) · `Liquibase` (**Implemented** — → `quarkus-liquibase`;
+`Health` (→ SmallRye Health) · `Configuration` (**Implemented** — → SmallRye Config; read path enumerates/masks/pages the
+effective config, read-only on Quarkus because the runtime-override write path is Spring-bootstrap-specific) · `Profile
+Diff` (**Implemented** — → SmallRye Config; groups active `%profile.`-prefixed keys) · `Loggers` (→ JBoss LogManager) ·
+`Mappings` (→ Vert.x/RESTEasy registry) · `Flyway` (→ `quarkus-flyway`) · `Liquibase` (**Implemented** — → `quarkus-liquibase`;
 discovered via `LiquibaseFactoryUtil.getActiveLiquibaseFactories()`, the shared `RanChangeSet` history read + `update`
 action behind the same DTO contract) · `Scheduled Tasks`
 (→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine shared; Spring-stereotype rules get CDI/JAX-RS
@@ -186,13 +188,13 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `Spring` advisor | **`Quarkus` advisor** — new ruleset over the same scanning engine (CDI/Arc, config, build-time idioms) |
 | `Spring Cache`   | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `spring-cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
 
-### 5.5 Dropped on Quarkus (11)
+### 5.5 Dropped on Quarkus (10)
 
 No equivalent, low value, or superseded by Quarkus's own tooling:
 
 - **Build-time model differences:** `Conditions` (Quarkus resolves conditions at build time — no runtime report),
   `Beans` (Arc resolves at build time; far less rich than Spring's live graph), `Startup Timeline` (different boot
-  model), `Profile Diff` (Quarkus config profiles differ enough to defer).
+  model).
 - **Different security/data stacks:** `Spring Security`, `Spring Data` (Quarkus uses Elytron/OIDC and Panache).
 - **Servlet-only / low value on a reactive stack:** `HTTP Sessions`.
 - **Superseded or moot:** `GraalVM` readiness (Quarkus is native-first with its own build), `CRaC` (native focus makes

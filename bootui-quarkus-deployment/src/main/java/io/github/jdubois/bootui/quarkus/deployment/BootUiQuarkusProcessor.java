@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
+import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
@@ -127,6 +128,7 @@ class BootUiQuarkusProcessor {
                         QuarkusApplicationInfo.class,
                         QuarkusBasePackageProvider.class,
                         QuarkusDependencyProvider.class,
+                        QuarkusConfigProvider.class,
                         QuarkusScheduledTaskProvider.class,
                         QuarkusPanelAvailability.class,
                         BootUiQuarkusSafetyFilter.class)

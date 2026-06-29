@@ -31,7 +31,11 @@ class ProfileDiffControllerTests {
                                 "sample.name", "demo",
                                 "sample.password", "secret")));
         properties = new BootUiProperties();
-        mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+        mvc = standaloneSetup(new ProfileDiffController(new io.github.jdubois.bootui.engine.config.ConfigService(
+                        new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                environment,
+                                new ConfigMetadataCatalog(getClass().getClassLoader())),
+                        new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(environment, properties))))
                 .build();
     }
 

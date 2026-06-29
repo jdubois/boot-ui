@@ -45,7 +45,13 @@ class ProfileDiffMaskingTests {
                                 "db.url", "jdbc:h2:mem:test")));
 
         BootUiProperties properties = new BootUiProperties(); // defaults: MASKED, maskSecrets=true
-        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+        MockMvc mvc = standaloneSetup(
+                        new ProfileDiffController(new io.github.jdubois.bootui.engine.config.ConfigService(
+                                new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                        environment,
+                                        new ConfigMetadataCatalog(getClass().getClassLoader())),
+                                new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(
+                                        environment, properties))))
                 .build();
 
         mvc.perform(get("/bootui/api/profile-diff"))
@@ -79,7 +85,13 @@ class ProfileDiffMaskingTests {
                         "application-prod.properties", Map.of("spring.datasource.password", "prod-pass-different")));
 
         BootUiProperties properties = new BootUiProperties();
-        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+        MockMvc mvc = standaloneSetup(
+                        new ProfileDiffController(new io.github.jdubois.bootui.engine.config.ConfigService(
+                                new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                        environment,
+                                        new ConfigMetadataCatalog(getClass().getClassLoader())),
+                                new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(
+                                        environment, properties))))
                 .build();
 
         mvc.perform(get("/bootui/api/profile-diff"))
@@ -111,7 +123,13 @@ class ProfileDiffMaskingTests {
         environment.getPropertySources().addFirst(new MapPropertySource("application-test.properties", props));
 
         BootUiProperties properties = new BootUiProperties();
-        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+        MockMvc mvc = standaloneSetup(
+                        new ProfileDiffController(new io.github.jdubois.bootui.engine.config.ConfigService(
+                                new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                        environment,
+                                        new ConfigMetadataCatalog(getClass().getClassLoader())),
+                                new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(
+                                        environment, properties))))
                 .build();
 
         mvc.perform(get("/bootui/api/profile-diff"))
@@ -139,7 +157,13 @@ class ProfileDiffMaskingTests {
         BootUiProperties properties = new BootUiProperties();
         properties.setMaskSecrets(false); // opt-out of masking
         // exposeValues stays at default MASKED
-        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+        MockMvc mvc = standaloneSetup(
+                        new ProfileDiffController(new io.github.jdubois.bootui.engine.config.ConfigService(
+                                new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                        environment,
+                                        new ConfigMetadataCatalog(getClass().getClassLoader())),
+                                new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(
+                                        environment, properties))))
                 .build();
 
         mvc.perform(get("/bootui/api/profile-diff"))
@@ -162,7 +186,13 @@ class ProfileDiffMaskingTests {
                         "application-perf.properties", Map.of("spring.application.name", "boot-ui-perf")));
 
         BootUiProperties properties = new BootUiProperties(); // default: MASKED, maskSecrets=true
-        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+        MockMvc mvc = standaloneSetup(
+                        new ProfileDiffController(new io.github.jdubois.bootui.engine.config.ConfigService(
+                                new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                        environment,
+                                        new ConfigMetadataCatalog(getClass().getClassLoader())),
+                                new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(
+                                        environment, properties))))
                 .build();
 
         mvc.perform(get("/bootui/api/profile-diff"))
@@ -184,7 +214,13 @@ class ProfileDiffMaskingTests {
         environment.getPropertySources().addFirst(new MapPropertySource("application-nulltest.properties", props));
 
         BootUiProperties properties = new BootUiProperties();
-        MockMvc mvc = standaloneSetup(new ProfileDiffController(environment, properties))
+        MockMvc mvc = standaloneSetup(
+                        new ProfileDiffController(new io.github.jdubois.bootui.engine.config.ConfigService(
+                                new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                        environment,
+                                        new ConfigMetadataCatalog(getClass().getClassLoader())),
+                                new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(
+                                        environment, properties))))
                 .build();
 
         mvc.perform(get("/bootui/api/profile-diff"))

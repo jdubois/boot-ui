@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
+import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
@@ -29,6 +30,7 @@ import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanProvider;
+import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
@@ -266,6 +268,20 @@ public class BootUiEngineProducer {
     @Singleton
     public BeansService beansService(QuarkusBeanProvider beanProvider) {
         return new BeansService(beanProvider);
+    }
+
+    /**
+     * The Configuration + Profile Diff panel service. The cache-/Jackson-free engine {@link ConfigService}
+     * masks, sorts, filters, pages and profile-groups the raw entries from {@link QuarkusConfigProvider}
+     * (SmallRye Config), honoring the live {@link QuarkusExposurePolicy} — exactly as the Spring adapter
+     * builds it over {@code SpringConfigProvider}. The concrete policy impl is injected (not the SPI) so
+     * adding another policy later can't make resolution ambiguous. Read-only on Quarkus: the Spring
+     * runtime-override write path is not ported.
+     */
+    @Produces
+    @Singleton
+    public ConfigService configService(QuarkusConfigProvider provider, QuarkusExposurePolicy exposure) {
+        return new ConfigService(provider, exposure);
     }
 
     /**

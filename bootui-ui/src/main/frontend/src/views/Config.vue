@@ -276,7 +276,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
     <PanelHeader
       icon="bi-sliders"
       title="Configuration"
-      subtitle="Inspect and override every Spring property the running application can see."
+      subtitle="Inspect every configuration property the running application can see."
       :error="error"
       @refresh="load"
     >

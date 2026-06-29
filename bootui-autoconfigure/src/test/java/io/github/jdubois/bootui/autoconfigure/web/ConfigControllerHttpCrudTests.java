@@ -49,10 +49,12 @@ class ConfigControllerHttpCrudTests {
      */
     private MockMvc buildMvc() {
         ConfigController controller = new ConfigController(
-                environment,
-                overrideService,
-                properties,
-                new ConfigMetadataCatalog(getClass().getClassLoader()));
+                new io.github.jdubois.bootui.engine.config.ConfigService(
+                        new io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider(
+                                environment,
+                                new ConfigMetadataCatalog(getClass().getClassLoader())),
+                        new io.github.jdubois.bootui.autoconfigure.config.BootUiExposure(environment, properties)),
+                overrideService);
         return standaloneSetup(controller).build();
     }
 

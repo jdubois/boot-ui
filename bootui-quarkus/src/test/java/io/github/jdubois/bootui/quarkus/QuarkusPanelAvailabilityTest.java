@@ -99,6 +99,32 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void configIsAvailableButReadOnlyOnQuarkus() {
+        PanelDto config = manifestById().get(BootUiPanels.CONFIG);
+        assertThat(config.available())
+                .as("Configuration is always available on Quarkus")
+                .isTrue();
+        assertThat(config.unavailableReason()).isNull();
+        assertThat(config.readOnly())
+                .as("no runtime override write path on Quarkus, so the panel is read-only")
+                .isTrue();
+        assertThat(config.readOnlyReason()).isNotNull().contains("overrides");
+    }
+
+    @Test
+    void profileDiffIsUnavailableWhenNoProfilesAreActive() {
+        // StubConfig is not a SmallRyeConfig, so profilesActive defaults to false: profile-diff stays
+        // unavailable with its own hint, never read-only (it is not action-capable).
+        PanelDto profileDiff = manifestById().get(BootUiPanels.PROFILE_DIFF);
+        assertThat(profileDiff.available()).isFalse();
+        assertThat(profileDiff.readOnly()).isFalse();
+        assertThat(profileDiff.unavailableReason())
+                .isNotNull()
+                .doesNotContain("Not yet available")
+                .containsIgnoringCase("profile");
+    }
+
+    @Test
     void hibernateIsAvailableWhenTheBuildTimeFlagIsSet() {
         StubConfig withHibernate = new StubConfig(Map.of(QuarkusPanelAvailability.HIBERNATE_PRESENT_KEY, "true"));
         PanelDto hibernate = manifestById(withHibernate).get(BootUiPanels.HIBERNATE);

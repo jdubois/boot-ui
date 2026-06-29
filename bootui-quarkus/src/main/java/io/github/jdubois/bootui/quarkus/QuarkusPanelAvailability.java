@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.nio.file.Path;
@@ -222,6 +223,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.METRICS,
             BootUiPanels.LOGGERS,
             BootUiPanels.BEANS,
+            BootUiPanels.CONFIG,
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_PROBE,
             BootUiPanels.ARCHITECTURE,
@@ -229,6 +231,10 @@ public class QuarkusPanelAvailability {
             BootUiPanels.TRACES,
             BootUiPanels.AI,
             BootUiPanels.VULNERABILITIES);
+
+    private static final String CONFIG_READONLY =
+            "Runtime config overrides are not available on Quarkus (they target the Spring bootstrap"
+                    + " property sources); properties remain fully visible.";
 
     private final boolean hibernatePresent;
 
@@ -241,6 +247,8 @@ public class QuarkusPanelAvailability {
     private final boolean connectionPoolsPresent;
 
     private final List<String> githubAllowedApiHosts;
+
+    private final boolean profilesActive;
 
     @Inject
     public QuarkusPanelAvailability(Config config) {
@@ -257,6 +265,15 @@ public class QuarkusPanelAvailability {
         this.connectionPoolsPresent = config.getOptionalValue(CONNECTION_POOLS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
+        this.profilesActive = activeProfiles(config);
+    }
+
+    private static boolean activeProfiles(Config config) {
+        try {
+            return !config.unwrap(SmallRyeConfig.class).getProfiles().isEmpty();
+        } catch (UnsupportedOperationException notSmallRye) {
+            return false;
+        }
     }
 
     public PanelsReport manifest() {
@@ -273,9 +290,12 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
                 || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
                 || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panel.id()) && connectionPoolsPresent)
+                || (BootUiPanels.PROFILE_DIFF.equals(panel.id()) && profilesActive)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
-        return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, false, null);
+        boolean readOnly = available && BootUiPanels.CONFIG.equals(panel.id());
+        String readOnlyReason = readOnly ? CONFIG_READONLY : null;
+        return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, readOnly, readOnlyReason);
     }
 
     private String unavailableReason(String panelId) {
@@ -296,6 +316,10 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId)) {
             return CONNECTION_POOLS_ABSENT;
+        }
+        if (BootUiPanels.PROFILE_DIFF.equals(panelId)) {
+            return "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"
+                    + " compare profile-specific configuration.";
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();

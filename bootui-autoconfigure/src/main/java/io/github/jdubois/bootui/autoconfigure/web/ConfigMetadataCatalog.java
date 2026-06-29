@@ -9,13 +9,13 @@ import tools.jackson.core.TreeNode;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-final class ConfigMetadataCatalog {
+public final class ConfigMetadataCatalog {
 
     private static final String RESOURCE_NAME = "META-INF/spring-configuration-metadata.json";
 
     private final Map<String, ConfigPropertySuggestionDto> properties;
 
-    ConfigMetadataCatalog(ClassLoader classLoader) {
+    public ConfigMetadataCatalog(ClassLoader classLoader) {
         this(classLoader, new ObjectMapper());
     }
 
@@ -116,7 +116,7 @@ final class ConfigMetadataCatalog {
         return properties.get(name);
     }
 
-    List<ConfigPropertySuggestionDto> suggestions() {
+    public List<ConfigPropertySuggestionDto> suggestions() {
         return new ArrayList<>(properties.values());
     }
 }
