@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
+import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
 import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanProvider;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
@@ -123,6 +124,21 @@ public class BootUiEngineProducer {
     @Singleton
     public HttpProbeService httpProbeService(QuarkusServerPortSupplier serverPort) {
         return new HttpProbeService(serverPort);
+    }
+
+    /**
+     * The Quarkus-only HTTP exchange ring buffer fed by the Vert.x capture filter — Quarkus has no
+     * Actuator {@code HttpExchangeRepository}, so this is the capture source for the HTTP Exchanges and
+     * Live Activity panels. Capacity bounds memory ({@code bootui.http-exchanges.capacity}, default 100,
+     * matching Actuator); the buffer caps and reverses, the engine service masks. A singleton so writes
+     * and reads share one bounded buffer.
+     */
+    @Produces
+    @Singleton
+    public HttpExchangeBuffer httpExchangeBuffer(Config config) {
+        int capacity = config.getOptionalValue("bootui.http-exchanges.capacity", Integer.class)
+                .orElse(100);
+        return new HttpExchangeBuffer(capacity);
     }
 
     /**

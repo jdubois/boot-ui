@@ -115,6 +115,11 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 `bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
 `bootui.panels.*` toggles (a disabled source simply drops out of the stream).
 
+On Quarkus the panel is honestly partial: it merges the captured HTTP requests (from the same Vert.x-fed ring buffer as
+HTTP Exchanges) and JVM heap KPIs, while SQL trace, exceptions and the per-request profiler are not yet captured, so
+those entry types degrade out and the report carries a clear note. Thread-based correlation is deliberately skipped on
+the Vert.x event loop, where thread identity does not map to a single request; entries correlate by trace id only.
+
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
 ## GitHub
@@ -908,6 +913,12 @@ BootUI contributes an in-memory `HttpExchangeRepository` when the panel is enabl
 exists. The default buffer retains 200 exchanges and can be changed with `bootui.http-exchanges.max-exchanges`; changing
 that capacity requires an application restart. If the repository is unavailable, the panel shows a clear unavailable
 state instead of implying that no traffic has occurred.
+
+On Quarkus the panel is identical, but Quarkus has no Actuator `HttpExchangeRepository`, so capture is done by a small
+Vert.x route filter that samples each completed request — recorded in the response body-end handler so status, duration
+and size are final — into a capped, framework-neutral ring buffer (`bootui.http-exchanges.capacity`, default 100). The
+masking, trace-id extraction, self-exclusion and paging run through the same shared engine service, so the wire is
+byte-identical to Spring. Capture is wired in dev/test only and never in production.
 
 ![BootUI HTTP Exchanges panel](./images/bootui-http-exchanges.webp)
 

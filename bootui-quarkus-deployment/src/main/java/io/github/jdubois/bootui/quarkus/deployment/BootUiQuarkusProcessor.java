@@ -17,6 +17,9 @@ import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
 import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
+import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
+import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
+import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
@@ -135,6 +138,9 @@ class BootUiQuarkusProcessor {
                         QuarkusScheduledTaskProvider.class,
                         QuarkusPanelAvailability.class,
                         QuarkusLogTailCapture.class,
+                        QuarkusHttpExchangeCaptureFilter.class,
+                        HttpExchangesResource.class,
+                        LiveActivityResource.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());

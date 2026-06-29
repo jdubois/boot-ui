@@ -227,6 +227,8 @@ public class QuarkusPanelAvailability {
             BootUiPanels.SECURITY,
             BootUiPanels.TRACES,
             BootUiPanels.AI,
+            BootUiPanels.HTTP_EXCHANGES,
+            BootUiPanels.ACTIVITY,
             BootUiPanels.VULNERABILITIES);
 
     private static final String CONFIG_READONLY =
