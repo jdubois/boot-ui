@@ -1,10 +1,9 @@
-package io.github.jdubois.bootui.autoconfigure.web;
+package io.github.jdubois.bootui.engine.agent;
 
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.CopilotActivityBucket;
 import io.github.jdubois.bootui.core.dto.CopilotActivityEvent;
 import io.github.jdubois.bootui.core.dto.CopilotDashboardDto;
@@ -14,7 +13,9 @@ import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
 import io.github.jdubois.bootui.core.dto.CopilotSessionSummary;
 import io.github.jdubois.bootui.core.dto.CopilotTurn;
-import jakarta.annotation.PreDestroy;
+import io.github.jdubois.bootui.spi.agent.AgentJson;
+import io.github.jdubois.bootui.spi.agent.AgentJsonParser;
+import io.github.jdubois.bootui.spi.agent.AgentSessionProperties;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -46,8 +47,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
 /**
  * Shared session store for sanitized local CLI agent logs (Copilot CLI, Claude Code, etc.).
@@ -65,7 +64,7 @@ import tools.jackson.databind.ObjectMapper;
  * exist on startup the thread polls every five seconds until it appears.</p>
  *
  * <p>Subclasses ({@link CopilotSessionStore}, {@link ClaudeCodeSessionStore}) supply
- * agent-specific {@link BootUiProperties.Copilot} configuration; all parsing and
+ * agent-specific {@link AgentSessionProperties} configuration; all parsing and
  * dashboard logic is shared.</p>
  */
 public abstract class AgentSessionStore {
@@ -84,8 +83,8 @@ public abstract class AgentSessionStore {
     /** Largest individual session-state file we will parse, in bytes. */
     private static final long MAX_FILE_BYTES = 32L * 1024 * 1024;
 
-    private final BootUiProperties.Copilot properties;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AgentSessionProperties properties;
+    private final AgentJsonParser objectMapper;
     private final Clock clock;
     private final Map<String, ParsedSession> sessions = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Consumer<RefreshEvent>> listeners = new CopyOnWriteArrayList<>();
@@ -100,12 +99,13 @@ public abstract class AgentSessionStore {
     private volatile int selectedSessionFileCount;
     private volatile int selectedSessionFileLimit;
 
-    protected AgentSessionStore(BootUiProperties.Copilot properties) {
-        this(properties, Clock.systemDefaultZone());
+    protected AgentSessionStore(AgentSessionProperties properties, AgentJsonParser jsonParser) {
+        this(properties, jsonParser, Clock.systemDefaultZone());
     }
 
-    protected AgentSessionStore(BootUiProperties.Copilot properties, Clock clock) {
+    protected AgentSessionStore(AgentSessionProperties properties, AgentJsonParser jsonParser, Clock clock) {
         this.properties = properties;
+        this.objectMapper = jsonParser;
         this.clock = clock;
         this.sessionStateDir = resolveDir(properties);
         this.sourceName = properties.getSessionSourceName();
@@ -115,7 +115,7 @@ public abstract class AgentSessionStore {
      * Resolve the configured session-state directory. Defaults to
      * {@code ${user.home}/.copilot/session-state}. Tilde-expansion is supported.
      */
-    static Path resolveDir(BootUiProperties.Copilot properties) {
+    public static Path resolveDir(AgentSessionProperties properties) {
         String configured = properties.getSessionStateDir();
         if (configured == null || configured.isBlank()) {
             return properties.defaultSessionStateDir().toAbsolutePath().normalize();
@@ -137,8 +137,16 @@ public abstract class AgentSessionStore {
     }
 
     public boolean isEnabled() {
-        BootUiProperties.Mode mode = properties.getEnabled();
-        return mode == BootUiProperties.Mode.ON || (mode == BootUiProperties.Mode.AUTO && isDirectoryAvailable());
+        return properties.enabledOn() || (properties.enabledAuto() && isDirectoryAvailable());
+    }
+
+    /**
+     * Whether the watcher should be started at all (i.e. the panel is not OFF). Mirrors the Spring
+     * factory gating ({@code enabled != OFF}): in AUTO mode the watcher starts and waits for the session
+     * directory to appear, so this is broader than {@link #isEnabled()} which also requires the directory.
+     */
+    public boolean isStartEnabled() {
+        return properties.enabledOn() || properties.enabledAuto();
     }
 
     /**
@@ -264,10 +272,10 @@ public abstract class AgentSessionStore {
             if (existing != null && existing.fileSize == attrs.size() && existing.fileMtime == mtime) {
                 return;
             }
-            JsonNode root = objectMapper.readTree(file.toFile());
+            AgentJson root = objectMapper.parseTree(file);
             ParsedSession parsed = parse(id, file, root, attrs);
             sessions.put(id, parsed);
-        } catch (RuntimeException ex) {
+        } catch (RuntimeException | java.io.IOException ex) {
             log.debug("BootUI {}: failed to parse {}: {}", sourceName, file, ex.toString());
         }
     }
@@ -305,7 +313,6 @@ public abstract class AgentSessionStore {
         watcherExecutor.submit(this::runWatcher);
     }
 
-    @PreDestroy
     public synchronized void stop() {
         stopped = true;
         if (watcherExecutor != null) {
@@ -802,7 +809,7 @@ public abstract class AgentSessionStore {
             return null;
         }
         if (reference instanceof JsonNodeRawEventReference jsonNodeReference) {
-            return jsonToString(jsonNodeReference.node());
+            return jsonToString(jsonNodeReference.json());
         }
         if (reference instanceof JsonlLineRawEventReference jsonlReference) {
             return readJsonlRawEvent(jsonlReference);
@@ -817,7 +824,7 @@ public abstract class AgentSessionStore {
             while ((line = reader.readLine()) != null) {
                 current++;
                 if (current == reference.lineNumber()) {
-                    JsonNode node = objectMapper.readTree(line);
+                    AgentJson node = objectMapper.parseLine(line);
                     return jsonToString(node);
                 }
             }
@@ -831,17 +838,13 @@ public abstract class AgentSessionStore {
         return null;
     }
 
-    private String jsonToString(JsonNode node) {
-        try {
-            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
-        } catch (Exception ex) {
-            return node.toString();
-        }
+    private String jsonToString(AgentJson node) {
+        return node.toPrettyString();
     }
 
     // ── Parser ────────────────────────────────────────────────────────────────
 
-    private ParsedSession parse(String id, Path file, JsonNode root, BasicFileAttributes attrs) {
+    private ParsedSession parse(String id, Path file, AgentJson root, BasicFileAttributes attrs) {
         long mtime = attrs.lastModifiedTime().toMillis();
         String model = stringField(root, "model", "active_model", "activeModel");
         String cwd = stringField(root, "cwd", "working_dir", "workingDirectory", "workdir");
@@ -948,17 +951,17 @@ public abstract class AgentSessionStore {
                 if (line.isBlank()) {
                     continue;
                 }
-                JsonNode node;
+                AgentJson node;
                 try {
-                    node = objectMapper.readTree(line);
+                    node = objectMapper.parseLine(line);
                 } catch (RuntimeException ex) {
                     schemaDrift = true;
                     log.debug("BootUI {}: failed to parse {} line {}: {}", sourceName, file, lineNumber, ex.toString());
                     continue;
                 }
                 parsedAnyLine = true;
-                JsonNode data = child(node, "data");
-                JsonNode message = child(node, "message");
+                AgentJson data = child(node, "data");
+                AgentJson message = child(node, "message");
                 String type = stringField(node, "type", "kind", "event", "role");
                 Long timestamp = firstLong(
                         longField(node, "timestamp", "ts", "created_at", "createdAt", "time"),
@@ -971,7 +974,7 @@ public abstract class AgentSessionStore {
                         updatedAt = timestamp;
                     }
                 }
-                JsonNode context = child(data, "context");
+                AgentJson context = child(data, "context");
                 model = firstNonBlank(
                         model, stringField(data, "model"), stringField(node, "model"), stringField(message, "model"));
                 cwd = firstNonBlank(cwd, stringField(context, "cwd"), stringField(node, "cwd"));
@@ -1068,7 +1071,11 @@ public abstract class AgentSessionStore {
     }
 
     private static TurnAccumulator turnAccumulatorFor(
-            Map<String, TurnAccumulator> turnAccumulators, JsonNode node, JsonNode data, String type, Long timestamp) {
+            Map<String, TurnAccumulator> turnAccumulators,
+            AgentJson node,
+            AgentJson data,
+            String type,
+            Long timestamp) {
         String key = turnKey(node, data, type);
         if (key == null) {
             key = "__session";
@@ -1092,7 +1099,7 @@ public abstract class AgentSessionStore {
         }
     }
 
-    private static String turnKey(JsonNode node, JsonNode data, String type) {
+    private static String turnKey(AgentJson node, AgentJson data, String type) {
         String turnId = stringField(data, "turnId", "turn_id");
         if (turnId != null) {
             return turnId;
@@ -1104,7 +1111,7 @@ public abstract class AgentSessionStore {
     }
 
     private List<CopilotActivityEvent> jsonlActivityEvents(
-            JsonNode node, Map<String, String> toolNameByEventId, int turnIndex, int lineNumber) {
+            AgentJson node, Map<String, String> toolNameByEventId, int turnIndex, int lineNumber) {
         List<CopilotActivityEvent> claudeCodeEvents =
                 claudeCodeActivityEvents(node, toolNameByEventId, turnIndex, lineNumber);
         if (!claudeCodeEvents.isEmpty()) {
@@ -1114,7 +1121,7 @@ public abstract class AgentSessionStore {
         if (isSensitiveMessageEvent(type)) {
             return List.of();
         }
-        JsonNode data = child(node, "data");
+        AgentJson data = child(node, "data");
         String tool = jsonlToolName(node, data, toolNameByEventId);
         if (type == null && tool == null) {
             return List.of();
@@ -1147,9 +1154,9 @@ public abstract class AgentSessionStore {
     }
 
     private static List<CopilotActivityEvent> claudeCodeActivityEvents(
-            JsonNode node, Map<String, String> toolNameByEventId, int turnIndex, int lineNumber) {
-        JsonNode message = child(node, "message");
-        JsonNode content = child(message, "content");
+            AgentJson node, Map<String, String> toolNameByEventId, int turnIndex, int lineNumber) {
+        AgentJson message = child(node, "message");
+        AgentJson content = child(message, "content");
         if (message == null || content == null) {
             return List.of();
         }
@@ -1167,7 +1174,7 @@ public abstract class AgentSessionStore {
 
     private static void addClaudeCodeContentEvent(
             List<CopilotActivityEvent> events,
-            JsonNode block,
+            AgentJson block,
             Long timestamp,
             Map<String, String> toolNameByEventId,
             int turnIndex,
@@ -1234,17 +1241,17 @@ public abstract class AgentSessionStore {
                 || normalized.equals("system.message");
     }
 
-    private static String jsonlToolName(JsonNode node, JsonNode data, Map<String, String> toolNameByEventId) {
+    private static String jsonlToolName(AgentJson node, AgentJson data, Map<String, String> toolNameByEventId) {
         String tool = stringField(data, "toolName", "tool_name", "name");
         if (tool != null) {
             return tool;
         }
-        JsonNode input = child(data, "input");
+        AgentJson input = child(data, "input");
         tool = stringField(input, "toolName", "tool_name", "name");
         if (tool != null) {
             return tool;
         }
-        JsonNode toolRequests = child(data, "toolRequests");
+        AgentJson toolRequests = child(data, "toolRequests");
         if (toolRequests != null && toolRequests.isArray() && toolRequests.size() > 0) {
             return stringField(toolRequests.get(0), "name", "toolName", "tool_name");
         }
@@ -1256,7 +1263,7 @@ public abstract class AgentSessionStore {
     }
 
     private static String sanitizedJsonlSummary(
-            String type, String tool, String category, JsonNode data, Boolean success) {
+            String type, String tool, String category, AgentJson data, Boolean success) {
         StringBuilder sb = new StringBuilder();
         sb.append(category).append(" · ").append(tool != null ? tool : type != null ? type : "event");
         if (Boolean.FALSE.equals(success)) {
@@ -1292,7 +1299,7 @@ public abstract class AgentSessionStore {
     }
 
     private static void rememberToolName(
-            Map<String, String> toolNameByEventId, JsonNode node, CopilotActivityEvent event) {
+            Map<String, String> toolNameByEventId, AgentJson node, CopilotActivityEvent event) {
         if (event.toolName() == null) {
             return;
         }
@@ -1303,7 +1310,7 @@ public abstract class AgentSessionStore {
         }
     }
 
-    private static String eventIdFor(JsonNode node, int lineNumber, int turnIndex, String tool) {
+    private static String eventIdFor(AgentJson node, int lineNumber, int turnIndex, String tool) {
         String id = stringField(node, "id", "eventId", "messageId");
         if (id != null) {
             return id;
@@ -1395,13 +1402,13 @@ public abstract class AgentSessionStore {
         return name;
     }
 
-    static String stringField(JsonNode node, String... names) {
+    static String stringField(AgentJson node, String... names) {
         if (node == null) {
             return null;
         }
         for (String n : names) {
-            JsonNode v = node.get(n);
-            if (v != null && !v.isNull() && v.isValueNode()) {
+            AgentJson v = node.get(n);
+            if (v != null && !v.isNull() && !v.isArray() && !v.isObject()) {
                 String s = v.asString();
                 if (s != null && !s.isBlank()) {
                     return s;
@@ -1411,11 +1418,11 @@ public abstract class AgentSessionStore {
         return null;
     }
 
-    private static JsonNode child(JsonNode node, String name) {
+    private static AgentJson child(AgentJson node, String name) {
         if (node == null) {
             return null;
         }
-        JsonNode child = node.get(name);
+        AgentJson child = node.get(name);
         return child == null || child.isNull() ? null : child;
     }
 
@@ -1446,12 +1453,12 @@ public abstract class AgentSessionStore {
         return null;
     }
 
-    static Long longField(JsonNode node, String... names) {
+    static Long longField(AgentJson node, String... names) {
         if (node == null) {
             return null;
         }
         for (String n : names) {
-            JsonNode v = node.get(n);
+            AgentJson v = node.get(n);
             if (v == null || v.isNull()) {
                 continue;
             }
@@ -1499,7 +1506,7 @@ public abstract class AgentSessionStore {
     }
 
     /** Extract sanitized events from common Copilot session-state shapes. */
-    private EventsExtraction extractEvents(JsonNode root, int maxEvents) {
+    private EventsExtraction extractEvents(AgentJson root, int maxEvents) {
         List<CopilotActivityEvent> out = new ArrayList<>();
         Map<String, RawEventReference> rawById = new LinkedHashMap<>();
         List<CopilotTurn> turns = new ArrayList<>();
@@ -1507,15 +1514,15 @@ public abstract class AgentSessionStore {
         TokenUsage tokenUsage = TokenUsage.empty();
         boolean schemaDrift = false;
 
-        if (root == null || root.isMissingNode()) {
+        if (root == null || root.isNull()) {
             return new EventsExtraction(out, rawById, turns, tokenActivityByHour, tokenUsage, true);
         }
 
         // Shape 1: top-level "events" or "activity" array
-        JsonNode events = firstArray(root, "events", "activity", "tool_calls", "toolCalls");
+        AgentJson events = firstArray(root, "events", "activity", "tool_calls", "toolCalls");
         if (events != null) {
             for (int i = 0; i < events.size() && out.size() < maxEvents; i++) {
-                JsonNode event = events.get(i);
+                AgentJson event = events.get(i);
                 TokenUsage eventTokenUsage = tokenUsageForNode(event);
                 tokenUsage = tokenUsage.plus(eventTokenUsage);
                 recordTokenUsage(tokenActivityByHour, nodeTimestamp(event), eventTokenUsage);
@@ -1524,18 +1531,18 @@ public abstract class AgentSessionStore {
         }
 
         // Shape 2: "turns" array, each with its own events
-        JsonNode turnsNode = root.get("turns");
+        AgentJson turnsNode = root.get("turns");
         if (turnsNode != null && turnsNode.isArray()) {
             for (int t = 0; t < turnsNode.size(); t++) {
-                JsonNode turn = turnsNode.get(t);
-                JsonNode turnEvents = firstArray(turn, "events", "activity", "tool_calls", "toolCalls");
+                AgentJson turn = turnsNode.get(t);
+                AgentJson turnEvents = firstArray(turn, "events", "activity", "tool_calls", "toolCalls");
                 int beforeCount = out.size();
                 Long turnStart = longField(turn, "started_at", "startedAt", "timestamp", "created_at");
                 TokenUsage turnTokenUsage = tokenUsageForNode(turn);
                 boolean turnHasAggregateTokenUsage = turnTokenUsage.hasAny();
                 if (turnEvents != null) {
                     for (int i = 0; i < turnEvents.size() && out.size() < maxEvents; i++) {
-                        JsonNode event = turnEvents.get(i);
+                        AgentJson event = turnEvents.get(i);
                         if (!turnHasAggregateTokenUsage) {
                             TokenUsage eventTokenUsage = tokenUsageForNode(event);
                             turnTokenUsage = turnTokenUsage.plus(eventTokenUsage);
@@ -1561,10 +1568,10 @@ public abstract class AgentSessionStore {
 
         // Shape 3: "messages" array - common in chat-like session formats
         if (out.isEmpty()) {
-            JsonNode messages = firstArray(root, "messages", "history");
+            AgentJson messages = firstArray(root, "messages", "history");
             if (messages != null) {
                 for (int i = 0; i < messages.size() && out.size() < maxEvents; i++) {
-                    JsonNode msg = messages.get(i);
+                    AgentJson msg = messages.get(i);
                     if (msg == null) {
                         continue;
                     }
@@ -1602,10 +1609,10 @@ public abstract class AgentSessionStore {
     private void addEvent(
             List<CopilotActivityEvent> out,
             Map<String, RawEventReference> rawById,
-            JsonNode node,
+            AgentJson node,
             int turnIndex,
             int indexInTurn) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
+        if (node == null || node.isNull()) {
             return;
         }
         String type = stringField(node, "type", "kind", "event", "role");
@@ -1635,12 +1642,12 @@ public abstract class AgentSessionStore {
         rawById.put(id, new JsonNodeRawEventReference(node));
     }
 
-    private static JsonNode firstArray(JsonNode parent, String... names) {
+    private static AgentJson firstArray(AgentJson parent, String... names) {
         if (parent == null) {
             return null;
         }
         for (String n : names) {
-            JsonNode v = parent.get(n);
+            AgentJson v = parent.get(n);
             if (v != null && v.isArray()) {
                 return v;
             }
@@ -1648,12 +1655,12 @@ public abstract class AgentSessionStore {
         return null;
     }
 
-    private static Boolean booleanField(JsonNode node, String... names) {
+    private static Boolean booleanField(AgentJson node, String... names) {
         if (node == null) {
             return null;
         }
         for (String n : names) {
-            JsonNode v = node.get(n);
+            AgentJson v = node.get(n);
             if (v != null && v.isBoolean()) {
                 return v.asBoolean();
             }
@@ -1661,11 +1668,11 @@ public abstract class AgentSessionStore {
         return null;
     }
 
-    private static Long nodeTimestamp(JsonNode node) {
+    private static Long nodeTimestamp(AgentJson node) {
         return longField(node, "timestamp", "ts", "created_at", "createdAt", "time", "startTime");
     }
 
-    private static TokenUsage jsonlTokenUsage(JsonNode node, JsonNode data, JsonNode message) {
+    private static TokenUsage jsonlTokenUsage(AgentJson node, AgentJson data, AgentJson message) {
         TokenUsage tokenDetailsUsage = tokenDetailsTokenUsage(data);
         if (tokenDetailsUsage.hasAny()) {
             return tokenDetailsUsage.asSessionTotal();
@@ -1687,7 +1694,7 @@ public abstract class AgentSessionStore {
                 directTokenUsage(node));
     }
 
-    private static TokenUsage tokenUsageForNode(JsonNode node) {
+    private static TokenUsage tokenUsageForNode(AgentJson node) {
         TokenUsage tokenDetailsUsage = tokenDetailsTokenUsage(node);
         if (tokenDetailsUsage.hasAny()) {
             return tokenDetailsUsage;
@@ -1703,21 +1710,21 @@ public abstract class AgentSessionStore {
                 directTokenUsage(node));
     }
 
-    private static TokenUsage modelMetricsTokenUsage(JsonNode node) {
-        JsonNode modelMetrics = child(node, "modelMetrics");
+    private static TokenUsage modelMetricsTokenUsage(AgentJson node) {
+        AgentJson modelMetrics = child(node, "modelMetrics");
         if (modelMetrics == null || !modelMetrics.isObject()) {
             return TokenUsage.empty();
         }
         TokenUsage total = TokenUsage.empty();
-        for (Map.Entry<String, JsonNode> entry : modelMetrics.properties()) {
+        for (Map.Entry<String, AgentJson> entry : modelMetrics.properties()) {
             total = total.plus(usageObjectTokenUsage(child(entry.getValue(), "usage"), false)
                     .withoutSessionTotal());
         }
         return total;
     }
 
-    private static TokenUsage tokenDetailsTokenUsage(JsonNode node) {
-        JsonNode tokenDetails = child(node, "tokenDetails");
+    private static TokenUsage tokenDetailsTokenUsage(AgentJson node) {
+        AgentJson tokenDetails = child(node, "tokenDetails");
         if (tokenDetails == null || !tokenDetails.isObject()) {
             return TokenUsage.empty();
         }
@@ -1738,10 +1745,10 @@ public abstract class AgentSessionStore {
         return new TokenUsage(inputTokens, outputTokens, false);
     }
 
-    private static Long tokenDetailCount(JsonNode tokenDetails, String... names) {
+    private static Long tokenDetailCount(AgentJson tokenDetails, String... names) {
         Long sum = null;
         for (String name : names) {
-            JsonNode bucket = child(tokenDetails, name);
+            AgentJson bucket = child(tokenDetails, name);
             if (bucket == null) {
                 continue;
             }
@@ -1754,11 +1761,11 @@ public abstract class AgentSessionStore {
         return sum;
     }
 
-    private static TokenUsage usageObjectTokenUsage(JsonNode usage) {
+    private static TokenUsage usageObjectTokenUsage(AgentJson usage) {
         return usageObjectTokenUsage(usage, true);
     }
 
-    private static TokenUsage usageObjectTokenUsage(JsonNode usage, boolean includeCacheInputTokens) {
+    private static TokenUsage usageObjectTokenUsage(AgentJson usage, boolean includeCacheInputTokens) {
         if (usage == null || !usage.isObject()) {
             return TokenUsage.empty();
         }
@@ -1797,7 +1804,7 @@ public abstract class AgentSessionStore {
         return new TokenUsage(inputTokens, outputTokens, false);
     }
 
-    private static TokenUsage directTokenUsage(JsonNode node) {
+    private static TokenUsage directTokenUsage(AgentJson node) {
         if (node == null || !node.isObject()) {
             return TokenUsage.empty();
         }
@@ -1835,7 +1842,7 @@ public abstract class AgentSessionStore {
         return TokenUsage.empty();
     }
 
-    private static Long firstCountField(JsonNode node, String... names) {
+    private static Long firstCountField(AgentJson node, String... names) {
         for (String name : names) {
             Long value = countField(node, name);
             if (value != null) {
@@ -1845,7 +1852,7 @@ public abstract class AgentSessionStore {
         return null;
     }
 
-    private static Long sumCountFields(JsonNode node, String... names) {
+    private static Long sumCountFields(AgentJson node, String... names) {
         Long sum = null;
         for (String name : names) {
             sum = addNullable(sum, countField(node, name));
@@ -1853,11 +1860,11 @@ public abstract class AgentSessionStore {
         return sum;
     }
 
-    private static Long countField(JsonNode node, String name) {
+    private static Long countField(AgentJson node, String name) {
         if (node == null) {
             return null;
         }
-        JsonNode value = node.get(name);
+        AgentJson value = node.get(name);
         if (value == null || value.isNull()) {
             return null;
         }
@@ -1980,20 +1987,20 @@ public abstract class AgentSessionStore {
      * Build a short, sanitized human-readable summary string. Never includes raw arguments,
      * command output, file diffs, or prompts.
      */
-    private static String sanitizedSummary(String type, String tool, String category, JsonNode node) {
+    private static String sanitizedSummary(String type, String tool, String category, AgentJson node) {
         String displayTool = tool != null ? tool : type;
         // We deliberately do not include node.get("args"), prompt, output, or diff fields.
         // A coarse "target" field name hint is allowed - e.g., the bare file extension or domain.
         StringBuilder sb = new StringBuilder();
         sb.append(category).append(" · ").append(displayTool != null ? displayTool : "event");
-        JsonNode target = firstString(node, "target", "path", "file");
+        AgentJson target = firstString(node, "target", "path", "file");
         if (target != null) {
             String hint = pathHint(target.asString());
             if (hint != null) {
                 sb.append(" · ").append(hint);
             }
         } else {
-            JsonNode url = firstString(node, "url", "host");
+            AgentJson url = firstString(node, "url", "host");
             if (url != null) {
                 String hint = urlHint(url.asString());
                 if (hint != null) {
@@ -2004,12 +2011,12 @@ public abstract class AgentSessionStore {
         return sb.toString();
     }
 
-    private static JsonNode firstString(JsonNode node, String... names) {
+    private static AgentJson firstString(AgentJson node, String... names) {
         if (node == null) {
             return null;
         }
         for (String n : names) {
-            JsonNode v = node.get(n);
+            AgentJson v = node.get(n);
             if (v != null && v.isString()) {
                 return v;
             }
@@ -2123,7 +2130,7 @@ public abstract class AgentSessionStore {
 
     private interface RawEventReference {}
 
-    private record JsonNodeRawEventReference(JsonNode node) implements RawEventReference {}
+    private record JsonNodeRawEventReference(AgentJson json) implements RawEventReference {}
 
     private record JsonlLineRawEventReference(Path file, int lineNumber) implements RawEventReference {}
 

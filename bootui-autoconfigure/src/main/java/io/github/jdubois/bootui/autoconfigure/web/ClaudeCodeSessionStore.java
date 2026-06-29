@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import java.time.Clock;
 
 /**
@@ -14,10 +15,10 @@ import java.time.Clock;
 public class ClaudeCodeSessionStore extends AgentSessionStore {
 
     public ClaudeCodeSessionStore(BootUiProperties.ClaudeCode properties) {
-        super(properties);
+        super(properties, new SpringAgentJsonParser());
     }
 
     ClaudeCodeSessionStore(BootUiProperties.ClaudeCode properties, Clock clock) {
-        super(properties, clock);
+        super(properties, new SpringAgentJsonParser(), clock);
     }
 }

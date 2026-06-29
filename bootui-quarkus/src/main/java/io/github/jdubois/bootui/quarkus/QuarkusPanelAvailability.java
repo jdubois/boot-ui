@@ -2,11 +2,15 @@ package io.github.jdubois.bootui.quarkus;
 
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
+import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.quarkus.agent.QuarkusClaudeCodeProperties;
+import io.github.jdubois.bootui.quarkus.agent.QuarkusCopilotProperties;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -298,6 +302,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.HTTP_EXCHANGES,
             BootUiPanels.ACTIVITY,
             BootUiPanels.EXCEPTIONS,
+            BootUiPanels.MCP_SERVER,
             BootUiPanels.VULNERABILITIES);
 
     private static final String CONFIG_READONLY =
@@ -323,6 +328,8 @@ public class QuarkusPanelAvailability {
     private final boolean profilesActive;
 
     private final boolean restApiPresent;
+    private final boolean copilotPanelAvailable;
+    private final boolean claudeCodePanelAvailable;
 
     @Inject
     public QuarkusPanelAvailability(Config config) {
@@ -349,6 +356,17 @@ public class QuarkusPanelAvailability {
         this.profilesActive = activeProfiles(config);
         this.restApiPresent =
                 config.getOptionalValue(REST_API_PRESENT_KEY, Boolean.class).orElse(false);
+        QuarkusCopilotProperties copilot = new QuarkusCopilotProperties(config);
+        QuarkusClaudeCodeProperties claude = new QuarkusClaudeCodeProperties(config);
+        this.copilotPanelAvailable = agentDirectoryPresent(copilot);
+        this.claudeCodePanelAvailable = agentDirectoryPresent(claude);
+    }
+
+    private static boolean agentDirectoryPresent(io.github.jdubois.bootui.spi.agent.AgentSessionProperties settings) {
+        if (!settings.enabledOn() && !settings.enabledAuto()) {
+            return false;
+        }
+        return Files.isDirectory(AgentSessionStore.resolveDir(settings));
     }
 
     private static boolean activeProfiles(Config config) {
@@ -378,6 +396,8 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.SQL_TRACE.equals(panel.id()) && connectionPoolsPresent)
                 || (BootUiPanels.PROFILE_DIFF.equals(panel.id()) && profilesActive)
                 || (BootUiPanels.REST_API.equals(panel.id()) && restApiPresent)
+                || (BootUiPanels.COPILOT.equals(panel.id()) && copilotPanelAvailable)
+                || (BootUiPanels.CLAUDE_CODE.equals(panel.id()) && claudeCodePanelAvailable)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         boolean readOnly = available && BootUiPanels.CONFIG.equals(panel.id());
@@ -425,6 +445,14 @@ public class QuarkusPanelAvailability {
         if (BootUiPanels.SECURITY_LOGS.equals(panelId)) {
             return "Not available: Quarkus security events are disabled. Set quarkus.security.events.enabled=true"
                     + " (with a security extension) to capture authentication/authorization events.";
+        }
+        if (BootUiPanels.COPILOT.equals(panelId)) {
+            return "Not available: no Copilot CLI session-state directory found (default"
+                    + " ~/.copilot/session-state). Run the Copilot CLI locally so it has sessions to show.";
+        }
+        if (BootUiPanels.CLAUDE_CODE.equals(panelId)) {
+            return "Not available: no Claude Code project directory found (default ~/.claude/projects)."
+                    + " Run Claude Code locally so it has sessions to show.";
         }
         return NOT_APPLICABLE.getOrDefault(panelId, NOT_YET_AVAILABLE);
     }

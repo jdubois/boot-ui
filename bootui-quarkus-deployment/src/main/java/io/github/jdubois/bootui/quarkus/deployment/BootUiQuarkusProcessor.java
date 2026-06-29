@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
+import io.github.jdubois.bootui.quarkus.agent.AgentSessionProducer;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.devservices.DevServicesRecorder;
 import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServices;
@@ -22,10 +23,13 @@ import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
 import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
+import io.github.jdubois.bootui.quarkus.web.ClaudeCodeResource;
+import io.github.jdubois.bootui.quarkus.web.CopilotResource;
 import io.github.jdubois.bootui.quarkus.web.DevServicesResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
+import io.github.jdubois.bootui.quarkus.web.McpServerResource;
 import io.github.jdubois.bootui.quarkus.web.QuarkusExceptionCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
@@ -173,6 +177,10 @@ class BootUiQuarkusProcessor {
                         LiveActivityResource.class,
                         SecurityLogsResource.class,
                         SqlTraceResource.class,
+                        AgentSessionProducer.class,
+                        CopilotResource.class,
+                        ClaudeCodeResource.class,
+                        McpServerResource.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());

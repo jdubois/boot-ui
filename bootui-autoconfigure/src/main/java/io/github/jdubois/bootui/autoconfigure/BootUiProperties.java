@@ -1202,12 +1202,22 @@ public class BootUiProperties {
      * {@code events.jsonl} files. It is read-only and never modifies anything
      * under that directory.</p>
      */
-    public static class Copilot {
+    public static class Copilot implements io.github.jdubois.bootui.spi.agent.AgentSessionProperties {
 
         /**
          * Enable the Copilot panel. AUTO activates only when the session-state directory exists.
          */
         private Mode enabled = Mode.AUTO;
+
+        @Override
+        public boolean enabledOn() {
+            return enabled == Mode.ON;
+        }
+
+        @Override
+        public boolean enabledAuto() {
+            return enabled == Mode.AUTO;
+        }
 
         /**
          * Override the directory scanned for Copilot CLI session-state directories.

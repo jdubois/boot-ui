@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import java.time.Clock;
 
 /**
@@ -14,10 +15,10 @@ import java.time.Clock;
 public class CopilotSessionStore extends AgentSessionStore {
 
     public CopilotSessionStore(BootUiProperties.Copilot properties) {
-        super(properties);
+        super(properties, new SpringAgentJsonParser());
     }
 
     CopilotSessionStore(BootUiProperties.Copilot properties, Clock clock) {
-        super(properties, clock);
+        super(properties, new SpringAgentJsonParser(), clock);
     }
 }

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.CopilotEventListDto;
 import io.github.jdubois.bootui.core.dto.CopilotRawEventDto;
 import io.github.jdubois.bootui.core.dto.CopilotSessionDetail;
 import io.github.jdubois.bootui.core.dto.CopilotSessionListDto;
+import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
