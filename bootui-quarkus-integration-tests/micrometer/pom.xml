@@ -8,22 +8,23 @@
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-parent</artifactId>
         <version>1.6.0</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>bootui-quarkus-liquibase-integration-tests</artifactId>
-    <name>BootUI :: Quarkus Extension (Liquibase Integration Tests)</name>
-    <description>Minimal, Docker-free Quarkus app that adds quarkus-liquibase (over an in-memory H2 datasource)
-        on top of the bootui-quarkus extension and proves the Liquibase panel light-up: the change-log history
-        read from the application's io.quarkus.liquibase.LiquibaseFactory by the QuarkusLiquibaseProvider is
-        shaped by the shared engine LiquibaseService, the applied change sets are surfaced on
-        GET /bootui/api/liquibase/changesets, and the panel is reported available in the manifest. Kept separate
-        from bootui-quarkus-integration-tests (which deliberately has NO quarkus-liquibase, so the capability
-        gate keeps the liquibase panel unavailable) so the liquibase-present and liquibase-absent paths are each
-        proven in isolation — the same split used for the Cache-present/absent and SmallRye-Health-present/absent
-        coverage.</description>
+    <artifactId>bootui-quarkus-micrometer-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Micrometer Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds a quarkus-micrometer registry on top of the
+        bootui-quarkus extension and proves the Metrics panel light-up: meters registered on the live composite
+        MeterRegistry are read in process by the shared engine MetricsReportProvider, grouped and mapped onto
+        the neutral MetricsReport, and surfaced on GET /bootui/api/metrics — while meters describing BootUI's
+        own /bootui/** traffic are hidden by the shared engine MeterSelfFilter. Kept separate from
+        bootui-quarkus-integration-tests (which deliberately has NO Micrometer registry) so the registry-absent
+        unavailable path and the registry-present capture path are each proven in isolation — the same split
+        used for the SmallRye-Health-present/absent and OpenTelemetry-present/absent coverage.</description>
 
     <!--
-        H2 runs in-memory (jdbc:h2:mem), so a @QuarkusTest boots without Docker. It is never published.
+        Like the other Quarkus integration-test modules, this app has NO datasource / messaging dependencies, so
+        a @QuarkusTest boots without Docker. It is never published.
     -->
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -50,18 +51,13 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Adds the Quarkus Liquibase extension. Its presence makes the LIQUIBASE capability available, so the
-             deployment build step wires BootUiLiquibaseProducer and the liquibase panel is reported available;
-             the LiquibaseFactory exposes the change-log history the panel reads. -->
+        <!-- Adds a real Micrometer registry. Its presence makes a MeterRegistry bean available, so the engine
+             MetricsReportProvider resolves the live composite registry and the Metrics panel reports real meters
+             (instead of rendering unavailable). The Prometheus backend is an arbitrary concrete registry; the
+             panel reads the composite, registry-implementation-agnostically. -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-liquibase</artifactId>
-        </dependency>
-
-        <!-- An in-memory H2 datasource for Liquibase to migrate against, so the @QuarkusTest needs no Docker. -->
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-jdbc-h2</artifactId>
+            <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->

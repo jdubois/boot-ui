@@ -8,6 +8,7 @@
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-parent</artifactId>
         <version>1.6.0</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>bootui-quarkus-flyway-integration-tests</artifactId>

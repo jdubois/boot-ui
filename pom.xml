@@ -48,14 +48,6 @@
         <module>bootui-quarkus</module>
         <module>bootui-quarkus-deployment</module>
         <module>bootui-quarkus-integration-tests</module>
-        <module>bootui-quarkus-otel-integration-tests</module>
-        <module>bootui-quarkus-health-integration-tests</module>
-        <module>bootui-quarkus-micrometer-integration-tests</module>
-        <module>bootui-quarkus-scheduler-integration-tests</module>
-        <module>bootui-quarkus-cache-integration-tests</module>
-        <module>bootui-quarkus-flyway-integration-tests</module>
-        <module>bootui-quarkus-liquibase-integration-tests</module>
-        <module>bootui-quarkus-datasource-integration-tests</module>
     </modules>
 
     <properties>
@@ -300,7 +292,7 @@
             </activation>
             <modules>
                 <module>bootui-quarkus-sample-app</module>
-                <module>bootui-quarkus-hibernate-integration-tests</module>
+                <module>bootui-quarkus-integration-tests/hibernate</module>
             </modules>
         </profile>
         <profile>

@@ -8,17 +8,20 @@
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-parent</artifactId>
         <version>1.6.0</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>bootui-quarkus-health-integration-tests</artifactId>
-    <name>BootUI :: Quarkus Extension (SmallRye Health Integration Tests)</name>
-    <description>Minimal, Docker-free Quarkus app that adds quarkus-smallrye-health on top of the bootui-quarkus
-        extension and proves the Health panel light-up: a custom MicroProfile @Liveness HealthCheck is read in
-        process via SmallRyeHealthReporter, mapped by QuarkusHealthProvider onto the neutral HealthNodeDto, and
-        surfaced on GET /bootui/api/health by the shared engine HealthService. Kept separate from
-        bootui-quarkus-integration-tests (which deliberately has NO SmallRye Health) so the SmallRye-absent
-        setup-guidance path and the SmallRye-present capture path are each proven in isolation — the same split
-        used for the OpenTelemetry-present/absent telemetry coverage.</description>
+    <artifactId>bootui-quarkus-cache-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Cache Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds quarkus-cache (Caffeine) on top of the
+        bootui-quarkus extension and proves the Cache panel light-up: the live cache topology read from the
+        application's io.quarkus.cache.CacheManager by the QuarkusCacheProvider is shaped by the shared engine
+        CacheService, Caffeine cache sizes + Micrometer cache metrics are overlaid, and the panel is surfaced on
+        GET /bootui/api/spring-cache with a working POST /clear action. Kept separate from
+        bootui-quarkus-integration-tests (which deliberately has NO quarkus-cache, so the capability gate keeps
+        the spring-cache panel unavailable) so the cache-present and cache-absent paths are each proven in
+        isolation — the same split used for the SmallRye-Health-present/absent and Micrometer-present/absent
+        coverage.</description>
 
     <!--
         Like the other Quarkus integration-test modules, this app has NO datasource / messaging dependencies, so
@@ -49,13 +52,20 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Adds SmallRye Health. Its presence flips the BootUI extension's SMALLRYE_HEALTH capability gate on,
-             so the deployment processor registers the in-process BootUiHealthProducer and the aggregated health
-             report is read into the neutral HealthNodeDto. No datasource/messaging health checks are pulled in;
-             the test supplies its own @Liveness check. -->
+        <!-- Adds the Quarkus Cache extension. Its presence makes the CACHE capability available, so the
+             deployment build step wires BootUiCacheProducer and the spring-cache panel is reported available;
+             the Caffeine-backed CacheManager exposes the live cache topology the panel reads. -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-smallrye-health</artifactId>
+            <artifactId>quarkus-cache</artifactId>
+        </dependency>
+
+        <!-- Adds a real Micrometer registry so the Caffeine cache meters (enabled per-cache in
+             application.properties) are registered on the live composite registry and overlaid onto the report
+             by the shared engine CacheService, exactly as on Spring. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->

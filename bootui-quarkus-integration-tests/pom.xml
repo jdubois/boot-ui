@@ -10,104 +10,24 @@
         <version>1.6.0</version>
     </parent>
 
-    <artifactId>bootui-quarkus-integration-tests</artifactId>
+    <artifactId>bootui-quarkus-integration-tests-aggregator</artifactId>
+    <packaging>pom</packaging>
     <name>BootUI :: Quarkus Extension (Integration Tests)</name>
-    <description>Minimal, Docker-free Quarkus app that runs the shared bootui-conformance contract against the
-        bootui-quarkus extension under @QuarkusTest, gating every build the same way the Spring conformance test
-        does. Has no datasource deps on purpose, so it never starts a Dev Services container.</description>
+    <description>Aggregator for the Docker-free Quarkus integration-test apps. Each sub-module pins a different
+        extension set on its classpath to prove BootUI panel light-up in isolation: the base module deliberately
+        has no optional extensions (everything fails closed), and each per-extension module adds exactly one
+        (otel, health, micrometer, scheduler, cache, flyway, liquibase, datasource). The Hibernate module also
+        lives here but is wired into the reactor only on a Hibernate-capable JDK (see the root pom profile).</description>
 
-    <!--
-        This module deliberately has NO datasource / messaging dependencies, so a @QuarkusTest boots without
-        Docker (no Dev Services). It is the Quarkus analogue of bootui-sample-app's SpringApiConformanceTest:
-        it proves the engine-backed /bootui/api/** surface and the safety floor behave on Quarkus exactly as
-        the shared contract requires. Never published.
-    -->
-    <properties>
-        <maven.deploy.skip>true</maven.deploy.skip>
-    </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>io.quarkus</groupId>
-                <artifactId>quarkus-bom</artifactId>
-                <version>${quarkus.platform.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
-    <dependencies>
-        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
-             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
-        <dependency>
-            <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-quarkus</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
-        <!-- The shared, framework-neutral HTTP conformance contract + JDK-HttpClient probe. -->
-        <dependency>
-            <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-conformance</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-junit5</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.assertj</groupId>
-            <artifactId>assertj-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <!-- Mockito (version managed by quarkus-bom) for the BootUiQuarkusSafetyFilter binding unit test:
-             it mocks the Vert.x RoutingContext/HttpServerRequest so the source-trust and Host-rebinding
-             paths (which cannot be reproduced over real loopback HTTP, where the peer is always loopback)
-             can be exercised directly. -->
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>io.quarkus</groupId>
-                <artifactId>quarkus-maven-plugin</artifactId>
-                <version>${quarkus.platform.version}</version>
-                <extensions>true</extensions>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>build</goal>
-                            <goal>generate-code</goal>
-                            <goal>generate-code-tests</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <!--
-              Install the JBoss LogManager as the JVM's java.util.logging LogManager for the test fork.
-              This is the documented Quarkus test setup: at runtime Quarkus always uses the JBoss
-              LogManager, and QuarkusLoggerProvider only reports itself available when that manager is
-              installed. Setting it here makes the Loggers IT (and the shared write-path conformance test)
-              exercise the real backend deterministically instead of depending on JVM-global init order.
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <systemPropertyVariables>
-                        <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
-                    </systemPropertyVariables>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
+    <modules>
+        <module>base</module>
+        <module>otel</module>
+        <module>health</module>
+        <module>micrometer</module>
+        <module>scheduler</module>
+        <module>cache</module>
+        <module>flyway</module>
+        <module>liquibase</module>
+        <module>datasource</module>
+    </modules>
 </project>

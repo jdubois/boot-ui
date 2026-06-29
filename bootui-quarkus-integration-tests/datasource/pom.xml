@@ -8,23 +8,23 @@
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-parent</artifactId>
         <version>1.6.0</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>bootui-quarkus-cache-integration-tests</artifactId>
-    <name>BootUI :: Quarkus Extension (Cache Integration Tests)</name>
-    <description>Minimal, Docker-free Quarkus app that adds quarkus-cache (Caffeine) on top of the
-        bootui-quarkus extension and proves the Cache panel light-up: the live cache topology read from the
-        application's io.quarkus.cache.CacheManager by the QuarkusCacheProvider is shaped by the shared engine
-        CacheService, Caffeine cache sizes + Micrometer cache metrics are overlaid, and the panel is surfaced on
-        GET /bootui/api/spring-cache with a working POST /clear action. Kept separate from
-        bootui-quarkus-integration-tests (which deliberately has NO quarkus-cache, so the capability gate keeps
-        the spring-cache panel unavailable) so the cache-present and cache-absent paths are each proven in
-        isolation — the same split used for the SmallRye-Health-present/absent and Micrometer-present/absent
-        coverage.</description>
+    <artifactId>bootui-quarkus-datasource-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Datasource Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds a JDBC datasource (quarkus-jdbc-h2, backed by
+        Agroal) on top of the bootui-quarkus extension and proves the Database Connection Pools panel light-up:
+        the live Agroal pool configuration and AgroalDataSourceMetrics read by the QuarkusAgroalConnectionPoolProvider
+        are mapped into the shared HikariPool* wire contract by the engine ConnectionPoolService, the JDBC URL /
+        username are masked through the shared SecretMasker, and the panel is surfaced on
+        GET /bootui/api/database-connection-pools/pools (plus the per-pool /snapshot route). Kept separate from
+        bootui-quarkus-integration-tests (which deliberately has NO datasource, so the AGROAL capability gate
+        keeps the panel unavailable) so the datasource-present and datasource-absent paths are each proven in
+        isolation — the same split used for the cache-present/absent and SmallRye-Health-present/absent coverage.</description>
 
     <!--
-        Like the other Quarkus integration-test modules, this app has NO datasource / messaging dependencies, so
-        a @QuarkusTest boots without Docker. It is never published.
+        Uses an in-memory H2 datasource (quarkus-jdbc-h2), so a @QuarkusTest boots without Docker. Never published.
     -->
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -51,20 +51,21 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Adds the Quarkus Cache extension. Its presence makes the CACHE capability available, so the
-             deployment build step wires BootUiCacheProducer and the spring-cache panel is reported available;
-             the Caffeine-backed CacheManager exposes the live cache topology the panel reads. -->
+        <!-- Adds an in-memory H2 JDBC datasource, backed by Agroal. Its presence makes the AGROAL capability
+             available, so the deployment build step wires BootUiAgroalProducer and the Database Connection Pools
+             panel is reported available; the Agroal pool exposes the configuration + live metrics the panel reads. -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-cache</artifactId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
         </dependency>
 
-        <!-- Adds a real Micrometer registry so the Caffeine cache meters (enabled per-cache in
-             application.properties) are registered on the live composite registry and overlaid onto the report
-             by the shared engine CacheService, exactly as on Spring. -->
+        <!-- The Agroal connection-pool extension. quarkus-jdbc-h2 declares it <optional>, so a real datasource
+             app pulls it in explicitly (it is THE Quarkus JDBC pool extension); adding it here registers the
+             build-time AGROAL capability the registerConnectionPools build step gates on, and activates the
+             agroal feature so AgroalDataSourceUtil enumerates the live pool at runtime. -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
+            <artifactId>quarkus-agroal</artifactId>
         </dependency>
 
         <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
