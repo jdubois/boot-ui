@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Pins how the Quarkus panel manifest distinguishes the three availability outcomes: panels that are lit up,
  * panels that are deliberately and permanently not applicable on Quarkus (GraalVM, CRaC, Conditions, Startup
- * Timeline), and panels that are
+ * Timeline, HTTP Sessions, Spring Data, Spring Security), and panels that are
  * merely not ported yet. The manifest is a pure function of the shared {@link BootUiPanels} registry, so this
  * needs no Quarkus runtime.
  */
@@ -30,8 +30,15 @@ class QuarkusPanelAvailabilityTest {
     @Test
     void graalVmCracConditionsAndStartupAreDeliberatelyNotApplicableOnQuarkus() {
         Map<String, PanelDto> panels = manifestById();
-        for (String id :
-                new String[] {BootUiPanels.GRAALVM, BootUiPanels.CRAC, BootUiPanels.CONDITIONS, BootUiPanels.STARTUP}) {
+        for (String id : new String[] {
+            BootUiPanels.GRAALVM,
+            BootUiPanels.CRAC,
+            BootUiPanels.CONDITIONS,
+            BootUiPanels.STARTUP,
+            BootUiPanels.HTTP_SESSIONS,
+            BootUiPanels.DATA,
+            BootUiPanels.SPRING_SECURITY
+        }) {
             PanelDto panel = panels.get(id);
             assertThat(panel).as("panel %s is present in the manifest", id).isNotNull();
             assertThat(panel.available())
@@ -43,6 +50,19 @@ class QuarkusPanelAvailabilityTest {
                     .doesNotContain("Not yet available")
                     .containsIgnoringCase("Not applicable on Quarkus");
         }
+    }
+
+    @Test
+    void springOnlyFinishersRedirectToTheirQuarkusEquivalents() {
+        // Spring Data and Spring Security are NOT_APPLICABLE on Quarkus, but their reasons must point users at
+        // the Quarkus-native panels that do cover the concern (Hibernate advisor / Security advisor).
+        Map<String, PanelDto> panels = manifestById();
+        assertThat(panels.get(BootUiPanels.DATA).unavailableReason())
+                .as("Spring Data reason redirects to the Hibernate advisor")
+                .containsIgnoringCase("Hibernate");
+        assertThat(panels.get(BootUiPanels.SPRING_SECURITY).unavailableReason())
+                .as("Spring Security reason redirects to the Security advisor")
+                .containsIgnoringCase("Security advisor");
     }
 
     @Test

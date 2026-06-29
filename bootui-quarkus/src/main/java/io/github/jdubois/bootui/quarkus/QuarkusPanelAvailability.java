@@ -117,7 +117,13 @@ import org.eclipse.microprofile.config.Config;
  * startup steps via build-time augmentation, so there is no runtime per-step buffer (Spring's
  * {@code BufferingApplicationStartup}) to record a fine-grained timeline — only coarse boot totals exist. All four
  * therefore report an honest, panel-specific reason so
- * the shared Vue unavailable-alert never implies a port is forthcoming. The <strong>Security</strong> advisor,
+ * the shared Vue unavailable-alert never implies a port is forthcoming. <strong>HTTP Sessions</strong>,
+ * <strong>Spring Data</strong> and <strong>Spring Security</strong> are likewise permanent exceptions: HTTP
+ * Sessions inventories servlet sessions via Spring Session's enumerable registry (Quarkus is reactive/stateless
+ * and has no equivalent registry, even when servlet sessions are added via quarkus-undertow); Spring Data
+ * enumerates Spring Data repository beans (Quarkus uses Panache/Hibernate instead — the Hibernate advisor covers
+ * mapping insight); and Spring Security reads Spring Security's filter chain and user store (Quarkus security is
+ * covered by the Quarkus-native Security advisor). The <strong>Security</strong> advisor,
  * by contrast, is now lit up with a Quarkus-native ruleset (see {@code QuarkusSecurityScanner}), as is the
  * <strong>Spring</strong> advisor panel, which runs a Quarkus-native idiom ruleset (see {@code QuarkusAppScanner}).</p>
  */
@@ -239,7 +245,20 @@ public class QuarkusPanelAvailability {
             BootUiPanels.STARTUP,
             "Not applicable on Quarkus: startup steps are eliminated by build-time augmentation, so there is no"
                     + " runtime per-step buffer (Spring's BufferingApplicationStartup) to record a timeline; only"
-                    + " coarse boot totals exist, so this fine-grained step timeline is not used here.");
+                    + " coarse boot totals exist, so this fine-grained step timeline is not used here.",
+            BootUiPanels.HTTP_SESSIONS,
+            "Not applicable on Quarkus: this panel inventories servlet HTTP sessions via Spring Session's"
+                    + " enumerable registry, but Quarkus is reactive/stateless by default and exposes no equivalent"
+                    + " active-session registry to list (servlet sessions added via quarkus-undertow are not"
+                    + " tracked), so it is not used here.",
+            BootUiPanels.DATA,
+            "Not applicable on Quarkus: this panel enumerates Spring Data repository beans, which Quarkus does not"
+                    + " run; Quarkus models persistence with Panache/Hibernate ORM instead — see the Hibernate"
+                    + " advisor for mapping insight.",
+            BootUiPanels.SPRING_SECURITY,
+            "Not applicable on Quarkus: this panel reads Spring Security's filter chain and user store, which"
+                    + " Quarkus does not run. Quarkus security (Elytron/OIDC, RBAC, TLS, CORS) is covered by the"
+                    + " Quarkus-native Security advisor.");
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
             BootUiPanels.THREADS,
