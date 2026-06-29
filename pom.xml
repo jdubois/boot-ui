@@ -6,7 +6,7 @@
 
     <groupId>com.julien-dubois.bootui</groupId>
     <artifactId>bootui-parent</artifactId>
-    <version>1.6.0</version>
+    <version>1.7.0</version>
     <packaging>pom</packaging>
 
     <name>BootUI Parent</name>
