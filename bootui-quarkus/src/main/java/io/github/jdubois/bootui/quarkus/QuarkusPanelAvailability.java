@@ -110,7 +110,10 @@ import org.eclipse.microprofile.config.Config;
  * itself and generates its own reachability metadata at build time, so the Spring-oriented advisor and its
  * {@code reachability-metadata.json} / {@code Dockerfile-native} scaffolding do not apply. CRaC targets the
  * Spring Boot startup model ({@code spring.context.checkpoint=onRefresh}); Quarkus's fast startup comes from
- * build-time augmentation and native images instead. Both therefore report an honest, panel-specific reason so
+ * build-time augmentation and native images instead. <strong>Conditions</strong> is likewise permanently not
+ * applicable: Spring's report enumerates {@code @ConditionalOn…} auto-configuration matches, which Quarkus has no
+ * runtime analogue for (it wires via build-time augmentation and extensions/capabilities, not a runtime
+ * condition-match graph). All three therefore report an honest, panel-specific reason so
  * the shared Vue unavailable-alert never implies a port is forthcoming. The <strong>Security</strong> advisor,
  * by contrast, is now lit up with a Quarkus-native ruleset (see {@code QuarkusSecurityScanner}), as is the
  * <strong>Spring</strong> advisor panel, which runs a Quarkus-native idiom ruleset (see {@code QuarkusAppScanner}).</p>
@@ -214,7 +217,12 @@ public class QuarkusPanelAvailability {
             BootUiPanels.CRAC,
             "Not applicable on Quarkus: this CRaC checkpoint/restore advisor targets the Spring Boot startup"
                     + " model, and Quarkus's fast startup comes from build-time augmentation and native images"
-                    + " instead, so it is not used here.");
+                    + " instead, so it is not used here.",
+            BootUiPanels.CONDITIONS,
+            "Not applicable on Quarkus: Spring Conditions reports @ConditionalOn… auto-configuration match"
+                    + " outcomes, but Quarkus performs build-time augmentation and exposes extensions/capabilities"
+                    + " and profiles instead — there is no runtime positive/negative condition-match graph to"
+                    + " display.");
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
             BootUiPanels.THREADS,

@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Pins how the Quarkus panel manifest distinguishes the three availability outcomes: panels that are lit up,
- * panels that are deliberately and permanently not applicable on Quarkus (GraalVM, CRaC), and panels that are
+ * panels that are deliberately and permanently not applicable on Quarkus (GraalVM, CRaC, Conditions), and panels that are
  * merely not ported yet. The manifest is a pure function of the shared {@link BootUiPanels} registry, so this
  * needs no Quarkus runtime.
  */
@@ -27,9 +27,9 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
-    void graalVmAndCracAreDeliberatelyNotApplicableOnQuarkus() {
+    void graalVmCracAndConditionsAreDeliberatelyNotApplicableOnQuarkus() {
         Map<String, PanelDto> panels = manifestById();
-        for (String id : new String[] {BootUiPanels.GRAALVM, BootUiPanels.CRAC}) {
+        for (String id : new String[] {BootUiPanels.GRAALVM, BootUiPanels.CRAC, BootUiPanels.CONDITIONS}) {
             PanelDto panel = panels.get(id);
             assertThat(panel).as("panel %s is present in the manifest", id).isNotNull();
             assertThat(panel.available())
