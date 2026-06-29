@@ -113,7 +113,10 @@ import org.eclipse.microprofile.config.Config;
  * build-time augmentation and native images instead. <strong>Conditions</strong> is likewise permanently not
  * applicable: Spring's report enumerates {@code @ConditionalOn…} auto-configuration matches, which Quarkus has no
  * runtime analogue for (it wires via build-time augmentation and extensions/capabilities, not a runtime
- * condition-match graph). All three therefore report an honest, panel-specific reason so
+ * condition-match graph). The <strong>Startup Timeline</strong> panel is likewise excluded: Quarkus eliminates
+ * startup steps via build-time augmentation, so there is no runtime per-step buffer (Spring's
+ * {@code BufferingApplicationStartup}) to record a fine-grained timeline — only coarse boot totals exist. All four
+ * therefore report an honest, panel-specific reason so
  * the shared Vue unavailable-alert never implies a port is forthcoming. The <strong>Security</strong> advisor,
  * by contrast, is now lit up with a Quarkus-native ruleset (see {@code QuarkusSecurityScanner}), as is the
  * <strong>Spring</strong> advisor panel, which runs a Quarkus-native idiom ruleset (see {@code QuarkusAppScanner}).</p>
@@ -222,7 +225,11 @@ public class QuarkusPanelAvailability {
             "Not applicable on Quarkus: Spring Conditions reports @ConditionalOn… auto-configuration match"
                     + " outcomes, but Quarkus performs build-time augmentation and exposes extensions/capabilities"
                     + " and profiles instead — there is no runtime positive/negative condition-match graph to"
-                    + " display.");
+                    + " display.",
+            BootUiPanels.STARTUP,
+            "Not applicable on Quarkus: startup steps are eliminated by build-time augmentation, so there is no"
+                    + " runtime per-step buffer (Spring's BufferingApplicationStartup) to record a timeline; only"
+                    + " coarse boot totals exist, so this fine-grained step timeline is not used here.");
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
             BootUiPanels.THREADS,

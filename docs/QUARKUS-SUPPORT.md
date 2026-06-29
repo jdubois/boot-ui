@@ -193,8 +193,9 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 No equivalent, low value, or superseded by Quarkus's own tooling:
 
 - **Build-time model differences:** `Conditions` (Quarkus resolves conditions at build time — no runtime report),
-  `Beans` (Arc resolves at build time; far less rich than Spring's live graph), `Startup Timeline` (different boot
-  model).
+  `Startup Timeline` (build-time augmentation eliminates startup steps — there is no runtime per-step buffer like
+  Spring's `BufferingApplicationStartup`, only coarse boot totals — so it is reported *not applicable*, not
+  *not yet*, alongside GraalVM/CRaC).
 - **Different security/data stacks:** `Spring Security`, `Spring Data` (Quarkus uses Elytron/OIDC and Panache).
 - **Servlet-only / low value on a reactive stack:** `HTTP Sessions`.
 - **Superseded or moot:** `GraalVM` readiness (Quarkus is native-first with its own build), `CRaC` (native focus makes
@@ -359,7 +360,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | CRaC                | partial     | Drop    | —                                | native focus; niche                         |
 | DevTools            | partial     | Drop    | —                                | Quarkus live reload built in                |
 | Conditions          | spring-only | Drop    | —                                | no runtime conditions report                |
-| Startup Timeline    | spring-only | Drop    | —                                | different boot model                        |
+| Startup Timeline    | spring-only | Drop    | —                                | not applicable: build-time augmentation, no runtime per-step buffer |
 | Spring Security     | spring-only | Drop    | —                                | Elytron/OIDC, different model               |
 | Spring Data         | spring-only | Drop    | —                                | Panache, different model                    |
 | HTTP Sessions       | spring-only | Drop    | —                                | reactive/stateless stack                    |
