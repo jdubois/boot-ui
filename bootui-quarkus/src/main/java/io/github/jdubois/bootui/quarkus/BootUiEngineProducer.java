@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
@@ -203,6 +204,20 @@ public class BootUiEngineProducer {
         Predicate<String> readVisible = name -> !excludeSelf || !internalPackages.matchesName(name);
         Predicate<String> writeBlocked = internalPackages::matchesName;
         return new LoggersService(provider, readVisible, writeBlocked);
+    }
+
+    /**
+     * The shared Log Tail ring buffer fed by {@code QuarkusLogTailHandler} (the JBoss LogManager) and read
+     * by {@code LogTailResource}. Mirrors the Spring adapter's buffer: capped to {@code 500} lines and an
+     * approximate byte budget ({@code bootui.log-tail.max-bytes}, default unbounded) so a long-lived dev
+     * process stays bounded while a normal short-lined tail keeps all 500 lines.
+     */
+    @Produces
+    @Singleton
+    public LogTailBuffer logTailBuffer(Config config) {
+        long maxBytes =
+                config.getOptionalValue("bootui.log-tail.max-bytes", Long.class).orElse(0L);
+        return new LogTailBuffer(LogTailBuffer.DEFAULT_MAX_LINES, maxBytes);
     }
 
     /**

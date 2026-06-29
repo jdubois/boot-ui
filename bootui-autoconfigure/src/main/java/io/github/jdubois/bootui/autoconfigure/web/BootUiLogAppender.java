@@ -5,23 +5,27 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.AppenderBase;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
+import io.github.jdubois.bootui.core.dto.LogLineDto;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Thin Logback adapter that feeds the framework-neutral {@link LogTailBuffer}. It builds a core
+ * {@link LogLineDto} directly from each event and pushes it into the shared buffer, which owns the
+ * capping, the replay snapshot and the live-subscriber fan-out shared with the Quarkus adapter.
+ */
 public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
 
     private static final String APPENDER_NAME = "BOOTUI_LOG_TAIL";
-    private static final int MAX_LINES = 500;
 
-    private final ArrayDeque<LogLineDto> lines = new ArrayDeque<>(MAX_LINES);
-    private final CopyOnWriteArrayList<Consumer<LogLineDto>> subscribers = new CopyOnWriteArrayList<>();
+    private final LogTailBuffer buffer;
 
-    public static synchronized BootUiLogAppender install() {
+    public BootUiLogAppender(LogTailBuffer buffer) {
+        this.buffer = buffer;
+    }
+
+    public static synchronized BootUiLogAppender install(LogTailBuffer buffer) {
         BootUiLogAppender existing = find();
         if (existing != null) {
             return existing;
@@ -31,7 +35,7 @@ public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
             throw new IllegalStateException("Logback LoggerContext is not available");
         }
         Logger rootLogger = context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        BootUiLogAppender appender = new BootUiLogAppender();
+        BootUiLogAppender appender = new BootUiLogAppender(buffer);
         appender.setContext(context);
         appender.setName(APPENDER_NAME);
         appender.start();
@@ -62,39 +66,20 @@ public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
         if (factory instanceof LoggerContext context) {
             context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).detachAppender(this);
         }
-        subscribers.clear();
         stop();
+    }
+
+    public LogTailBuffer buffer() {
+        return buffer;
     }
 
     @Override
     protected void append(ILoggingEvent event) {
-        LogLineDto line = new LogLineDto(
+        buffer.add(new LogLineDto(
                 event.getTimeStamp(),
                 event.getLevel().toString(),
                 event.getLoggerName(),
                 event.getFormattedMessage(),
-                event.getThreadName());
-        synchronized (lines) {
-            if (lines.size() >= MAX_LINES) {
-                lines.removeFirst();
-            }
-            lines.addLast(line);
-        }
-        for (Consumer<LogLineDto> subscriber : subscribers) {
-            subscriber.accept(line);
-        }
+                event.getThreadName()));
     }
-
-    public List<LogLineDto> getRecentLines() {
-        synchronized (lines) {
-            return new ArrayList<>(lines);
-        }
-    }
-
-    public Runnable subscribe(Consumer<LogLineDto> consumer) {
-        subscribers.add(consumer);
-        return () -> subscribers.remove(consumer);
-    }
-
-    public record LogLineDto(long timestamp, String level, String logger, String message, String thread) {}
 }

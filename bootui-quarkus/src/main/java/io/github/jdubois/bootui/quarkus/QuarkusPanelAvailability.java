@@ -216,6 +216,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.MEMORY,
             BootUiPanels.METRICS,
             BootUiPanels.LOGGERS,
+            BootUiPanels.LOG_TAIL,
             BootUiPanels.BEANS,
             BootUiPanels.CONFIG,
             BootUiPanels.HEALTH,

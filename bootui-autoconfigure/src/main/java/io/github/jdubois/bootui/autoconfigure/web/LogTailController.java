@@ -1,10 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
@@ -20,22 +20,20 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class LogTailController {
 
     private final BootUiLogAppender appender;
+    private final LogTailBuffer buffer;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
     /** Upper bound on simultaneous log-tail streams; this is a local dev tool, not a fan-out hub. */
     static final int MAX_CONCURRENT_STREAMS = 20;
 
     public LogTailController() {
-        this.appender = BootUiLogAppender.install();
-    }
-
-    private static LogLineDto toDto(BootUiLogAppender.LogLineDto line) {
-        return new LogLineDto(line.timestamp(), line.level(), line.logger(), line.message(), line.thread());
+        this.appender = BootUiLogAppender.install(new LogTailBuffer());
+        this.buffer = appender.buffer();
     }
 
     @GetMapping("/recent")
     public List<LogLineDto> recent() {
-        return appender.getRecentLines().stream().map(LogTailController::toDto).toList();
+        return buffer.recent();
     }
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -47,31 +45,25 @@ public class LogTailController {
         }
         emitters.add(emitter);
 
-        AtomicReference<Runnable> unsubscribeRef = new AtomicReference<>(() -> {});
-        emitter.onCompletion(() -> cleanup(emitter, unsubscribeRef.get()));
-        emitter.onTimeout(() -> cleanup(emitter, unsubscribeRef.get()));
-        emitter.onError(error -> cleanup(emitter, unsubscribeRef.get()));
-
-        try {
-            for (BootUiLogAppender.LogLineDto line : appender.getRecentLines()) {
-                sendLog(emitter, toDto(line));
-            }
-        } catch (IOException ex) {
-            cleanup(emitter, unsubscribeRef.get());
-            emitter.completeWithError(ex);
-            return emitter;
-        }
-
-        Runnable unsubscribe = appender.subscribe(line -> {
+        LogTailBuffer.Subscription subscription = buffer.subscribeWithReplay(line -> {
             try {
-                sendLog(emitter, toDto(line));
+                sendLog(emitter, line);
             } catch (IOException ex) {
-                cleanup(emitter, unsubscribeRef.get());
                 emitter.completeWithError(ex);
             }
         });
-        unsubscribeRef.set(unsubscribe);
+        emitter.onCompletion(() -> cleanup(emitter, subscription.unsubscribe()));
+        emitter.onTimeout(() -> cleanup(emitter, subscription.unsubscribe()));
+        emitter.onError(error -> cleanup(emitter, subscription.unsubscribe()));
 
+        try {
+            for (LogLineDto line : subscription.backlog()) {
+                sendLog(emitter, line);
+            }
+        } catch (IOException ex) {
+            cleanup(emitter, subscription.unsubscribe());
+            emitter.completeWithError(ex);
+        }
         return emitter;
     }
 

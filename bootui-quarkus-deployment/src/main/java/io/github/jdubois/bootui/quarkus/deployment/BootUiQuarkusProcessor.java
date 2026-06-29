@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
+import io.github.jdubois.bootui.quarkus.logging.QuarkusLogTailCapture;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
@@ -133,6 +134,7 @@ class BootUiQuarkusProcessor {
                         QuarkusConfigProvider.class,
                         QuarkusScheduledTaskProvider.class,
                         QuarkusPanelAvailability.class,
+                        QuarkusLogTailCapture.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());
