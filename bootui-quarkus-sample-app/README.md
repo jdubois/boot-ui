@@ -50,6 +50,25 @@ BootUI activates automatically under `quarkus:dev` (development launch mode). In
 > Run from source on **JDK 17 or 21**: Hibernate ORM's ByteBuddy enhancement cannot augment newer class
 > files, so `quarkus:dev` fails on JDK 22+. The Docker image below sidesteps this by building inside JDK 21.
 
+## Importing into an IDE (IntelliJ IDEA)
+
+This module is part of the **always-on** Maven reactor, so IntelliJ imports it as a Java/Maven module on
+**any** JDK — including JDK 26+. Only the Quarkus build-time augmentation is skipped on a JDK newer than the
+Quarkus platform supports (the `skip-quarkus-build-on-unsupported-jdk` profile in this module's `pom.xml`); the
+sources still compile and resolve, so code intelligence works in the IDE regardless of the importer JDK.
+
+If you are on an older checkout (where the whole module sat behind a JDK-`[17,26)` profile) and IntelliJ shows
+it as *"not a Java/Maven project"*, point the Maven importer at a JDK the platform supports and reload:
+
+- **Settings → Build, Execution, Deployment → Build Tools → Maven → Importing → "JDK for importer"** → pick a
+  JDK 17 / 21 / 25.
+- **File → Project Structure → Project → SDK** → set the project SDK to the same JDK.
+- Optionally, in the **Maven tool window → Profiles**, tick `quarkus-sample-app`, then **Reload All Maven
+  Projects**.
+
+To actually run or augment the app from the IDE (`quarkus:dev`) you still need a JDK 17 / 21 / 25, for the same
+Hibernate ByteBuddy reason as above; on JDK 26+ the module imports and compiles but does not augment.
+
 ## Docker image
 
 [`Dockerfile-quarkus`](../Dockerfile-quarkus) at the repository root builds a self-contained JVM image that

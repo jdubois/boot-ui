@@ -18,10 +18,13 @@
         Quarkus analogue of bootui-sample-app: a reference Quarkus application that demonstrates the
         BootUI developer console (see docs/QUARKUS-SUPPORT.md §8).
 
-        This module is wired into the reactor through the root pom's JDK-gated `quarkus-sample-app`
-        profile (active on JDK 17/21/25) rather than the always-on <modules> list, because its Hibernate ORM
-        dependency cannot be augmented on JDKs newer than the Quarkus 3.33 platform supports. Build it on
-        a supported JDK with `./mvnw -pl bootui-quarkus-sample-app -am install`.
+        This module lives in the root pom's always-on <modules> list so that IDEs (e.g. IntelliJ) import it
+        as a Java/Maven module on any JDK. Its Hibernate ORM dependency cannot be augmented on JDKs newer
+        than the Quarkus 3.33 platform supports (17/21/25), so the `skip-quarkus-build-on-unsupported-jdk`
+        profile below disables ONLY the Quarkus augmentation (the quarkus-maven-plugin execution) on JDK 26+.
+        Plain compile (release 17) + jar still run there, and the module has no tests, so a build on an
+        unsupported JDK stays green. On a supported JDK the app builds and augments normally; run/demo it with
+        `./mvnw -pl bootui-quarkus-sample-app -am install` (or `quarkus:dev`) on a JDK 17/21/25.
 
         Versions below (Quarkus platform, LangChain4j) track the `bootui-quarkus` extension.
     -->
@@ -185,6 +188,7 @@
                 <extensions>true</extensions>
                 <executions>
                     <execution>
+                        <id>quarkus-build</id>
                         <goals>
                             <goal>build</goal>
                             <goal>generate-code</goal>
@@ -195,4 +199,37 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            On a JDK newer than the Quarkus 3.33 platform supports (17/21/25), the build-time Hibernate ORM
+            ByteBuddy enhancement run by the quarkus-maven-plugin `build` goal cannot read the running JVM's
+            class files and fails. This module is in the always-on reactor (so IDEs import it everywhere), so
+            we disable ONLY the Quarkus augmentation/codegen execution on JDK 26+ by unbinding it
+            (`<phase>none</phase>`). Plain compile (release 17) + jar still succeed and the module has no tests,
+            so `./mvnw install` stays green on an unsupported JDK; it simply does not produce a runnable Quarkus
+            artifact there (you cannot run Quarkus on that JDK anyway). On a supported JDK this profile is
+            inactive and the app augments normally.
+        -->
+        <profile>
+            <id>skip-quarkus-build-on-unsupported-jdk</id>
+            <activation>
+                <jdk>[26,)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>${quarkus.platform.group-id}</groupId>
+                        <artifactId>quarkus-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>quarkus-build</id>
+                                <phase>none</phase>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
