@@ -1,5 +1,6 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {ref} from 'vue'
 
 import Spring from './Spring.vue'
 
@@ -153,5 +154,21 @@ describe('Spring', () => {
     // Removing the HIGH finding drops the penalty to 3 => 97, and the exclusion is noted.
     expect(wrapper.find('.advisor-score-card').text()).toContain('97')
     expect(wrapper.text()).toContain('1 dismissed rule(s) excluded from this score')
+  })
+
+  it('renders Quarkus advisor copy when the platform is quarkus', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify(advisorReport([])), {status: 200})))
+    )
+
+    const wrapper = mount(Spring, {
+      global: {provide: {panels: ref({platform: 'quarkus'})}}
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Run Quarkus checks')
+    expect(wrapper.text()).toContain('Managed beans')
+    expect(wrapper.text()).not.toContain('Beans analysed')
   })
 })

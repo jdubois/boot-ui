@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
+import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
@@ -36,6 +37,7 @@ import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
+import io.github.jdubois.bootui.quarkus.quarkusapp.QuarkusAppSnapshotProviderImpl;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.security.QuarkusSecuritySnapshotProviderImpl;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
@@ -246,6 +248,17 @@ public class BootUiEngineProducer {
     public QuarkusSecurityScanner quarkusSecurityScanner(Config config) {
         return QuarkusSecurityScanner.usingSnapshot(
                 new QuarkusSecuritySnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
+    }
+
+    /**
+     * The Quarkus-native application advisor scanner over a config-driven {@link QuarkusAppSnapshotProviderImpl}.
+     * Evaluates a Quarkus idiom ruleset (CDI scopes, @ConfigProperty, reactive/blocking, profiles) into the
+     * shared Spring advisor report.
+     */
+    @Produces
+    @Singleton
+    public QuarkusAppScanner quarkusAppScanner(Config config) {
+        return QuarkusAppScanner.usingSnapshot(new QuarkusAppSnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
     }
 
     /**

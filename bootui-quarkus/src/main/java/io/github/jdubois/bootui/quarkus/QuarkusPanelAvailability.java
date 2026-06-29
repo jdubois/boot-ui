@@ -112,7 +112,8 @@ import org.eclipse.microprofile.config.Config;
  * Spring Boot startup model ({@code spring.context.checkpoint=onRefresh}); Quarkus's fast startup comes from
  * build-time augmentation and native images instead. Both therefore report an honest, panel-specific reason so
  * the shared Vue unavailable-alert never implies a port is forthcoming. The <strong>Security</strong> advisor,
- * by contrast, is now lit up with a Quarkus-native ruleset (see {@code QuarkusSecurityScanner}).</p>
+ * by contrast, is now lit up with a Quarkus-native ruleset (see {@code QuarkusSecurityScanner}), as is the
+ * <strong>Spring</strong> advisor panel, which runs a Quarkus-native idiom ruleset (see {@code QuarkusAppScanner}).</p>
  */
 @ApplicationScoped
 public class QuarkusPanelAvailability {
@@ -220,6 +221,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_PROBE,
             BootUiPanels.ARCHITECTURE,
+            BootUiPanels.SPRING,
             BootUiPanels.PENTESTING,
             BootUiPanels.SECURITY,
             BootUiPanels.TRACES,

@@ -54,6 +54,16 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void springAdvisorIsLitUpOnQuarkus() {
+        // The Spring advisor panel now runs a Quarkus-native idiom ruleset, so the panel is available
+        // (not the not-yet-ported shim) — always-available like Security/Architecture, no capability gate.
+        PanelDto spring = manifestById().get(BootUiPanels.SPRING);
+        assertThat(spring.available())
+                .as("Spring advisor panel is lit up on Quarkus")
+                .isTrue();
+    }
+
+    @Test
     void notYetPortedPanelsKeepTheGenericReason() {
         // Mappings has no Quarkus backing yet; it must keep the generic "not yet" reason so it stays clearly
         // distinct from the deliberately-not-applicable GraalVM/CRaC panels above.

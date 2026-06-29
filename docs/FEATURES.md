@@ -249,7 +249,9 @@ already-started application, it focuses on "started but suboptimal" states rathe
 complements the Architecture panel, which statically analyzes compiled bytecode with ArchUnit, by inspecting the live,
 wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
 intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
-catalogue and remediation links.
+catalogue and remediation links. On Quarkus this panel runs a framework-native idiom ruleset instead (CDI/Arc
+scopes, build-time `@ConfigProperty`, reactive vs blocking, profiles) and is relabelled "Quarkus"; see
+[QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md).
 
 ![BootUI Spring panel](./images/bootui-spring.webp)
 

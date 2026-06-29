@@ -62,6 +62,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             "scheduled",
             "hibernate",
             "security",
+            "spring",
             "spring-cache",
             "http-exchanges",
             "security-logs",

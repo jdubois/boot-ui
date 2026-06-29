@@ -1,4 +1,5 @@
 <script setup>
+import {computed, inject, ref} from 'vue'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
@@ -6,6 +7,10 @@ import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
+const panels = inject('panels', ref(null))
+const isQuarkus = computed(() => panels.value?.platform === 'quarkus')
+const fwName = computed(() => (isQuarkus.value ? 'Quarkus' : 'Spring'))
+const beansLabel = computed(() => (isQuarkus.value ? 'Managed beans' : 'Beans analysed'))
 const panel = useAdvisorPanel(props, {
   apiPath: 'api/spring',
   loadErrorMessage: 'Unable to load Spring Advisor report',
@@ -20,8 +25,12 @@ const panel = useAdvisorPanel(props, {
   <div>
     <PanelHeader
       icon="bi-leaf"
-      title="Spring"
-      subtitle="Review the running Spring application context with bounded configuration and best-practice checks."
+      :title="fwName"
+      :subtitle="
+        isQuarkus
+          ? 'Review the Quarkus application idioms (CDI scopes, config, reactive, profiles) with bounded best-practice checks.'
+          : 'Review the running Spring application context with bounded configuration and best-practice checks.'
+      "
       :loading="panel.loading"
       :error="panel.error"
     >
@@ -31,7 +40,7 @@ const panel = useAdvisorPanel(props, {
           :disabled="panel.loading || panel.readOnly"
           class="btn btn-primary"
           type="button"
-          label="Run Spring checks"
+          :label="`Run ${fwName} checks`"
           loading-label="Running..."
           @click="panel.runScan"
         />
@@ -49,11 +58,11 @@ const panel = useAdvisorPanel(props, {
         :metrics="[
           {label: 'Rules evaluated', value: panel.report.rulesEvaluated},
           {label: 'Advisor findings', value: panel.report.violationsFound},
-          {label: 'Beans analysed', value: panel.report.componentsAnalyzed}
+          {label: beansLabel, value: panel.report.componentsAnalyzed}
         ]"
       />
       <div class="alert alert-info">
-        <strong>Heuristic Spring context rules.</strong>
+        <strong>Heuristic {{ fwName }} {{ isQuarkus ? 'idiom' : 'context' }} rules.</strong>
         {{ panel.report.disclaimer }}
         <span v-if="panel.readOnly">Scanning is read-only. {{ panel.readOnlyReason }}</span>
       </div>
@@ -65,8 +74,8 @@ const panel = useAdvisorPanel(props, {
             <div class="card-body">
               <div v-if="!panel.hasScanData" class="text-center text-muted py-4">
                 <i class="bi bi-search fs-2 d-block mb-2"></i>
-                <div class="fw-semibold text-body">No Spring Advisor data yet</div>
-                <div>Run Spring checks to populate advisor findings.</div>
+                <div class="fw-semibold text-body">No {{ fwName }} Advisor data yet</div>
+                <div>Run {{ fwName }} checks to populate advisor findings.</div>
               </div>
               <div
                 v-for="item in panel.report.severityCounts"
@@ -94,10 +103,10 @@ const panel = useAdvisorPanel(props, {
 
         <div class="col-lg-7">
           <div class="card h-100">
-            <div class="card-header fw-semibold">Context inspected</div>
+            <div class="card-header fw-semibold">{{ isQuarkus ? 'Idioms inspected' : 'Context inspected' }}</div>
             <div class="card-body">
               <div v-if="!panel.report.inspected || panel.report.inspected.length === 0" class="text-muted">
-                No application context details were collected.
+                No {{ isQuarkus ? 'application idiom' : 'application context' }} details were collected.
               </div>
               <ul v-else class="list-unstyled mb-0">
                 <li v-for="(item, index) in panel.report.inspected" :key="index" class="font-monospace small">

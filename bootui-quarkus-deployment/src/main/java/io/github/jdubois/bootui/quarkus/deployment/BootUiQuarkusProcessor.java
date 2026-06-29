@@ -46,8 +46,10 @@ import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
+import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
+import org.jboss.jandex.Type;
 
 /**
  * Build-time wiring for the BootUI Quarkus extension — the analogue of the Spring adapter's
@@ -254,6 +256,121 @@ class BootUiQuarkusProcessor {
     private static void emit(
             BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults, String key, int value) {
         runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(key, Integer.toString(value)));
+    }
+
+    private static final DotName APPLICATION_SCOPED =
+            DotName.createSimple("jakarta.enterprise.context.ApplicationScoped");
+    private static final DotName SINGLETON = DotName.createSimple("jakarta.inject.Singleton");
+    private static final DotName REQUEST_SCOPED = DotName.createSimple("jakarta.enterprise.context.RequestScoped");
+    private static final DotName DEPENDENT = DotName.createSimple("jakarta.enterprise.context.Dependent");
+    private static final DotName CONFIG_PROPERTY =
+            DotName.createSimple("org.eclipse.microprofile.config.inject.ConfigProperty");
+    private static final DotName PATH = DotName.createSimple("jakarta.ws.rs.Path");
+    private static final DotName BLOCKING = DotName.createSimple("io.smallrye.common.annotation.Blocking");
+
+    /**
+     * Captures build-time idiom counts for the Quarkus-native application advisor: CDI scope annotation counts,
+     * {@code @ConfigProperty} sites, JAX-RS resources without an explicit scope, reactive ({@code Uni}/{@code Multi})
+     * endpoints, {@code @Blocking} sites, and shared mutable fields on {@code @ApplicationScoped} beans. Emitted as
+     * runtime config defaults the advisor reads. Dev/test only — skipped in {@link LaunchMode#NORMAL}.
+     */
+    @BuildStep
+    void registerAppIdioms(
+            LaunchModeBuildItem launchMode,
+            BeanArchiveIndexBuildItem beanArchiveIndex,
+            ApplicationIndexBuildItem applicationIndex,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return;
+        }
+        IndexView app = applicationIndex.getIndex();
+        IndexView beans = beanArchiveIndex.getIndex();
+        emit(runtimeDefaults, "bootui.internal.app.application-scoped", classAnnotations(app, APPLICATION_SCOPED));
+        emit(runtimeDefaults, "bootui.internal.app.singleton", classAnnotations(app, SINGLETON));
+        emit(runtimeDefaults, "bootui.internal.app.request-scoped", classAnnotations(app, REQUEST_SCOPED));
+        emit(runtimeDefaults, "bootui.internal.app.dependent", classAnnotations(app, DEPENDENT));
+        emit(
+                runtimeDefaults,
+                "bootui.internal.app.config-property",
+                beans.getAnnotations(CONFIG_PROPERTY).size());
+        emit(
+                runtimeDefaults,
+                "bootui.internal.app.blocking",
+                app.getAnnotations(BLOCKING).size());
+
+        int endpoints = 0;
+        int reactive = 0;
+        for (String http : List.of(
+                "jakarta.ws.rs.GET",
+                "jakarta.ws.rs.POST",
+                "jakarta.ws.rs.PUT",
+                "jakarta.ws.rs.DELETE",
+                "jakarta.ws.rs.PATCH",
+                "jakarta.ws.rs.HEAD",
+                "jakarta.ws.rs.OPTIONS")) {
+            for (AnnotationInstance ann : app.getAnnotations(DotName.createSimple(http))) {
+                if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD) {
+                    endpoints++;
+                    if (isReactive(ann.target().asMethod().returnType())) {
+                        reactive++;
+                    }
+                }
+            }
+        }
+        emit(runtimeDefaults, "bootui.internal.app.endpoints", endpoints);
+        emit(runtimeDefaults, "bootui.internal.app.reactive-endpoints", reactive);
+
+        int defaultScopeResources = 0;
+        List<String> mutableFields = new ArrayList<>();
+        for (AnnotationInstance ann : app.getAnnotations(PATH)) {
+            if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.CLASS) {
+                continue;
+            }
+            ClassInfo cls = ann.target().asClass();
+            if (cls.declaredAnnotation(APPLICATION_SCOPED) == null
+                    && cls.declaredAnnotation(REQUEST_SCOPED) == null
+                    && cls.declaredAnnotation(SINGLETON) == null
+                    && cls.declaredAnnotation(DEPENDENT) == null) {
+                defaultScopeResources++;
+            }
+        }
+        for (AnnotationInstance ann : app.getAnnotations(APPLICATION_SCOPED)) {
+            if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.CLASS) {
+                continue;
+            }
+            ClassInfo cls = ann.target().asClass();
+            for (FieldInfo f : cls.fields()) {
+                boolean isPublic = (f.flags() & 0x0001) != 0;
+                boolean isFinal = (f.flags() & 0x0010) != 0;
+                boolean isStatic = (f.flags() & 0x0008) != 0;
+                if (!isStatic && (isPublic || !isFinal)) {
+                    mutableFields.add(cls.simpleName() + "." + f.name());
+                }
+            }
+        }
+        emit(runtimeDefaults, "bootui.internal.app.default-scope-resources", defaultScopeResources);
+        if (!mutableFields.isEmpty()) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    "bootui.internal.app.mutable-fields", String.join(",", mutableFields)));
+        }
+    }
+
+    private static int classAnnotations(IndexView index, DotName annotation) {
+        int n = 0;
+        for (AnnotationInstance ann : index.getAnnotations(annotation)) {
+            if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.CLASS) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private static boolean isReactive(Type returnType) {
+        if (returnType == null) {
+            return false;
+        }
+        String name = returnType.name().toString();
+        return name.equals("io.smallrye.mutiny.Uni") || name.equals("io.smallrye.mutiny.Multi");
     }
 
     /**
