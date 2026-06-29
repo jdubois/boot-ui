@@ -7,11 +7,11 @@ vi.mock('../utils/useConfirm.js', () => ({
   useConfirm: () => ({confirm: () => Promise.resolve(true)})
 }))
 
-function finding(id, name, severity, occurrenceCount = 1, status = 'REVIEW') {
+function finding(id, name, severity, occurrenceCount = 1, status = 'REVIEW', category = 'Reflection') {
   return {
     id,
     name,
-    category: 'Reflection',
+    category,
     severity,
     description: `${name} description.`,
     status,
@@ -348,5 +348,78 @@ describe('GraalVm', () => {
     const writeButton = bothCard.findAll('button').find((button) => button.text().includes('Write into project'))
     expect(writeButton).toBeUndefined()
     expect(bothCard.text()).toContain('Direct write unavailable')
+  })
+
+  function concernTitles(wrapper) {
+    return wrapper.findAll('.list-group-item h3').map((title) => title.text())
+  }
+
+  function severityFilterButton(wrapper, severity) {
+    return wrapper
+      .findAll('[aria-label="Filter concerns by severity"] button')
+      .find((button) => button.text().startsWith(severity))
+  }
+
+  describe('concern filtering', () => {
+    it('does not render the filter bar until a scan finds concerns', async () => {
+      const wrapper = await mountWithReport(graalvmReport([]))
+
+      expect(wrapper.find('input[aria-label="Search concerns"]').exists()).toBe(false)
+      expect(wrapper.find('select[aria-label="Filter by category"]').exists()).toBe(false)
+    })
+
+    it('filters concerns by severity and reflects the visible count', async () => {
+      const wrapper = await mountWithReport(
+        graalvmReport([
+          finding('GRAAL-HIGH-001', 'High concern', 'HIGH'),
+          finding('GRAAL-MED-001', 'Medium concern', 'MEDIUM'),
+          finding('GRAAL-LOW-001', 'Low concern', 'LOW')
+        ])
+      )
+
+      const highButton = severityFilterButton(wrapper, 'HIGH')
+      expect(highButton).toBeDefined()
+      await highButton.trigger('click')
+
+      expect(concernTitles(wrapper)).toEqual(['High concern'])
+      expect(wrapper.text()).toContain('Showing 1 of 3 concerns')
+    })
+
+    it('filters concerns by category', async () => {
+      const wrapper = await mountWithReport(
+        graalvmReport([
+          finding('GRAAL-REFLECT-001', 'Reflection concern', 'HIGH', 1, 'REVIEW', 'Reflection'),
+          finding('GRAAL-RES-001', 'Resource concern', 'LOW', 1, 'REVIEW', 'Resources')
+        ])
+      )
+
+      await wrapper.find('select[aria-label="Filter by category"]').setValue('Resources')
+
+      expect(concernTitles(wrapper)).toEqual(['Resource concern'])
+    })
+
+    it('filters concerns by free-text search and clears back to all concerns', async () => {
+      const wrapper = await mountWithReport(
+        graalvmReport([
+          finding('GRAAL-HIGH-001', 'Dynamic proxy concern', 'HIGH'),
+          finding('GRAAL-LOW-001', 'Resource bundle concern', 'LOW')
+        ])
+      )
+
+      await wrapper.find('input[aria-label="Search concerns"]').setValue('proxy')
+      expect(concernTitles(wrapper)).toEqual(['Dynamic proxy concern'])
+
+      const clear = wrapper.findAll('button').find((button) => button.text() === 'Clear filters')
+      await clear.trigger('click')
+      expect(concernTitles(wrapper)).toEqual(['Dynamic proxy concern', 'Resource bundle concern'])
+    })
+
+    it('shows a no-match empty state when filters exclude every concern', async () => {
+      const wrapper = await mountWithReport(graalvmReport([finding('GRAAL-MED-001', 'Medium concern', 'MEDIUM')]))
+
+      await wrapper.find('input[aria-label="Search concerns"]').setValue('no-such-concern')
+
+      expect(wrapper.text()).toContain('No concerns match the active filters')
+    })
   })
 })
