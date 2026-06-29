@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.exceptions;
+package io.github.jdubois.bootui.engine.exceptions;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -14,17 +14,23 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import org.springframework.web.util.DisconnectedClientHelper;
+import java.util.function.Predicate;
 
 /**
- * In-memory, bounded store of exceptions thrown by the host application, grouped by a stable
- * fingerprint so repeated failures collapse into a single entry with an occurrence count.
+ * Framework-neutral, in-memory, bounded store of exceptions thrown by the host application, grouped by a
+ * stable fingerprint so repeated failures collapse into a single entry with an occurrence count. Shared
+ * by the Spring Boot and Quarkus adapters: Spring feeds it from a Logback appender (logged throwables)
+ * and an MVC {@code HandlerExceptionResolver} (web request exceptions, with request context); Quarkus
+ * feeds it from a {@code java.util.logging} handler and a Vert.x failure handler. Both serve the
+ * identical wire on top, so the single shared Vue panel renders the same on every platform.
  *
- * <p>The store is fed by {@code BootUiExceptionHandlerResolver} (web request exceptions, with
- * request context) and {@code BootUiExceptionLogAppender} (anything logged with a throwable). To
- * keep a single logical failure from being counted twice when it is both handled and logged, the
- * store deduplicates by {@link Throwable} identity using a weakly-referenced set, so the bookkeeping
- * cannot itself pin exceptions in memory.</p>
+ * <p>To keep one logical failure from being counted twice when more than one feeder sees it — handled
+ * <em>and</em> logged, or wrapped by the framework before logging — the store deduplicates by
+ * {@link Throwable} identity <em>across the whole cause chain</em>, using a weakly-referenced set so the
+ * bookkeeping cannot itself pin exceptions in memory. A throwable whose chain already contains a
+ * recorded instance (in either direction) is treated as a duplicate; otherwise its entire chain is
+ * marked seen. A caller-supplied {@code ignore} predicate drops adapter-specific noise (e.g. Spring
+ * client-disconnect exceptions) without coupling the engine to any framework type.</p>
  *
  * <p>All retained data lives only in memory, is bounded, and is reset on application restart or via
  * {@link #clear()}.</p>
@@ -59,6 +65,8 @@ public final class ExceptionStore {
             "org.eclipse.",
             "reactor.",
             "io.netty.",
+            "io.vertx.",
+            "io.quarkus.",
             "org.aspectj.",
             "net.bytebuddy.",
             "org.jboss.",
@@ -67,6 +75,7 @@ public final class ExceptionStore {
     private final int maxGroups;
     private final int maxOccurrencesPerGroup;
     private final int maxStackFrames;
+    private final Predicate<Throwable> ignore;
 
     private final Object lock = new Object();
     private final Map<String, Group> groups = new HashMap<>();
@@ -76,9 +85,18 @@ public final class ExceptionStore {
     private volatile List<String> applicationPackages = List.of();
 
     public ExceptionStore(int maxGroups, int maxOccurrencesPerGroup, int maxStackFrames) {
+        this(maxGroups, maxOccurrencesPerGroup, maxStackFrames, throwable -> false);
+    }
+
+    /**
+     * @param ignore caller predicate for adapter-specific noise to drop entirely; used by the Spring
+     *     adapter to skip client-disconnect exceptions. A {@code null} predicate ignores nothing.
+     */
+    public ExceptionStore(int maxGroups, int maxOccurrencesPerGroup, int maxStackFrames, Predicate<Throwable> ignore) {
         this.maxGroups = Math.max(1, maxGroups);
         this.maxOccurrencesPerGroup = Math.max(1, maxOccurrencesPerGroup);
         this.maxStackFrames = Math.max(1, maxStackFrames);
+        this.ignore = ignore == null ? throwable -> false : ignore;
     }
 
     public void setApplicationPackages(List<String> packages) {
@@ -86,18 +104,13 @@ public final class ExceptionStore {
     }
 
     /**
-     * Records a thrown exception. No-ops if the exact {@link Throwable} instance was already
-     * recorded, so a failure observed by both the handler resolver and the log appender counts once.
-     *
-     * <p>Client-disconnect exceptions are skipped entirely: a remote client that goes away
-     * mid-response (most commonly a browser closing a Server-Sent Events stream such as BootUI's own
-     * Live Activity feed, which surfaces as a broken-pipe {@code AsyncRequestNotUsableException}) is
-     * expected disconnect noise, not a host-application fault, so it must never pollute the panel.</p>
+     * Records a thrown exception. No-ops if any {@link Throwable} in this throwable's cause chain was
+     * already recorded, so a failure observed by more than one feeder — and a framework wrapper around
+     * an already-seen cause — counts once. The whole chain is then marked seen so a later wrapper of the
+     * same cause is also recognized as a duplicate.
      */
     public void record(Throwable throwable, String thread, String method, String path, String handler, String source) {
-        if (throwable == null
-                || DisconnectedClientHelper.isClientDisconnectedException(throwable)
-                || !seen.add(throwable)) {
+        if (throwable == null || ignore.test(throwable) || !markSeen(throwable)) {
             return;
         }
         List<Frame> frames = buildFrames(throwable.getStackTrace());
@@ -112,6 +125,24 @@ public final class ExceptionStore {
                 path,
                 handler,
                 source);
+    }
+
+    /**
+     * Marks every throwable in the cause chain seen. Returns {@code true} if this is the first feeder to
+     * observe the chain, {@code false} if any link was already recorded (a duplicate from another source).
+     */
+    private boolean markSeen(Throwable throwable) {
+        boolean fresh = true;
+        Throwable current = throwable;
+        int depth = 0;
+        while (current != null && depth < MAX_CAUSE_DEPTH) {
+            if (!seen.add(current)) {
+                fresh = false;
+            }
+            current = current.getCause() == current ? null : current.getCause();
+            depth++;
+        }
+        return fresh;
     }
 
     private void capture(

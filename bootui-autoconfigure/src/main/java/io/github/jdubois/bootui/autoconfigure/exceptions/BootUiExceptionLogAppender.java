@@ -7,6 +7,7 @@ import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.AppenderBase;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 

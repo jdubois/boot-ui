@@ -901,6 +901,14 @@ surfaced, and stack frames carry only class/method/file/line information. The in
 panel's clear action. The panel can be disabled with `bootui.panels.exceptions.enabled=false`, and clearing honors the
 panel's read-only setting.
 
+On Quarkus the panel is identical, running over the same framework-neutral engine store and `ExceptionsService`, so
+the wire is byte-identical to Spring. In place of the MVC resolver and logback appender, capture comes from two
+complementary sources: a `java.util.logging` handler that records anything logged with a throwable (excluding BootUI's
+own loggers), and a Vert.x failure handler that records the throwable escaping a failed request with its method and
+path. The shared store still de-duplicates by throwable identity across the cause chain, so a failure seen by both
+sources is counted once. Capture is installed on `StartupEvent` and detached on `ShutdownEvent`, wired in dev/test
+only and never in production, and bounded by the same `bootui.exceptions.*` limits.
+
 ![BootUI Exceptions panel](./images/bootui-exceptions.webp)
 
 ### HTTP Exchanges

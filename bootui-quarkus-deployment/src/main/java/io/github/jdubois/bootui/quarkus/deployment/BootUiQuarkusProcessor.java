@@ -12,13 +12,16 @@ import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
+import io.github.jdubois.bootui.quarkus.exceptions.QuarkusExceptionCapture;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLogTailCapture;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
 import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
+import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
+import io.github.jdubois.bootui.quarkus.web.QuarkusExceptionCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
 import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
@@ -154,6 +157,9 @@ class BootUiQuarkusProcessor {
                         QuarkusScheduledTaskProvider.class,
                         QuarkusPanelAvailability.class,
                         QuarkusLogTailCapture.class,
+                        QuarkusExceptionCapture.class,
+                        QuarkusExceptionCaptureFilter.class,
+                        ExceptionsResource.class,
                         QuarkusHttpExchangeCaptureFilter.class,
                         HttpExchangesResource.class,
                         LiveActivityResource.class,

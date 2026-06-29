@@ -10,7 +10,6 @@ import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionHandlerResolver;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
-import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
@@ -37,6 +36,7 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPos
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceRuntimeHints;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
@@ -76,6 +76,7 @@ import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.web.util.DisconnectedClientHelper;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -317,7 +318,10 @@ public class BootUiAutoConfiguration {
         ExceptionStore bootUiExceptionStore(BootUiProperties properties, ApplicationContext applicationContext) {
             BootUiProperties.Exceptions config = properties.getExceptions();
             ExceptionStore store = new ExceptionStore(
-                    config.getMaxGroups(), config.getMaxOccurrencesPerGroup(), config.getMaxStackFrames());
+                    config.getMaxGroups(),
+                    config.getMaxOccurrencesPerGroup(),
+                    config.getMaxStackFrames(),
+                    DisconnectedClientHelper::isClientDisconnectedException);
             try {
                 if (AutoConfigurationPackages.has(applicationContext)) {
                     store.setApplicationPackages(AutoConfigurationPackages.get(applicationContext));

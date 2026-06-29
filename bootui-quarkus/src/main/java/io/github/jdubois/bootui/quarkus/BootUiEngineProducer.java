@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
 import io.github.jdubois.bootui.engine.github.DefaultGitHubTokenProvider;
 import io.github.jdubois.bootui.engine.github.GitHubDashboardConfig;
@@ -250,6 +252,36 @@ public class BootUiEngineProducer {
         long maxBytes =
                 config.getOptionalValue("bootui.log-tail.max-bytes", Long.class).orElse(0L);
         return new LogTailBuffer(LogTailBuffer.DEFAULT_MAX_LINES, maxBytes);
+    }
+
+    /**
+     * The shared, bounded {@link ExceptionStore} fed by {@code QuarkusExceptionLogHandler} (the JBoss
+     * LogManager) and {@code QuarkusExceptionFailureFilter} (the Vert.x failure handler), read by
+     * {@code ExceptionsResource}. Mirrors the Spring adapter's store: cause-chain identity dedup keeps a
+     * single logical failure seen by both feeders from counting twice, caps bound memory, and host base
+     * packages flag application frames. A singleton so writes and reads share one store.
+     */
+    @Produces
+    @Singleton
+    public ExceptionStore exceptionStore(Config config, QuarkusBasePackageProvider basePackages) {
+        ExceptionStore store = new ExceptionStore(
+                config.getOptionalValue("bootui.exceptions.max-groups", Integer.class)
+                        .orElse(100),
+                config.getOptionalValue("bootui.exceptions.max-occurrences-per-group", Integer.class)
+                        .orElse(25),
+                config.getOptionalValue("bootui.exceptions.max-stack-frames", Integer.class)
+                        .orElse(50));
+        store.setApplicationPackages(basePackages.basePackages());
+        return store;
+    }
+
+    /**
+     * Display masking + DTO assembly for the Exceptions panel, shared with Spring so the wire is identical.
+     */
+    @Produces
+    @Singleton
+    public ExceptionsService exceptionsService(QuarkusExposurePolicy exposure) {
+        return new ExceptionsService(exposure);
     }
 
     /**

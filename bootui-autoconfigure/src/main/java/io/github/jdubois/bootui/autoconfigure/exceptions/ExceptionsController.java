@@ -3,15 +3,10 @@ package io.github.jdubois.bootui.autoconfigure.exceptions;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
-import io.github.jdubois.bootui.core.ValueExposure;
-import io.github.jdubois.bootui.core.dto.ExceptionCauseDto;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
-import io.github.jdubois.bootui.core.dto.ExceptionFrameDto;
-import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
-import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
-import java.util.List;
-import java.util.regex.Pattern;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.ContextClosedEvent;
@@ -39,15 +34,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/bootui/api/exceptions")
 public class ExceptionsController {
 
-    private static final Pattern SECRET_ASSIGNMENT = Pattern.compile(
-            "(?i)([\"']?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|authorization|credential|"
-                    + "access[-_]?key|client[-_]?secret|private[-_]?key)[\"']?\\s*[=:]\\s*[\"']?)([^\\s\"',;&)]+)");
-
     private final ObjectProvider<ExceptionStore> storeProvider;
 
     private final BootUiProperties properties;
 
-    private final BootUiExposure exposure;
+    private final ExceptionsService service;
 
     private final BootUiChangeStream changeStream;
 
@@ -58,7 +49,7 @@ public class ExceptionsController {
             ObjectProvider<ExceptionStore> storeProvider, BootUiProperties properties, BootUiExposure exposure) {
         this.storeProvider = storeProvider;
         this.properties = properties;
-        this.exposure = exposure;
+        this.service = new ExceptionsService(exposure);
         this.changeStream = new BootUiChangeStream("exceptions");
         ExceptionStore store = storeProvider.getIfAvailable();
         if (store != null) {
@@ -96,9 +87,7 @@ public class ExceptionsController {
             return ExceptionsReport.unavailable(
                     "Exception capture is disabled", properties.getExceptions().getMaxGroups());
         }
-        List<ExceptionGroupDto> groups =
-                store.groups().stream().map(this::toGroupDto).toList();
-        return new ExceptionsReport(true, null, store.maxGroups(), store.totalExceptions(), groups);
+        return service.report(store);
     }
 
     @GetMapping("/{id}")
@@ -108,7 +97,7 @@ public class ExceptionsController {
         if (detail == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "exception " + id + " not found");
         }
-        return toDetailDto(detail);
+        return service.detail(detail);
     }
 
     @DeleteMapping
@@ -127,69 +116,5 @@ public class ExceptionsController {
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
         return changeStream.open();
-    }
-
-    private ExceptionGroupDto toGroupDto(ExceptionStore.GroupSummary summary) {
-        ExceptionStore.Occurrence last = summary.last();
-        return new ExceptionGroupDto(
-                summary.fingerprint(),
-                summary.exceptionClassName(),
-                displayMessage(summary.message()),
-                summary.count(),
-                summary.firstSeen(),
-                summary.lastSeen(),
-                summary.location(),
-                summary.applicationException(),
-                last == null ? null : last.thread(),
-                last == null ? null : last.requestMethod(),
-                last == null ? null : last.requestPath(),
-                last == null ? null : last.handler(),
-                last == null ? null : last.source());
-    }
-
-    private ExceptionDetailDto toDetailDto(ExceptionStore.GroupDetail detail) {
-        return new ExceptionDetailDto(
-                toGroupDto(detail.summary()),
-                detail.frames().stream().map(this::toFrameDto).toList(),
-                detail.causes().stream().map(this::toCauseDto).toList(),
-                detail.occurrences().stream().map(this::toOccurrenceDto).toList());
-    }
-
-    private ExceptionFrameDto toFrameDto(ExceptionStore.Frame frame) {
-        return new ExceptionFrameDto(
-                frame.declaringClass(),
-                frame.methodName(),
-                frame.fileName(),
-                frame.lineNumber() >= 0 ? frame.lineNumber() : null,
-                frame.applicationFrame());
-    }
-
-    private ExceptionCauseDto toCauseDto(ExceptionStore.Cause cause) {
-        return new ExceptionCauseDto(
-                cause.exceptionClassName(),
-                displayMessage(cause.message()),
-                cause.frames().stream().map(this::toFrameDto).toList(),
-                cause.commonFrames());
-    }
-
-    private ExceptionOccurrenceDto toOccurrenceDto(ExceptionStore.Occurrence occurrence) {
-        return new ExceptionOccurrenceDto(
-                occurrence.timestamp(),
-                occurrence.thread(),
-                occurrence.requestMethod(),
-                occurrence.requestPath(),
-                occurrence.handler(),
-                occurrence.source());
-    }
-
-    private String displayMessage(String message) {
-        ValueExposure valueExposure = exposure.valueExposure();
-        if (valueExposure == ValueExposure.METADATA_ONLY || message == null) {
-            return null;
-        }
-        if (valueExposure == ValueExposure.MASKED && exposure.maskSecrets()) {
-            return SECRET_ASSIGNMENT.matcher(message).replaceAll(result -> result.group(1) + "******");
-        }
-        return message;
     }
 }

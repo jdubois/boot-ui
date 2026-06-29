@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.exceptions;
 
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.Ordered;

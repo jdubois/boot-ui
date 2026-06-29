@@ -1,11 +1,10 @@
-package io.github.jdubois.bootui.autoconfigure.exceptions;
+package io.github.jdubois.bootui.engine.exceptions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 class ExceptionStoreTests {
 
@@ -36,29 +35,36 @@ class ExceptionStoreTests {
     }
 
     @Test
+    void deduplicatesAcrossCauseChainSoAFrameworkWrapperOfASeenCauseCountsOnce() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        IllegalStateException root = new IllegalStateException("boom");
+
+        // First feeder (e.g. Vert.x failure handler) records the raw cause.
+        store.record(root, "main", "GET", "/x", "Handler#x", "web");
+        // Second feeder (e.g. JUL log hook) records a fresh wrapper around the same cause.
+        store.record(new RuntimeException("wrapped", root), "main", null, null, null, "log");
+
+        assertThat(store.totalExceptions()).isEqualTo(1);
+    }
+
+    @Test
+    void appliesIgnorePredicate() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50, t -> t instanceof IllegalArgumentException);
+
+        store.record(new IllegalArgumentException("dropped"), "main", null, null, null, "log");
+        store.record(new IllegalStateException("kept"), "main", null, null, null, "log");
+
+        assertThat(store.groups()).hasSize(1);
+        assertThat(store.groups().get(0).exceptionClassName()).isEqualTo("java.lang.IllegalStateException");
+    }
+
+    @Test
     void separatesDistinctExceptionTypes() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         store.record(new IllegalStateException("a"), "main", null, null, null, "log");
         store.record(new IllegalArgumentException("b"), "main", null, null, null, "log");
 
         assertThat(store.groups()).hasSize(2);
-    }
-
-    @Test
-    void ignoresClientDisconnectExceptionsSuchAsSseStreamBrokenPipes() {
-        ExceptionStore store = new ExceptionStore(100, 25, 50);
-
-        store.record(
-                new AsyncRequestNotUsableException("ServletResponse failed to flushBuffer: Broken pipe"),
-                "bootui-activity-stream",
-                "GET",
-                "/bootui/api/activity/stream",
-                "LiveActivityController#stream",
-                "web");
-        store.record(new java.io.IOException("Broken pipe"), "http-nio-8080-exec-1", null, null, null, "log");
-
-        assertThat(store.groups()).isEmpty();
-        assertThat(store.totalExceptions()).isZero();
     }
 
     @Test
