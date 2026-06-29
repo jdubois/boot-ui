@@ -435,6 +435,8 @@ public class BootUiEngineProducer {
                 .orElse(10);
         int maxApiCalls = config.getOptionalValue("bootui.github.max-api-calls", Integer.class)
                 .orElse(17);
+        int maxSecurityAlerts = config.getOptionalValue("bootui.github.max-security-alerts", Integer.class)
+                .orElse(50);
         List<String> allowedApiHosts = gitHubAllowedApiHosts(config);
 
         QuarkusGitHubSettings settings = new QuarkusGitHubSettings(
@@ -444,6 +446,7 @@ public class BootUiEngineProducer {
                 maxWorkflowRuns,
                 quotaSafetyThreshold,
                 maxApiCalls,
+                maxSecurityAlerts,
                 allowedApiHosts);
         GitHubApiClient client = new GitHubApiClient(
                 settings,

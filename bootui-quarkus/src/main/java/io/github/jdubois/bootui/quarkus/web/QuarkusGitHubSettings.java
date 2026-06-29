@@ -21,4 +21,5 @@ public record QuarkusGitHubSettings(
         int maxWorkflowRuns,
         int quotaSafetyThreshold,
         int maxApiCalls,
+        int maxSecurityAlerts,
         List<String> allowedApiHosts) {}

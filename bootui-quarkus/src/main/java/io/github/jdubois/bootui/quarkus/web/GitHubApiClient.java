@@ -207,7 +207,8 @@ public final class GitHubApiClient implements GitHubClient {
                     "Dependabot alerts",
                     "dependabot/alerts?state=open&per_page=100",
                     token,
-                    budget);
+                    budget,
+                    true);
             addSecuritySignal(
                     securitySignals,
                     repository,
@@ -215,7 +216,8 @@ public final class GitHubApiClient implements GitHubClient {
                     "Code scanning alerts",
                     "code-scanning/alerts?state=open&per_page=100",
                     token,
-                    budget);
+                    budget,
+                    false);
             addSecuritySignal(
                     securitySignals,
                     repository,
@@ -223,7 +225,8 @@ public final class GitHubApiClient implements GitHubClient {
                     "Secret scanning alerts",
                     "secret-scanning/alerts?state=open&per_page=100",
                     token,
-                    budget);
+                    budget,
+                    false);
             addRepositoryQuota(
                     quotas,
                     repository,
@@ -543,20 +546,52 @@ public final class GitHubApiClient implements GitHubClient {
             String label,
             String relativePath,
             GitHubTokenProvider.Token token,
-            RequestBudget budget)
+            RequestBudget budget,
+            boolean includeAlerts)
             throws IOException, InterruptedException {
         ApiResponse response = get(repository, repoPath + "/" + relativePath, token, budget, label);
         if (response.success()) {
+            boolean array = response.json().isArray();
             signals.add(new GitHubSecuritySignalDto(
                     label,
                     "AVAILABLE",
-                    response.json().isArray()
-                            ? paginatedAlertCount(repository, relativePath, label, response, token, budget)
-                            : 0,
-                    null));
+                    array ? paginatedAlertCount(repository, relativePath, label, response, token, budget) : 0,
+                    null,
+                    includeAlerts && array ? dependabotAlerts(response.json()) : List.of()));
         } else {
             signals.add(new GitHubSecuritySignalDto(label, "UNAVAILABLE", null, response.safeMessage()));
         }
+    }
+
+    private List<GitHubDependabotAlertDto> dependabotAlerts(JsonNode root) {
+        int max = positive(settings.maxSecurityAlerts(), 50);
+        List<GitHubDependabotAlertDto> alerts = new ArrayList<>();
+        for (JsonNode item : root) {
+            if (alerts.size() >= max) {
+                break;
+            }
+            JsonNode dependency = item.path("dependency");
+            JsonNode pkg = dependency.path("package");
+            JsonNode advisory = item.path("security_advisory");
+            JsonNode vulnerability = item.path("security_vulnerability");
+            String severity = textOrDefault(vulnerability, "severity", text(advisory, "severity"));
+            alerts.add(new GitHubDependabotAlertDto(
+                    item.path("number").asInt(),
+                    text(item, "state"),
+                    text(pkg, "name"),
+                    text(pkg, "ecosystem"),
+                    text(dependency, "manifest_path"),
+                    severity,
+                    text(advisory, "ghsa_id"),
+                    text(advisory, "cve_id"),
+                    text(advisory, "summary"),
+                    text(vulnerability, "vulnerable_version_range"),
+                    text(vulnerability.path("first_patched_version"), "identifier"),
+                    text(item, "html_url"),
+                    instantMillis(text(item, "created_at")),
+                    instantMillis(text(item, "updated_at"))));
+        }
+        return alerts;
     }
 
     private int paginatedAlertCount(
