@@ -25,6 +25,7 @@
         <module>health</module>
         <module>micrometer</module>
         <module>scheduler</module>
+        <module>security</module>
         <module>cache</module>
         <module>flyway</module>
         <module>liquibase</module>

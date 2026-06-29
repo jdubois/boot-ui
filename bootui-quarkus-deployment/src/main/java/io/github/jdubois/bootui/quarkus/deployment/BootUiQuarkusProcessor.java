@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
 import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
+import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
@@ -102,6 +103,13 @@ class BootUiQuarkusProcessor {
     // (loading it would link the Agroal API that must stay absent — R2).
     private static final String AGROAL_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiAgroalProducer";
 
+    // Referenced by class name only: QuarkusSecurityEventCapture observes io.quarkus.security.spi.runtime
+    // .SecurityEvent, so the deployment classloader must never load it while augmenting an application without a
+    // security extension (loading it would link the security SPI that must stay absent — R2). The SECURITY
+    // capability gate registers it only when present.
+    private static final String SECURITY_CAPTURE_CLASS =
+            "io.github.jdubois.bootui.quarkus.web.QuarkusSecurityEventCapture";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -141,6 +149,7 @@ class BootUiQuarkusProcessor {
                         QuarkusHttpExchangeCaptureFilter.class,
                         HttpExchangesResource.class,
                         LiveActivityResource.class,
+                        SecurityLogsResource.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());
@@ -698,6 +707,36 @@ class BootUiQuarkusProcessor {
             // via the always-produced CacheService and renders the panel unavailable; the panel is reported
             // unavailable in the manifest (CACHE_PRESENT_KEY defaults to false).
             excludedTypes.produce(new ExcludedTypeBuildItem(CACHE_PRODUCER_CLASS));
+        }
+    }
+
+    /**
+     * Capability-gated registration of the Security Logs capture observer (R2). {@code QuarkusSecurityEventCapture}
+     * observes {@code io.quarkus.security.spi.runtime.SecurityEvent}, so it must be excluded from bean discovery
+     * when no security extension is present; the {@code SecurityEventBuffer} and {@code SecurityLogsResource} are
+     * neutral (no security imports), so they wire unconditionally in dev/test and the resource simply reports the
+     * panel unavailable. When {@code SECURITY} is present in dev/test, the observer is registered and
+     * {@code SECURITY_LOGS_PRESENT_KEY} is set; the panel lights up only when {@code quarkus.security.events.enabled}
+     * is also true (decided by {@link QuarkusPanelAvailability}). Mirrors {@link #registerCacheAdvisor}.
+     */
+    @BuildStep
+    void registerSecurityLogs(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        boolean present =
+                launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SECURITY);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(SECURITY_CAPTURE_CLASS)
+                    .setUnremovable()
+                    .build());
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusPanelAvailability.SECURITY_LOGS_PRESENT_KEY, "true"));
+        } else {
+            excludedTypes.produce(new ExcludedTypeBuildItem(SECURITY_CAPTURE_CLASS));
         }
     }
 

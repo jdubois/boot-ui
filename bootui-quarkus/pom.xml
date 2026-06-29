@@ -160,6 +160,18 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Security, compile-only (provided): needed solely to compile the Security Logs capture
+             observer (QuarkusSecurityEventCapture), which observes io.quarkus.security.spi.runtime.SecurityEvent
+             CDI events into the shared SecurityEventBuffer. provided scope is NOT transitive, so an application
+             that does not add quarkus-security never gets these types, and the capability-gated build step
+             excludes the observer that would reference them (R2). When an app DOES add a security extension, the
+             SPI is supplied (at the same quarkus-bom-managed version) and the observer is registered. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Unit-test deps (quarkus-bom managed). The runtime module carries a small same-package unit test for
              QuarkusHealthProvider.map(), which needs SmallRye's jakarta.json API + the Parsson implementation —
              both already on the test classpath via the provided smallrye-health dependency above. Keeping the

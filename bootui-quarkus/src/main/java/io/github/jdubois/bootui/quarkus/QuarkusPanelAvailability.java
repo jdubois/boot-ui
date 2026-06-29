@@ -167,6 +167,14 @@ public class QuarkusPanelAvailability {
      */
     public static final String LIQUIBASE_PRESENT_KEY = "bootui.internal.liquibase-present";
 
+    /**
+     * Runtime-config key carrying the build-time {@code SECURITY} capability decision. The deployment
+     * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean
+     * reads it back, together with {@code quarkus.security.events.enabled}, to decide whether the Security
+     * Logs panel is lit up. Shared with {@code BootUiQuarkusProcessor}, mirroring {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String SECURITY_LOGS_PRESENT_KEY = "bootui.internal.security-logs-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
@@ -245,6 +253,8 @@ public class QuarkusPanelAvailability {
     private final boolean liquibasePresent;
     private final boolean connectionPoolsPresent;
 
+    private final boolean securityLogsAvailable;
+
     private final List<String> githubAllowedApiHosts;
 
     private final boolean profilesActive;
@@ -263,6 +273,11 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(LIQUIBASE_PRESENT_KEY, Boolean.class).orElse(false);
         this.connectionPoolsPresent = config.getOptionalValue(CONNECTION_POOLS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
+        boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
+                .orElse(false);
+        boolean eventsEnabled = config.getOptionalValue("quarkus.security.events.enabled", Boolean.class)
+                .orElse(false);
+        this.securityLogsAvailable = securityPresent && eventsEnabled;
         this.githubAllowedApiHosts = BootUiEngineProducer.gitHubAllowedApiHosts(config);
         this.profilesActive = activeProfiles(config);
     }
@@ -289,6 +304,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
                 || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
                 || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panel.id()) && connectionPoolsPresent)
+                || (BootUiPanels.SECURITY_LOGS.equals(panel.id()) && securityLogsAvailable)
                 || (BootUiPanels.PROFILE_DIFF.equals(panel.id()) && profilesActive)
                 || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
         String unavailableReason = available ? null : unavailableReason(panel.id());
@@ -322,6 +338,10 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.GITHUB.equals(panelId)) {
             return githubUnavailableReason();
+        }
+        if (BootUiPanels.SECURITY_LOGS.equals(panelId)) {
+            return "Not available: Quarkus security events are disabled. Set quarkus.security.events.enabled=true"
+                    + " (with a security extension) to capture authentication/authorization events.";
         }
         return NOT_APPLICABLE.getOrDefault(panelId, NOT_YET_AVAILABLE);
     }

@@ -28,6 +28,7 @@ import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
+import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
@@ -139,6 +140,21 @@ public class BootUiEngineProducer {
         int capacity = config.getOptionalValue("bootui.http-exchanges.capacity", Integer.class)
                 .orElse(100);
         return new HttpExchangeBuffer(capacity);
+    }
+
+    /**
+     * The Quarkus-only security-event ring buffer fed by the CDI security-event observer — Quarkus has no
+     * Actuator {@code AuditEventRepository}, so this is the capture source for the Security Logs panel.
+     * Capacity bounds memory ({@code bootui.security-logs.max-logs}, default 500, matching the Spring panel
+     * cap); the buffer caps and reverses, the engine service masks. A singleton so writes and reads share
+     * one bounded buffer.
+     */
+    @Produces
+    @Singleton
+    public SecurityEventBuffer securityEventBuffer(Config config) {
+        int capacity = config.getOptionalValue("bootui.security-logs.max-logs", Integer.class)
+                .orElse(500);
+        return new SecurityEventBuffer(capacity);
     }
 
     /**

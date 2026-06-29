@@ -759,6 +759,8 @@ summarizes retained event counts by type, refreshes live over **Server-Sent Even
 and masks sensitive event data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to
 `500`; if audit support is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
+On Quarkus, the panel sources its events from CDI security events (`io.quarkus.security.spi.runtime.SecurityEvent`) captured into a capped buffer instead of an `AuditEventRepository`. This is honestly partial: it requires a security extension with `quarkus.security.events.enabled=true`, and only authentication success/failure and authorization failure events are emitted — there is no Quarkus equivalent for logout/session events — otherwise the panel reports unavailable with a clear reason. Filtering, type summary, masking, and the `bootui.security-logs.max-logs` cap are identical across both frameworks.
+
 ![BootUI Security Logs panel](./images/bootui-security-logs.webp)
 
 ## Services
