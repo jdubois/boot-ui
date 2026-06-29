@@ -2976,7 +2976,6 @@ const screenshots = [
     'Overview',
     'bootui-overview.webp',
     async (page) => {
-      await page.getByText('Understand your Spring Boot app').waitFor()
       await page.getByRole('button', {name: /Run all scanners/}).click()
       await page.getByText('9 of 9 scanners scored').waitFor()
       await page.getByText('1 security alert(s)').waitFor()
@@ -3070,7 +3069,7 @@ const screenshots = [
   ['spring-cache', 'Spring Cache', 'bootui-spring-cache.webp', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.webp', waitForText('Token usage')],
   ['activity', 'Live Activity', 'bootui-activity.webp', waitForText('GET /api/sample/products')],
-  ['traces', 'Traces', 'bootui-traces.webp', waitForText('POST /api/chat')],
+  ['traces', 'Traces', 'bootui-traces.webp', waitForText('/api/chat')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.webp', waitForText('Started BootUI sample application')],
   [
     'exceptions',
@@ -3565,7 +3564,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'ai/overview') return fulfillJson(route, aiOverview)
   if (endpoint === 'ai/tokens') return fulfillJson(route, aiTokens)
   if (endpoint === `ai/chats/${aiSpanId}`) return fulfillJson(route, aiDetail)
-  if (endpoint === 'probe') return fulfillJson(route, probeResponse(postDataJson(request)))
+  if (endpoint === 'http-probe') return fulfillJson(route, probeResponse(postDataJson(request)))
   if (endpoint === 'copilot/dashboard') return fulfillJson(route, copilotDashboard)
   if (endpoint === 'copilot/sessions') return fulfillJson(route, copilotSessions)
   if (endpoint === `copilot/sessions/${copilotSessionId}`) return fulfillJson(route, copilotSessionDetail)
