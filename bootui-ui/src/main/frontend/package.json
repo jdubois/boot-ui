@@ -15,7 +15,7 @@
   "dependencies": {
     "bootstrap": "5.3.8",
     "bootstrap-icons": "1.13.1",
-    "vue": "3.5.38",
+    "vue": "3.5.39",
     "vue-router": "5.1.0"
   },
   "devDependencies": {
@@ -25,7 +25,7 @@
     "jsdom": "29.1.1",
     "prettier": "3.8.4",
     "typescript": "^6.0.3",
-    "vite": "8.0.16",
+    "vite": "8.1.0",
     "vite-plugin-checker": "^0.14.4",
     "vitest": "4.1.9",
     "vue-tsc": "^3.3.5"
