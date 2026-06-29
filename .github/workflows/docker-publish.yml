@@ -1,15 +1,17 @@
 name: Publish Docker images
 
-# Builds the four sample-app container images from the root Dockerfiles and
+# Builds the five sample-app container images from the root Dockerfiles and
 # publishes them to Docker Hub as multi-arch images (linux/amd64 + linux/arm64):
 #
 #   Dockerfile         -> <user>/bootui-sample-app          (JVM image)
 #   Dockerfile-aot     -> <user>/bootui-sample-app-aot      (JVM + Spring AOT + JDK cache image)
 #   Dockerfile-crac    -> <user>/bootui-sample-app-crac     (CRaC image)
 #   Dockerfile-native  -> <user>/bootui-sample-app-native   (GraalVM native image)
+#   Dockerfile-quarkus -> <user>/bootui-quarkus-sample-app  (Quarkus JVM dev-mode image, a separate sample app)
 #
-# Each Dockerfile copies the whole multi-module reactor and builds the sample app
-# with `-pl bootui-sample-app -am`, so the build context is the repository root.
+# Each Dockerfile copies the whole multi-module reactor and builds its sample app from
+# that reactor, so the build context is the repository root. (The four Spring images
+# build `bootui-sample-app`; the Quarkus image builds `bootui-quarkus-sample-app`.)
 #
 # The images are published once a day from the main branch (scheduled events run
 # against the default branch) and can also be built on demand from the Actions tab.
@@ -29,11 +31,13 @@ name: Publish Docker images
 #      job itself needs no Docker Hub secrets.
 #
 #   2. build - build, smoke-test and publish every image on every platform (a matrix
-#      of 4 images x 2 platforms = 8 jobs). Each job builds its single-platform image
+#      of 5 images x 2 platforms = 10 jobs). Each job builds its single-platform image
 #      once and loads it into the runner's local Docker daemon (load: true) to
-#      smoke-test it: the base Spring Boot app must be up (GET /actuator/health),
-#      BootUI's back end must be active (GET /bootui/api/panels) and the BootUI front
-#      end must be served (GET /bootui/). The CRaC image additionally stops the
+#      smoke-test it: the app must become ready (the Spring images poll GET
+#      /actuator/health for status UP; the Quarkus image has no Actuator, so it polls
+#      the BootUI panel manifest GET /bootui/api/panels), BootUI's back end must be
+#      active (GET /bootui/api/panels) and the BootUI front end must be served
+#      (GET /bootui/). The CRaC image additionally stops the
 #      container and starts it again from the persisted checkpoint, verifying that the
 #      restore serves BootUI and comes up at least twice as fast as the initial
 #      boot-and-checkpoint start. Only once the smoke test passes does the job push that
@@ -45,7 +49,7 @@ name: Publish Docker images
 #      fails its job, so the merge phase below never runs and no tag is ever applied.
 #
 #   3. merge - assemble the tagged multi-arch manifest list for each image (a matrix
-#      of 4 images) from the per-platform digests pushed in phase 2, applying the
+#      of 5 images) from the per-platform digests pushed in phase 2, applying the
 #      rolling `latest`, dated and short-SHA tags. Runs only if every build job
 #      succeeded.
 #
@@ -188,6 +192,7 @@ jobs:
           - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
+          - bootui-quarkus-sample-app
         platform:
           - linux/amd64
           - linux/arm64
@@ -197,6 +202,8 @@ jobs:
             # Plain JVM image: no special privileges; ready within a few seconds.
             run_args: ''
             health_timeout: '120'
+            ready_url: /actuator/health
+            ready_match: '"status":"UP"'
           - image: bootui-sample-app-aot
             dockerfile: Dockerfile-aot
             # JVM + Spring AOT + JDK 25 AOT cache: no special privileges; starts
@@ -205,17 +212,33 @@ jobs:
             # is a normal unprivileged launch.
             run_args: ''
             health_timeout: '120'
+            ready_url: /actuator/health
+            ready_match: '"status":"UP"'
           - image: bootui-sample-app-crac
             dockerfile: Dockerfile-crac
             # CRaC needs CRIU privileges and a checkpoint volume (see docker-compose-crac.yml).
             # The first start takes the checkpoint and then restores, so allow extra time.
             run_args: '--cap-add=CHECKPOINT_RESTORE --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN -v bootui-smoke-crac-checkpoint:/opt/crac/checkpoint'
             health_timeout: '240'
+            ready_url: /actuator/health
+            ready_match: '"status":"UP"'
           - image: bootui-sample-app-native
             dockerfile: Dockerfile-native
             # GraalVM native image: no special privileges; starts in well under a second.
             run_args: ''
             health_timeout: '120'
+            ready_url: /actuator/health
+            ready_match: '"status":"UP"'
+          - image: bootui-quarkus-sample-app
+            dockerfile: Dockerfile-quarkus
+            # Quarkus JVM image launched in dev mode (BootUI activates only outside the
+            # production launch mode); no special privileges, but dev-mode re-augmentation
+            # at startup makes it slower to become ready than the Spring JVM image. It has
+            # no Actuator, so readiness is the BootUI panel manifest, not /actuator/health.
+            run_args: ''
+            health_timeout: '180'
+            ready_url: /bootui/api/panels
+            ready_match: '"platform"'
     steps:
       - name: Resolve image name and platform tag
         run: |
@@ -267,6 +290,8 @@ jobs:
           IMAGE_REF: ${{ env.REGISTRY_IMAGE }}:smoke-${{ env.PLATFORM_PAIR }}
           RUN_ARGS: ${{ matrix.run_args }}
           HEALTH_TIMEOUT: ${{ matrix.health_timeout }}
+          READY_URL: ${{ matrix.ready_url }}
+          READY_MATCH: ${{ matrix.ready_match }}
         run: |
           set -euo pipefail
 
@@ -283,15 +308,18 @@ jobs:
 
           base_url='http://127.0.0.1:8080'
 
-          # 1. Base Spring Boot app is up: poll /actuator/health until it reports UP.
+          # 1. App is up: poll the readiness URL until it responds as expected. The URL
+          # and the expected substring are matrix-driven (ready_url / ready_match): the
+          # Spring images poll /actuator/health for "status":"UP", while the Quarkus image
+          # has no Actuator and instead polls the BootUI panel manifest (/bootui/api/panels).
           # Poll once a second so the elapsed time is measured with usable resolution
           # (the CRaC restart check below compares start durations).
-          echo "Waiting up to ${HEALTH_TIMEOUT}s for the app to report health UP..."
+          echo "Waiting up to ${HEALTH_TIMEOUT}s for ${READY_URL} to become ready..."
           deadline=$(( $(date +%s) + $HEALTH_TIMEOUT ))
-          until status=$(curl -fsS "${base_url}/actuator/health" 2>/dev/null) && \
-                echo "$status" | grep -q '"status":"UP"'; do
+          until body=$(curl -fsS "${base_url}${READY_URL}" 2>/dev/null) && \
+                echo "$body" | grep -q "$READY_MATCH"; do
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "ERROR: app did not report health UP within ${HEALTH_TIMEOUT}s." >&2
+              echo "ERROR: ${READY_URL} did not become ready within ${HEALTH_TIMEOUT}s." >&2
               exit 1
             fi
             # Fail fast if the container has already exited.
@@ -302,7 +330,7 @@ jobs:
             sleep 1
           done
           first_start_seconds=$(( $(date +%s) - started_at ))
-          echo "OK: base Spring Boot app is up (/actuator/health -> UP) in ${first_start_seconds}s."
+          echo "OK: app is ready (${READY_URL}) in ${first_start_seconds}s."
           # Export for the CRaC restart-speed check (a no-op for the other variants).
           echo "FIRST_START_SECONDS=${first_start_seconds}" >> "$GITHUB_ENV"
 
@@ -448,6 +476,7 @@ jobs:
           - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
+          - bootui-quarkus-sample-app
     steps:
       - name: Resolve image name
         run: echo "REGISTRY_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}" >> "$GITHUB_ENV"
@@ -523,7 +552,7 @@ jobs:
 
           cutoff=$(date -u -d "${MAX_AGE_DAYS} days ago" +%s)
 
-          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native; do
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-quarkus-sample-app; do
             echo "::group::Pruning ${DOCKERHUB_USERNAME}/${repo}"
             url="https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/tags/?page_size=100"
             while [ -n "$url" ] && [ "$url" != 'null' ]; do
@@ -583,7 +612,7 @@ jobs:
           # Untagged manifests last active (pushed or pulled) before this moment are pruned.
           active_from=$(date -u -d "${MAX_AGE_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
 
-          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native; do
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-quarkus-sample-app; do
             echo "::group::Sweeping untagged manifests in ${DOCKERHUB_USERNAME}/${repo}"
 
             # Collect the digests of untagged, inactive manifests older than the cutoff.

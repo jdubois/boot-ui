@@ -16,8 +16,8 @@ cache, and disabled Spring AI), so no PostgreSQL, Redis, or Ollama is needed. `B
 the browser on your host reach BootUI through Docker's bridge gateway while keeping the Host allow-list and CSRF
 defenses in force — see the [container access](SETUP.md#running-inside-a-docker-container) notes in the setup guide for details.
 
-In this Docker-free mode most panels work normally (Configuration, Database, Spring Data, Flyway, Liquibase, Spring
-Cache); the Chat and AI Usage panels report that AI is unavailable, and Dev Services lists no containers.
+In this Docker-free mode most panels work normally (Configuration, Database, Spring Data, Flyway, Liquibase, Cache); the
+Chat and AI Usage panels report that AI is unavailable, and Dev Services lists no containers.
 
 Populate the Flyway and Liquibase panels with the sample migrations (disabled by default for a faster boot):
 
@@ -83,6 +83,36 @@ The first start boots once to write the checkpoint into the `bootui-sample-app-c
 the warmed-up JVM in tens of milliseconds. Delete the volume (`docker volume rm bootui-sample-app-crac`) to force a fresh
 checkpoint. See the ["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-sample-app/README.md)
 section of the sample app README for details.
+
+## BootUI on Quarkus
+
+BootUI also ships as a Quarkus extension, and its Quarkus sample app is published as a separate image. It serves the
+**same** Vue console at `/bootui`, backed by the Quarkus build of the BootUI engine:
+
+```bash
+docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-quarkus-sample-app
+```
+
+Then open <http://localhost:8080/bootui> from a browser on the same machine.
+
+Like the Spring image it is **Docker-free** (in-memory H2 — no PostgreSQL Dev Service container) and honors
+`BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO`. There is a **single** Quarkus flavor — no AOT, GraalVM native, or CRaC variants:
+Quarkus builds native images itself, and BootUI's GraalVM/CRaC advisors are Spring-oriented. Because BootUI activates only
+outside Quarkus' production launch mode, the image launches the app in **dev mode**, so it uses a full JDK base and is
+larger than the Spring images.
+
+Populate the Flyway and Liquibase panels with the sample migrations (disabled by default for a faster boot):
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+  -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
+  jdubois/bootui-quarkus-sample-app
+```
+
+Most panels light up on Quarkus; a handful stay Spring- or framework-specific (for example GraalVM, CRaC, Conditions,
+Startup Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools) and are clearly marked *not applicable*. See
+[FEATURES.md](FEATURES.md) for the full per-platform availability.
 
 ## Want the full experience?
 
