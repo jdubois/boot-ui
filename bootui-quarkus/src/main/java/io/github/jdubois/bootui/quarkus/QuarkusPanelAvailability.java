@@ -101,14 +101,17 @@ import org.eclipse.microprofile.config.Config;
  * {@code @Recorder} + {@code SyntheticBeanBuildItem} data-capture pattern (its own slice and critic
  * round); until then Mappings stays unavailable on Quarkus while remaining fully available on Spring.</p>
  *
- * <p>The <strong>GraalVM</strong> and <strong>CRaC</strong> advisors are deliberate, permanent exceptions
- * (see {@link #NOT_APPLICABLE}): they have no meaningful Quarkus equivalent rather than simply not being
- * ported yet. GraalVM native-image readiness is a Spring-specific concern — Quarkus compiles native images
- * itself and generates its own reachability metadata at build time, so the Spring-oriented advisor and its
- * {@code reachability-metadata.json} / {@code Dockerfile-native} scaffolding do not apply. CRaC targets the
- * Spring Boot startup model ({@code spring.context.checkpoint=onRefresh}); Quarkus's fast startup comes from
- * build-time augmentation and native images instead. Both therefore report an honest, panel-specific reason
- * so the shared Vue unavailable-alert never implies a port is forthcoming.</p>
+ * <p>The <strong>GraalVM</strong>, <strong>CRaC</strong> and <strong>Security</strong> advisors are
+ * deliberate, permanent exceptions (see {@link #NOT_APPLICABLE}): they have no meaningful Quarkus
+ * equivalent rather than simply not being ported yet. GraalVM native-image readiness is a Spring-specific
+ * concern — Quarkus compiles native images itself and generates its own reachability metadata at build
+ * time, so the Spring-oriented advisor and its {@code reachability-metadata.json} / {@code Dockerfile-native}
+ * scaffolding do not apply. CRaC targets the Spring Boot startup model ({@code spring.context.checkpoint=onRefresh});
+ * Quarkus's fast startup comes from build-time augmentation and native images instead. The Security advisor's
+ * entire ruleset inspects Spring Security filter chains/encoders/CORS/JWT/method security or Spring/Actuator
+ * properties, so every check is inert on Quarkus's Elytron/OIDC model — a Quarkus-native security ruleset is a
+ * separate, future panel. All three therefore report an honest, panel-specific reason so the shared Vue
+ * unavailable-alert never implies a port is forthcoming.</p>
  */
 @ApplicationScoped
 public class QuarkusPanelAvailability {
@@ -201,7 +204,13 @@ public class QuarkusPanelAvailability {
             BootUiPanels.CRAC,
             "Not applicable on Quarkus: this CRaC checkpoint/restore advisor targets the Spring Boot startup"
                     + " model, and Quarkus's fast startup comes from build-time augmentation and native images"
-                    + " instead, so it is not used here.");
+                    + " instead, so it is not used here.",
+            BootUiPanels.SECURITY,
+            "Not applicable on Quarkus: every check in this advisor inspects Spring Security filter chains,"
+                    + " encoders, CORS, JWT decoders, method security, or Spring/Actuator properties — Quarkus"
+                    + " uses Elytron/OIDC and a different config model, so none would run. A Quarkus-native"
+                    + " security ruleset is a separate, future panel; reporting it available here would only"
+                    + " produce a misleading all-clear.");
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
             BootUiPanels.THREADS,
