@@ -92,6 +92,16 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-jdbc-postgresql</artifactId>
         </dependency>
+        <!--
+            H2 is here only so the published container image (Dockerfile-quarkus) can run Docker-free on
+            an in-memory database, the same way the Spring sample's "dev" profile does. The normal build,
+            tests, and `quarkus:dev` keep db-kind=postgresql and use Dev Services; the image overrides
+            db-kind=h2 via an environment variable at startup.
+        -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
 
         <!-- Schema migrations: both Flyway and Liquibase, like the Spring sample. -->
         <dependency>

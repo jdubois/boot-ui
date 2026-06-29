@@ -5,12 +5,6 @@ the Quarkus analogue of [`bootui-sample-app`](../bootui-sample-app). It exists s
 ships on Quarkus has realistic, non-sensitive data to show, and as the integration target for the Quarkus
 e2e suite.
 
-> **Phase-1 scaffold.** This module depends on the forthcoming **`bootui-quarkus`** extension (see
-> [`docs/QUARKUS-SUPPORT.md`](../docs/QUARKUS-SUPPORT.md)). That extension does **not** exist yet, so the
-> module is intentionally **not** listed in the root `pom.xml` `<modules>` and is skipped by
-> `./mvnw install`. It will not build until the extension is published locally. Treat the code here as a
-> faithful, idiomatic starting point rather than something that compiles today.
-
 ## What it wires up
 
 Each ingredient maps to a BootUI panel, mirroring the Spring sample's demo intent:
@@ -21,7 +15,7 @@ Each ingredient maps to a BootUI panel, mirroring the Spring sample's demo inten
 | `quarkus-hibernate-orm-panache`                 | Hibernate advisor, Database, SQL Trace   |
 | `quarkus-jdbc-postgresql` + Dev Services        | Database Connection Pools, Dev Services   |
 | `quarkus-flyway` / `quarkus-liquibase`          | Flyway, Liquibase                        |
-| `quarkus-cache`                                 | Quarkus Cache                            |
+| `quarkus-cache`                                 | Cache                                    |
 | `quarkus-scheduler`                             | Scheduled Tasks                          |
 | `quarkus-security` (+ elytron properties file)  | Security Logs, Quarkus advisor           |
 | `quarkus-smallrye-health`                       | Health                                   |
@@ -37,18 +31,56 @@ Each ingredient maps to a BootUI panel, mirroring the Spring sample's demo inten
 metamodel at boot, so they are flagged without needing rows), and `ArchitectureIssuesResource` triggers
 advisor findings. Secured endpoints (`/admin`, `/api/secure`) require the `admin`/`admin` account.
 
-## Running (once `bootui-quarkus` exists)
+## Running from source
 
-Quarkus Dev Services starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**:
+Quarkus Dev Services starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**.
+Install the extension (and its dependencies) once, then launch the sample in dev mode:
 
 ```bash
-./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev
+./mvnw -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am -DskipTests install
+./mvnw -f bootui-quarkus-sample-app/pom.xml quarkus:dev
 ```
 
 Then open the console at <http://localhost:8080/bootui/> and the landing page at <http://localhost:8080/>.
 Ollama is optional: the chat endpoint returns a clear "AI unavailable" response when it is not reachable.
 
+BootUI activates automatically under `quarkus:dev` (development launch mode). In a packaged production run
+(`java -jar`, NORMAL launch mode) the console stays dark by design — there is no runtime flag to force it on.
+
+> Run from source on **JDK 17 or 21**: Hibernate ORM's ByteBuddy enhancement cannot augment newer class
+> files, so `quarkus:dev` fails on JDK 22+. The Docker image below sidesteps this by building inside JDK 21.
+
+## Docker image
+
+[`Dockerfile-quarkus`](../Dockerfile-quarkus) at the repository root builds a self-contained JVM image that
+runs this app with the BootUI console, **Docker-free** (in-memory H2 — no PostgreSQL Dev Service needed):
+
+```bash
+docker build -f Dockerfile-quarkus -t bootui-quarkus-sample-app .
+docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-quarkus-sample-app
+# then open http://localhost:8080/bootui
+```
+
+This is the **only** image flavor for Quarkus — deliberately no AOT, GraalVM native, or CRaC variants
+(Quarkus builds native images itself, and BootUI's GraalVM/CRaC advisors are Spring-oriented and report *not
+applicable* on Quarkus). Because BootUI activates only outside production launch mode, the image launches the
+app in **dev mode** (`QUARKUS_LAUNCH_DEVMODE=true` on a Quarkus *mutable jar*), which is why it needs a full
+JDK base and is larger than the Spring sample's distroless image. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets
+the host browser reach BootUI through Docker's bridge gateway while the Host allow-list and CSRF defenses stay
+in force.
+
+The sample Flyway/Liquibase migrations are off by default for a faster boot (Hibernate still creates the demo
+tables). Re-enable them to populate the Flyway/Liquibase panels:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+  -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
+  bootui-quarkus-sample-app
+```
+
 ## Not published
 
-Like `bootui-sample-app`, this module sets `<maven.deploy.skip>true</maven.deploy.skip>` and must never be
-released to Maven Central.
+Like `bootui-sample-app`, this module sets `<maven.deploy.skip>true</maven.deploy.skip>` and is never released
+to Maven Central. The Docker image above is built from this repository; unlike the Spring sample images it is
+not (yet) published to Docker Hub.

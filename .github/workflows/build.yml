@@ -158,8 +158,11 @@ jobs:
       # Build and install the BootUI Quarkus extension + the sample app into the local Maven
       # repository so Playwright's `quarkus:dev` web server can resolve them. BootUI activates
       # automatically under `quarkus:dev` (dev mode); it stays dark in a packaged prod run.
+      # bootui-quarkus-deployment is listed explicitly so it joins the reactor: the sample only depends
+      # on the runtime extension, and Quarkus pulls the -deployment counterpart in at augmentation time,
+      # not as a Maven dependency, so -am alone would leave it out and the build would fail.
       - name: Build BootUI Quarkus extension and sample app
-        run: ./mvnw -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install
+        run: ./mvnw -B -ntp -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am -DskipTests install
 
       - name: Install Playwright dependencies
         working-directory: bootui-quarkus-sample-app/e2e
