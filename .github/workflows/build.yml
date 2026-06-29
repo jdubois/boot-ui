@@ -130,3 +130,72 @@ jobs:
           path: bootui-sample-app/target/*.jar
           if-no-files-found: warn
           retention-days: 7
+
+  quarkus-e2e:
+    name: Quarkus end-to-end (Java 17)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The Quarkus sample app is wired into the reactor only on JDK 17/21 (Hibernate ORM ByteBuddy
+      # cannot augment on newer class files), so the Quarkus end-to-end suite runs on Java 17.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: |
+            bootui-quarkus-sample-app/e2e/package-lock.json
+
+      # Build and install the BootUI Quarkus extension + the sample app into the local Maven
+      # repository so Playwright's `quarkus:dev` web server can resolve them. BootUI activates
+      # automatically under `quarkus:dev` (dev mode); it stays dark in a packaged prod run.
+      - name: Build BootUI Quarkus extension and sample app
+        run: ./mvnw -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install
+
+      - name: Install Playwright dependencies
+        working-directory: bootui-quarkus-sample-app/e2e
+        run: npm ci --ignore-scripts
+
+      - name: Check Playwright formatting
+        working-directory: bootui-quarkus-sample-app/e2e
+        run: npm run format:check
+
+      - name: Install Playwright browsers
+        working-directory: bootui-quarkus-sample-app/e2e
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      # ubuntu-latest ships with Docker, which Quarkus Dev Services needs to start the throwaway
+      # PostgreSQL container the sample app boots against.
+      - name: Run Quarkus Playwright end-to-end tests
+        working-directory: bootui-quarkus-sample-app/e2e
+        run: npm test
+
+      - name: Publish Quarkus end-to-end test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        with:
+          name: Quarkus end-to-end tests (Playwright)
+          path: bootui-quarkus-sample-app/e2e/test-results/junit/results.xml
+          reporter: jest-junit
+          fail-on-error: false
+          fail-on-empty: false
+
+      - name: Upload Quarkus Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: quarkus-playwright-report
+          path: |
+            bootui-quarkus-sample-app/e2e/playwright-report/
+            bootui-quarkus-sample-app/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

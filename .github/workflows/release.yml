@@ -119,7 +119,7 @@ jobs:
             exit 1
           fi
 
-          for npm_dir in . bootui-ui/src/main/frontend bootui-sample-app/e2e; do
+          for npm_dir in . bootui-ui/src/main/frontend bootui-sample-app/e2e bootui-quarkus-sample-app/e2e; do
             ( cd "$npm_dir" && npm version "$VERSION" --no-git-tag-version --allow-same-version --ignore-scripts >/dev/null )
             if ! grep -q "\"version\": \"$VERSION\"" "$npm_dir/package.json"; then
               echo "::error::Failed to update the npm package version in $npm_dir/package.json to $VERSION"
@@ -165,7 +165,7 @@ jobs:
             fi
           fi
 
-          for npm_dir in . bootui-ui/src/main/frontend bootui-sample-app/e2e; do
+          for npm_dir in . bootui-ui/src/main/frontend bootui-sample-app/e2e bootui-quarkus-sample-app/e2e; do
             node -e '
               const fs = require("fs");
               const [dir, expected] = process.argv.slice(1);
@@ -304,7 +304,8 @@ jobs:
             git add pom.xml */pom.xml README.md docs/SETUP.md \
               package.json package-lock.json \
               bootui-ui/src/main/frontend/package.json bootui-ui/src/main/frontend/package-lock.json \
-              bootui-sample-app/e2e/package.json bootui-sample-app/e2e/package-lock.json
+              bootui-sample-app/e2e/package.json bootui-sample-app/e2e/package-lock.json \
+              bootui-quarkus-sample-app/e2e/package.json bootui-quarkus-sample-app/e2e/package-lock.json
             git commit -m "Release $TAG"
           else
             echo "Project files already declare the released version; tagging current HEAD."
