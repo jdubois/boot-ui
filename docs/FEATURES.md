@@ -126,7 +126,10 @@ time (pull requests returned by the issues endpoint are excluded). GitHub Action
 run, show the workflow, branch, event, status, and
 duration, and mirror the recent-run list from the GitHub Actions page. The workflow failure count only considers the
 latest execution for each workflow and branch, so older failures drop out once a later run fixes that workflow on that
-branch; security signal drawers link to the matching GitHub alert pages.
+branch; security signal drawers link to the matching GitHub alert pages. The Dependabot drawer additionally lists the
+bounded set of open alerts with their package, ecosystem, severity, advisory ID, summary, affected range, and fixed
+version (capped by `bootui.github.max-security-alerts`); code scanning and secret scanning stay count-only and never
+inline secret values or vulnerable code snippets.
 The quota card shows the lowest remaining quota percentage with a red-to-green threshold palette. The quota drawer is
 hidden by default, renders every resource returned by GitHub's `/rate_limit` response dynamically,
 highlights resources with 10% or less remaining or at quota, then adds best-effort cards for repository or owner quotas

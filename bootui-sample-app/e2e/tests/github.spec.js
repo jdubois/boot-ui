@@ -95,9 +95,48 @@ function connectedDashboard() {
       }
     ],
     securitySignals: [
-      {label: 'Dependabot alerts', status: 'AVAILABLE', count: 0, unavailableReason: null},
-      {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null},
-      {label: 'Secret scanning alerts', status: 'AVAILABLE', count: 0, unavailableReason: null}
+      {
+        label: 'Dependabot alerts',
+        status: 'AVAILABLE',
+        count: 2,
+        unavailableReason: null,
+        alerts: [
+          {
+            number: 7,
+            state: 'open',
+            packageName: 'org.example:lib',
+            ecosystem: 'maven',
+            manifestPath: 'pom.xml',
+            severity: 'critical',
+            ghsaId: 'GHSA-aaaa-bbbb-cccc',
+            cveId: 'CVE-2026-1234',
+            summary: 'Remote code execution in org.example:lib',
+            vulnerableVersionRange: '< 1.2.3',
+            firstPatchedVersion: '1.2.3',
+            htmlUrl: 'https://github.com/jdubois/boot-ui/security/dependabot/7',
+            createdAt: now - 3 * 24 * 60 * 60 * 1000,
+            updatedAt: now - 12 * 60 * 60 * 1000
+          },
+          {
+            number: 6,
+            state: 'open',
+            packageName: 'com.sample:utils',
+            ecosystem: 'maven',
+            manifestPath: 'bootui-core/pom.xml',
+            severity: 'medium',
+            ghsaId: 'GHSA-dddd-eeee-ffff',
+            cveId: null,
+            summary: 'Denial of service in com.sample:utils',
+            vulnerableVersionRange: '>= 2.0.0, < 2.4.1',
+            firstPatchedVersion: '2.4.1',
+            htmlUrl: 'https://github.com/jdubois/boot-ui/security/dependabot/6',
+            createdAt: now - 6 * 24 * 60 * 60 * 1000,
+            updatedAt: now - 2 * 24 * 60 * 60 * 1000
+          }
+        ]
+      },
+      {label: 'Code scanning alerts', status: 'AVAILABLE', count: 1, unavailableReason: null, alerts: []},
+      {label: 'Secret scanning alerts', status: 'AVAILABLE', count: 0, unavailableReason: null, alerts: []}
     ],
     copilotUsage: null,
     warnings: []
@@ -160,6 +199,18 @@ test.describe('GitHub view', () => {
     await expect(drawer).toContainText('Open issues')
     await expect(drawer).toContainText('#188 Flaky Playwright run on slow CI agents')
     await expect(drawer).toContainText('#184 Document the GitHub issues drawer')
+
+    // Dependabot card opens a drawer that lists the non-secret alert details.
+    await page.getByRole('button', {name: /Dependabot alerts/}).click()
+    await expect(drawer).toContainText('org.example:lib')
+    await expect(drawer).toContainText('Remote code execution in org.example:lib')
+    await expect(drawer).toContainText('GHSA-aaaa-bbbb-cccc')
+    await expect(drawer).toContainText('Fixed in: 1.2.3')
+    await expect(drawer).toContainText('com.sample:utils')
+
+    // Secret scanning stays count-only with no inline alert details.
+    await page.getByRole('button', {name: /Secret scanning alerts/}).click()
+    await expect(drawer).toContainText('does not expose secret values')
 
     // The trusted panel reached the live data through the POST refresh endpoint.
     expect(refreshMethod).toBe('POST')
