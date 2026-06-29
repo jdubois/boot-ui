@@ -197,6 +197,14 @@ public class QuarkusPanelAvailability {
      */
     public static final String SECURITY_LOGS_PRESENT_KEY = "bootui.internal.security-logs-present";
 
+    /**
+     * Runtime-config key carrying the build-time Dev Services decision. The deployment processor emits it
+     * (default {@code false}) only when at least one {@code DevServicesResultBuildItem} was produced in a
+     * non-production launch mode; this bean reads it back to decide whether the Dev Services panel is lit up,
+     * mirroring {@link #HIBERNATE_PRESENT_KEY}.
+     */
+    public static final String DEV_SERVICES_PRESENT_KEY = "bootui.internal.dev-services-present";
+
     private static final String NOT_YET_AVAILABLE = "Not yet available on Quarkus.";
 
     private static final String HIBERNATE_ABSENT =
@@ -222,6 +230,10 @@ public class QuarkusPanelAvailability {
     private static final String CONNECTION_POOLS_ABSENT =
             "Not available: this application has no JDBC datasource. Add a JDBC datasource extension (e.g."
                     + " quarkus-jdbc-postgresql) to enable the Database Connection Pools panel.";
+
+    private static final String DEV_SERVICES_ABSENT =
+            "Not available: no Quarkus Dev Services were started. Run in dev/test mode with a Dev Services-backed"
+                    + " extension (and Docker/Podman available) so containers are auto-started.";
 
     /**
      * Panels that are deliberately and permanently unavailable on Quarkus because they have no meaningful
@@ -258,7 +270,11 @@ public class QuarkusPanelAvailability {
             BootUiPanels.SPRING_SECURITY,
             "Not applicable on Quarkus: this panel reads Spring Security's filter chain and user store, which"
                     + " Quarkus does not run. Quarkus security (Elytron/OIDC, RBAC, TLS, CORS) is covered by the"
-                    + " Quarkus-native Security advisor.");
+                    + " Quarkus-native Security advisor.",
+            BootUiPanels.DEVTOOLS,
+            "Not applicable on Quarkus: Spring Boot DevTools restart/LiveReload has no runtime analogue. Quarkus"
+                    + " dev mode owns live reload through build-time augmentation, with no stable runtime API to"
+                    + " read or trigger it, so this panel is not used here.");
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
             BootUiPanels.THREADS,
@@ -298,6 +314,8 @@ public class QuarkusPanelAvailability {
     private final boolean liquibasePresent;
     private final boolean connectionPoolsPresent;
 
+    private final boolean devServicesPresent;
+
     private final boolean securityLogsAvailable;
 
     private final List<String> githubAllowedApiHosts;
@@ -320,6 +338,8 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(LIQUIBASE_PRESENT_KEY, Boolean.class).orElse(false);
         this.connectionPoolsPresent = config.getOptionalValue(CONNECTION_POOLS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
+        this.devServicesPresent =
+                config.getOptionalValue(DEV_SERVICES_PRESENT_KEY, Boolean.class).orElse(false);
         boolean securityPresent = config.getOptionalValue(SECURITY_LOGS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         boolean eventsEnabled = config.getOptionalValue("quarkus.security.events.enabled", Boolean.class)
@@ -353,6 +373,7 @@ public class QuarkusPanelAvailability {
                 || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
                 || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
                 || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panel.id()) && connectionPoolsPresent)
+                || (BootUiPanels.DEV_SERVICES.equals(panel.id()) && devServicesPresent)
                 || (BootUiPanels.SECURITY_LOGS.equals(panel.id()) && securityLogsAvailable)
                 || (BootUiPanels.SQL_TRACE.equals(panel.id()) && connectionPoolsPresent)
                 || (BootUiPanels.PROFILE_DIFF.equals(panel.id()) && profilesActive)
@@ -382,6 +403,9 @@ public class QuarkusPanelAvailability {
         }
         if (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId)) {
             return CONNECTION_POOLS_ABSENT;
+        }
+        if (BootUiPanels.DEV_SERVICES.equals(panelId)) {
+            return DEV_SERVICES_ABSENT;
         }
         if (BootUiPanels.SQL_TRACE.equals(panelId)) {
             return "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"

@@ -8,7 +8,6 @@ import io.github.jdubois.bootui.core.dto.DevServiceDto;
 import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
 import io.github.jdubois.bootui.core.dto.DevServicePortDto;
 import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
-import io.github.jdubois.bootui.core.dto.DevServicesReport;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -33,7 +32,7 @@ import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-class DevServicesService {
+class DevServicesService implements io.github.jdubois.bootui.spi.DevServicesProvider {
 
     private static final String DOCKER_COMPOSE_EVENT =
             "org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent";
@@ -92,7 +91,36 @@ class DevServicesService {
         this.dockerComposeSnapshot.set(new ComposeSnapshot(snapshot, warnings, System.currentTimeMillis()));
     }
 
-    public DevServicesReport list() {
+    @Override
+    public boolean dockerComposePresent() {
+        return isPresent("org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent");
+    }
+
+    @Override
+    public boolean testcontainersPresent() {
+        return isPresent("org.testcontainers.lifecycle.Startable");
+    }
+
+    @Override
+    public long snapshotTimestamp() {
+        return resolveSnapshotTimestamp(this.dockerComposeSnapshot.get());
+    }
+
+    @Override
+    public List<DevServiceDto> services() {
+        return discover().values().stream().toList();
+    }
+
+    @Override
+    public List<String> warnings() {
+        List<String> warnings = new ArrayList<>(this.dockerComposeSnapshot.get().warnings());
+        Map<String, DevServiceDto> services = new LinkedHashMap<>();
+        discoverTestcontainers(services, warnings);
+        discoverConnectionDetails(services, warnings);
+        return List.copyOf(warnings);
+    }
+
+    private Map<String, DevServiceDto> discover() {
         ComposeSnapshot composeSnapshot = this.dockerComposeSnapshot.get();
         Map<String, DevServiceDto> services = new LinkedHashMap<>();
         List<String> warnings = new ArrayList<>(composeSnapshot.warnings());
@@ -101,16 +129,7 @@ class DevServicesService {
                 .forEach(service -> services.put(service.id(), service));
         discoverTestcontainers(services, warnings);
         discoverConnectionDetails(services, warnings);
-        List<DevServiceDto> sorted = services.values().stream()
-                .sorted(Comparator.comparing(DevServiceDto::source).thenComparing(DevServiceDto::name))
-                .toList();
-        return new DevServicesReport(
-                isPresent("org.springframework.boot.docker.compose.lifecycle.DockerComposeServicesReadyEvent"),
-                isPresent("org.testcontainers.lifecycle.Startable"),
-                resolveSnapshotTimestamp(composeSnapshot),
-                sorted.size(),
-                sorted,
-                List.copyOf(warnings));
+        return services;
     }
 
     public DevServiceLogReport logs(String id) {

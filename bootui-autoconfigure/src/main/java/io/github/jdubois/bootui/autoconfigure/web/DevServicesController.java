@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
 import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
 import io.github.jdubois.bootui.core.dto.DevServicesReport;
+import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -25,6 +26,8 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
 
     private final DevServicesService service;
 
+    private final DevServicesReportService reportService = new DevServicesReportService();
+
     public DevServicesController(ConfigurableApplicationContext applicationContext, BootUiProperties properties) {
         this.service = new DevServicesService(applicationContext, properties);
     }
@@ -36,7 +39,7 @@ public class DevServicesController implements ApplicationListener<ApplicationEve
 
     @GetMapping
     public DevServicesReport list() {
-        return service.list();
+        return reportService.report(service);
     }
 
     @GetMapping("/{id}/logs")

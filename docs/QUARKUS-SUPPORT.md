@@ -151,7 +151,8 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 · `Hibernate` advisor (Hibernate ORM + `jakarta.persistence`; rules port directly) · `Vulnerabilities` (classpath Maven
 metadata + OSV) · `Pentesting` · `HTTP Probe` (local HTTP probing) · `AI Usage` · `Traces` (OTLP — a standard;
 Quarkus/LangChain4j export it) · `GitHub` (`HttpClient`) · `Copilot` · `Claude Code` (read `~/.copilot` / `~/.claude`) ·
-`MCP Server` (BootUI's own server) · `Dev Services` (a Quarkus-native concept — read Quarkus Dev Services state).
+`MCP Server` (BootUI's own server) · `Dev Services` (**Implemented** — a Quarkus-native concept; build-time
+`DevServicesResultBuildItem` snapshot captured via recorder + synthetic bean, masked config, logs/restart unavailable).
 
 ### 5.2 Ported by swapping the data source (10)
 
@@ -199,7 +200,8 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - **Different security/data stacks:** `Spring Security`, `Spring Data` (Quarkus uses Elytron/OIDC and Panache).
 - **Servlet-only / low value on a reactive stack:** `HTTP Sessions`.
 - **Superseded or moot:** `GraalVM` readiness (Quarkus is native-first with its own build), `CRaC` (native focus makes
-  it niche), `DevTools` (Quarkus has built-in live reload — fold status into Overview if wanted).
+  it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
+  Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
 
 **Result:** ~36 of the ~47 panels ship on Quarkus (17 ported as-is, 9 source-swapped, 8 capture-rebuilt, 2 replaced),
 with 11 dropped.

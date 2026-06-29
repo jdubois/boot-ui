@@ -12,12 +12,17 @@ import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
+import io.github.jdubois.bootui.quarkus.devservices.DevServicesRecorder;
+import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServices;
+import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider;
+import io.github.jdubois.bootui.quarkus.devservices.RawDevService;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusExceptionCapture;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLogTailCapture;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
 import io.github.jdubois.bootui.quarkus.scheduled.ScheduledTasksRecorder;
+import io.github.jdubois.bootui.quarkus.web.DevServicesResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
@@ -37,6 +42,7 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
+import io.quarkus.deployment.builditem.DevServicesResultBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
@@ -155,6 +161,8 @@ class BootUiQuarkusProcessor {
                         QuarkusDependencyProvider.class,
                         QuarkusConfigProvider.class,
                         QuarkusScheduledTaskProvider.class,
+                        QuarkusDevServicesProvider.class,
+                        DevServicesResource.class,
                         QuarkusPanelAvailability.class,
                         QuarkusLogTailCapture.class,
                         QuarkusExceptionCapture.class,
@@ -652,6 +660,38 @@ class BootUiQuarkusProcessor {
                 .done());
         runtimeDefaults.produce(
                 new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.SCHEDULED_PRESENT_KEY, "true"));
+    }
+
+    /**
+     * Lights up the Dev Services panel from the build-time {@code DevServicesResultBuildItem}s. Quarkus exposes
+     * Dev Services only at build time (no runtime container-listing API), so each result's name, description,
+     * container id and injected config map is recorded into a {@link QuarkusDevServices} synthetic bean and
+     * replayed at runtime; {@code QuarkusDevServicesProvider} masks the config values. The build step runs only
+     * in non-production launch modes (Dev Services never start in production) and stays quiet when no dev
+     * services were started, so the present-key defaults to false and the panel reports an honest hint.
+     */
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    void registerDevServices(
+            LaunchModeBuildItem launchMode,
+            List<DevServicesResultBuildItem> devServices,
+            DevServicesRecorder recorder,
+            BuildProducer<SyntheticBeanBuildItem> syntheticBeans,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL || devServices.isEmpty()) {
+            return; // production, or no dev services started: panel stays unavailable (key defaults to false)
+        }
+        List<RawDevService> services = devServices.stream()
+                .map(item -> new RawDevService(
+                        item.getName(), item.getDescription(), item.getContainerId(), item.getConfig()))
+                .toList();
+        syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusDevServices.class)
+                .scope(Singleton.class)
+                .runtimeValue(recorder.create(services))
+                .unremovable()
+                .done());
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.DEV_SERVICES_PRESENT_KEY, "true"));
     }
 
     private static final DotName SCHEDULED_ANNOTATION = DotName.createSimple("io.quarkus.scheduler.Scheduled");

@@ -1035,6 +1035,13 @@ warnings in the panel.
 
 ![BootUI Dev Services panel](./images/bootui-dev-services.webp)
 
+On Quarkus, the Dev Services panel reports the framework's native Dev Services (auto-started dev/test containers such as
+databases, Kafka, or Redis). The list is captured from the build-time `DevServicesResultBuildItem` snapshot via a
+recorder + synthetic bean: each entry shows the service name, container id, and configuration injected by the
+container, with secret-bearing config values masked. Live logs and restart are managed by Quarkus itself, so those
+controls are unavailable on Quarkus. DevTools is reported *not applicable* on Quarkus, which uses built-in dev-mode
+live reload instead of a Spring Boot DevTools restart bridge.
+
 ### Copilot
 
 The Copilot panel surfaces sanitized signals from local

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
+import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
@@ -625,5 +626,17 @@ public class BootUiEngineProducer {
     @Singleton
     public ScheduledTasksService scheduledTasksService(QuarkusScheduledTaskProvider provider) {
         return new ScheduledTasksService(provider);
+    }
+
+    /**
+     * The Dev Services panel report assembler. The engine {@link DevServicesReportService} owns only the
+     * framework-neutral sort + count + wrap; {@link QuarkusDevServicesProvider} supplies the build-time-captured
+     * services (masked) and presence flags. The concrete provider is injected (not the SPI) so resolution can
+     * never become ambiguous, mirroring the other producers.
+     */
+    @Produces
+    @Singleton
+    public DevServicesReportService devServicesReportService() {
+        return new DevServicesReportService();
     }
 }
