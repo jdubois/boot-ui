@@ -1,4 +1,5 @@
 <script setup>
+import {computed, inject} from 'vue'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
@@ -6,6 +7,10 @@ import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
+const panels = inject('panels', {platform: 'spring-boot'})
+const isQuarkus = computed(() => panels?.platform === 'quarkus')
+const fwName = computed(() => (isQuarkus.value ? 'Quarkus' : 'Spring Security'))
+const policyNoun = computed(() => (isQuarkus.value ? 'Permission policies' : 'Filter chains'))
 const panel = useAdvisorPanel(props, {
   apiPath: 'api/security',
   loadErrorMessage: 'Unable to load Security Advisor report',
@@ -21,7 +26,7 @@ const panel = useAdvisorPanel(props, {
     <PanelHeader
       icon="bi-shield-check"
       title="Security"
-      subtitle="Review the registered Spring Security filter chains with bounded best-practice checks."
+      subtitle="Review the registered security configuration with bounded best-practice checks."
       :loading="panel.loading"
       :error="panel.error"
     >
@@ -51,9 +56,23 @@ const panel = useAdvisorPanel(props, {
           {label: 'Advisor findings', value: panel.report.violationsFound},
           {label: 'Filter chains analysed', value: panel.report.filterChainsAnalyzed}
         ]"
+        v-if="!isQuarkus"
+      />
+      <AdvisorSummary
+        :score="panel.score"
+        :dismissed-count="panel.dismissedResults.length"
+        :scan-status-label="panel.scanStatusLabel(panel.report.scan.status)"
+        :scan-status-class="panel.scanStatusBadgeClass(panel.report.scan.status)"
+        :scan-time="panel.scanTime()"
+        :metrics="[
+          {label: 'Rules evaluated', value: panel.report.rulesEvaluated},
+          {label: 'Advisor findings', value: panel.report.violationsFound},
+          {label: 'Permission policies', value: panel.report.filterChainsAnalyzed}
+        ]"
+        v-else
       />
       <div class="alert alert-info">
-        <strong>Heuristic Spring Security rules.</strong>
+        <strong>Heuristic {{ fwName }} rules.</strong>
         {{ panel.report.disclaimer }}
         <span v-if="panel.readOnly">Scanning is read-only. {{ panel.readOnlyReason }}</span>
       </div>
@@ -94,10 +113,10 @@ const panel = useAdvisorPanel(props, {
 
         <div class="col-lg-7">
           <div class="card h-100">
-            <div class="card-header fw-semibold">Filter chains</div>
+            <div class="card-header fw-semibold">{{ policyNoun }}</div>
             <div class="card-body">
               <div v-if="!panel.report.filterChains || panel.report.filterChains.length === 0" class="text-muted">
-                No Spring Security filter chain was detected.
+                No {{ isQuarkus ? 'HTTP permission policy was' : 'Spring Security filter chain was' }} detected.
               </div>
               <ul v-else class="list-unstyled mb-0">
                 <li v-for="(chain, index) in panel.report.filterChains" :key="index" class="font-monospace small">

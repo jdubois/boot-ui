@@ -297,9 +297,9 @@ lists, simulates an anonymous authorization decision, and inspects security-rele
 authorization, CSRF, session management, transport/security headers, CORS, method security, actuator exposure, OAuth2
 resource-server validation, and configuration hygiene. The report is framed as a review prompt, not a verdict: it never
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
-[SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links. On Quarkus this advisor
-is reported not-applicable: every rule is Spring-Security-specific, so a Quarkus-native ruleset
-(`@RolesAllowed`, `quarkus.http.ssl`, OIDC) is deferred to a future panel rather than shown as a misleading all-clear.
+[SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links. On Quarkus the panel
+runs a Quarkus-native ruleset instead (Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, headers,
+`@RolesAllowed`); see [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md).
 
 ![BootUI Security panel](./images/bootui-security.webp)
 

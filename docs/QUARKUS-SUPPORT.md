@@ -354,7 +354,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Spring Cache        | spring-only | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
 | Beans               | partial     | Drop    | —                                | Arc build-time; low fidelity                |
 | Profile Diff        | partial     | Drop    | —                                | Quarkus config profiles differ              |
-| Security (advisor)  | partial     | Drop    | —                                | Spring-Security-coupled rules; surfaced as not-applicable (TODO: docs/QUARKUS-CHECKS.md for @RolesAllowed/quarkus.http.ssl/oidc) |
+| Security (advisor)  | partial     | Replace | Quarkus security ruleset         | Quarkus-native checks (OIDC/auth/TLS/CORS/annotations); see QUARKUS-CHECKS.md |
 | GraalVM             | partial     | Drop    | —                                | Quarkus native-first; moot                  |
 | CRaC                | partial     | Drop    | —                                | native focus; niche                         |
 | DevTools            | partial     | Drop    | —                                | Quarkus live reload built in                |

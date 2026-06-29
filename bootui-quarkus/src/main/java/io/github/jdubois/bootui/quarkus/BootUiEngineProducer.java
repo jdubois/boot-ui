@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
+import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
@@ -36,6 +37,7 @@ import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
+import io.github.jdubois.bootui.quarkus.security.QuarkusSecuritySnapshotProviderImpl;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.spi.CacheProvider;
@@ -233,6 +235,17 @@ public class BootUiEngineProducer {
     public PentestingScanner pentestingScanner(QuarkusServerPortSupplier serverPort, Config config) {
         QuarkusPentestingObservationCollector collector = new QuarkusPentestingObservationCollector(config, serverPort);
         return PentestingScanner.usingObservation(collector::collect, Clock.systemUTC());
+    }
+
+    /**
+     * The Quarkus-native Security advisor scanner over a config-driven {@link QuarkusSecuritySnapshotProviderImpl}.
+     * Evaluates a Quarkus ruleset (Elytron/OIDC/HTTP auth, TLS, CORS, headers) into the shared report.
+     */
+    @Produces
+    @Singleton
+    public QuarkusSecurityScanner quarkusSecurityScanner(Config config) {
+        return QuarkusSecurityScanner.usingSnapshot(
+                new QuarkusSecuritySnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
     }
 
     /**

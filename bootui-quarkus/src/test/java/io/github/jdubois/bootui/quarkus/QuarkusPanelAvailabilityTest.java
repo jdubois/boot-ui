@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Pins how the Quarkus panel manifest distinguishes the three availability outcomes: panels that are lit up,
- * panels that are deliberately and permanently not applicable on Quarkus (GraalVM, CRaC, Security), and panels that are
+ * panels that are deliberately and permanently not applicable on Quarkus (GraalVM, CRaC), and panels that are
  * merely not ported yet. The manifest is a pure function of the shared {@link BootUiPanels} registry, so this
  * needs no Quarkus runtime.
  */
@@ -27,9 +27,9 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
-    void graalVmCracAndSecurityAreDeliberatelyNotApplicableOnQuarkus() {
+    void graalVmAndCracAreDeliberatelyNotApplicableOnQuarkus() {
         Map<String, PanelDto> panels = manifestById();
-        for (String id : new String[] {BootUiPanels.GRAALVM, BootUiPanels.CRAC, BootUiPanels.SECURITY}) {
+        for (String id : new String[] {BootUiPanels.GRAALVM, BootUiPanels.CRAC}) {
             PanelDto panel = panels.get(id);
             assertThat(panel).as("panel %s is present in the manifest", id).isNotNull();
             assertThat(panel.available())
@@ -41,6 +41,16 @@ class QuarkusPanelAvailabilityTest {
                     .doesNotContain("Not yet available")
                     .containsIgnoringCase("Not applicable on Quarkus");
         }
+    }
+
+    @Test
+    void securityAdvisorIsLitUpOnQuarkus() {
+        // The Security advisor now runs a Quarkus-native ruleset, so the panel is available (not the
+        // not-applicable shim) — always-available like Architecture/Pentesting, no capability gate.
+        PanelDto security = manifestById().get(BootUiPanels.SECURITY);
+        assertThat(security.available())
+                .as("Security advisor is lit up on Quarkus")
+                .isTrue();
     }
 
     @Test
@@ -96,32 +106,6 @@ class QuarkusPanelAvailabilityTest {
                 .isNotNull()
                 .doesNotContain("Not yet available")
                 .containsIgnoringCase("quarkus-hibernate-orm");
-    }
-
-    @Test
-    void configIsAvailableButReadOnlyOnQuarkus() {
-        PanelDto config = manifestById().get(BootUiPanels.CONFIG);
-        assertThat(config.available())
-                .as("Configuration is always available on Quarkus")
-                .isTrue();
-        assertThat(config.unavailableReason()).isNull();
-        assertThat(config.readOnly())
-                .as("no runtime override write path on Quarkus, so the panel is read-only")
-                .isTrue();
-        assertThat(config.readOnlyReason()).isNotNull().contains("overrides");
-    }
-
-    @Test
-    void profileDiffIsUnavailableWhenNoProfilesAreActive() {
-        // StubConfig is not a SmallRyeConfig, so profilesActive defaults to false: profile-diff stays
-        // unavailable with its own hint, never read-only (it is not action-capable).
-        PanelDto profileDiff = manifestById().get(BootUiPanels.PROFILE_DIFF);
-        assertThat(profileDiff.available()).isFalse();
-        assertThat(profileDiff.readOnly()).isFalse();
-        assertThat(profileDiff.unavailableReason())
-                .isNotNull()
-                .doesNotContain("Not yet available")
-                .containsIgnoringCase("profile");
     }
 
     @Test

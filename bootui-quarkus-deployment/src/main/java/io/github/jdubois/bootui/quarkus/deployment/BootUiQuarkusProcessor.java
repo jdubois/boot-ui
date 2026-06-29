@@ -190,6 +190,73 @@ class BootUiQuarkusProcessor {
     }
 
     /**
+     * Captures build-time authorization-annotation counts for the Quarkus Security advisor: how many
+     * {@code @RolesAllowed}/{@code @PermitAll}/{@code @DenyAll}/{@code @Authenticated} sites and JAX-RS
+     * endpoints the application declares, emitted as runtime config defaults the advisor reads. Dev/test only.
+     */
+    @BuildStep
+    void registerSecurityAnnotations(
+            LaunchModeBuildItem launchMode,
+            ApplicationIndexBuildItem applicationIndex,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return;
+        }
+        IndexView index = applicationIndex.getIndex();
+        int roles = index.getAnnotations(DotName.createSimple("jakarta.annotation.security.RolesAllowed"))
+                .size();
+        int permit = index.getAnnotations(DotName.createSimple("jakarta.annotation.security.PermitAll"))
+                .size();
+        int deny = index.getAnnotations(DotName.createSimple("jakarta.annotation.security.DenyAll"))
+                .size();
+        int authenticated = index.getAnnotations(DotName.createSimple("io.quarkus.security.Authenticated"))
+                .size();
+        int endpoints = 0;
+        int secured = 0;
+        for (String http : List.of(
+                "jakarta.ws.rs.GET",
+                "jakarta.ws.rs.POST",
+                "jakarta.ws.rs.PUT",
+                "jakarta.ws.rs.DELETE",
+                "jakarta.ws.rs.PATCH",
+                "jakarta.ws.rs.HEAD",
+                "jakarta.ws.rs.OPTIONS")) {
+            for (AnnotationInstance ann : index.getAnnotations(DotName.createSimple(http))) {
+                if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD) {
+                    endpoints++;
+                    if (isSecuredEndpoint(ann.target().asMethod())) {
+                        secured++;
+                    }
+                }
+            }
+        }
+        emit(runtimeDefaults, "bootui.internal.sec.roles-allowed", roles);
+        emit(runtimeDefaults, "bootui.internal.sec.permit-all", permit);
+        emit(runtimeDefaults, "bootui.internal.sec.deny-all", deny);
+        emit(runtimeDefaults, "bootui.internal.sec.authenticated", authenticated);
+        emit(runtimeDefaults, "bootui.internal.sec.endpoints", endpoints);
+        emit(runtimeDefaults, "bootui.internal.sec.secured-endpoints", secured);
+    }
+
+    private static boolean isSecuredEndpoint(MethodInfo method) {
+        for (String sec : List.of(
+                "jakarta.annotation.security.RolesAllowed",
+                "jakarta.annotation.security.PermitAll",
+                "io.quarkus.security.Authenticated")) {
+            DotName name = DotName.createSimple(sec);
+            if (method.hasAnnotation(name) || method.declaringClass().hasAnnotation(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void emit(
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults, String key, int value) {
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(key, Integer.toString(value)));
+    }
+
+    /**
      * Captures the host application's resolved Maven dependency inventory at build time and exposes it to
      * runtime config as {@code bootui.internal.dependencies} (a comma-separated list of
      * {@code groupId:artifactId:version} coordinates) so {@link QuarkusDependencyProvider} can feed the
