@@ -87,11 +87,23 @@ class QuarkusPanelAvailabilityTest {
 
     @Test
     void notYetPortedPanelsKeepTheGenericReason() {
-        // Mappings has no Quarkus backing yet; it must keep the generic "not yet" reason so it stays clearly
-        // distinct from the deliberately-not-applicable GraalVM/CRaC panels above.
+        // The Overview dashboard panel has no Quarkus backing yet; it must keep the generic "not yet" reason so
+        // it stays clearly distinct from the deliberately-not-applicable GraalVM/CRaC panels above. (The shared
+        // shell-chrome GET /bootui/api/overview endpoint is served on Quarkus, but the rich dashboard panel is
+        // not — see the QuarkusPanelAvailability class javadoc.)
+        PanelDto overview = manifestById().get(BootUiPanels.OVERVIEW);
+        assertThat(overview.available()).isFalse();
+        assertThat(overview.unavailableReason()).isEqualTo("Not yet available on Quarkus.");
+    }
+
+    @Test
+    void mappingsIsLitUpOnQuarkus() {
+        // Mappings runs over the build-time-captured RESTEasy resource model; quarkus-rest is a hard dependency
+        // of the BootUI extension, so the panel is always-available like Beans/Architecture, with no capability
+        // gate.
         PanelDto mappings = manifestById().get(BootUiPanels.MAPPINGS);
-        assertThat(mappings.available()).isFalse();
-        assertThat(mappings.unavailableReason()).isEqualTo("Not yet available on Quarkus.");
+        assertThat(mappings.available()).as("Mappings is lit up on Quarkus").isTrue();
+        assertThat(mappings.unavailableReason()).isNull();
     }
 
     @Test

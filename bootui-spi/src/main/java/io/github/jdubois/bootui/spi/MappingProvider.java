@@ -18,9 +18,11 @@ import java.util.List;
  * concerns (sorting, querying and paging).</p>
  *
  * <p>No clean Quarkus <em>runtime</em> route-enumeration API exists (Vert.x exposes paths but not the
- * per-route method/produces/consumes detail this panel needs), so there is no Quarkus implementation
- * yet and the Mappings panel reports itself unavailable there. A future Quarkus port would capture
- * {@code ResteasyReactiveResourceMethodEntriesBuildItem} at build time and surface it via a recorder.</p>
+ * per-route method/produces/consumes detail this panel needs), so the Quarkus adapter captures the
+ * application's JAX-RS {@code @Path} resources from the build-time Jandex index and surfaces them via a
+ * recorder (a synthetic {@code QuarkusMappings} bean read back by {@code QuarkusMappingProvider}),
+ * filtering out BootUI's own routes at build time where both the path and the resource class FQN are
+ * available.</p>
  */
 public interface MappingProvider {
 

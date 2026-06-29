@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
+import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
@@ -43,6 +44,7 @@ import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
+import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
 import io.github.jdubois.bootui.quarkus.quarkusapp.QuarkusAppSnapshotProviderImpl;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
@@ -388,6 +390,21 @@ public class BootUiEngineProducer {
     @Singleton
     public BeansService beansService(QuarkusBeanProvider beanProvider) {
         return new BeansService(beanProvider);
+    }
+
+    /**
+     * The Mappings panel service. The engine {@link MappingsService} owns only the framework-neutral sort,
+     * free-text query and paging; the flattening + BootUI self-data filtering happen at build time in the
+     * deployment processor's {@code registerMappings} step (where both the request path and the resource
+     * class FQN are available). The concrete {@link QuarkusMappingProvider} is injected (not the
+     * {@code MappingProvider} interface) so adding another provider later can never make this wiring
+     * ambiguous — exactly as the Spring adapter builds its {@code MappingsService} over the Actuator-backed
+     * {@code SpringMappingProvider}.
+     */
+    @Produces
+    @Singleton
+    public MappingsService mappingsService(QuarkusMappingProvider mappingProvider) {
+        return new MappingsService(mappingProvider);
     }
 
     /**

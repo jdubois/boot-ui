@@ -627,15 +627,17 @@ results.
 
 ### Mappings
 
-The Mappings panel lists HTTP routes from Actuator mappings data. It shows request methods, path patterns, handlers, and
+The Mappings panel lists HTTP routes from the running application's route table (Actuator mappings data on Spring Boot,
+the JAX-RS resource table on Quarkus). It shows request methods, path patterns, handlers, and
 produces/consumes metadata so the running application's web surface is visible without reading controllers manually.
 Large mapping lists load through a stable, paged BootUI DTO, and the filter continues to search every discovered route
 on the server.
 
-This panel is Spring Boot only. Quarkus exposes no clean runtime route-enumeration API (Vert.x reports paths but not the
-per-route methods and produces/consumes the panel renders, and RESTEasy Reactive's resource model is a build-time
-artifact), so the panel is reported unavailable on Quarkus rather than showing a partial route list. A future build-step
-capture could light it up; until then it stays available on Spring Boot and unavailable on Quarkus.
+On Quarkus the same panel is served by scanning the application's JAX-RS resources from the build-time Jandex index
+(Vert.x exposes no clean runtime route-enumeration API carrying the per-route method and produces/consumes the panel
+renders), then mapping each JAX-RS resource method one-to-one onto the same paged, filterable DTO the Spring adapter
+serves from Actuator. `quarkus-rest` is a hard dependency of the BootUI extension, so the panel is available on both
+frameworks; BootUI's own `/bootui` routes are filtered out on each.
 
 ![BootUI Mappings panel](./images/bootui-mappings.webp)
 

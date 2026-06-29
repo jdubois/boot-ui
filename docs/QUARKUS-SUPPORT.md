@@ -161,7 +161,9 @@ Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quark
 `Health` (→ SmallRye Health) · `Configuration` (**Implemented** — → SmallRye Config; read path enumerates/masks/pages the
 effective config, read-only on Quarkus because the runtime-override write path is Spring-bootstrap-specific) · `Profile
 Diff` (**Implemented** — → SmallRye Config; groups active `%profile.`-prefixed keys) · `Loggers` (→ JBoss LogManager) ·
-`Mappings` (→ Vert.x/RESTEasy registry) · `Flyway` (→ `quarkus-flyway`) · `Liquibase` (**Implemented** — → `quarkus-liquibase`;
+`Mappings` (**Implemented** — → the application's JAX-RS resources scanned from the build-time Jandex index by a
+`registerMappings` build step + `@Recorder` into a synthetic bean; same paged `MappingProvider` DTO as Spring's Actuator
+read, BootUI's own routes filtered out at build time) · `Flyway` (→ `quarkus-flyway`) · `Liquibase` (**Implemented** — → `quarkus-liquibase`;
 discovered via `LiquibaseFactoryUtil.getActiveLiquibaseFactories()`, the shared `RanChangeSet` history read + `update`
 action behind the same DTO contract) · `Scheduled Tasks`
 (→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine shared; Spring-stereotype rules get CDI/JAX-RS

@@ -19,6 +19,10 @@ import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider;
 import io.github.jdubois.bootui.quarkus.devservices.RawDevService;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusExceptionCapture;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLogTailCapture;
+import io.github.jdubois.bootui.quarkus.mappings.MappingsRecorder;
+import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
+import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappings;
+import io.github.jdubois.bootui.quarkus.mappings.RawMapping;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
@@ -57,10 +61,12 @@ import io.quarkus.maven.dependency.ResolvedDependency;
 import io.quarkus.runtime.LaunchMode;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationValue;
@@ -88,6 +94,11 @@ import org.jboss.jandex.Type;
 class BootUiQuarkusProcessor {
 
     private static final String FEATURE = "bootui";
+
+    // BootUI's own resources are filtered out of the captured Mappings inventory by package and by path,
+    // mirroring the Spring BootUiSelfDataFilter (which inspects the handler class and the request path).
+    private static final String BOOTUI_PACKAGE_PREFIX = "io.github.jdubois.bootui";
+    private static final String BOOTUI_PATH_PREFIX = "/bootui";
 
     // Referenced by class name only: this is the sole OpenTelemetry-importing type in the extension, and
     // the deployment classloader must never load it while augmenting an application that has no
@@ -165,6 +176,7 @@ class BootUiQuarkusProcessor {
                         QuarkusDependencyProvider.class,
                         QuarkusConfigProvider.class,
                         QuarkusScheduledTaskProvider.class,
+                        QuarkusMappingProvider.class,
                         QuarkusDevServicesProvider.class,
                         DevServicesResource.class,
                         QuarkusPanelAvailability.class,
@@ -348,6 +360,19 @@ class BootUiQuarkusProcessor {
     private static final DotName PATH = DotName.createSimple("jakarta.ws.rs.Path");
     private static final DotName BLOCKING = DotName.createSimple("io.smallrye.common.annotation.Blocking");
 
+    /** The seven JAX-RS HTTP-method annotations ({@code @GET}, {@code @POST}, …) by fully-qualified name. */
+    private static final List<String> JAXRS_HTTP_METHODS = List.of(
+            "jakarta.ws.rs.GET",
+            "jakarta.ws.rs.POST",
+            "jakarta.ws.rs.PUT",
+            "jakarta.ws.rs.DELETE",
+            "jakarta.ws.rs.PATCH",
+            "jakarta.ws.rs.HEAD",
+            "jakarta.ws.rs.OPTIONS");
+
+    private static final DotName PRODUCES = DotName.createSimple("jakarta.ws.rs.Produces");
+    private static final DotName CONSUMES = DotName.createSimple("jakarta.ws.rs.Consumes");
+
     /**
      * Captures build-time idiom counts for the Quarkus-native application advisor: CDI scope annotation counts,
      * {@code @ConfigProperty} sites, JAX-RS resources without an explicit scope, reactive ({@code Uni}/{@code Multi})
@@ -380,14 +405,7 @@ class BootUiQuarkusProcessor {
 
         int endpoints = 0;
         int reactive = 0;
-        for (String http : List.of(
-                "jakarta.ws.rs.GET",
-                "jakarta.ws.rs.POST",
-                "jakarta.ws.rs.PUT",
-                "jakarta.ws.rs.DELETE",
-                "jakarta.ws.rs.PATCH",
-                "jakarta.ws.rs.HEAD",
-                "jakarta.ws.rs.OPTIONS")) {
+        for (String http : JAXRS_HTTP_METHODS) {
             for (AnnotationInstance ann : app.getAnnotations(DotName.createSimple(http))) {
                 if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD) {
                     endpoints++;
@@ -668,6 +686,141 @@ class BootUiQuarkusProcessor {
                 .done());
         runtimeDefaults.produce(
                 new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.SCHEDULED_PRESENT_KEY, "true"));
+    }
+
+    /**
+     * Captures the host application's JAX-RS route mappings at build time and replays them into a synthetic
+     * {@link QuarkusMappings} bean for the Mappings panel. The per-route method/produces/consumes detail this
+     * panel needs has no clean Quarkus <em>runtime</em> enumeration API, so the routes are read from the
+     * {@link BeanArchiveIndexBuildItem} Jandex index (the bean archives, which span the application's own
+     * {@code @Path} resources) — the same build-time-capture strategy the Scheduled Tasks, Architecture and
+     * Vulnerabilities panels use. {@code quarkus-rest} is a hard dependency of the BootUI extension, so the
+     * Mappings panel is statically available (see {@code QuarkusPanelAvailability}); no capability gate or
+     * present-key is needed.
+     *
+     * <p>The deployment {@code ResteasyReactiveResourceMethodEntriesBuildItem} carries the same per-route
+     * detail pre-resolved, but it is produced <em>after</em> the Arc bean container is built, so consuming it
+     * here while producing a {@link SyntheticBeanBuildItem} (which Arc must see <em>before</em> it builds the
+     * container) forms a build-step cycle. Reading the Jandex index — available early, before bean
+     * registration — avoids that cycle, exactly as {@link #registerScheduledTasks} does for {@code @Scheduled}.
+     * Only annotation-discovered JAX-RS resources are captured; programmatic Vert.x routes and non-bean
+     * resource classes are not, matching the panel's documented scope.</p>
+     *
+     * <p>BootUI's own {@code /bootui} routes are filtered out here at build time, where both the request path
+     * <em>and</em> the resource class FQN are available — the two things the Spring
+     * {@code BootUiSelfDataFilter} inspects when it filters the Mappings panel. The step runs only in a
+     * non-production launch mode (in {@link LaunchMode#NORMAL} the whole BootUI API is dark, so the captured
+     * mappings would be unused); when it does not run, the runtime {@code QuarkusMappingProvider} sees an
+     * unsatisfied {@code Instance} and the engine renders an empty report.</p>
+     */
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    void registerMappings(
+            LaunchModeBuildItem launchMode,
+            BeanArchiveIndexBuildItem beanArchiveIndex,
+            MappingsRecorder recorder,
+            BuildProducer<SyntheticBeanBuildItem> syntheticBeans) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return; // production: the BootUI API is not wired, so the captured mappings would be unused
+        }
+        List<RawMapping> mappings = scanMappings(beanArchiveIndex.getIndex());
+        syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusMappings.class)
+                .scope(Singleton.class)
+                .runtimeValue(recorder.create(mappings))
+                .unremovable()
+                .done());
+    }
+
+    /**
+     * Builds the raw JAX-RS route list from the Jandex index: every method on a class-level {@code @Path}
+     * resource that carries an HTTP-method annotation (or its own method-level {@code @Path}) becomes one
+     * {@link RawMapping}. BootUI's own resources are skipped by class FQN and by path.
+     */
+    private static List<RawMapping> scanMappings(IndexView index) {
+        List<RawMapping> mappings = new ArrayList<>();
+        for (AnnotationInstance pathAnnotation : index.getAnnotations(PATH)) {
+            if (pathAnnotation.target() == null || pathAnnotation.target().kind() != AnnotationTarget.Kind.CLASS) {
+                continue; // method-level @Path is handled per-method against its declaring class below
+            }
+            ClassInfo resource = pathAnnotation.target().asClass();
+            String resourceClass = resource.name().toString();
+            if (resourceClass.startsWith(BOOTUI_PACKAGE_PREFIX)) {
+                continue; // BootUI's own resources, identified by their package (mirrors the Spring filter)
+            }
+            String classPath = annotationString(pathAnnotation);
+            String classProduces = mediaTypes(resource.declaredAnnotation(PRODUCES));
+            String classConsumes = mediaTypes(resource.declaredAnnotation(CONSUMES));
+            for (MethodInfo method : resource.methods()) {
+                String httpMethod = httpMethodOf(method);
+                AnnotationInstance methodPath = method.annotation(PATH);
+                if (httpMethod == null && methodPath == null) {
+                    continue; // not a resource method (helper / lifecycle callback)
+                }
+                String pattern = joinPaths(classPath, methodPath == null ? null : annotationString(methodPath));
+                if (pattern.equals(BOOTUI_PATH_PREFIX) || pattern.startsWith(BOOTUI_PATH_PREFIX + "/")) {
+                    continue; // belt-and-suspenders: BootUI's own routes by path
+                }
+                String produces = firstNonNull(mediaTypes(method.annotation(PRODUCES)), classProduces);
+                String consumes = firstNonNull(mediaTypes(method.annotation(CONSUMES)), classConsumes);
+                String handler = resourceClass + "#" + method.name();
+                mappings.add(
+                        new RawMapping(httpMethod == null ? "ANY" : httpMethod, pattern, handler, produces, consumes));
+            }
+        }
+        return mappings;
+    }
+
+    /** The simple HTTP verb ({@code GET}, {@code POST}, …) of a JAX-RS method, or {@code null} if it has none. */
+    private static String httpMethodOf(MethodInfo method) {
+        for (String httpMethod : JAXRS_HTTP_METHODS) {
+            if (method.hasAnnotation(DotName.createSimple(httpMethod))) {
+                return httpMethod.substring(httpMethod.lastIndexOf('.') + 1);
+            }
+        }
+        return null;
+    }
+
+    /** Combines a class- and method-level {@code @Path} into a single slash-normalized, leading-slash path. */
+    private static String joinPaths(String classPath, String methodPath) {
+        String combined = (classPath == null ? "" : classPath) + "/" + (methodPath == null ? "" : methodPath);
+        combined = combined.replaceAll("/{2,}", "/");
+        if (combined.length() > 1 && combined.endsWith("/")) {
+            combined = combined.substring(0, combined.length() - 1);
+        }
+        if (!combined.startsWith("/")) {
+            combined = "/" + combined;
+        }
+        return combined;
+    }
+
+    /** Sorted, comma-joined media types from a {@code @Produces}/{@code @Consumes} annotation, or null. */
+    private static String mediaTypes(AnnotationInstance annotation) {
+        if (annotation == null) {
+            return null;
+        }
+        String[] values = stringArray(annotation.value());
+        if (values.length == 0) {
+            return null;
+        }
+        return Arrays.stream(values).sorted().collect(Collectors.joining(", "));
+    }
+
+    /** The {@code value} of a single-string annotation member (e.g. {@code @Path}), or "" when absent. */
+    private static String annotationString(AnnotationInstance annotation) {
+        AnnotationValue value = annotation.value();
+        return value == null ? "" : value.asString();
+    }
+
+    /** Reads an annotation member as a string array, tolerating the single-string form. */
+    private static String[] stringArray(AnnotationValue value) {
+        if (value == null) {
+            return new String[0];
+        }
+        return value.kind() == AnnotationValue.Kind.ARRAY ? value.asStringArray() : new String[] {value.asString()};
+    }
+
+    private static String firstNonNull(String first, String second) {
+        return first != null ? first : second;
     }
 
     /**

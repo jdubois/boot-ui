@@ -365,7 +365,7 @@ hide newer ones. Keep API, UI,
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
   Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, Beans, Scheduled Tasks, Cache, Flyway, Liquibase, Database Connection Pools, the Memory advisor,
+  GitHub, Beans, Mappings, Scheduled Tasks, Cache, Flyway, Liquibase, Database Connection Pools, the Memory advisor,
   Configuration (read-only — no override write path), Profile Diff (when profiles are active), and Security (a
   Quarkus-native ruleset — Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, `@RolesAllowed` — replacing the
   Spring-Security-coupled advisor; see `docs/QUARKUS-CHECKS.md`). The
@@ -552,7 +552,30 @@ hide newer ones. Keep API, UI,
   `quarkus.datasource.jdbc.metrics.enabled=true`; with metrics disabled the configuration still renders but the live
   snapshot is `null` and the pool is marked unavailable with a specific reason (no throw). `GET
   /bootui/api/database-connection-pools/pools` lists pools network-free and `…/pools/{name}/snapshot` returns a bounded
-  live snapshot; the panel is strictly read-only (no mutating route). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  live snapshot; the panel is strictly read-only (no mutating route). Mappings is served by scanning the
+  application's JAX-RS resources from the build-time Jandex index (the Spring adapter reads Actuator's
+  `MappingsEndpoint`): the engine `MappingsService` owns
+  the neutral sort/query/page concerns and the framework-neutral `MappingProvider` SPI is implemented by
+  `QuarkusMappingProvider` on Quarkus and `SpringMappingProvider` on Spring. Because Quarkus exposes no clean *runtime*
+  route-enumeration API (Vert.x reports paths but not the per-route method/produces/consumes the `MappingDto` contract
+  needs), a `registerMappings` `@Record(STATIC_INIT)` build step scans the `BeanArchiveIndexBuildItem` Jandex index for
+  `@Path` resource classes — **not** the richer `ResteasyReactiveResourceMethodEntriesBuildItem`, which is produced
+  *after* the Arc container is built and so would form a build-step cycle when producing a `SyntheticBeanBuildItem` (the
+  same early-vs-late constraint that drives Scheduled Tasks/Architecture to the Jandex index) — then for each resource
+  method
+  combines the class+method `@Path` (slash-normalized), renders the handler as `declaringClass#methodName`,
+  joins the `@Produces`/`@Consumes` media types (method-level wins over class-level), and **filters out BootUI's own
+  routes at build time** (the single filter
+  site, because it has both the request path *and* the resource class FQN — the two things Spring's `BootUiSelfDataFilter`
+  inspects), recording the rows into a synthetic `QuarkusMappings` bean via a `@Recorder` (the Scheduled-tasks
+  build-time-capture template; the runtime `QuarkusMappingProvider` does a pure 1:1 `RawMapping`→`MappingDto` map).
+  `quarkus-rest` is a hard dependency of the BootUI extension, so the index always carries at least BootUI's own
+  resources and the panel is
+  statically available (no capability gate, no `ExcludedTypeBuildItem`, no R2 classloading trap since the provider imports
+  no RESTEasy types at runtime); the read-only `MappingsResource` mirrors the Spring `MappingsController` (`GET` root +
+  `GET /flat`, no write path), and the Quarkus handler format (`classFQN#method`) is an accepted display-string divergence
+  from Spring's Actuator handler text. Only annotation-discovered JAX-RS resources are captured (no programmatic Vert.x
+  routes). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing

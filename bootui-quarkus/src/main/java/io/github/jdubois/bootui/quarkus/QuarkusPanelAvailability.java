@@ -98,14 +98,14 @@ import org.eclipse.microprofile.config.Config;
  * endpoint is the shared shell's framework-neutral chrome/CSRF-priming source, which the shell needs on
  * every platform, whereas the Overview dashboard panel itself has not yet been ported.</p>
  *
- * <p>The Mappings panel is a deliberate, possibly permanent, exception rather than a not-yet-ported one:
- * unlike the Spring adapter (which flattens Actuator's {@code MappingsEndpoint} descriptor), Quarkus
- * exposes no clean <em>runtime</em> route-enumeration API. Vert.x {@code Router.getRoutes()} yields paths
- * but not the per-route method/produces/consumes the {@code MappingDto} contract needs, and RESTEasy
- * Reactive's resource model is a build-time artifact
- * ({@code ResteasyReactiveResourceMethodEntriesBuildItem}). Capturing it would require a new build-step +
- * {@code @Recorder} + {@code SyntheticBeanBuildItem} data-capture pattern (its own slice and critic
- * round); until then Mappings stays unavailable on Quarkus while remaining fully available on Spring.</p>
+ * <p>The Mappings panel is served on Quarkus by capturing RESTEasy Reactive's resource model — a
+ * build-time artifact ({@code ResteasyReactiveResourceMethodEntriesBuildItem}) — into a synthetic bean via
+ * a build step + {@code @Recorder}, since Quarkus exposes no clean <em>runtime</em> route-enumeration API
+ * (Vert.x {@code Router.getRoutes()} yields paths but not the per-route method/produces/consumes the
+ * {@code MappingDto} contract needs). {@code quarkus-rest} is a hard dependency of the BootUI extension, so
+ * that build item is always present and the panel is statically available, mapping JAX-RS resource methods
+ * one-to-one onto the same {@code /flat} contract the Spring adapter serves from Actuator's
+ * {@code MappingsEndpoint}.</p>
  *
  *
  * <p>The <strong>GraalVM</strong> and <strong>CRaC</strong> advisors are deliberate, permanent exceptions
@@ -290,6 +290,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.LOGGERS,
             BootUiPanels.LOG_TAIL,
             BootUiPanels.BEANS,
+            BootUiPanels.MAPPINGS,
             BootUiPanels.CONFIG,
             BootUiPanels.HEALTH,
             BootUiPanels.HTTP_PROBE,
