@@ -14,8 +14,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 /**
- * JAX-RS resource for the Cache panel ({@code GET /bootui/api/spring-cache},
- * {@code POST /bootui/api/spring-cache/clear}).
+ * JAX-RS resource for the Cache panel ({@code GET /bootui/api/cache},
+ * {@code POST /bootui/api/cache/clear}).
  *
  * <p>The Quarkus analogue of the Spring adapter's {@code SpringCacheController}: a thin transport adapter
  * over the shared engine {@link CacheService}, which owns the framework-neutral metric overlay, ordering and
@@ -24,10 +24,10 @@ import jakarta.ws.rs.core.Response;
  * {@link CacheClearResponse} status that is rendered here onto a JAX-RS {@link Response}, identical to the
  * Spring {@code ResponseEntity} status.</p>
  *
- * <p>The path keeps the shared panel id {@code spring-cache} so the route and DTO contract are identical
+ * <p>The path keeps the shared panel id {@code cache} so the route and DTO contract are identical
  * across adapters; only the rendered content adapts per platform.</p>
  */
-@Path("/bootui/api/spring-cache")
+@Path("/bootui/api/cache")
 public class CacheResource {
 
     private final CacheService service;

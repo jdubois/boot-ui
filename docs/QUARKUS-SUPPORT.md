@@ -187,7 +187,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | Spring panel     | Quarkus replacement                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------------ |
 | `Spring` advisor | **Implemented** — **`Quarkus` advisor**: new Quarkus-native ruleset over the shared scanning engine (CDI/Arc scopes, build-time config, reactive idioms, profiles) under the same panel id `spring` + `/bootui/api/spring` + `SpringReport`. See [QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) |
-| `Spring Cache`   | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `spring-cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
+| `Cache`          | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
 
 ### 5.5 Dropped on Quarkus (10)
 
@@ -354,7 +354,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Security Logs       | partial     | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |
 | Log Tail            | partial     | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
 | Spring              | spring-only | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
-| Spring Cache        | spring-only | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
+| Cache               | spring-only | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
 | Beans               | partial     | Drop    | —                                | Arc build-time; low fidelity                |
 | Profile Diff        | partial     | Drop    | —                                | Quarkus config profiles differ              |
 | Security (advisor)  | partial     | Replace | Quarkus security ruleset         | Quarkus-native checks (OIDC/auth/TLS/CORS/annotations); see QUARKUS-CHECKS.md |

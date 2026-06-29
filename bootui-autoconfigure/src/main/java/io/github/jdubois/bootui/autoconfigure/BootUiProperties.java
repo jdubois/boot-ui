@@ -100,7 +100,7 @@ public class BootUiProperties {
      */
     private DevServices devServices = new DevServices();
     /**
-     * Spring Cache panel settings.
+     * Cache panel settings.
      */
     private Cache cache = new Cache();
     /**
@@ -535,7 +535,7 @@ public class BootUiProperties {
     public static class Cache {
 
         /**
-         * Allow BootUI to clear application caches from the Spring Cache panel.
+         * Allow BootUI to clear application caches from the Cache panel.
          */
         private boolean clearEnabled = true;
 

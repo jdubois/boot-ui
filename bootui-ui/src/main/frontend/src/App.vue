@@ -220,6 +220,10 @@ const footerText = computed(() =>
     : 'BootUI - The missing developer UI!'
 )
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
+function navTitle(r) {
+  const platform = panels.value?.platform
+  return r.meta?.titleByPlatform?.[platform] || r.meta?.title
+}
 const navigationSections = computed(() => {
   const sections = [
     {
@@ -310,16 +314,17 @@ function panelDisabledReason(panel) {
 
 function routeAvailabilityLabel(r) {
   const panel = panelForRoute(r)
+  const title = navTitle(r)
   if (panel?.enabled === false) {
-    return `${r.meta.title} - disabled: ${panelDisabledReason(panel)}`
+    return `${title} - disabled: ${panelDisabledReason(panel)}`
   }
   if (panel?.available === false) {
-    return `${r.meta.title} - unavailable: ${panel.unavailableReason || 'required support is unavailable'}`
+    return `${title} - unavailable: ${panel.unavailableReason || 'required support is unavailable'}`
   }
   if (panel?.readOnly === true) {
-    return `${r.meta.title} - read-only: ${panel.readOnlyReason || 'mutating actions are disabled'}`
+    return `${title} - read-only: ${panel.readOnlyReason || 'mutating actions are disabled'}`
   }
-  return r.meta.title
+  return title
 }
 
 function groupDomId(group) {
@@ -533,7 +538,7 @@ function onGlobalKeydown(e) {
                 @click="navigate"
               >
                 <i :class="['bi', r.meta.icon]"></i>
-                <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+                <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
                 <i
                   v-if="routeStatusIcon(r)"
                   :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
@@ -593,7 +598,7 @@ function onGlobalKeydown(e) {
             @click="onFlyoutLinkClick(navigate, $event)"
           >
             <i :class="['bi', r.meta.icon]"></i>
-            <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+            <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
             <i
               v-if="routeStatusIcon(r)"
               :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"

@@ -877,15 +877,15 @@ Acceptance criteria:
 - Opening the panel only reads changelog and history metadata; no Liquibase update command is executed as a side effect.
 - Mutating Liquibase actions require browser confirmation and a non-read-only app and panel.
 
-### 5.18 Spring Cache Panel
+### 5.18 Cache Panel
 
-Purpose: answer "Which Spring Cache managers and caches exist, how are they used, and can I clear them during local
+Purpose: answer "Which cache managers and caches exist, how are they used, and can I clear them during local
 development?"
 
 Data sources:
 
 - Spring `CacheManager` beans discovered in the application context.
-- Spring Cache `CacheOperationSource` metadata for `@Cacheable`, `@CachePut`, `@CacheEvict`, and composed `@Caching`
+- `CacheOperationSource` metadata for `@Cacheable`, `@CachePut`, `@CacheEvict`, and composed `@Caching`
   operations.
 - Micrometer cache meters when the host application has cache metrics registered.
 
@@ -1080,7 +1080,7 @@ Sample Spring Boot app used for demos and integration tests.
 Responsibilities:
 
 - Demonstrate common Spring Boot features.
-- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, Redis-backed Spring Cache, scheduling, and
+- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, Redis-backed Cache, scheduling, and
   Spring Security.
 - Provide enough beans, mappings, config, health, repositories, scheduled tasks, security chains, and logs to test
   BootUI.
@@ -1195,8 +1195,8 @@ Initial endpoints:
 | `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, not read-only, and not Modulith-managed |
 | `/bootui/api/liquibase/changesets`           | GET    | Applied/pending Liquibase change sets and action availability per database             |
 | `/bootui/api/liquibase/update`               | POST   | Apply pending Liquibase change sets only when confirmed and not read-only              |
-| `/bootui/api/spring-cache`                   | GET    | Spring Cache managers, caches, metrics, and annotation operations                      |
-| `/bootui/api/spring-cache/clear`             | POST   | Clear one or all known caches only when explicitly enabled and confirmed               |
+| `/bootui/api/cache`                          | GET    | Cache managers, caches, metrics, and annotation operations                      |
+| `/bootui/api/cache/clear`                    | POST   | Clear one or all known caches only when explicitly enabled and confirmed               |
 | `/bootui/api/spring-security`                | GET    | Spring Security filter chain report                                                    |
 | `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
@@ -1241,7 +1241,7 @@ Initial properties:
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
 | `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
-| `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
+| `bootui.cache.clear-enabled`                 | `true`                                  | Enable Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
@@ -1403,7 +1403,7 @@ Top-level navigation:
   - Security Logs.
 - Services:
   - Scheduled Tasks.
-  - Spring Cache.
+  - Cache.
   - AI Usage.
 - Diagnostics:
   - Traces.
@@ -1508,7 +1508,7 @@ BootUI's 1.0 release surface is complete when:
   Disabled / unavailable navigation groups covering Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump,
   Threads, Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database
   Connection Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
-  Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
+  Vulnerabilities, Scheduled Tasks, Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
   REST API, Spring, Memory,
   DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.

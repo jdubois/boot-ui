@@ -77,7 +77,7 @@ Panel settings are consistent across the UI and API:
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                |
-| Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`    |
+| Services        | Cache                     | `cache`                     | `bootui.panels.cache.enabled`                     | `bootui.panels.cache.read-only`           |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
@@ -180,12 +180,12 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.pentesting.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
 | `bootui.panels.pentesting.read-only` | `false` | Disable the explicit local scan action.                              |
 
-### Spring Cache
+### Cache
 
 | Property                               | Default | Description                                                                                       |
 | -------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `bootui.panels.spring-cache.enabled`   | `true`  | Show Spring Cache managers, caches, metrics, and cache annotations.                               |
-| `bootui.panels.spring-cache.read-only` | `false` | Disable cache clear actions.                                                                      |
+| `bootui.panels.cache.enabled`          | `true`  | Show cache managers, caches, metrics, and cache annotations.                                      |
+| `bootui.panels.cache.read-only`        | `false` | Disable cache clear actions.                                                                      |
 | `bootui.cache.clear-enabled`           | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing. |
 
 ### Hibernate

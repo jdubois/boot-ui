@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed the "Spring Cache" panel to "Cache".** The panel, route, and API are now framework-neutral:
+  route `/cache` (old `/spring-cache` redirects), API `GET`/`POST /bootui/api/cache[/clear]`, and panel id
+  `cache` (config keys `bootui.panels.cache.enabled` / `.read-only`). The Spring and Quarkus adapters both
+  serve the shared id, so the same UI covers Spring Cache and `quarkus-cache`. The advisor sidebar label now
+  follows the running framework (shows "Quarkus" on Quarkus), matching the panel header.
+
 ### Fixed
 
 - **`/bootui` no longer redirects to `/bootui/`, fixing a "localhost redirected you too many times"

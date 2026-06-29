@@ -28,7 +28,7 @@ import java.util.Optional;
  *
  * <p>The shared DTO contract is HikariCP-named for historical reasons; its fields are generic pool metrics, so
  * the Agroal pool maps cleanly into the same wire shape (a deliberate kept-contract decision, mirroring the
- * Cache panel keeping the {@code spring-cache} id). The Agroal→Hikari mapping: active←{@code activeCount},
+ * Cache panel sharing the {@code cache} id). The Agroal→Hikari mapping: active←{@code activeCount},
  * idle←{@code availableCount}, total←active+idle, pending←{@code awaitingCount}; acquisition←connection
  * timeout, reap←idle timeout, plus max-lifetime/min-size/max-size. Agroal has no faithful analogue of
  * HikariCP's per-call validation timeout or keepalive interval, so both are reported as {@code -1} (the UI

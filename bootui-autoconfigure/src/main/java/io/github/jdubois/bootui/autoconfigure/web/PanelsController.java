@@ -128,7 +128,7 @@ public class PanelsController {
                 availability(
                         classPresent("org.springframework.data.repository.Repository"),
                         "Spring Data not on the classpath");
-            case BootUiPanels.SPRING_CACHE ->
+            case BootUiPanels.CACHE ->
                 availability(beanPresent(CacheManager.class), "No CacheManager beans are available");
             case BootUiPanels.SPRING_SECURITY ->
                 availability(

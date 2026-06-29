@@ -29,7 +29,7 @@ test.describe('Docker profile smoke checks', () => {
   })
 
   test('uses a Redis-backed Spring cache', async ({request}) => {
-    const response = await request.get('/bootui/api/spring-cache')
+    const response = await request.get('/bootui/api/cache')
     expect(response.ok()).toBeTruthy()
     const cache = await response.json()
     const managerTypes = (cache.managers || []).map((manager) => manager.type)

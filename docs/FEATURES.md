@@ -16,7 +16,7 @@ operations. The dialog defaults focus to Cancel, dismisses on Escape or a backdr
 `prefers-reduced-motion`. Read-only scans and reversible toggles never prompt.
 
 Monitoring-oriented panels hide BootUI's own runtime data by default so Beans, Conditions, Mappings, Loggers, Metrics,
-Startup Timeline, Scheduled Tasks, Spring Cache, Spring Security, Security Logs, and Traces stay focused on the host
+Startup Timeline, Scheduled Tasks, Cache, Spring Security, Security Logs, and Traces stay focused on the host
 application. Set
 `bootui.monitoring.exclude-self=false` to include BootUI internals while debugging the console itself.
 
@@ -782,16 +782,16 @@ dependency-inventory capture) and maps it onto the same trigger/expression/initi
 initial delay is carried through. The panel is available only when the `quarkus-scheduler` extension is present;
 programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered tasks only).
 
-### Spring Cache
+### Cache
 
-The Spring Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native
+The Cache panel inspects the application's cache infrastructure. It lists cache manager beans, known caches, native
 implementations, safe local sizes, Micrometer cache metrics when registered, and discovered `@Cacheable`, `@CachePut`,
 and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser
 confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
 
-![BootUI Spring Cache panel](./images/bootui-spring-cache.webp)
+![BootUI Cache panel](./images/bootui-cache.webp)
 
-On Quarkus the same panel (kept under the shared id `spring-cache`) is served over `quarkus-cache`: the shared engine
+On Quarkus the same panel (kept under the shared id `cache`) is served over `quarkus-cache`: the shared engine
 `CacheService` reads the live cache topology from the application's `io.quarkus.cache.CacheManager`, overlays the same
 Micrometer cache metrics (when a `quarkus-micrometer` registry is present and per-cache metrics are enabled), and the
 clear action evicts via `cache.invalidateAll()`. Because Quarkus binds caching with build-time annotations

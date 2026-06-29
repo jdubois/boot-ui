@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  *
  * <p>The DTO type names are HikariCP-flavored for historical reasons; their fields are generic pool metrics
  * and the shared Vue UI is framework-neutral, so the Quarkus adapter maps Agroal pools into the same shape
- * (a deliberate kept-contract decision, mirroring the Cache panel keeping the {@code spring-cache} id).</p>
+ * (a deliberate kept-contract decision, mirroring the Cache panel sharing the {@code cache} id).</p>
  */
 public final class ConnectionPoolService {
 

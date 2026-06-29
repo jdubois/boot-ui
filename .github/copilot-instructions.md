@@ -350,13 +350,13 @@ hide newer ones. Keep API, UI,
 - **Configuration**: Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings
 - **Database**: Database Connection Pools, SQL Trace, Spring Data, Flyway, Liquibase
 - **Security**: Spring Security, Security Logs
-- **Services**: Scheduled Tasks, Spring Cache, AI Usage
+- **Services**: Scheduled Tasks, Cache, AI Usage
 - **Diagnostics**: Traces, Log Tail, Exceptions, HTTP Exchanges, HTTP Probe
 - **Developer Tools**: MCP Server, DevTools, Dev Services, Copilot, Claude Code
 
 - Some panels are framework-specific. The **plan** (partly implemented — tracked in `docs/QUARKUS-SUPPORT.md`) is to
   replace the **Spring advisor** with a **Quarkus advisor** on the Quarkus adapter; the Cache panel (kept under the
-  shared id `spring-cache`) is **already** served on Quarkus over `quarkus-cache` (see the Cache entry below). A few
+  shared id `cache`) is **already** served on Quarkus over `quarkus-cache` (see the Cache entry below). A few
   Spring-only panels (e.g. DevTools, Conditions) have no Quarkus equivalent and stay unavailable
   there. The **GraalVM** and **CRaC** advisors are deliberately **not** ported to Quarkus (they are not "not yet" — they
   have no meaningful Quarkus equivalent): Quarkus compiles native images itself and generates its own reachability
@@ -472,7 +472,7 @@ hide newer ones. Keep API, UI,
   rendered raw), and self-filters via the shared engine `InternalPackageMatcher`; the read-only `ScheduledResource`
   mirrors the Spring `ScheduledController`. Annotation-discovered tasks only (programmatic `Scheduler.newJob()` jobs are
   not captured).
-  Cache (panel id `spring-cache`, kept
+  Cache (panel id `cache`, kept
   identical to Spring) is the first **`Services`** panel and the first **action-capable optional-dependency data panel**
   on Quarkus: the shared engine `CacheService` owns the neutral half — cache topology → Micrometer metric overlay
   (hit/miss/size/eviction, same meter conventions both frameworks via the shared `MeterSelfFilter`), ordering, and the
@@ -488,8 +488,8 @@ hide newer ones. Keep API, UI,
   honest to the "replacement" framing: Quarkus binds caching with **build-time** annotations (`@CacheResult`,
   `@CacheInvalidate`) woven into methods, so there is no runtime registry of cached operations — `operations()` is empty
   and `SpringCache.vue` renders a Quarkus-specific "Cached operations" note (via the `platform` discriminator) instead of
-  the Spring `@Cacheable` table. `GET /bootui/api/spring-cache` lists caches + metrics network-free; only the explicit
-  `POST /bootui/api/spring-cache/clear` mutates, behind the shared `LocalhostGuard` write floor. Flyway is the first
+  the Spring `@Cacheable` table. `GET /bootui/api/cache` lists caches + metrics network-free; only the explicit
+  `POST /bootui/api/cache/clear` mutates, behind the shared `LocalhostGuard` write floor. Flyway is the first
   **Database** panel and the second **action-capable optional-dependency** port (after Cache), and the simplest of the
   optional-dependency ports because **both frameworks use the same library** — `org.flywaydb.core.Flyway`: the shared
   engine `FlywayService` owns the neutral half (per-database migration-history assembly, sort/totals/current/pending, and
@@ -529,7 +529,7 @@ hide newer ones. Keep API, UI,
   the first **different-pool-library** port: Spring reads HikariCP, Quarkus reads **Agroal**, but the **`HikariPool*` wire
   contract is deliberately kept unchanged** (its JSON field names are already pool-neutral and the Vue UI carries no
   "Hikari" labels, so Spring stays byte-identical and the SPA/conformance are untouched — same precedent as Cache keeping
-  the `spring-cache` id and Beans keeping reduced fidelity). The shared engine `ConnectionPoolService` owns the neutral
+  the `cache` id and Beans keeping reduced fidelity). The shared engine `ConnectionPoolService` owns the neutral
   half — assembly, sort, and the `SecretMasker` JDBC-URL/username masking orchestration (honoring both `valueExposure()`
   and `maskSecrets()`) — while the `ConnectionPoolProvider` SPI (returning neutral `ConnectionPoolInfo`/`…Snapshot`
   carriers) is the seam each adapter implements (`SpringConnectionPoolProvider` over `HikariDataSource` beans +

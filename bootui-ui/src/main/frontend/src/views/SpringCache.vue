@@ -29,7 +29,7 @@ const lastFetched = ref(null)
 async function fetchReport() {
   error.value = null
   try {
-    report.value = await getJson('api/spring-cache')
+    report.value = await getJson('api/cache')
     lastFetched.value = Date.now()
   } catch (e) {
     error.value = describeLoadError(e, 'Unable to load cache report')
@@ -144,7 +144,7 @@ async function clearCaches(payload, busyKey) {
   busy.value = busyKey
   clear()
   try {
-    const res = await apiFetch('api/spring-cache/clear', {
+    const res = await apiFetch('api/cache/clear', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -174,7 +174,7 @@ function showReadOnlyMessage() {
   <div>
     <PanelHeader
       icon="bi-hdd-stack"
-      title="Spring Cache"
+      title="Cache"
       :subtitle="
         report
           ? platform === 'quarkus'

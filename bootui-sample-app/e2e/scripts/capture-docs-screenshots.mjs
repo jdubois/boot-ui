@@ -49,7 +49,7 @@ const panelOrder = [
   ['pentesting', 'Pentesting'],
   ['vulnerabilities', 'Vulnerabilities'],
   ['scheduled', 'Scheduled Tasks'],
-  ['spring-cache', 'Spring Cache'],
+  ['cache', 'Cache'],
   ['ai', 'AI Usage'],
   ['activity', 'Live Activity'],
   ['traces', 'Traces'],
@@ -541,7 +541,7 @@ const mappings = {
             mapping('GET', '/api/sample/products', 'SampleController#products()'),
             mapping('POST', '/api/chat', 'ChatController#chat(ChatRequest)'),
             mapping('GET', '/admin', 'AdminController#admin()'),
-            mapping('GET', '/bootui/api/spring-cache', 'SpringCacheController#springCache()')
+            mapping('GET', '/bootui/api/cache', 'SpringCacheController#springCache()')
           ]
         }
       }
@@ -562,7 +562,7 @@ const flatMappings = [
   {method: 'GET', pattern: '/admin', handler: 'AdminController#admin()', produces: null, consumes: null},
   {
     method: 'GET',
-    pattern: '/bootui/api/spring-cache',
+    pattern: '/bootui/api/cache',
     handler: 'SpringCacheController#springCache()',
     produces: null,
     consumes: null
@@ -3068,7 +3068,7 @@ const screenshots = [
   ['pentesting', 'Pentesting', 'bootui-pentesting.webp', waitForText('Missing hardening response headers')],
   ['vulnerabilities', 'Vulnerabilities', 'bootui-vulnerabilities.webp', waitForText('GHSA-example-001')],
   ['scheduled', 'Scheduled Tasks', 'bootui-scheduled-tasks.webp', waitForText('EchoScheduler.echo')],
-  ['spring-cache', 'Spring Cache', 'bootui-spring-cache.webp', waitForText('sample-products')],
+  ['cache', 'Cache', 'bootui-cache.webp', waitForText('sample-products')],
   ['ai', 'AI Usage', 'bootui-ai.webp', waitForText('Token usage')],
   ['activity', 'Live Activity', 'bootui-activity.webp', waitForText('GET /api/sample/products')],
   ['traces', 'Traces', 'bootui-traces.webp', waitForText('POST /api/chat')],
@@ -3656,7 +3656,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'sql-trace' || endpoint === 'sql-trace/clear' || endpoint === 'sql-trace/recording')
     return fulfillJson(route, sqlTrace)
   if (endpoint.startsWith('heap-dump')) return fulfillJson(route, heapDump)
-  if (endpoint === 'spring-cache') return fulfillJson(route, cache)
+  if (endpoint === 'cache') return fulfillJson(route, cache)
   if (endpoint === 'spring-security') return fulfillJson(route, springSecurity)
   if (endpoint === 'spring-security/endpoints') return fulfillJson(route, securityEndpoints)
   if (endpoint === 'spring-security/explain')

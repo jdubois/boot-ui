@@ -30,7 +30,7 @@ flow) exposed by the sample app:
 | `scheduled.spec.js`       | Scheduled tasks view lists the sample echo scheduler                                                                                          |
 | `data.spec.js`            | `ProductRepository` is listed, detail panel shows `searchByName`                                                                              |
 | `hibernate.spec.js`       | Hibernate scan action and mapped-entity findings                                                                                              |
-| `spring-cache.spec.js`    | Cache managers, cache details, annotations, metrics, and guarded clear actions                                                                |
+| `cache.spec.js`           | Cache managers, cache details, annotations, metrics, and guarded clear actions                                                                |
 | `spring-security.spec.js` | Filter chains list `/api/secure`, explain endpoint returns a match                                                                            |
 | `security-logs.spec.js`   | Security Logs list recent audit events with filters, auto-refresh, and masked sensitive event data                                            |
 | `ai.spec.js`              | AI Usage summaries, token charts, content-capture guidance, and disabled states                                                               |

@@ -152,6 +152,7 @@ export const routes = [
       group: groups.advisors,
       icon: 'bi-leaf',
       title: 'Spring',
+      titleByPlatform: {quarkus: 'Quarkus'},
       shortcut: 'sr',
       keywords: [
         'context',
@@ -594,13 +595,13 @@ export const routes = [
     }
   },
   {
-    path: '/spring-cache',
-    name: 'spring-cache',
+    path: '/cache',
+    name: 'cache',
     component: SpringCache,
     meta: {
       group: groups.services,
       icon: 'bi-hdd-stack',
-      title: 'Spring Cache',
+      title: 'Cache',
       shortcut: 'ca',
       keywords: ['caching', 'cacheable', 'cache manager', 'cacheput', 'cacheevict', 'caches']
     }
@@ -756,5 +757,6 @@ export const routes = [
   {path: '/hibernate-advisor', redirect: '/hibernate'},
   {path: '/memory-advisor', redirect: '/memory'},
   {path: '/security-advisor', redirect: '/security'},
-  {path: '/profiles', redirect: '/profile-diff'}
+  {path: '/profiles', redirect: '/profile-diff'},
+  {path: '/spring-cache', redirect: '/cache'}
 ]

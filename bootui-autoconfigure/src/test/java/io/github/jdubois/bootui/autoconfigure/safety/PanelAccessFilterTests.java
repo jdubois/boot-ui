@@ -187,15 +187,15 @@ class PanelAccessFilterTests {
     @Test
     void honorsCustomApiPathAndContextPath() throws Exception {
         properties.setApiPath("/admin/api");
-        properties.panel("spring-cache").setEnabled(false);
-        MockHttpServletRequest request = request("POST", "/my-app/admin/api/spring-cache/clear");
+        properties.panel("cache").setEnabled(false);
+        MockHttpServletRequest request = request("POST", "/my-app/admin/api/cache/clear");
         request.setContextPath("/my-app");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, new MockFilterChain());
 
         assertThat(response.getStatus()).isEqualTo(403);
-        assertThat(response.getContentAsString()).contains("\"panel\":\"spring-cache\"");
+        assertThat(response.getContentAsString()).contains("\"panel\":\"cache\"");
     }
 
     private MockHttpServletRequest request(String method, String uri) {
@@ -216,7 +216,7 @@ class PanelAccessFilterTests {
         requests.put("security", new ActionRequest("POST", "/bootui/api/security/scan"));
         requests.put("pentesting", new ActionRequest("POST", "/bootui/api/pentesting/scan"));
         requests.put("hibernate", new ActionRequest("POST", "/bootui/api/hibernate/scan"));
-        requests.put("spring-cache", new ActionRequest("POST", "/bootui/api/spring-cache/clear"));
+        requests.put("cache", new ActionRequest("POST", "/bootui/api/cache/clear"));
         requests.put("traces", new ActionRequest("DELETE", "/bootui/api/traces"));
         requests.put("exceptions", new ActionRequest("DELETE", "/bootui/api/exceptions"));
         requests.put("http-probe", new ActionRequest("POST", "/bootui/api/http-probe"));

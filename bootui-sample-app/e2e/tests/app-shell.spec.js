@@ -34,7 +34,7 @@ const allPanelLinks = [
   {id: 'pentesting', title: 'Pentesting', heading: /^Pentesting/},
   {id: 'vulnerabilities', title: 'Vulnerabilities', heading: /^Vulnerabilities/},
   {id: 'scheduled', title: 'Scheduled Tasks', heading: /Scheduled Tasks/},
-  {id: 'spring-cache', title: 'Spring Cache', heading: /Spring Cache/},
+  {id: 'cache', title: 'Cache', heading: /^Cache$/},
   {id: 'ai', title: 'AI Usage', heading: /AI Usage/},
   {id: 'traces', title: 'Traces', heading: /^Traces/},
   {id: 'log-tail', title: 'Log Tail', heading: /Log Tail/},
@@ -191,7 +191,7 @@ test.describe('BootUI app shell', () => {
     await page.getByRole('button', {name: /Services\s+3/}).click()
     await expect(page.getByRole('group', {name: 'Services panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Scheduled Tasks',
-      'Spring Cache',
+      'Cache',
       'AI Usage'
     ])
 

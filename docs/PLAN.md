@@ -41,7 +41,7 @@ The priorities for every item below remain unchanged:
 
 Each new panel must:
 
-- be **read-only or read-mostly**, with any mutating control explicitly confirmation-gated like the existing Spring Cache
+- be **read-only or read-mostly**, with any mutating control explicitly confirmation-gated like the existing Cache
   clear action;
 - **fail closed** when its required classes, beans, Actuator endpoints, or data are unavailable, returning stable empty
   DTOs and a clear unavailable reason;

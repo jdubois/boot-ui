@@ -17,9 +17,9 @@
         bootui-quarkus extension and proves the Cache panel light-up: the live cache topology read from the
         application's io.quarkus.cache.CacheManager by the QuarkusCacheProvider is shaped by the shared engine
         CacheService, Caffeine cache sizes + Micrometer cache metrics are overlaid, and the panel is surfaced on
-        GET /bootui/api/spring-cache with a working POST /clear action. Kept separate from
+        GET /bootui/api/cache with a working POST /clear action. Kept separate from
         bootui-quarkus-integration-tests (which deliberately has NO quarkus-cache, so the capability gate keeps
-        the spring-cache panel unavailable) so the cache-present and cache-absent paths are each proven in
+        the cache panel unavailable) so the cache-present and cache-absent paths are each proven in
         isolation — the same split used for the SmallRye-Health-present/absent and Micrometer-present/absent
         coverage.</description>
 
@@ -53,7 +53,7 @@
         </dependency>
 
         <!-- Adds the Quarkus Cache extension. Its presence makes the CACHE capability available, so the
-             deployment build step wires BootUiCacheProducer and the spring-cache panel is reported available;
+             deployment build step wires BootUiCacheProducer and the cache panel is reported available;
              the Caffeine-backed CacheManager exposes the live cache topology the panel reads. -->
         <dependency>
             <groupId>io.quarkus</groupId>

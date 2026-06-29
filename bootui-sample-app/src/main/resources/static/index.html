@@ -257,7 +257,7 @@
         <article class="test-action">
           <button class="button" id="products-button" type="button">Check products</button>
           <p>Calls <code>GET /api/sample/products</code> to exercise Spring Data, cache, and HTTP Exchanges.</p>
-          <small>Inspect: Spring Data, Spring Cache, HTTP Exchanges</small>
+          <small>Inspect: Spring Data, Cache, HTTP Exchanges</small>
         </article>
         <article class="test-action">
           <button class="button" id="sql-query-button" type="button">Run an SQL query</button>
@@ -272,7 +272,7 @@
         <article class="test-action">
           <button class="button" id="greeting-button" type="button">Call configured greeting</button>
           <p>Calls <code>GET /api/sample/hello</code> so BootUI can show configuration-backed behavior.</p>
-          <small>Inspect: Configuration, Spring Cache, HTTP Probe</small>
+          <small>Inspect: Configuration, Cache, HTTP Probe</small>
         </article>
         <article class="test-action">
           <button class="button" id="public-api-button" type="button">Call public API</button>
@@ -468,7 +468,7 @@
       const names = products.map(product => `- ${product.name} (${product.category})`).join('\n')
       showSampleResult(
         `Loaded ${products.length} active products`,
-        `${names}\n\nOpen BootUI Spring Data, Spring Cache, or HTTP Exchanges to inspect this request.`
+        `${names}\n\nOpen BootUI Spring Data, Cache, or HTTP Exchanges to inspect this request.`
       )
     })
   )
@@ -517,7 +517,7 @@
       if (!response.ok) {
         throw new Error(text)
       }
-      showSampleResult('Configured greeting returned', `${text}\n\nOpen Configuration or Spring Cache to inspect it.`)
+      showSampleResult('Configured greeting returned', `${text}\n\nOpen Configuration or Cache to inspect it.`)
     })
   )
 

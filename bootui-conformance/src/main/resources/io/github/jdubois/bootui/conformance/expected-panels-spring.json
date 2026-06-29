@@ -27,7 +27,7 @@
     { "id": "database-connection-pools", "title": "Database Connection Pools", "actionCapable": false },
     { "id": "data", "title": "Spring Data", "actionCapable": false },
     { "id": "hibernate", "title": "Hibernate", "actionCapable": true },
-    { "id": "spring-cache", "title": "Spring Cache", "actionCapable": true },
+    { "id": "cache", "title": "Cache", "actionCapable": true },
     { "id": "ai", "title": "AI Usage", "actionCapable": false },
     { "id": "traces", "title": "Traces", "actionCapable": true },
     { "id": "log-tail", "title": "Log Tail", "actionCapable": false },

@@ -518,7 +518,7 @@ public class BootUiEngineProducer {
      * The Cache panel service. Produced <em>unconditionally</em> because it holds no {@code io.quarkus.cache}
      * type: the cache-API-importing {@link CacheProvider} lives behind the gated {@link BootUiCacheProducer}
      * that is wired only when the {@code CACHE} capability is present (R2). When that provider is unsatisfied
-     * the engine is given a {@code null} provider, so {@code GET /spring-cache} renders the panel unavailable
+     * the engine is given a {@code null} provider, so {@code GET /cache} renders the panel unavailable
      * and {@code POST /clear} reports it unavailable instead of failing.
      *
      * <p>Cache metrics are read live from the same {@link MeterRegistry} the Metrics panel uses (present only

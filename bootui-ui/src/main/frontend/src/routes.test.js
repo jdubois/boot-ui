@@ -41,7 +41,7 @@ describe('routes', () => {
       'Spring Security',
       'Security Logs',
       'Scheduled Tasks',
-      'Spring Cache',
+      'Cache',
       'AI Usage',
       'Traces',
       'Log Tail',
@@ -151,7 +151,8 @@ describe('routes', () => {
       {path: '/hibernate-advisor', redirect: '/hibernate'},
       {path: '/memory-advisor', redirect: '/memory'},
       {path: '/security-advisor', redirect: '/security'},
-      {path: '/profiles', redirect: '/profile-diff'}
+      {path: '/profiles', redirect: '/profile-diff'},
+      {path: '/spring-cache', redirect: '/cache'}
     ])
   })
 })

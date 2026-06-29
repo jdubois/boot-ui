@@ -65,7 +65,7 @@ import org.eclipse.microprofile.config.Config;
  * capability-gated — the panel captures {@code @Scheduled} metadata at build time (no runtime
  * {@code io.quarkus.scheduler.*} import), so the engine service and its read resource always wire and render an
  * empty {@code schedulingPresent=false} report when the scheduler is absent.</p>
- * <p>The <strong>Cache</strong> panel (kept under the shared id {@code spring-cache}) is likewise available
+ * <p>The <strong>Cache</strong> panel (kept under the shared id {@code cache}) is likewise available
  * <em>dynamically</em>: it is lit up only when the application uses Quarkus Cache. The deployment processor
  * detects the {@code CACHE} capability at build time and feeds the decision back as the
  * {@code bootui.internal.cache-present} runtime-config default (see {@link #CACHE_PRESENT_KEY}); when
@@ -369,7 +369,7 @@ public class QuarkusPanelAvailability {
         boolean available = AVAILABLE_PANELS.contains(panel.id())
                 || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent)
                 || (BootUiPanels.SCHEDULED.equals(panel.id()) && schedulingPresent)
-                || (BootUiPanels.SPRING_CACHE.equals(panel.id()) && cachePresent)
+                || (BootUiPanels.CACHE.equals(panel.id()) && cachePresent)
                 || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
                 || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
                 || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panel.id()) && connectionPoolsPresent)
@@ -392,7 +392,7 @@ public class QuarkusPanelAvailability {
         if (BootUiPanels.SCHEDULED.equals(panelId)) {
             return SCHEDULED_ABSENT;
         }
-        if (BootUiPanels.SPRING_CACHE.equals(panelId)) {
+        if (BootUiPanels.CACHE.equals(panelId)) {
             return CACHE_ABSENT;
         }
         if (BootUiPanels.FLYWAY.equals(panelId)) {

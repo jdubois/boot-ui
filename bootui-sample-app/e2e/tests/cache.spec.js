@@ -1,9 +1,9 @@
 // @ts-check
 import {acceptConfirm, expect, test} from './fixtures.js'
 
-test.describe('Spring Cache view', () => {
+test.describe('Cache view', () => {
   test('lists caches, cache annotations, and clears a cache', async ({openView, page}) => {
-    await openView('spring-cache', 'Spring Cache')
+    await openView('cache', 'Cache')
 
     const cacheSection = page.locator('section', {hasText: 'Caches'}).first()
     await expect(cacheSection).toContainText('sample-products')

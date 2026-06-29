@@ -18,8 +18,8 @@ import org.junit.jupiter.api.Test;
  * dedicated {@code bootui-quarkus-cache-integration-tests} module). It proves the R2 capability gate fails
  * closed: the {@code io.quarkus.cache.*}-importing {@code BootUiCacheProducer} is excluded by the deployment
  * build step when {@code Capability.CACHE} is absent, so no {@code CacheProvider} bean exists and the
- * {@code spring-cache} panel is reported <em>unavailable</em> in the manifest with an honest capability hint —
- * while the cache-API-free engine {@code CacheService} is still wired, so {@code GET /bootui/api/spring-cache}
+ * {@code cache} panel is reported <em>unavailable</em> in the manifest with an honest capability hint —
+ * while the cache-API-free engine {@code CacheService} is still wired, so {@code GET /bootui/api/cache}
  * answers with valid JSON reporting {@code cacheAvailable:false} (no {@code NoClassDefFoundError} from the
  * absent backend).</p>
  */
@@ -40,7 +40,7 @@ class BootUiQuarkusCacheResourceWithoutCacheTest {
 
         JsonNode cache = null;
         for (JsonNode panel : panels.json().path("panels")) {
-            if ("spring-cache".equals(panel.path("id").asText(null))) {
+            if ("cache".equals(panel.path("id").asText(null))) {
                 cache = panel;
             }
         }
@@ -55,10 +55,10 @@ class BootUiQuarkusCacheResourceWithoutCacheTest {
 
     @Test
     void cacheReportRendersUnavailableWithoutQuarkusCache() {
-        Response report = probe().get("/bootui/api/spring-cache");
-        assertThat(report.status()).as("GET /bootui/api/spring-cache status").isEqualTo(200);
+        Response report = probe().get("/bootui/api/cache");
+        assertThat(report.status()).as("GET /bootui/api/cache status").isEqualTo(200);
         assertThat(report.isJson())
-                .as("GET /bootui/api/spring-cache content-type (%s)", report.contentType())
+                .as("GET /bootui/api/cache content-type (%s)", report.contentType())
                 .isTrue();
         assertThat(report.json().path("cacheAvailable").asBoolean(true))
                 .as("the report is unavailable when no CacheProvider bean is wired")

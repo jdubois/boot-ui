@@ -581,7 +581,7 @@ class BootUiSampleApplicationIntegrationTests {
     void cacheEndpointFindsSampleCachesAndClearsOneCache() {
         getList("/api/sample/products");
 
-        ResponseEntity<Map> response = getMap("/bootui/api/spring-cache");
+        ResponseEntity<Map> response = getMap("/bootui/api/cache");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<?, ?> body = response.getBody();
@@ -602,7 +602,7 @@ class BootUiSampleApplicationIntegrationTests {
         });
 
         ResponseEntity<Map> clear = postMap(
-                "/bootui/api/spring-cache/clear",
+                "/bootui/api/cache/clear",
                 Map.of("managerName", "cacheManager", "cacheName", "sample-products", "confirm", true));
         assertThat(clear.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(clear.getBody()).isNotNull();
