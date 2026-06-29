@@ -6,7 +6,7 @@ test.describe('Security Logs view', () => {
     await openView('security-logs', 'Security Logs')
 
     await expect(page.getByLabel('Auto-refresh')).toBeVisible()
-    await expect(page.locator('main')).toContainText('This application returns up to 500 recent audit events')
+    await expect(page.locator('main')).toContainText('This application returns up to 500 recent events per response')
     await expect(page.locator('main')).toContainText('bootui.security-logs.max-logs')
     await expect(page.getByText('AUTHENTICATION_SUCCESS').first()).toBeVisible()
     await expect(page.getByText('AUTHORIZATION_DENIED', {exact: true})).toBeVisible()
