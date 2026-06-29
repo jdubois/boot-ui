@@ -35,16 +35,21 @@ import org.eclipse.microprofile.config.Config;
  */
 public final class QuarkusHibernatePropertyLookup implements Function<String, String> {
 
-    static final String GENERATION_KEY = "quarkus.hibernate-orm.database.generation";
+    // Quarkus 3.33 renamed quarkus.hibernate-orm.database.generation to
+    // quarkus.hibernate-orm.schema-management.strategy (same value vocabulary); the legacy key is still
+    // honored but deprecated. We read the new key first and fall back to the legacy one (see schemaStrategy()).
+    static final String SCHEMA_STRATEGY_KEY = "quarkus.hibernate-orm.schema-management.strategy";
+
+    static final String LEGACY_GENERATION_KEY = "quarkus.hibernate-orm.database.generation";
 
     private static final String OPEN_IN_VIEW_KEY = "spring.jpa.open-in-view";
 
-    // Engine key -> quarkus.hibernate-orm.* equivalent. Verified against the Quarkus 3.20 Hibernate ORM
+    // Engine key -> quarkus.hibernate-orm.* equivalent. Verified against the Quarkus 3.33 Hibernate ORM
     // configuration reference; the first two are exercised by the Quarkus sample app.
     private static final Map<String, String> KEY_ALIASES = Map.of(
-            "spring.jpa.hibernate.ddl-auto", GENERATION_KEY,
-            "spring.jpa.properties.hibernate.hbm2ddl.auto", GENERATION_KEY,
-            "hibernate.hbm2ddl.auto", GENERATION_KEY,
+            "spring.jpa.hibernate.ddl-auto", SCHEMA_STRATEGY_KEY,
+            "spring.jpa.properties.hibernate.hbm2ddl.auto", SCHEMA_STRATEGY_KEY,
+            "hibernate.hbm2ddl.auto", SCHEMA_STRATEGY_KEY,
             "spring.jpa.show-sql", "quarkus.hibernate-orm.log.sql",
             "hibernate.show_sql", "quarkus.hibernate-orm.log.sql",
             "hibernate.format_sql", "quarkus.hibernate-orm.log.format-sql",
@@ -66,11 +71,22 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
             return "false";
         }
         String quarkusKey = KEY_ALIASES.get(key);
-        String value = raw(quarkusKey != null ? quarkusKey : key);
-        if (GENERATION_KEY.equals(quarkusKey) && "drop-and-create".equalsIgnoreCase(value)) {
-            return "create-drop";
+        if (SCHEMA_STRATEGY_KEY.equals(quarkusKey)) {
+            String value = schemaStrategy();
+            return "drop-and-create".equalsIgnoreCase(value) ? "create-drop" : value;
         }
-        return value;
+        return raw(quarkusKey != null ? quarkusKey : key);
+    }
+
+    /**
+     * Reads the schema-generation strategy, preferring the Quarkus 3.33+
+     * {@code quarkus.hibernate-orm.schema-management.strategy} key and falling back to the
+     * deprecated-but-still-supported {@code quarkus.hibernate-orm.database.generation} so the advisor reads
+     * the operator's setting whichever name they use.
+     */
+    private String schemaStrategy() {
+        String value = raw(SCHEMA_STRATEGY_KEY);
+        return value != null ? value : raw(LEGACY_GENERATION_KEY);
     }
 
     private String raw(String key) {

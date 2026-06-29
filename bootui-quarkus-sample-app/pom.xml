@@ -19,8 +19,8 @@
         BootUI developer console (see docs/QUARKUS-SUPPORT.md §8).
 
         This module is wired into the reactor through the root pom's JDK-gated `quarkus-sample-app`
-        profile (active on JDK 17/21) rather than the always-on <modules> list, because its Hibernate ORM
-        dependency cannot be augmented on JDKs newer than the Quarkus 3.20 platform supports. Build it on
+        profile (active on JDK 17/21/25) rather than the always-on <modules> list, because its Hibernate ORM
+        dependency cannot be augmented on JDKs newer than the Quarkus 3.33 platform supports. Build it on
         a supported JDK with `./mvnw -pl bootui-quarkus-sample-app -am install`.
 
         Versions below (Quarkus platform, LangChain4j) track the `bootui-quarkus` extension.
@@ -32,10 +32,10 @@
 
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
-        <!-- 3.20 LTS targets Java 17, matching this repo's java.version. Bump as needed. -->
-        <quarkus.platform.version>3.20.6</quarkus.platform.version>
-        <!-- Align with the Quarkus platform above when wiring the real extension. -->
-        <quarkus-langchain4j.version>0.25.0</quarkus-langchain4j.version>
+        <!-- 3.33 LTS targets Java 17/21/25, matching this repo's java.version. Bump as needed. -->
+        <quarkus.platform.version>3.33.2.1</quarkus.platform.version>
+        <!-- Align with the Quarkus platform above: quarkus-langchain4j 1.11.2 targets Quarkus 3.33.2. -->
+        <quarkus-langchain4j.version>1.11.2</quarkus-langchain4j.version>
     </properties>
 
     <dependencyManagement>

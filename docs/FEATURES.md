@@ -44,7 +44,7 @@ scored, and only scanners whose panels are available for the current application
 gracefully when optional infrastructure is missing.
 
 On Quarkus the Overview scoring *dashboard* is not yet ported, so the panel itself is reported unavailable. The shared
-shell chrome around every panel — the header application name, framework and version (for example "Quarkus 3.20"), Java
+shell chrome around every panel — the header application name, framework and version (for example "Quarkus 3.33"), Java
 version, active profiles, and the active/disabled status — is still populated on Quarkus, because it is served by the
 same framework-neutral `GET /bootui/api/overview` endpoint that both adapters expose for the shell.
 
@@ -277,7 +277,8 @@ On Quarkus the panel is identical, running the same shared rule engine over the 
 all persistence units, de-duplicated by identity), and the mapping/identifier/fetch rules apply unchanged. Two platform
 differences are worth noting. First, persistence configuration is read through a key-mapping layer that translates the
 Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
-`quarkus.hibernate-orm.database.generation` (including the `drop-and-create` ↔ `create-drop` value alias),
+`quarkus.hibernate-orm.schema-management.strategy` (or the deprecated `quarkus.hibernate-orm.database.generation`,
+including the `drop-and-create` ↔ `create-drop` value alias),
 `show-sql` → `quarkus.hibernate-orm.log.sql`, `format_sql` → `quarkus.hibernate-orm.log.format-sql`, and `batch_size` →
 `quarkus.hibernate-orm.jdbc.statement-batch-size`. Unmapped configuration rules find no value and stay silent, and
 their INFO advisories may still cite the Spring-flavored property name. Second, the Open-Session-in-View check is
@@ -652,7 +653,7 @@ pools.
 On the Quarkus adapter the same panel is served over **Agroal** (Quarkus' pool library) instead of HikariCP: the shared
 engine `ConnectionPoolService` and the `HikariPool*` wire contract are unchanged, and a Quarkus provider maps the live
 Agroal pool configuration and `AgroalDataSourceMetrics` (active/available/awaiting counts) into the same DTO shape — so
-the panel looks and behaves identically. Pool metrics require `quarkus.datasource.jdbc.enable-metrics=true`; with metrics
+the panel looks and behaves identically. Pool metrics require `quarkus.datasource.jdbc.metrics.enabled=true`; with metrics
 disabled the pool configuration still renders but the live snapshot is marked unavailable. A few Hikari-specific fields
 have no faithful Agroal equivalent and are reported as neutral defaults (per-call validation timeout, keepalive interval,
 and read-only flag).

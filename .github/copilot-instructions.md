@@ -75,14 +75,14 @@ Load-bearing rules:
 
 - Java 17 (compiler `release` 17, `-parameters`). Maven Wrapper (`./mvnw`), Maven 3.9.16; do not require a system Maven.
 - Spring Boot 4.1.x (`spring-boot.version` in root `pom.xml`; currently 4.1.0).
-- Quarkus 3.20.x LTS (`quarkus.platform.version` in the Quarkus modules; currently 3.20.6).
+- Quarkus 3.33.x LTS (`quarkus.platform.version` in the Quarkus modules; currently 3.33.2.1).
 - Published Maven coordinates use `com.julien-dubois.bootui:*`; Java packages remain `io.github.jdubois.bootui.*`.
 - Node.js / npm for the packaged Vue app are downloaded automatically by the `frontend-maven-plugin` (`node.version` /
   `npm.version` in root `pom.xml`); do not add a manual Node install step for the Maven build.
-- **JDK caveat for the Quarkus sample app:** Hibernate ORM's build-time ByteBuddy enhancement (via the Quarkus 3.20
-  platform) cannot read class files newer than the JDKs that platform supports (17 and 21). So `bootui-quarkus-sample-app`
-  is wired into the reactor only on JDK 17/21 via the root-pom `quarkus-sample-app` profile (`<jdk>[17,22)</jdk>`). CI and
-  releases run Java 17 and build it; a local `./mvnw install` on a newer JDK (e.g. 25/26) stays green by skipping it. The
+- **JDK caveat for the Quarkus sample app:** Hibernate ORM's build-time ByteBuddy enhancement (via the Quarkus 3.33
+  platform) cannot read class files newer than the JDKs that platform supports (17, 21 and 25). So `bootui-quarkus-sample-app`
+  is wired into the reactor only on JDK 17/21/25 via the root-pom `quarkus-sample-app` profile (`<jdk>[17,26)</jdk>`). CI and
+  releases run Java 17 and build it; a local `./mvnw install` on a newer, unsupported JDK (e.g. 26) stays green by skipping it. The
   extension's own modules (`bootui-quarkus*`, integration tests) have no Hibernate dependency and build on every JDK.
 
 ## Build, run, test
@@ -123,7 +123,7 @@ parent/core/UI modules, and those modules have no main class. Use `-am` for buil
 # Build + test the Quarkus extension and its Docker-free @QuarkusTest conformance suite (works on any JDK).
 ./mvnw -B -ntp -pl bootui-quarkus,bootui-quarkus-deployment,bootui-quarkus-integration-tests -am install
 
-# Build/run the Quarkus sample app — requires JDK 17/21 (see the JDK caveat above). Point JAVA_HOME at a 17/21 JDK.
+# Build/run the Quarkus sample app — requires JDK 17/21/25 (see the JDK caveat above). Point JAVA_HOME at a 17/21/25 JDK.
 JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am install
 JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev   # console at http://localhost:8080/bootui/
 ```
@@ -407,7 +407,8 @@ hide newer ones. Keep API, UI,
   units, de-duplicated by identity); when absent the scanner is fed an empty-discovery supplier so `POST /scan` renders
   DISABLED rather than failing, and only the panel's *availability* tracks the build-time `bootui.internal.hibernate-present`
   flag. Persistence configuration is read through `QuarkusHibernatePropertyLookup`, which maps the Spring property names
-  the engine rules expect onto their `quarkus.hibernate-orm.*` equivalents (`ddl-auto` → `database.generation` with the
+  the engine rules expect onto their `quarkus.hibernate-orm.*` equivalents (`ddl-auto` → `schema-management.strategy`,
+  preferred over the deprecated `database.generation`, with the
   `drop-and-create` ↔ `create-drop` value alias, `show-sql`/`format_sql`/`batch_size`); the Open-Session-in-View rule is
   correctly inert (Quarkus has no OSIV, so the lookup returns the effective-disabled constant and the rule never fires),
   and Spring Data repository hints are Spring-only. GitHub is the first **Overview** panel lit up on Quarkus: the shared
@@ -548,7 +549,7 @@ hide newer ones. Keep API, UI,
   acquisition/reap/max-lifetime timeouts map across, but a few Hikari-specific fields have no faithful Agroal analogue and
   are neutral defaults (`validationTimeoutMs`/`keepaliveTimeMs`←`-1` → render "—", `readOnly`←`false` because agroal-api
   2.5 has no `readOnly()` accessor, `driverClassName` often null). Pool metrics require
-  `quarkus.datasource.jdbc.enable-metrics=true`; with metrics disabled the configuration still renders but the live
+  `quarkus.datasource.jdbc.metrics.enabled=true`; with metrics disabled the configuration still renders but the live
   snapshot is `null` and the pool is marked unavailable with a specific reason (no throw). `GET
   /bootui/api/database-connection-pools/pools` lists pools network-free and `…/pools/{name}/snapshot` returns a bounded
   live snapshot; the panel is strictly read-only (no mutating route). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.

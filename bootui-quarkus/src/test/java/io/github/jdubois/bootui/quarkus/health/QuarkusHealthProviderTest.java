@@ -112,9 +112,19 @@ class QuarkusHealthProviderTest {
     @Test
     void defaultsDefensivelyWhenStatusAndChecksAreAbsent() {
         // A minimal/sparse payload must never throw — a well-formed-but-empty report should render UNKNOWN,
-        // not 500 the panel.
-        HealthNodeDto root =
-                QuarkusHealthProvider.map(health(Json.createObjectBuilder().build()));
+        // not 500 the panel. As of smallrye-health 4.3.0 the SmallRyeHealth constructor parses the "status"
+        // field eagerly (and would NPE on a status-less payload), so a real report can never reach map()
+        // without a status. We override getPayload() to hand map() the status-less object directly and pin its
+        // defensive payload.getString("status", "UNKNOWN") fallback.
+        SmallRyeHealth statusless = new SmallRyeHealth(
+                Json.createObjectBuilder().add("status", "UP").build()) {
+            @Override
+            public JsonObject getPayload() {
+                return Json.createObjectBuilder().build();
+            }
+        };
+
+        HealthNodeDto root = QuarkusHealthProvider.map(statusless);
 
         assertThat(root.name()).isEqualTo("application");
         assertThat(root.status()).isEqualTo("UNKNOWN");

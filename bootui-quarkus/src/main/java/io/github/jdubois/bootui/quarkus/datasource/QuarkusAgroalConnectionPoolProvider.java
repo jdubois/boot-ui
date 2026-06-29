@@ -35,14 +35,14 @@ import java.util.Optional;
  * renders "—"); the JDBC driver class is often unknown at runtime and Agroal exposes no read-only flag, so
  * those are reported as {@code null}/{@code false} (reduced fidelity).</p>
  *
- * <p>Live counts are only available when {@code quarkus.datasource.jdbc.enable-metrics=true}: when metrics are
+ * <p>Live counts are only available when {@code quarkus.datasource.jdbc.metrics.enabled=true}: when metrics are
  * disabled the configuration still renders, but the snapshot is {@code null}, the pool is marked unavailable,
  * and a specific reason points the operator at the metrics flag.</p>
  */
 public final class QuarkusAgroalConnectionPoolProvider implements ConnectionPoolProvider {
 
     private static final String METRICS_DISABLED_REASON =
-            "Pool metrics are disabled; set quarkus.datasource.jdbc.enable-metrics=true to see live connection counts";
+            "Pool metrics are disabled; set quarkus.datasource.jdbc.metrics.enabled=true to see live connection counts";
 
     @Override
     public List<ConnectionPoolInfo> pools() {

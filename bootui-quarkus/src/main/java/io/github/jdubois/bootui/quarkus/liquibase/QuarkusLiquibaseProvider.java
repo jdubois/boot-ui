@@ -8,7 +8,6 @@ import io.github.jdubois.bootui.spi.LiquibaseTarget;
 import io.quarkus.arc.InstanceHandle;
 import io.quarkus.liquibase.LiquibaseFactory;
 import io.quarkus.liquibase.runtime.LiquibaseFactoryUtil;
-import io.quarkus.runtime.ResettableSystemProperties;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,10 +28,11 @@ import liquibase.changelog.RanChangeSet;
  * <p>Discovery uses {@link LiquibaseFactoryUtil#getActiveLiquibaseFactories()} (which resolves the per-named-
  * datasource CDI qualifiers, so {@code @LiquibaseDataSource}-named datasources are included and inactive ones
  * skipped) rather than a plain {@code Instance<LiquibaseFactory>} that would see only the {@code @Default}
- * factory. Each read and the update primitive open a {@link Liquibase} together with its
- * {@link ResettableSystemProperties} in a try-with-resources, exactly as Quarkus' own {@code LiquibaseRecorder}
- * does, so the per-datasource Liquibase system properties are applied and reset and the underlying JDBC
- * connection (closed by {@code Liquibase.close()}) never leaks.</p>
+ * factory. Each read and the update primitive open a {@link Liquibase} in a try-with-resources; as of Quarkus
+ * 3.33 {@link LiquibaseFactory#createLiquibase()} applies and resets the per-datasource Liquibase system
+ * properties internally (the former caller-managed {@code ResettableSystemProperties} helper is now private),
+ * exactly as Quarkus' own {@code LiquibaseRecorder} does, and the underlying JDBC connection (closed by
+ * {@code Liquibase.close()}) never leaks.</p>
  */
 public class QuarkusLiquibaseProvider implements LiquibaseProvider {
 
@@ -75,8 +75,7 @@ public class QuarkusLiquibaseProvider implements LiquibaseProvider {
                 .findFirst()
                 .orElseThrow(
                         () -> new IllegalStateException("No Liquibase factory named '" + name + "' is available."));
-        try (Liquibase liquibase = factory.createLiquibase();
-                ResettableSystemProperties ignored = factory.createResettableSystemProperties()) {
+        try (Liquibase liquibase = factory.createLiquibase()) {
             int before = liquibase
                     .listUnrunChangeSets(factory.createContexts(), factory.createLabels())
                     .size();
@@ -93,8 +92,7 @@ public class QuarkusLiquibaseProvider implements LiquibaseProvider {
     }
 
     private List<LiquibaseChangeSetDto> readAppliedChangeSets(LiquibaseFactory factory) {
-        try (Liquibase liquibase = factory.createLiquibase();
-                ResettableSystemProperties ignored = factory.createResettableSystemProperties()) {
+        try (Liquibase liquibase = factory.createLiquibase()) {
             List<LiquibaseChangeSetDto> changeSets = new ArrayList<>();
             for (RanChangeSet ranChangeSet : liquibase.getDatabase().getRanChangeSetList()) {
                 changeSets.add(toChangeSetDto(ranChangeSet));
@@ -107,8 +105,7 @@ public class QuarkusLiquibaseProvider implements LiquibaseProvider {
     }
 
     private List<LiquibaseChangeSetDto> readPendingChangeSets(LiquibaseFactory factory) {
-        try (Liquibase liquibase = factory.createLiquibase();
-                ResettableSystemProperties ignored = factory.createResettableSystemProperties()) {
+        try (Liquibase liquibase = factory.createLiquibase()) {
             List<LiquibaseChangeSetDto> changeSets = new ArrayList<>();
             for (ChangeSet changeSet :
                     liquibase.listUnrunChangeSets(factory.createContexts(), factory.createLabels())) {
