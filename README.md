@@ -4,9 +4,12 @@
 [![CodeQL](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml/badge.svg)](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6db33f?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Quarkus](https://img.shields.io/badge/Quarkus-3.33.x-4695EB?logo=quarkus&logoColor=white)](https://quarkus.io/)
 [![Java](https://img.shields.io/badge/Java-17-orange?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
 
-BootUI is a **Spring Boot 4 starter** that adds an embedded, local-only developer console to your application.
+BootUI adds an embedded, local-only developer console to your application. It runs on both **Spring Boot 4** and
+**Quarkus**, serving the same Vue UI and the same `/bootui/api/**` REST contract from a shared, framework-neutral
+engine — add the Spring Boot starter or the Quarkus extension and BootUI activates only in local development.
 
 Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 
