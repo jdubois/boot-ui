@@ -365,7 +365,12 @@ hide newer ones. Keep API, UI,
   registry + per-adapter availability rather than forking the route list.
 - As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
   Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, Beans, Scheduled Tasks, Cache, Flyway, Liquibase, and Database Connection Pools. Architecture is the first **advisor** lit up on
+  GitHub, Beans, Scheduled Tasks, Cache, Flyway, Liquibase, Database Connection Pools, and the Memory advisor. The
+  **Memory** advisor is the cleanest port: every scanner/rule/context class was already framework-neutral (JMX +
+  `java.lang.management` only), so it relocated wholesale into the engine `MemoryScanner` (built via
+  `MemoryScanner.create(ThreadDumpService, Clock)`) with the Spring `MemoryController` reduced to thin wiring and a
+  thin Quarkus `MemoryResource` mirror; it is statically available (no capability gate) since JMX is on every JVM,
+  and `POST /scan` is `@Blocking` because the heap histogram forces a full GC. Architecture is the first **advisor** lit up on
   Quarkus: the shared engine `ArchitectureScanner` runs the curated ArchUnit ruleset against the application's own
   classes, bounded to base packages discovered at **build time** from the Jandex application index by a
   `registerBasePackages` build step (the runtime `AutoConfigurationPackages` lookup the Spring adapter uses has no Quarkus

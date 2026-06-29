@@ -1,10 +1,11 @@
-package io.github.jdubois.bootui.autoconfigure.memory;
+package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import io.github.jdubois.bootui.core.dto.MemoryScanStatusDto;
 import io.github.jdubois.bootui.core.dto.MemorySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.MemorySummaryDto;
+import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import java.time.Clock;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -21,8 +22,14 @@ import java.util.function.Supplier;
  * It never suspends threads, never changes runtime configuration, and only reads management beans.
  * Collecting the heap-content histogram triggers a full GC, exactly like the Heap Dump panel's
  * analyze action; the rest of the snapshot is read cheaply.</p>
+ *
+ * <p>Framework-neutral: it reads only JMX management beans plus the shared engine
+ * {@link ThreadDumpService}, so both the Spring {@code MemoryController} and the Quarkus
+ * {@code MemoryResource} build it through {@link #create(ThreadDumpService, Clock)} and hold the
+ * cached report themselves. The collector, rules, and context stay package-private; only the scanner
+ * is the adapter-facing surface.</p>
  */
-final class MemoryScanner {
+public final class MemoryScanner {
 
     private static final String ANALYZER = "BootUI Memory Advisor";
     private static final String DISCLAIMER =
@@ -55,7 +62,21 @@ final class MemoryScanner {
         this.clock = clock;
     }
 
-    MemoryReport initialReport() {
+    /**
+     * Builds the production scanner over the shared {@link ThreadDumpService} and the
+     * {@code GC.class_histogram} diagnostic command, exactly as both adapters did inline before the
+     * extraction. The thread snapshot is read unbounded ({@code limit 1000}) so the thread rules see
+     * the full picture; the histogram forces a full GC, so callers gate the scan accordingly.
+     */
+    public static MemoryScanner create(ThreadDumpService threadDumpService, Clock clock) {
+        return new MemoryScanner(
+                new MemoryCollector(
+                        () -> threadDumpService.report(null, null, 0, 1000),
+                        MemoryCollector::diagnosticCommandHistogram),
+                clock);
+    }
+
+    public MemoryReport initialReport() {
         return report(
                 "NOT_SCANNED",
                 "Memory Advisor has not run yet. Click Run memory checks to inspect the JVM runtime.",
@@ -65,7 +86,7 @@ final class MemoryScanner {
                 List.of());
     }
 
-    synchronized MemoryReport scan() {
+    public synchronized MemoryReport scan() {
         MemoryContext context;
         try {
             context = contextSupplier.get();
@@ -124,7 +145,7 @@ final class MemoryScanner {
                 analysisErrors(results));
     }
 
-    MemoryReport applyDismissals(MemoryReport report, Set<String> dismissedIds) {
+    public MemoryReport applyDismissals(MemoryReport report, Set<String> dismissedIds) {
         if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
             return report;
         }

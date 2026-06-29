@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.autoconfigure.memory;
+package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import java.util.ArrayList;

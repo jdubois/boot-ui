@@ -35,6 +35,7 @@ import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
+import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
@@ -108,6 +109,13 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     ThreadDumpService bootUiThreadDumpService(BootUiExposure exposure) {
         return new ThreadDumpService(exposure);
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    MemoryScanner bootUiMemoryScanner(ThreadDumpService threadDumpService) {
+        return MemoryScanner.create(threadDumpService, Clock.systemUTC());
     }
 
     @Bean

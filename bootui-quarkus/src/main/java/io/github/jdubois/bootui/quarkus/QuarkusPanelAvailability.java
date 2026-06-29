@@ -19,7 +19,8 @@ import org.eclipse.microprofile.config.Config;
  * and order are identical and the shared Vue UI renders the same sidebar on both platforms. Availability
  * is platform-specific and computed here (the Spring adapter's {@code PanelsController} computes its own
  * over Actuator/bean presence). This release lights up the framework-neutral Threads, Heap Dump,
- * Live Memory, JVM Tuning and Loggers panels, the Metrics panel (which reports real Micrometer meters when a
+ * Live Memory, JVM Tuning and Loggers panels, the Memory advisor (always available: it aggregates
+ * JMX heap/GC/thread/class-loading data and runs the shared static rule registry on demand), the Metrics panel (which reports real Micrometer meters when a
  * {@code quarkus-micrometer} registry is present and otherwise renders as unavailable), the HTTP Probe panel
  * (which probes the application's own loopback port), the Health panel (always available: it reports real
  * SmallRye Health when {@code quarkus-smallrye-health} is present and otherwise renders setup guidance), the
@@ -44,7 +45,7 @@ import org.eclipse.microprofile.config.Config;
  * — note Traces (its buffer can be cleared), Loggers (a logger level can be set), HTTP Probe (it issues a
  * request), Architecture (it runs a scan and dismisses rules), Pentesting (it runs a scan), Vulnerabilities
  * (it runs an OSV scan) and Cache (it clears caches) are
- * action-capable, so they are the Quarkus panels exposing state-changing actions.</p>
+ * action-capable, plus the Memory advisor (it runs a scan), so they are the Quarkus panels exposing state-changing actions.</p>
  *
  * <p>The <strong>Hibernate</strong> (ORM mapping) advisor is available <em>dynamically</em>: unlike the
  * statically-available panels above, it is lit up only when the application actually uses Hibernate ORM. The
@@ -217,6 +218,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.LIVE_MEMORY,
             BootUiPanels.JVM_TUNING,
+            BootUiPanels.MEMORY,
             BootUiPanels.METRICS,
             BootUiPanels.LOGGERS,
             BootUiPanels.BEANS,

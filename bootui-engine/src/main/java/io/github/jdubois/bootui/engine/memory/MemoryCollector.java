@@ -1,16 +1,16 @@
-package io.github.jdubois.bootui.autoconfigure.memory;
+package io.github.jdubois.bootui.engine.memory;
 
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ClassLoadingData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.GcSample;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.GcTrend;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.HeapContentData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryPoolSnapshot;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.PostGcHeapData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.RuntimeData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ThreadData;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.ClassLoadingData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.GcSample;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.GcTrend;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.HeapContentData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryPoolSnapshot;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.PostGcHeapData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.RuntimeData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.ThreadData;
 import java.lang.management.BufferPoolMXBean;
 import java.lang.management.ClassLoadingMXBean;
 import java.lang.management.GarbageCollectorMXBean;

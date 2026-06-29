@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
+import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
@@ -88,6 +89,20 @@ public class BootUiEngineProducer {
     @Singleton
     public MemoryReportProvider memoryReportProvider(QuarkusMemoryRuntimeConfig runtimeConfig) {
         return new MemoryReportProvider(runtimeConfig);
+    }
+
+    /**
+     * The Memory advisor scanner over the shared {@link ThreadDumpService}. Always available — the
+     * scanner reads only JMX management beans (heap/GC/threads/class-loading) present on every JVM, so
+     * no capability gate or optional dependency is involved. {@code @Singleton} matches the scanner's
+     * cross-scan GC-trend state (a {@code previousGcSample} baseline), mirroring the
+     * {@link ArchitectureScanner} and {@link ThreadDumpService} producers; the heap-content histogram
+     * forces a full GC, so the {@code POST /scan} resource method runs blocking, off the event loop.
+     */
+    @Produces
+    @Singleton
+    public MemoryScanner memoryScanner(ThreadDumpService threadDumpService) {
+        return MemoryScanner.create(threadDumpService, Clock.systemUTC());
     }
 
     /**

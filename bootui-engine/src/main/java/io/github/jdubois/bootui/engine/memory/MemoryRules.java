@@ -1,10 +1,10 @@
-package io.github.jdubois.bootui.autoconfigure.memory;
+package io.github.jdubois.bootui.engine.memory;
 
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryPoolSnapshot;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ThreadData;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryPoolSnapshot;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.ThreadData;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;

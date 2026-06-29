@@ -1,19 +1,19 @@
-package io.github.jdubois.bootui.autoconfigure.memory;
+package io.github.jdubois.bootui.engine.memory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ClassLoadingData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.HeapContentData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.MemoryPoolSnapshot;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.RuntimeData;
-import io.github.jdubois.bootui.autoconfigure.memory.MemoryContext.ThreadData;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import io.github.jdubois.bootui.core.dto.MemorySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.core.dto.ThreadStateCountDto;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.ClassLoadingData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.HeapContentData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryPoolSnapshot;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.RuntimeData;
+import io.github.jdubois.bootui.engine.memory.MemoryContext.ThreadData;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
