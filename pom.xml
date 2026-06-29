@@ -59,7 +59,7 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.1.0</spring-boot.version>
         <!-- Quarkus platform for the bootui-quarkus extension + Quarkus sample app. 3.20 LTS targets Java 17. -->
-        <quarkus.platform.version>3.20.0</quarkus.platform.version>
+        <quarkus.platform.version>3.20.6</quarkus.platform.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>

@@ -33,7 +33,7 @@
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <!-- 3.20 LTS targets Java 17, matching this repo's java.version. Bump as needed. -->
-        <quarkus.platform.version>3.20.0</quarkus.platform.version>
+        <quarkus.platform.version>3.20.6</quarkus.platform.version>
         <!-- Align with the Quarkus platform above when wiring the real extension. -->
         <quarkus-langchain4j.version>0.25.0</quarkus-langchain4j.version>
     </properties>
