@@ -49,6 +49,12 @@ exactly the surface the SPI seam abstracts.
 
 ## 3. Target module topology
 
+> **Update (post-merge):** the `bootui-spi` module described below was ultimately **folded into `bootui-engine`** as the
+> `io.github.jdubois.bootui.spi` package, leaving three shared modules (`bootui-core`, `bootui-engine`, `bootui-conformance`).
+> The SPI interfaces, providers, and the framework-neutral boundary (now pinned by `SpiBoundaryArchitectureTests` inside
+> `bootui-engine`) are unchanged — only the module/POM boundary went away. Read every `bootui-spi` mention below as "the
+> `spi` package within `bootui-engine`".
+
 Current modules and their proposed roles:
 
 ```
@@ -107,7 +113,7 @@ Most BootUI controllers are already shaped this way (e.g. `ArchitectureControlle
 `VulnerabilitiesController` → `DependencyProvider`/`OsvVulnerabilityScanner`). The refactor extracts the scanner/service
 into `bootui-engine` and leaves a ~10-line binding in each framework module.
 
-## 4. The portability SPI (`bootui-spi`)
+## 4. The portability SPI (the `io.github.jdubois.bootui.spi` package in `bootui-engine`)
 
 Small interfaces the shared engine calls; each framework implements them. Names are illustrative.
 

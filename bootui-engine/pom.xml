@@ -19,10 +19,6 @@
             <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-core</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-spi</artifactId>
-        </dependency>
 
         <dependency>
             <groupId>io.micrometer</groupId>

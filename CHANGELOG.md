@@ -26,6 +26,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   update the artifact id. The `bootui-spring-boot-starter` artifact id is unchanged, Java package names
   (`io.github.jdubois.bootui.*`) are unchanged, and the published Docker image names (`jdubois/bootui-sample-app*`)
   are unchanged.
+- **Merged the `bootui-spi` module into `bootui-engine`.** The framework-neutral service-provider interfaces now
+  live in the `io.github.jdubois.bootui.spi` package inside `bootui-engine` (the boundary is still enforced by
+  `SpiBoundaryArchitectureTests`), reducing the shared modules from four to three (`bootui-core`, `bootui-engine`,
+  `bootui-conformance`). **The only breaking change is that the published Maven Central coordinate
+  `com.julien-dubois.bootui:bootui-spi` no longer exists** — its types ship in `bootui-engine`. Java package names
+  (`io.github.jdubois.bootui.spi.*`) are unchanged, so code that imports these interfaces still compiles; consumers
+  who depend on `bootui-spring-boot-starter` or `bootui-quarkus` (the recommended paths) need no change, since both
+  pull the engine in. Only projects that declared a direct dependency on `bootui-spi` must drop it (the engine
+  already provides those classes).
 
 ## [1.7.0] - 2026-06-29
 

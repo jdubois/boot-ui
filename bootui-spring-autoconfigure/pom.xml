@@ -21,10 +21,6 @@
         </dependency>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.julien-dubois.bootui</groupId>
             <artifactId>bootui-engine</artifactId>
         </dependency>
 

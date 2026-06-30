@@ -17,9 +17,9 @@ The core idea: **push behavior down into a framework-neutral engine, keep each f
 
 ```text
 bootui-core    DTO records (core/dto/*), SecretMasker, BootUiInfo, ValueExposure — zero framework deps
-bootui-spi     Small neutral interfaces (ExposurePolicy, MemoryRuntimeConfig, BasePackageProvider, …) over
-               core DTOs / jakarta.* / Micrometer only
-bootui-engine  Framework-neutral services + advisor engines (depends on core + spi); no framework/DI annotations
+bootui-engine  Framework-neutral services + advisor engines, plus the neutral SPI ports each adapter implements
+               (the io.github.jdubois.bootui.spi package: ExposurePolicy, MemoryRuntimeConfig, BasePackageProvider,
+               … over core DTOs only); depends on core; no framework/DI annotations
 bootui-conformance  Test-support: one abstract HTTP contract suite + golden panel fixtures both adapters run
 bootui-ui      Vue 3 + Vite SPA, built once into META-INF/resources/bootui/
 
@@ -37,11 +37,12 @@ bootui-quarkus-sample-app   Reference Quarkus app (wired via a JDK-gated reactor
 
 Load-bearing rules:
 
-- **Dependency direction is one-way: `core ← spi ← engine`, and each adapter depends on the trio.** Shared modules
-  (`core`, `spi`, `engine`, `conformance`, `ui`) must **never** depend on a framework. This is enforced at build time by
+- **Dependency direction is one-way: `core ← engine`, and each adapter depends on both.** Shared modules
+  (`core`, `engine`, `conformance`, `ui`) must **never** depend on a framework. This is enforced at build time by
   `EngineBoundaryArchitectureTests` (ArchUnit), which bans `org.springframework..`, `jakarta.servlet..`, `jakarta.ws.rs..`,
   `io.quarkus..`, `io.vertx..`, `org.jboss..`, **and both JSON libraries** (`tools.jackson..`, `com.fasterxml.jackson..`)
-  from `bootui-engine`. A leak fails the build.
+  from the `bootui-engine` services, with a companion `SpiBoundaryArchitectureTests` pinning the neutral SPI ports (the
+  `io.github.jdubois.bootui.spi` package, folded into `bootui-engine`) framework-free. A leak fails the build.
 - **The engine is JSON-free on purpose.** Spring Boot 4 ships Jackson 3 (`tools.jackson.*`); Quarkus ships Jackson 2
   (`com.fasterxml.jackson.*`) — incompatible artifact *and* package. So JSON parsing/serialization lives in the adapter,
   which feeds the engine **already-parsed neutral records** and serializes the engine's DTO records back out. The DTO
@@ -602,7 +603,7 @@ hide newer ones. Keep API, UI,
 ## Java conventions
 
 - Package root `io.github.jdubois.bootui.<module>`. In `bootui-engine`, services + advisor engines live in feature
-  sub-packages (`engine.memory`, `engine.architecture`, `engine.pentesting`, …); neutral interfaces live in `bootui-spi`.
+  sub-packages (`engine.memory`, `engine.architecture`, `engine.pentesting`, …); the neutral SPI interfaces live alongside them in the `io.github.jdubois.bootui.spi` package (same `bootui-engine` module).
   In the **Spring adapter**, simple controllers live in `...autoconfigure.web`, complex features in dedicated sub-packages
   (`...autoconfigure.architecture`, `...autoconfigure.config`), safety code in `...autoconfigure.safety`. In the **Quarkus
   adapter**, JAX-RS resources live in `...quarkus.web`, SPI impls + producers + the safety filter in `...quarkus`.
@@ -644,8 +645,8 @@ hide newer ones. Keep API, UI,
 ## Release plumbing (Maven Central)
 
 Subtle constraints that have burned past releases — preserve them when touching `pom.xml` files or the release profile.
-The published artifacts are the shared modules and both adapters (`bootui-core`, `-spi`, `-engine`, `-ui`,
-`-autoconfigure`, `-spring-boot-starter`, `-quarkus`, `-quarkus-deployment`); the demo/test modules (`bootui-spring-sample-app`,
+The published artifacts are the shared modules and both adapters (`bootui-core`, `-engine`, `-ui`,
+`-spring-autoconfigure`, `-spring-boot-starter`, `-quarkus`, `-quarkus-deployment`); the demo/test modules (`bootui-spring-sample-app`,
 `bootui-quarkus-sample-app`, `bootui-quarkus-integration-tests`, `bootui-conformance`) set
 `<maven.deploy.skip>true</maven.deploy.skip>` — they must still build so the publishing plugin sees the full reactor, but
 must not be published.

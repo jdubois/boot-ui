@@ -36,6 +36,13 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- Framework-neutral DTO/wire contract: the immutable records the engine returns and this adapter
+             serializes (imported directly by the JAX-RS resources), declared explicitly rather than leaned on
+             transitively through bootui-engine. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-core</artifactId>
+        </dependency>
         <!-- Framework-neutral engine (logic shared with the Spring adapter) + the shared Vue UI bundle. -->
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>

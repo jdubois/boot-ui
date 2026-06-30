@@ -38,7 +38,6 @@
 
     <modules>
         <module>bootui-core</module>
-        <module>bootui-spi</module>
         <module>bootui-engine</module>
         <module>bootui-spring-autoconfigure</module>
         <module>bootui-spring-boot-starter</module>
@@ -110,11 +109,6 @@
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>
                 <artifactId>bootui-core</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>bootui-spi</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
