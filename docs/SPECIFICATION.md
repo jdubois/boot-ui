@@ -2,28 +2,36 @@
 
 ## 1. Overview
 
-BootUI is a **Spring Boot 4 Starter** that adds an embedded, local-only developer console to Spring Boot 4 applications.
-It is inspired by Quarkus Dev UI, .NET Aspire Dashboard, Laravel Telescope, Micronaut Control Panel, and Spring Boot
-Admin, but is focused specifically on the inner development loop of a single Spring Boot 4 application.
+BootUI is a **local-only developer console** that adds an embedded, safe introspection and explanation layer to a
+running application. It runs on **both Spring Boot 4 and Quarkus** from a single codebase: each framework ships a thin
+adapter — a Spring Boot starter or a Quarkus extension — over a shared, framework-neutral engine, so both serve the
+**same Vue UI** and the **same `/bootui/api/**` REST contract**. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard,
+Laravel Telescope, Micronaut Control Panel, and Spring Boot Admin, but is focused specifically on the inner development
+loop of a single application.
 
 BootUI is not a standalone application, production monitoring tool, APM product, cloud service, IDE plugin, or
-replacement for Actuator. It is a Spring-native visualization and explanation layer loaded into the user's running
-Spring Boot 4 application through a starter dependency.
+replacement for Actuator. It is a framework-native visualization and explanation layer loaded into the user's running
+application through a starter (Spring Boot) or extension (Quarkus) dependency.
 
 ## 1.1 Target platform
 
 BootUI currently targets:
 
-- Spring Boot 4.x.
+- Spring Boot 4.x and Quarkus 3.x, from one shared, framework-neutral codebase.
 - Java 17 or later.
 - Maven-based applications first.
-- Servlet web applications first.
+- Spring Boot servlet web applications and Quarkus (Vert.x / RESTEasy Reactive) applications.
+
+Maturity is stated honestly: the **Spring Boot adapter is complete** (all panels). The **Quarkus adapter is being built
+out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the current per-platform
+status.
 
 Out of scope for the current 1.x line:
 
 - Spring Boot 3.x compatibility.
 - Spring Framework 6 / Boot 3 compatibility shims.
-- Gradle plugin support.
+- A dedicated BootUI Gradle plugin (the Spring starter and Quarkus extension are consumable from Maven or Gradle as
+  ordinary dependencies).
 - WebFlux-specific UX beyond what Actuator mappings expose by default.
 
 ## 2. Product goals
