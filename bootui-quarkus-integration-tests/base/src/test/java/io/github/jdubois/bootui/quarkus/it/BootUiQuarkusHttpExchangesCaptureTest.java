@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test;
  * Proves the Quarkus capture layer: a request through the host app's own loopback port is sampled into
  * the shared engine ring buffer by the Vert.x capture filter and surfaced by both
  * {@code GET /bootui/api/http-exchanges} and {@code GET /bootui/api/activity}. Also pins that
- * sensitive headers are masked, BootUI's own traffic is self-excluded, and Live Activity honestly
- * declares SQL/exceptions unavailable.
+ * sensitive headers are masked, BootUI's own traffic is self-excluded, and Live Activity merges the
+ * exceptions source while honestly degrading SQL trace when no datasource is configured.
  */
 @QuarkusTest
 class BootUiQuarkusHttpExchangesCaptureTest {
@@ -75,7 +75,19 @@ class BootUiQuarkusHttpExchangesCaptureTest {
         JsonNode report = response.json();
         assertThat(report.path("available").asBoolean()).isTrue();
         assertThat(report.path("typeCounts").path("REQUEST").asInt()).isGreaterThan(0);
+        // This base app has no datasource, so the SQL trace source is absent and the assembler surfaces a
+        // clear, neutral warning (no more "not yet captured on Quarkus" copy) while still listing the
+        // always-present requests + exceptions sources.
+        assertThat(report.path("sources").toString())
+                .contains("requests")
+                .contains("exceptions")
+                .doesNotContain("sql");
         assertThat(report.path("warnings").isArray()).isTrue();
-        assertThat(report.path("warnings").toString()).contains("Quarkus");
+        assertThat(report.path("warnings").toString())
+                .as("SQL trace degrades cleanly to a datasource-needed warning")
+                .contains("datasource");
+        assertThat(report.path("warnings").toString())
+                .as("the stale 'not yet captured on Quarkus' copy is gone")
+                .doesNotContain("not yet captured");
     }
 }

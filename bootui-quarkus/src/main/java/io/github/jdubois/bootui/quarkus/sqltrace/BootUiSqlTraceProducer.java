@@ -25,10 +25,11 @@ import org.eclipse.microprofile.config.Config;
  * <p><strong>Deliberately not annotated with a CDI scope; the deployment processor excludes it from bean
  * discovery unless the {@code AGROAL} capability is present (dev/test only).</strong> Mirroring
  * {@code BootUiAgroalProducer}, it references {@code io.agroal} types that must stay absent in an app
- * without a JDBC datasource extension. Hibernate ORM resolves its pool through Agroal's own registry
- * rather than this CDI bean, so ORM-issued SQL stays untraced; manual {@code DataSource}/JDBC access is
- * captured. Recording defaults follow {@code bootui.sql-trace.*}; the panel stays dark in production
- * because the console is never wired there.</p>
+ * without a JDBC datasource extension. This wrap captures <em>manual</em> {@code DataSource}/JDBC access;
+ * Hibernate ORM resolves its pool through Agroal's own registry rather than this CDI bean, so ORM-issued SQL
+ * is captured separately by {@code BootUiHibernateStatementInspector} (gated on the Hibernate capability).
+ * Recording defaults follow {@code bootui.sql-trace.*}; the panel stays dark in production because the
+ * console is never wired there.</p>
  */
 public class BootUiSqlTraceProducer {
 

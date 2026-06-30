@@ -146,6 +146,13 @@ class BootUiQuarkusProcessor {
     private static final String SQL_TRACE_PRODUCER_CLASS =
             "io.github.jdubois.bootui.quarkus.sqltrace.BootUiSqlTraceProducer";
 
+    // Referenced by class name only: BootUiHibernateStatementInspector implements org.hibernate.resource.jdbc
+    // .spi.StatementInspector and is marked io.quarkus.hibernate.orm.PersistenceUnitExtension, so the deployment
+    // classloader must never load it while augmenting an application without quarkus-hibernate-orm (loading it
+    // would link the Hibernate SPI that must stay absent — R2). Gated on HIBERNATE_ORM, dev/test.
+    private static final String SQL_TRACE_INSPECTOR_CLASS =
+            "io.github.jdubois.bootui.quarkus.sqltrace.BootUiHibernateStatementInspector";
+
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
@@ -649,6 +656,42 @@ class BootUiQuarkusProcessor {
             // still wires via the always-produced HibernateScanner and renders a not-configured report; the panel
             // is reported unavailable in the manifest (HIBERNATE_PRESENT_KEY defaults to false).
             excludedTypes.produce(new ExcludedTypeBuildItem(HIBERNATE_PRODUCER_CLASS));
+        }
+    }
+
+    /**
+     * Wires the Quarkus SQL Trace ORM-capture path: a Hibernate {@code StatementInspector}
+     * ({@code BootUiHibernateStatementInspector}) Quarkus registers into the persistence unit so
+     * Hibernate-issued SQL — which bypasses the wrapped CDI {@code DataSource} that
+     * {@code BootUiSqlTraceProducer} traces — is recorded into the same shared engine {@code SqlTraceRecorder}
+     * the panel and SSE stream serve. This brings the Quarkus panel to parity with Spring (whose Hibernate
+     * uses the wrapped {@code DataSource} bean) for ORM SQL.
+     *
+     * <p>Gated exactly like {@link #registerHibernateAdvisor}: the inspector statically references
+     * {@code org.hibernate.resource.jdbc.spi.StatementInspector} and
+     * {@code io.quarkus.hibernate.orm.PersistenceUnitExtension}, optional types that must stay absent without
+     * {@code quarkus-hibernate-orm} (R2). When the {@code HIBERNATE_ORM} capability is present (dev/test) it is
+     * pinned unremovable so Quarkus discovers it as a persistence-unit extension; otherwise it is
+     * {@linkplain ExcludedTypeBuildItem excluded} from discovery so Arc never links the Hibernate SPI. The
+     * recorder it feeds is the AGROAL-gated {@code BootUiSqlTraceProducer} bean — always present when Hibernate
+     * is (an ORM needs a datasource) — and the inspector resolves it through an {@code Instance}, no-opping if
+     * absent.</p>
+     */
+    @BuildStep
+    void registerHibernateSqlTrace(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean present =
+                launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.HIBERNATE_ORM);
+        if (present) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(SQL_TRACE_INSPECTOR_CLASS)
+                    .setUnremovable()
+                    .build());
+        } else {
+            excludedTypes.produce(new ExcludedTypeBuildItem(SQL_TRACE_INSPECTOR_CLASS));
         }
     }
 

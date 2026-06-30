@@ -117,10 +117,12 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 `bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
 `bootui.panels.*` toggles (a disabled source simply drops out of the stream).
 
-On Quarkus the panel is honestly partial: it merges the captured HTTP requests (from the same Vert.x-fed ring buffer as
-HTTP Exchanges) and JVM heap KPIs, while SQL trace, exceptions and the per-request profiler are not yet captured, so
-those entry types degrade out and the report carries a clear note. Thread-based correlation is deliberately skipped on
-the Vert.x event loop, where thread identity does not map to a single request; entries correlate by trace id only.
+On Quarkus the panel merges the three signals captured on this platform: HTTP requests (from the same Vert.x-fed ring
+buffer as HTTP Exchanges), SQL trace, and exceptions, alongside JVM heap KPIs. SQL trace contributes only when a JDBC
+datasource is configured (the recorder is gated on Agroal); when none is present those entries drop out and the report
+carries a clear note. Per-request profiling and signal-to-request correlation remain Spring-only, and thread-based
+correlation is deliberately skipped on the Vert.x event loop, where thread identity does not map to a single request;
+entries correlate by trace id only.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
@@ -700,6 +702,18 @@ or the tab is hidden the stream is closed, and the panel falls back to its initi
 > interfaces, and those JDK proxies are registered as native-image proxy metadata by BootUI, so SQL Trace works in a
 > native executable. If a proxy ever cannot be created (for example an interface set that was not registered), wrapping
 > still fails open and the `DataSource` is left untraced rather than breaking application startup.
+
+On Quarkus the panel is identical, running over the same framework-neutral engine recorder (the bounded buffer, grouping,
+stats, and N+1 detection are byte-identical to Spring). Capture comes from two complementary feeders into that one
+recorder: an `@Alternative` Agroal `DataSource` that wraps the default pool with the same JDK-proxy tracer (manual JDBC
+access, gated on a datasource being present), and — because Hibernate ORM resolves its pool from Agroal's own registry
+and so bypasses that CDI `DataSource` — a `@PersistenceUnitExtension` Hibernate `StatementInspector` that records
+ORM-issued SQL for the default persistence unit (gated on `quarkus-hibernate-orm`; SQL from a named persistence
+unit is not traced). Between them the panel reaches parity with Spring regardless of
+whether SQL originates from raw JDBC or the ORM. Statement text, type, category, execution count and N+1 detection are
+full-fidelity; for ORM SQL the per-statement duration, affected-row count, and bound parameters are not available (the
+`StatementInspector` SPI exposes only the SQL text at prepare time, with no execution-end hook), so those degrade
+cleanly while never leaking ORM parameter values. Both feeders are wired in dev/test only and never in production.
 
 ![BootUI SQL Trace panel](./images/bootui-sql-trace.webp)
 

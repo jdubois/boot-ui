@@ -113,6 +113,22 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Quarkus Hibernate ORM extension, compile-only (provided): needed solely to compile the optional
+             SQL Trace ORM-capture path (BootUiHibernateStatementInspector), which registers an
+             org.hibernate.resource.jdbc.spi.StatementInspector into the persistence unit via the Quarkus
+             io.quarkus.hibernate.orm.PersistenceUnitExtension marker so Hibernate-issued SQL (which bypasses
+             the wrapped CDI DataSource) is recorded into the shared engine recorder. provided scope is NOT
+             transitive, so an application that depends on this extension but does not add quarkus-hibernate-orm
+             never gets org.hibernate / io.quarkus.hibernate.orm on its classpath, and the capability-gated
+             build step excludes the inspector that would reference them (R2). When an app DOES add
+             quarkus-hibernate-orm, the API is supplied (at the same quarkus-bom-managed version) by that
+             extension. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Quarkus Cache extension, compile-only (provided): needed solely to compile the optional Cache panel
              path (BootUiCacheProducer / QuarkusCacheProvider), which reads the live cache topology from the
              application's io.quarkus.cache.CacheManager and Caffeine cache sizes. provided scope is NOT

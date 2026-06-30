@@ -1,12 +1,18 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.smallrye.mutiny.Multi;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -16,15 +22,18 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * JAX-RS resource for the Live Activity panel ({@code GET /bootui/api/activity}). The Quarkus analogue of
- * the Spring adapter's {@code LiveActivityController}, but honestly partial: it merges the captured HTTP
- * exchanges (via the shared {@link HttpExchangeBuffer}) and JVM heap into the neutral
- * {@link LiveActivityReport}. SQL trace, exceptions and per-request profiling are not yet captured on
- * Quarkus, so those entry types/KPIs degrade cleanly and a warning is surfaced. Read-only, plus the SSE
- * change-notification stream {@code /stream} that ticks whenever a new HTTP exchange is captured so the
+ * the Spring adapter's {@code LiveActivityController}: it merges the three signals captured on this platform
+ * — HTTP exchanges (via the shared {@link HttpExchangeBuffer}), SQL trace (via the shared
+ * {@link SqlTraceRecorder}) and exceptions (via the shared {@link ExceptionStore}) — plus JVM heap into the
+ * neutral {@link LiveActivityReport}. SQL trace contributes only when a datasource is configured (the
+ * recorder is gated on Agroal); when it is absent the assembler surfaces a warning and SQL entries are
+ * omitted. Per-request profiling and signal-to-request correlation remain Spring-only. Read-only, plus the
+ * SSE change-notification stream {@code /stream} that ticks whenever a new HTTP exchange is captured so the
  * shared Vue panel's auto-refresh toggle works identically to Spring.
  */
 @Path("/bootui/api/activity")
@@ -35,14 +44,25 @@ public class LiveActivityResource {
 
     private final HttpExchangeBuffer buffer;
     private final QuarkusExposurePolicy exposure;
+    private final Instance<SqlTraceRecorder> sqlRecorder;
+    private final ExceptionStore exceptionStore;
+    private final ExceptionsService exceptionsService;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
     private final AtomicInteger openStreams = new AtomicInteger();
 
     @Inject
-    public LiveActivityResource(HttpExchangeBuffer buffer, QuarkusExposurePolicy exposure) {
+    public LiveActivityResource(
+            HttpExchangeBuffer buffer,
+            QuarkusExposurePolicy exposure,
+            Instance<SqlTraceRecorder> sqlRecorder,
+            ExceptionStore exceptionStore,
+            ExceptionsService exceptionsService) {
         this.buffer = buffer;
         this.exposure = exposure;
+        this.sqlRecorder = sqlRecorder;
+        this.exceptionStore = exceptionStore;
+        this.exceptionsService = exceptionsService;
     }
 
     @GET
@@ -58,7 +78,31 @@ public class LiveActivityResource {
                 null,
                 null,
                 null);
-        return assembler.report(requests, null, limit == null ? 0 : limit);
+
+        SqlTraceRecorder rec = sqlRecorder.isResolvable() ? sqlRecorder.get() : null;
+        boolean sqlAvailable = rec != null && rec.isEnabled() && rec.hasWrappedDataSource();
+        List<SqlTraceEntryDto> sqlEntries = List.of();
+        String sqlUnavailableWarning = null;
+        if (sqlAvailable) {
+            boolean exposeParameters =
+                    rec.isCaptureParameters() && exposure.valueExposure() != ValueExposure.METADATA_ONLY;
+            sqlEntries = rec.report(exposeParameters).entries();
+        } else {
+            // Mirror SqlTraceResource's two-case reason: a present-but-disabled recorder is not the same as an
+            // absent datasource, so don't tell the user to configure a datasource they already have.
+            sqlUnavailableWarning = (rec != null && !rec.isEnabled())
+                    ? "SQL tracing is disabled (set bootui.sql-trace.enabled=true in a trusted local profile)."
+                    : "SQL trace is unavailable until a JDBC datasource is configured.";
+        }
+
+        return assembler.report(
+                requests,
+                sqlEntries,
+                sqlAvailable,
+                sqlUnavailableWarning,
+                exceptionsService.report(exceptionStore).groups(),
+                null,
+                limit == null ? 0 : limit);
     }
 
     @GET

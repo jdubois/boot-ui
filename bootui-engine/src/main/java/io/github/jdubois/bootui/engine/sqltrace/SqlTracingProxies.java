@@ -476,8 +476,14 @@ public final class SqlTracingProxies {
         return byKeyword;
     }
 
-    /** Derives a {@link Category} from the leading SQL keyword, skipping comments and leading parens. */
-    private static Category categoryOf(String sql) {
+    /**
+     * Derives a {@link Category} from the leading SQL keyword, skipping comments and leading parens.
+     *
+     * <p>Public so an adapter that captures SQL through a mechanism other than the JDBC proxy (e.g. the
+     * Quarkus Hibernate {@code StatementInspector}) classifies statements with the exact same logic the
+     * proxy uses, keeping the panel's categories consistent regardless of capture source.</p>
+     */
+    public static Category categoryOf(String sql) {
         return switch (firstKeyword(sql)) {
             case "SELECT", "WITH", "SHOW", "VALUES", "TABLE" -> Category.SELECT;
             case "INSERT" -> Category.INSERT;
