@@ -11,8 +11,8 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
-const panels = inject('panels', null)
-const isQuarkus = computed(() => (panels?.platform || 'spring-boot') === 'quarkus')
+const panels = inject('panels', ref(null))
+const isQuarkus = computed(() => (panels.value?.platform || 'spring-boot') === 'quarkus')
 const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)

@@ -1,5 +1,5 @@
 <script setup>
-import {computed, inject} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
@@ -7,8 +7,8 @@ import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
-const panels = inject('panels', {platform: 'spring-boot'})
-const isQuarkus = computed(() => panels?.platform === 'quarkus')
+const panels = inject('panels', ref(null))
+const isQuarkus = computed(() => panels.value?.platform === 'quarkus')
 const fwName = computed(() => (isQuarkus.value ? 'Quarkus' : 'Spring Security'))
 const policyNoun = computed(() => (isQuarkus.value ? 'Permission policies' : 'Filter chains'))
 const panel = useAdvisorPanel(props, {
