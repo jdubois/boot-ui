@@ -75,4 +75,18 @@ class BootUiQuarkusSecurityLogsCaptureTest {
                 .as("Security Logs panel must be available when events are enabled")
                 .isTrue();
     }
+
+    @Test
+    void malformedAfterTimestampReturns400() {
+        // With events enabled the `after` param is parsed; a malformed value must be a 400 (client error),
+        // not a 500, matching the Spring controller's @ExceptionHandler contract: {"error": <message>}.
+        Response response = probe().get("/bootui/api/security-logs?after=not-a-timestamp");
+        assertThat(response.status())
+                .as("a malformed `after` query param must be a 400, not a 500")
+                .isEqualTo(400);
+        assertThat(response.isJson())
+                .as("content-type %s", response.contentType())
+                .isTrue();
+        assertThat(response.json().path("error").asText()).as("$.error message").isNotBlank();
+    }
 }

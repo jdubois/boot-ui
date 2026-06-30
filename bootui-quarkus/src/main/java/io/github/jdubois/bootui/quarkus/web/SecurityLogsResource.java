@@ -10,11 +10,15 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
+import java.time.DateTimeException;
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.eclipse.microprofile.config.Config;
 
@@ -93,7 +97,19 @@ public class SecurityLogsResource {
 
     private static Instant parseAfter(String after) {
         String value = blankToNull(after);
-        return value == null ? null : Instant.parse(value);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (DateTimeException e) {
+            // Mirror the Spring controller's @ExceptionHandler: a malformed `after` is a 400, not a 500.
+            String message = e.getMessage() == null ? "Invalid request" : e.getMessage();
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .type(MediaType.APPLICATION_JSON)
+                    .entity(Map.of("error", message))
+                    .build());
+        }
     }
 
     private static String blankToNull(String value) {
