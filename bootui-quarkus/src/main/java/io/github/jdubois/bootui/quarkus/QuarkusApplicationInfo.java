@@ -15,12 +15,12 @@ import org.jboss.logging.Logger;
  * Spring adapter's {@code OverviewController}.
  *
  * <p>{@code GET /bootui/api/overview} is the shared shell's <em>chrome</em> data source (it powers the
- * header subtitle/status and primes the CSRF cookie), so it is served on Quarkus even though the
- * Overview <em>dashboard panel</em> itself is not yet ported ({@link QuarkusPanelAvailability} keeps it
- * unavailable). This bean therefore only needs to populate the fields the shell reads
- * ({@code applicationName}, {@code frameworkName}, {@code frameworkVersion}, {@code javaVersion},
- * {@code activeProfiles}, {@code activation}); the remaining panel-only fields are filled best-effort
- * from {@link Config} and may be {@code null} until the panel is ported.</p>
+ * header subtitle/status and primes the CSRF cookie). The Overview dashboard panel is available on
+ * Quarkus, but its scoring dashboard is rendered entirely client-side from each advisor's own
+ * endpoints (see {@code QuarkusPanelAvailability}), so this endpoint only needs to populate the
+ * shell-chrome fields ({@code applicationName}, {@code frameworkName}, {@code frameworkVersion},
+ * {@code javaVersion}, {@code activeProfiles}, {@code activation}); the remaining panel-only fields
+ * are filled best-effort from {@link Config} and may be {@code null}.</p>
  *
  * <p>The Quarkus version is resolved from {@code bootui.internal.quarkus-version}, a config default the
  * deployment processor captures at build time via {@code io.quarkus.builder.Version}. Reading it at
@@ -52,7 +52,7 @@ public class QuarkusApplicationInfo {
                 activeProfiles(),
                 List.of(),
                 // Quarkus REST runs on Vert.x; it has no Spring servlet/reactive web-type distinction,
-                // and the Overview panel that would surface this is not yet ported, so leave it unset.
+                // and the dashboard does not surface this field, so leave it unset.
                 null,
                 optInt("quarkus.http.port"),
                 optInt("quarkus.management.port"),

@@ -186,7 +186,8 @@ read, BootUI's own routes filtered out at build time) · `Flyway` (→ `quarkus-
 discovered via `LiquibaseFactoryUtil.getActiveLiquibaseFactories()`, the shared `RanChangeSet` history read + `update`
 action behind the same DTO contract) · `Scheduled Tasks`
 (→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine shared; Spring-stereotype rules get CDI/JAX-RS
-variants) · `Overview` (aggregator; reports Quarkus version and the supported panels).
+variants) · `Overview` (panel available; the scoring dashboard aggregates the advisor endpoints client-side, and
+`GET /bootui/api/overview` reports the Quarkus version + shell chrome).
 
 ### 5.3 Kept, with a rebuilt capture layer or reduced fidelity (8)
 
@@ -224,11 +225,12 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
   it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
   Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
 
-**Result:** 38 of the ~47 panels ship on Quarkus (17 ported as-is, 10 source-swapped, 8 capture-rebuilt, 2 replaced,
-plus the advisors and the runtime panels lit up through the shared engine), 8 are dropped as *not applicable*
-(GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools), and only the
-Overview *dashboard* panel remains *not yet* ported (the Overview shell endpoint that feeds the header is already
-served on both adapters).
+**Result:** 39 of the ~47 panels ship on Quarkus (17 ported as-is, 10 source-swapped, 8 capture-rebuilt, 2 replaced,
+plus the advisors and the runtime panels lit up through the shared engine), and 8 are dropped as *not applicable*
+(GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools). No panels
+remain merely *not yet* ported: the Overview dashboard panel is now available (its scoring dashboard renders
+client-side from the advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both
+adapters).
 
 ## 6. Activation & safety on Quarkus
 
@@ -361,7 +363,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |
 | Dev Services        | as-is       | Port    | Dev Services model               | Quarkus Dev Services source                 |
-| Overview            | equiv       | Adapt   | Overview aggregator + scoring    | `AppInfoProvider` (Quarkus version)         |
+| Overview            | equiv       | Adapt   | Client-side dashboard + `OverviewDto` | `QuarkusApplicationInfo` (chrome; scoring is client-side) |
 | Health              | equiv       | Adapt   | Health mapper                    | `HealthProvider` → SmallRye Health          |
 | Configuration       | equiv       | Adapt   | Config mapper + masking          | `EnvironmentProvider` → SmallRye Config     |
 | Loggers             | equiv       | Adapt   | Logger mapper                    | `LoggerProvider` → JBoss LogManager         |

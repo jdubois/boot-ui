@@ -374,7 +374,9 @@ hide newer ones. Keep API, UI,
   `App.vue` `navTitle`, both adapters' panel registries/resources, the MCP catalog, the conformance golden fixtures, and
   the e2e suite for purely cosmetic gain — the platform-aware label is the intended seam, so reuse the id.
 - As of today the Quarkus adapter lights up the large majority of the panel surface. **Statically available** (no
-  capability gate): Architecture, the Quarkus application advisor (panel id `spring`), Pentesting, Vulnerabilities,
+  capability gate): Overview (its scoring dashboard renders client-side from the advisor endpoints; the shell-chrome
+  `GET /bootui/api/overview` supplies the header data), Architecture, the Quarkus application advisor (panel id
+  `spring`), Pentesting, Vulnerabilities,
   Memory, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Log Tail, Health, HTTP Probe, Beans, Mappings,
   Configuration (read-only — no override write path), Traces, AI Usage, HTTP Exchanges, Live Activity, Exceptions, MCP
   Server, and Security (a Quarkus-native ruleset — Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS,
@@ -599,8 +601,9 @@ hide newer ones. Keep API, UI,
   framework- and JSON-free dispatch core (`bootui-engine` `McpDispatcher` → a sealed `McpDispatchOutcome`) that owns
   method routing, per-panel gating, tool lookup and `max-results` capping, while each adapter keeps a thin per-Jackson
   envelope codec (`QuarkusMcpEnvelope`, Jackson 2; `BootUiMcpService`, Jackson 3), its own tool catalog
-  (`QuarkusMcpTools` — the 17 Quarkus-available tools, gated by `QuarkusPanelAvailability.isPanelAvailable` so a tool is
-  advertised iff its backing panel is live; `graalvm_scan`/`crac_scan`/`get_overview` are absent), live state
+  (`QuarkusMcpTools` — the 18 Quarkus-available tools, gated by `QuarkusPanelAvailability.isPanelAvailable` so a tool is
+  advertised iff its backing panel is live; `graalvm_scan`/`crac_scan` are absent, while `get_overview` is advertised
+  now that the Overview panel is available), live state
   (`McpServerState`), and panel policy (`QuarkusMcpPanelPolicy` — always-enabled/never-read-only, since Quarkus has no
   `PanelAccessFilter` yet). `POST /bootui/api/mcp` (the `@Blocking` JSON-RPC transport, `McpBridgeResource`) and the
   `POST /bootui/api/mcp-server/toggle` enable switch (`McpServerResource`) both sit behind the shared `LocalhostGuard`

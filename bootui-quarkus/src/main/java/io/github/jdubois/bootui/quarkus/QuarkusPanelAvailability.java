@@ -93,10 +93,14 @@ import org.eclipse.microprofile.config.Config;
  * {@code LocalhostGuard} write floor); {@code clean} preserves Flyway's disabled-by-default, confirmation-gated
  * semantics. Quarkus has no Spring-Modulith analogue, so the module-aware read-only views never appear.</p>
  *
- * <p>Note the Overview <em>panel</em> stays unavailable here even though {@code GET /bootui/api/overview}
- * <em>is</em> served on Quarkus (by {@code OverviewResource}/{@code QuarkusApplicationInfo}): that
- * endpoint is the shared shell's framework-neutral chrome/CSRF-priming source, which the shell needs on
- * every platform, whereas the Overview dashboard panel itself has not yet been ported.</p>
+ * <p>The Overview dashboard panel is available on Quarkus. Its scoring dashboard is rendered entirely
+ * client-side: the shared {@code Overview.vue} aggregates each advisor's own scan/report endpoints
+ * (Architecture, Memory, REST API, the Quarkus application advisor, Hibernate, Security, Pentesting,
+ * Vulnerabilities, GitHub) — all of which are lit up here — and computes the overall score in the
+ * browser, hiding cards whose backing advisor is unavailable. There is no backend dashboard
+ * aggregation to port; the only backend dependency is {@code GET /bootui/api/overview} (served by
+ * {@code OverviewResource}/{@code QuarkusApplicationInfo}), which supplies the shared shell's
+ * framework-neutral chrome/CSRF-priming data on every platform.</p>
  *
  * <p>The Mappings panel is served on Quarkus by capturing the host application's JAX-RS routes at build
  * time — scanning the {@code BeanArchiveIndexBuildItem} Jandex index for {@code @Path} resources — and
@@ -284,6 +288,7 @@ public class QuarkusPanelAvailability {
                     + " read or trigger it, so this panel is not used here.");
 
     private static final Set<String> AVAILABLE_PANELS = Set.of(
+            BootUiPanels.OVERVIEW,
             BootUiPanels.THREADS,
             BootUiPanels.HEAP_DUMP,
             BootUiPanels.LIVE_MEMORY,

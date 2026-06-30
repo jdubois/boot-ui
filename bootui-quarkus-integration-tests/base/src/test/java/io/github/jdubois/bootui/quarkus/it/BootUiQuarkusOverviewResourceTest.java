@@ -18,9 +18,10 @@ import org.junit.jupiter.api.Test;
  * {@code Package#getImplementationVersion()} would have returned {@code null}), and that BootUI reports
  * itself active whenever the endpoint can answer.
  *
- * <p>The Overview dashboard panel is intentionally still unavailable on Quarkus (see
- * {@code QuarkusPanelAvailability}); only this endpoint is lit, because the shared shell needs it on
- * every platform.</p>
+ * <p>Also pins that the Overview dashboard panel is reported <em>available</em> in the panel manifest
+ * on Quarkus, so the shared shell renders the dashboard rather than the "unavailable" banner. The
+ * dashboard itself aggregates the advisor endpoints client-side; this endpoint supplies the shell
+ * chrome the shell needs on every platform.</p>
  */
 @QuarkusTest
 class BootUiQuarkusOverviewResourceTest {
@@ -70,5 +71,29 @@ class BootUiQuarkusOverviewResourceTest {
         assertThat(activation.path("localhostOnly").asBoolean(true))
                 .as("Quarkus honestly reports localhost-only filtering is not yet fully enforced")
                 .isFalse();
+    }
+
+    @Test
+    void overviewPanelIsReportedAvailable() {
+        Response response = probe().get("/bootui/api/panels");
+        assertThat(response.status()).as("GET /bootui/api/panels status").isEqualTo(200);
+
+        JsonNode overview = null;
+        for (JsonNode panel : response.json().path("panels")) {
+            if ("overview".equals(panel.path("id").asText(null))) {
+                overview = panel;
+                break;
+            }
+        }
+        assertThat(overview)
+                .as("overview panel is present in the Quarkus manifest")
+                .isNotNull();
+        assertThat(overview.path("available").asBoolean(false))
+                .as("Overview dashboard panel is available on Quarkus (no 'unavailable' banner)")
+                .isTrue();
+        assertThat(overview.path("unavailableReason").isNull()
+                        || overview.path("unavailableReason").asText().isEmpty())
+                .as("an available Overview panel carries no unavailable reason")
+                .isTrue();
     }
 }

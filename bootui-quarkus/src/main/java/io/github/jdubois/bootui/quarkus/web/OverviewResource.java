@@ -14,8 +14,9 @@ import jakarta.ws.rs.core.MediaType;
  *
  * <p>The Quarkus analogue of the Spring adapter's {@code OverviewController} GET: it returns the
  * high-level {@link OverviewDto} the shared shell binds its header to (and which primes the CSRF
- * cookie). It is intentionally lit even though the Overview dashboard panel is still reported
- * unavailable on Quarkus — the shell needs this data on every platform. It is passive (read-only).</p>
+ * cookie). The shell needs this data on every platform, independently of the client-side Overview
+ * dashboard panel (which aggregates the advisor endpoints in the browser and never calls this
+ * endpoint). It is passive (read-only).</p>
  */
 @Path("/bootui/api/overview")
 public class OverviewResource {

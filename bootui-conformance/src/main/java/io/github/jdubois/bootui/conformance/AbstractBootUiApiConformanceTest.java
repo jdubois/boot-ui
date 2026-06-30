@@ -189,8 +189,8 @@ public abstract class AbstractBootUiApiConformanceTest {
     void overviewEndpointServesShellContract() {
         // GET /bootui/api/overview is the shared shell's framework-neutral chrome source: it powers the
         // header subtitle/status and primes the CSRF cookie, so it must answer on every platform
-        // regardless of whether the Overview dashboard *panel* is reported available (on Quarkus the
-        // panel is not yet ported, but the endpoint still serves the shell). This is a shape contract:
+        // regardless of the Overview dashboard *panel* (which is a purely client-side aggregation that
+        // never calls this endpoint). This is a shape contract:
         // it pins the fields the shell binds to, not their platform-varying values (so it asserts that
         // frameworkVersion is present, not its value, and never asserts the activation.localhostOnly
         // flag, which differs by platform).

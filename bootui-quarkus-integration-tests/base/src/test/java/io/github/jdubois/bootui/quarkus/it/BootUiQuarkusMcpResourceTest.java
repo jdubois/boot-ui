@@ -89,10 +89,10 @@ class BootUiQuarkusMcpResourceTest {
 
         java.util.Set<String> names = new java.util.HashSet<>();
         tools.forEach(t -> names.add(t.path("name").asText()));
-        // Always-available Quarkus tool is advertised...
-        assertThat(names).contains("get_health");
-        // ...and the Spring-only tools are deliberately absent on Quarkus.
-        assertThat(names).doesNotContain("get_overview", "graalvm_scan", "crac_scan");
+        // Always-available Quarkus tools — including the now-ported Overview — are advertised...
+        assertThat(names).contains("get_health", "get_overview");
+        // ...and the Spring-only advisor tools are deliberately absent on Quarkus.
+        assertThat(names).doesNotContain("graalvm_scan", "crac_scan");
     }
 
     @Test
@@ -100,6 +100,19 @@ class BootUiQuarkusMcpResourceTest {
         setServerEnabled(true);
         Response response = rpc(
                 "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\"," + "\"params\":{\"name\":\"get_health\"}}");
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode result = response.json().path("result");
+        assertThat(result.path("isError").asBoolean()).isFalse();
+        assertThat(result.path("content").get(0).path("type").asText()).isEqualTo("text");
+        assertThat(result.path("content").get(0).path("text").asText()).isNotBlank();
+    }
+
+    @Test
+    void toolCallReturnsOverviewContent() {
+        setServerEnabled(true);
+        // Pin the now-ported get_overview handler end-to-end (tools/list above only proves it is advertised).
+        Response response = rpc(
+                "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\"," + "\"params\":{\"name\":\"get_overview\"}}");
         assertThat(response.status()).isEqualTo(200);
         JsonNode result = response.json().path("result");
         assertThat(result.path("isError").asBoolean()).isFalse();

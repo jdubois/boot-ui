@@ -6,9 +6,9 @@ import {expect, test} from './fixtures.js'
  * platform-aware exception: the Spring/Quarkus advisor (route/id `spring`) renders "Quarkus" here.
  *
  * The navigation test below only consults an entry when the Quarkus adapter actually reports that
- * panel available, so Spring-only panels that are unavailable on Quarkus (the Overview dashboard,
- * Spring Data, Spring Security, GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, DevTools)
- * are simply skipped — they are covered by not-applicable.spec.js instead.
+ * panel available, so Spring-only panels that are unavailable on Quarkus (Spring Data, Spring
+ * Security, GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, DevTools) are simply
+ * skipped — they are covered by not-applicable.spec.js instead.
  */
 const PANEL_HEADINGS = {
   overview: /^Overview/,

@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LogTailResource;
 import io.github.jdubois.bootui.quarkus.web.MappingsResource;
 import io.github.jdubois.bootui.quarkus.web.MemoryResource;
+import io.github.jdubois.bootui.quarkus.web.OverviewResource;
 import io.github.jdubois.bootui.quarkus.web.PentestingResource;
 import io.github.jdubois.bootui.quarkus.web.RestApiResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
@@ -47,10 +48,10 @@ import java.util.function.Function;
  *
  * <p>Two Spring advisor tools have no Quarkus counterpart and are deliberately absent:
  * {@code graalvm_scan} and {@code crac_scan} (GraalVM native-image readiness and CRaC are
- * Spring-specific concerns with no meaningful Quarkus equivalent). The {@code get_overview} tool is
- * also absent: the Overview <em>dashboard panel</em> is not yet ported to Quarkus (only the
- * shell-chrome {@code /bootui/api/overview} endpoint is served), so its panel reports unavailable and
- * the availability gate drops the tool.
+ * Spring-specific concerns with no meaningful Quarkus equivalent). The {@code get_overview} tool
+ * <em>is</em> advertised on Quarkus: the Overview panel is available here (its dashboard renders
+ * client-side from the advisor endpoints), and the tool returns the same shell {@code OverviewDto}
+ * the Spring adapter exposes.
  */
 @Singleton
 public class QuarkusMcpTools {
@@ -75,7 +76,8 @@ public class QuarkusMcpTools {
             HealthResource health,
             ConfigResource config,
             BeansResource beans,
-            MappingsResource mappings) {
+            MappingsResource mappings,
+            OverviewResource overview) {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -187,6 +189,14 @@ public class QuarkusMcpTools {
                         args -> httpExchanges.exchanges(null, null, null, null, args.limit())));
 
         // --- Core context read tools ---
+        addIfAvailable(
+                registry,
+                availability,
+                read(
+                        "get_overview",
+                        "Return the application overview: name, versions, profiles, and BootUI status.",
+                        BootUiPanels.OVERVIEW,
+                        args -> overview.overview()));
         addIfAvailable(
                 registry,
                 availability,

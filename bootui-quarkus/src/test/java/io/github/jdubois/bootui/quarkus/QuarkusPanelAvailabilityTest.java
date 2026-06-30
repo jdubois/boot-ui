@@ -86,14 +86,17 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
-    void notYetPortedPanelsKeepTheGenericReason() {
-        // The Overview dashboard panel has no Quarkus backing yet; it must keep the generic "not yet" reason so
-        // it stays clearly distinct from the deliberately-not-applicable GraalVM/CRaC panels above. (The shared
-        // shell-chrome GET /bootui/api/overview endpoint is served on Quarkus, but the rich dashboard panel is
-        // not — see the QuarkusPanelAvailability class javadoc.)
+    void overviewDashboardIsLitUpOnQuarkus() {
+        // The Overview dashboard panel is available on Quarkus: its scoring dashboard renders entirely
+        // client-side from each advisor's own endpoints (all lit up here), and its only backend dependency,
+        // the shell-chrome GET /bootui/api/overview endpoint, is served on every platform. There is no
+        // backend dashboard aggregation to port, so the panel is statically available like
+        // Architecture/Beans/Metrics, with no capability gate and no unavailable reason.
         PanelDto overview = manifestById().get(BootUiPanels.OVERVIEW);
-        assertThat(overview.available()).isFalse();
-        assertThat(overview.unavailableReason()).isEqualTo("Not yet available on Quarkus.");
+        assertThat(overview.available())
+                .as("Overview dashboard is lit up on Quarkus")
+                .isTrue();
+        assertThat(overview.unavailableReason()).isNull();
     }
 
     @Test

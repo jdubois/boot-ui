@@ -43,10 +43,12 @@ contributes a score derived from open security alerts. The overall score is the 
 scored, and only scanners whose panels are available for the current application are shown, so the dashboard degrades
 gracefully when optional infrastructure is missing.
 
-On Quarkus the Overview scoring *dashboard* is not yet ported, so the panel itself is reported unavailable. The shared
-shell chrome around every panel — the header application name, framework and version (for example "Quarkus 3.33"), Java
-version, active profiles, and the active/disabled status — is still populated on Quarkus, because it is served by the
-same framework-neutral `GET /bootui/api/overview` endpoint that both adapters expose for the shell.
+On Quarkus the Overview panel is fully available. Its scoring *dashboard* is rendered entirely in the browser:
+the shell aggregates each advisor's own scan/report endpoints (only those whose panels are available on Quarkus
+contribute) and computes the same combined score, so no backend dashboard service is involved. The shared shell
+chrome around every panel — the header application name, framework and version (for example "Quarkus 3.33"), Java
+version, active profiles, and the active/disabled status — is populated by the same framework-neutral
+`GET /bootui/api/overview` endpoint that both adapters expose for the shell.
 
 ![BootUI Overview panel](./images/bootui-overview.webp)
 
@@ -1015,8 +1017,9 @@ and the same working enable/disable toggle (the `bootui.mcp.*` keys are read fro
 core — method routing, per-panel gating, tool lookup, and the `max-results` cap — lives in the shared framework-neutral
 engine; each adapter only supplies a thin Jackson envelope codec (Jackson 2 on Quarkus) and its own tool catalog, so
 requests and responses are byte-identical across the two backends. The advertised tools track which panels are actually
-live on Quarkus: `get_overview` (the Overview dashboard is not ported), `graalvm_scan`, and `crac_scan` (both
-deliberately not applicable on Quarkus) are not offered, and `spring_scan` runs the Quarkus-native idiom advisor.
+live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicable on Quarkus) are not offered,
+`get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
+`spring_scan` runs the Quarkus-native idiom advisor.
 
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)
 
