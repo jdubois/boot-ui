@@ -224,6 +224,59 @@ class BootUiQuarkusSafetyFilterTest {
         verify(rc.response(), never()).setStatusCode(anyInt());
     }
 
+    // --- root-path handling ------------------------------------------------------------------------
+
+    @Test
+    void guardsTheBootuiSurfaceUnderANonDefaultRootPath() {
+        // Under quarkus.http.root-path=/app the console is served at /app/bootui/**; the guard must strip
+        // the prefix and still apply (this is the fail-open regression): a DNS-rebinding Host is rejected.
+        RoutingContext rc = mockRequest("GET", "/app/bootui/api/threads", "127.0.0.1", "evil.example.com", null, null);
+        HttpServerResponse resp = rc.response();
+        BootUiQuarkusSafetyFilter filter = newFilter(Map.of("quarkus.http.root-path", "/app"));
+
+        filter.handle(rc);
+
+        assertRejected(resp, DISALLOWED_HOST_MESSAGE);
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void rejectsCrossSiteWriteUnderANonDefaultRootPath() {
+        RoutingContext rc = mockRequest(
+                "POST", "/app/bootui/api/loggers", "127.0.0.1", "localhost:8080", "http://evil.example.com", null);
+        HttpServerResponse resp = rc.response();
+        BootUiQuarkusSafetyFilter filter = newFilter(Map.of("quarkus.http.root-path", "/app"));
+
+        filter.handle(rc);
+
+        assertRejected(resp, CROSS_SITE_MESSAGE);
+        verify(rc, never()).next();
+    }
+
+    @Test
+    void ignoresNonBootuiPathsUnderANonDefaultRootPath() {
+        // Stripping the prefix must not over-match: /app/other is not the console and is left alone.
+        RoutingContext rc = mockRequest(
+                "POST", "/app/other", "203.0.113.5", "evil.example.com", "http://evil.example.com", "cross-site");
+        BootUiQuarkusSafetyFilter filter = newFilter(Map.of("quarkus.http.root-path", "/app"));
+
+        filter.handle(rc);
+
+        verify(rc).next();
+        verify(rc.response(), never()).setStatusCode(anyInt());
+    }
+
+    @Test
+    void normalizesRootPathValuesToAStripPrefix() {
+        assertThat(BootUiQuarkusSafetyFilter.normalizeRootPath("/")).isEmpty();
+        assertThat(BootUiQuarkusSafetyFilter.normalizeRootPath("")).isEmpty();
+        assertThat(BootUiQuarkusSafetyFilter.normalizeRootPath(null)).isEmpty();
+        assertThat(BootUiQuarkusSafetyFilter.normalizeRootPath("/app")).isEqualTo("/app");
+        assertThat(BootUiQuarkusSafetyFilter.normalizeRootPath("/app/")).isEqualTo("/app");
+        assertThat(BootUiQuarkusSafetyFilter.normalizeRootPath("app")).isEqualTo("/app");
+        assertThat(BootUiQuarkusSafetyFilter.normalizeRootPath("/api/v1/")).isEqualTo("/api/v1");
+    }
+
     // --- gateway snapshot resolution ---------------------------------------------------------------
 
     @Test

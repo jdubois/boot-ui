@@ -48,8 +48,10 @@ import org.jboss.logging.Logger;
  *
  * <p>Scope mirrors the Spring adapter's: the whole {@code /bootui} surface (the UI and the API) is
  * source- and Host-gated; cross-site-write protection additionally applies to state-changing methods.
- * The three defenses are bypassed entirely only when {@code bootui.allow-non-localhost=true}. Config is
- * read live from MicroProfile {@link Config} and <em>fails closed</em> (a missing/invalid value never
+ * The {@code quarkus.http.root-path} prefix is stripped before the scope check (mirroring how the Spring
+ * filter strips the servlet context path), so the console is still guarded when the host application runs
+ * under a non-default root-path. The three defenses are bypassed entirely only when
+ * {@code bootui.allow-non-localhost=true}. Config is read live from MicroProfile {@link Config} and <em>fails closed</em> (a missing/invalid value never
  * widens access). The container-gateway snapshot is resolved once, eagerly at startup and off the Vert.x
  * event loop (the detector does blocking {@code /proc}/DNS work that must never run on the event loop),
  * and only when {@code bootui.trust-container-gateway} is not {@code OFF} so a default deployment never
@@ -67,6 +69,7 @@ public class BootUiQuarkusSafetyFilter {
     static final String ALLOWED_HOSTS_KEY = "bootui.allowed-hosts";
     static final String TRUSTED_PROXIES_KEY = "bootui.trusted-proxies";
     static final String TRUST_CONTAINER_GATEWAY_KEY = "bootui.trust-container-gateway";
+    static final String ROOT_PATH_KEY = "quarkus.http.root-path";
 
     /**
      * Run early, before resource/static route handlers. Higher priority filters run first; we only ever
@@ -103,7 +106,7 @@ public class BootUiQuarkusSafetyFilter {
     }
 
     void handle(RoutingContext rc) {
-        if (!isBootUiRequest(rc.normalizedPath())) {
+        if (!isBootUiRequest(bootUiRelativePath(rc.normalizedPath()))) {
             rc.next();
             return;
         }
@@ -135,6 +138,52 @@ public class BootUiQuarkusSafetyFilter {
                 || path.startsWith(BASE_PATH + "/")
                 || path.equals(API_PATH)
                 || path.startsWith(API_PATH + "/");
+    }
+
+    /**
+     * Removes the configured {@code quarkus.http.root-path} prefix from the request path so the BootUI
+     * scope check is root-path-relative. Quarkus mounts the whole application — including BootUI's JAX-RS
+     * resources and its static UI — under {@code quarkus.http.root-path}, so under a non-default root-path
+     * (e.g. {@code /app}) the console is served at {@code /app/bootui/**} while this global Vert.x filter
+     * still sees the full path. Without stripping, {@link #isBootUiRequest} would not recognize the
+     * prefixed path and the guard would be skipped (fail-open). The root-path is read live and
+     * <em>fails closed</em>: a missing/blank value normalizes to {@code ""} (no prefix), which still guards
+     * the default {@code /bootui} surface.
+     */
+    String bootUiRelativePath(String normalizedPath) {
+        if (normalizedPath == null) {
+            return null;
+        }
+        String prefix = normalizeRootPath(rootPath());
+        if (prefix.isEmpty()) {
+            return normalizedPath;
+        }
+        if (normalizedPath.equals(prefix)) {
+            return "/";
+        }
+        if (normalizedPath.startsWith(prefix + "/")) {
+            return normalizedPath.substring(prefix.length());
+        }
+        return normalizedPath;
+    }
+
+    private String rootPath() {
+        return config.getOptionalValue(ROOT_PATH_KEY, String.class).orElse("/");
+    }
+
+    /** Normalizes a {@code quarkus.http.root-path} value to a strip-prefix ({@code ""} for the default). */
+    static String normalizeRootPath(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String trimmed = raw.trim();
+        if (!trimmed.startsWith("/")) {
+            trimmed = "/" + trimmed;
+        }
+        while (trimmed.length() > 1 && trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed.equals("/") ? "" : trimmed;
     }
 
     /**
