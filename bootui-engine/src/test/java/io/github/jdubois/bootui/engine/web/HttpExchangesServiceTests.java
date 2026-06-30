@@ -27,7 +27,53 @@ class HttpExchangesServiceTests {
                 "alice",
                 "S1",
                 requestHeaders,
-                Map.of("Content-Length", List.of("42")));
+                Map.of("Content-Length", List.of("42")),
+                null);
+    }
+
+    private CapturedHttpExchange exchangeWithTrace(String capturedTraceId, Map<String, List<String>> requestHeaders) {
+        return new CapturedHttpExchange(
+                Instant.parse("2024-01-01T00:00:00Z"),
+                "GET",
+                URI.create("http://localhost:8080/api"),
+                200,
+                12L,
+                "127.0.0.1",
+                "alice",
+                "S1",
+                requestHeaders,
+                Map.of("Content-Length", List.of("42")),
+                capturedTraceId);
+    }
+
+    @Test
+    void prefersCapturedTraceIdOverInboundHeaders() {
+        HttpExchangesReport report = service.report(
+                List.of(exchangeWithTrace("span-trace-id", Map.of("x-b3-traceid", List.of("header-trace-id")))),
+                uri -> false,
+                true,
+                ValueExposure.MASKED,
+                null,
+                null,
+                null,
+                null,
+                null);
+        assertThat(report.exchanges().get(0).traceId()).isEqualTo("span-trace-id");
+    }
+
+    @Test
+    void fallsBackToHeaderTraceIdWhenNoneCaptured() {
+        HttpExchangesReport report = service.report(
+                List.of(exchangeWithTrace(null, Map.of("x-b3-traceid", List.of("header-trace-id")))),
+                uri -> false,
+                true,
+                ValueExposure.MASKED,
+                null,
+                null,
+                null,
+                null,
+                null);
+        assertThat(report.exchanges().get(0).traceId()).isEqualTo("header-trace-id");
     }
 
     @Test

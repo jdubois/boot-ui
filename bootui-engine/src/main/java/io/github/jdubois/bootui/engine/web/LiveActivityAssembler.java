@@ -10,9 +10,12 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
@@ -22,9 +25,19 @@ import java.util.Map;
  * with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
- * shape, so the assembler only normalizes, severities, merges and caps. Thread/request correlation is
- * deliberately omitted — on the Vert.x event loop thread identity does not map to a single request, so
- * entries carry trace ids only and are never nested under a parent request.</p>
+ * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
+ *
+ * <p><strong>Correlation is data-driven on the shared trace id.</strong> Spring's thread-per-request model
+ * lets it attribute signals by serving thread, but on the Vert.x event loop a thread does not map to a
+ * single request, so that strategy is unportable. Instead, when the adapter stamps a distributed-trace id on
+ * each signal (the Quarkus adapter reads {@code Span.current()} when OpenTelemetry is present, whose context
+ * propagates across the event-loop→worker hops), this assembler nests each SQL/exception entry under the
+ * REQUEST entry sharing the same trace id by setting its {@code parentId}. A child is only nested when
+ * <em>exactly one</em> request carries that trace id (a uniqueness guard against a reused inbound
+ * {@code traceparent}). When no trace id is stamped — OpenTelemetry absent — every {@code correlationId} is
+ * {@code null}, no {@code parentId} is set, and the feed renders flat (the honest status quo). {@code
+ * profileable} stays {@code false} regardless: the per-request profile drill-down is a Spring-only endpoint,
+ * and nesting needs only {@code parentId}.</p>
  */
 public final class LiveActivityAssembler {
 
@@ -74,6 +87,12 @@ public final class LiveActivityAssembler {
         long slowest = 0;
         String slowestPath = null;
         List<Long> durations = new ArrayList<>();
+
+        // Map each non-blank request trace id to its REQUEST entry id, tracking trace ids shared by more
+        // than one request so an ambiguous (reused) trace never nests a child under the wrong request.
+        Map<String, String> requestIdByTrace = new HashMap<>();
+        Set<String> ambiguousTraces = new HashSet<>();
+
         for (HttpExchangeDto e : exchanges) {
             long ts = e.timestamp() == null ? 0L : e.timestamp().toEpochMilli();
             if (e.status() >= 400) {
@@ -85,6 +104,10 @@ public final class LiveActivityAssembler {
                     slowest = e.durationMs();
                     slowestPath = e.path();
                 }
+            }
+            String trace = blankToNull(e.traceId());
+            if (trace != null && requestIdByTrace.putIfAbsent(trace, e.id()) != null) {
+                ambiguousTraces.add(trace);
             }
             entries.add(new ActivityEntryDto(
                     e.id(),
@@ -109,11 +132,11 @@ public final class LiveActivityAssembler {
             if (slowestQuery == null || s.durationMillis() > slowestQuery) {
                 slowestQuery = s.durationMillis();
             }
-            entries.add(toSqlEntry(s));
+            entries.add(toSqlEntry(s, parentFor(s.traceId(), requestIdByTrace, ambiguousTraces)));
         }
 
         for (ExceptionGroupDto g : exceptions) {
-            entries.add(toExceptionEntry(g));
+            entries.add(toExceptionEntry(g, parentFor(g.lastTraceId(), requestIdByTrace, ambiguousTraces)));
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
@@ -154,7 +177,7 @@ public final class LiveActivityAssembler {
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
     }
 
-    private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry) {
+    private ActivityEntryDto toSqlEntry(SqlTraceEntryDto entry, String parentId) {
         String severity;
         if (!entry.success()) {
             severity = SEVERITY_ERROR;
@@ -179,11 +202,11 @@ public final class LiveActivityAssembler {
                 null,
                 entry.thread(),
                 false,
-                null,
+                parentId,
                 null);
     }
 
-    private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group) {
+    private ActivityEntryDto toExceptionEntry(ExceptionGroupDto group, String parentId) {
         String message = group.message() == null ? "" : ": " + group.message();
         String summary = group.exceptionClassName() + message;
         String detail = group.location();
@@ -198,14 +221,31 @@ public final class LiveActivityAssembler {
                 summary.trim(),
                 detail,
                 null,
-                null,
+                group.lastTraceId(),
                 group.lastRequestMethod(),
                 group.lastRequestPath(),
                 null,
                 group.lastThread(),
                 false,
-                null,
+                parentId,
                 null);
+    }
+
+    /**
+     * The id of the REQUEST entry a child signal (SQL/exception) should nest under, or {@code null} when
+     * the child carries no trace id, no request shares it, or — the uniqueness guard — more than one
+     * request carries it (an ambiguous, likely reused, inbound {@code traceparent}).
+     */
+    private static String parentFor(String childTraceId, Map<String, String> requestIdByTrace, Set<String> ambiguous) {
+        String trace = blankToNull(childTraceId);
+        if (trace == null || ambiguous.contains(trace)) {
+            return null;
+        }
+        return requestIdByTrace.get(trace);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private String requestSeverity(int status, Long durationMs) {

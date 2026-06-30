@@ -18,7 +18,17 @@ class HttpExchangeBufferTest {
 
     private static CapturedHttpExchange exchange() {
         return new CapturedHttpExchange(
-                Instant.now(), "GET", URI.create("/api/widgets"), 200, 3L, "127.0.0.1", null, null, Map.of(), Map.of());
+                Instant.now(),
+                "GET",
+                URI.create("/api/widgets"),
+                200,
+                3L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null);
     }
 
     @Test

@@ -1,10 +1,12 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.vertx.http.runtime.filters.Filters;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
 /**
@@ -18,6 +20,12 @@ import jakarta.inject.Inject;
  * request path is taken without its query string to avoid surfacing secrets. The store dedups by
  * cause-chain identity, so a failure also logged by Quarkus (and seen by {@code QuarkusExceptionLogHandler})
  * counts once, with this filter supplying the richer request context.</p>
+ *
+ * <p>When an OpenTelemetry {@link TraceIdProvider} is present (capability-gated), the active server span's
+ * trace id is resolved <em>at filter entry</em> — on the event loop, where the span is current — and recorded
+ * with the failure so the Live Activity timeline can nest this exception under its owning request. The
+ * provider is optional: when OpenTelemetry is absent the {@code Instance} is unresolvable and the trace id
+ * stays {@code null}.</p>
  */
 @ApplicationScoped
 public class QuarkusExceptionCaptureFilter {
@@ -28,10 +36,12 @@ public class QuarkusExceptionCaptureFilter {
     private static final int PRIORITY = 900;
 
     private final ExceptionStore store;
+    private final TraceIdProvider traceIdProvider;
 
     @Inject
-    public QuarkusExceptionCaptureFilter(ExceptionStore store) {
+    public QuarkusExceptionCaptureFilter(ExceptionStore store, Instance<TraceIdProvider> traceIdProvider) {
         this.store = store;
+        this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
     }
 
     public void register(@Observes Filters filters) {
@@ -45,12 +55,28 @@ public class QuarkusExceptionCaptureFilter {
             return;
         }
         String method = rc.request().method().name();
+        String traceId = currentTraceId();
         rc.addBodyEndHandler(v -> {
             Throwable failure = rc.failure();
             if (failure != null) {
-                store.record(failure, Thread.currentThread().getName(), method, path, null, "web");
+                store.record(failure, Thread.currentThread().getName(), method, path, null, "web", traceId);
             }
         });
         rc.next();
+    }
+
+    /**
+     * The active span's trace id, or {@code null} when OpenTelemetry is absent (no provider) or no span is in
+     * context. Fully guarded so capture never disrupts request handling.
+     */
+    private String currentTraceId() {
+        if (traceIdProvider == null) {
+            return null;
+        }
+        try {
+            return traceIdProvider.currentTraceId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 }

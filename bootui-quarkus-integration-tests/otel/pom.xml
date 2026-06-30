@@ -20,8 +20,8 @@
         so the OTel-absent safety path and the OTel-present capture path are each proven in isolation.</description>
 
     <!--
-        Like bootui-quarkus-integration-tests, this module has NO datasource / messaging dependencies, so a
-        @QuarkusTest boots without Docker. It is never published.
+        Like bootui-quarkus-integration-tests, this module needs no Docker: its only datasource is an in-memory
+        H2 pool, so a @QuarkusTest boots without any container. It is never published.
     -->
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -55,6 +55,20 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-opentelemetry</artifactId>
+        </dependency>
+
+        <!-- An in-memory H2 datasource (with its transitive Agroal pool). Its presence flips the AGROAL
+             capability on, so the BootUI extension wires the SQL-trace recorder and connection-pool panels; here
+             it lets a test endpoint run real JDBC on a worker thread, proving that the OpenTelemetry trace id
+             propagates across the event-loop→worker hop and that the engine nests that SQL under its owning
+             request in the Live Activity feed. In-memory only — still Docker-free. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-agroal</artifactId>
         </dependency>
 
         <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->

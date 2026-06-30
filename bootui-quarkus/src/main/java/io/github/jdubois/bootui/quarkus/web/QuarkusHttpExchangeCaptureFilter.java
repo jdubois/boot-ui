@@ -2,12 +2,14 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.vertx.http.runtime.filters.Filters;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -28,6 +30,12 @@ import java.util.Map;
  * own {@code /bootui} traffic is excluded before recording so the panel never shows its own polling and
  * the self counter mirrors Spring. The buffer caps size and masks downstream, so this filter does
  * minimal, non-blocking work on the event loop.</p>
+ *
+ * <p>When an OpenTelemetry {@link TraceIdProvider} is present (capability-gated), the active server span's
+ * trace id is resolved <em>at filter entry</em> — on the event loop, where the span is current — and stamped
+ * on the captured exchange so the Live Activity timeline can nest this request's SQL and exceptions under it.
+ * The provider is optional: when OpenTelemetry is absent the {@code Instance} is unresolvable and the trace
+ * id stays {@code null}, leaving the feed flat.</p>
  */
 @ApplicationScoped
 public class QuarkusHttpExchangeCaptureFilter {
@@ -38,10 +46,12 @@ public class QuarkusHttpExchangeCaptureFilter {
     private static final int PRIORITY = 900;
 
     private final HttpExchangeBuffer buffer;
+    private final TraceIdProvider traceIdProvider;
 
     @Inject
-    public QuarkusHttpExchangeCaptureFilter(HttpExchangeBuffer buffer) {
+    public QuarkusHttpExchangeCaptureFilter(HttpExchangeBuffer buffer, Instance<TraceIdProvider> traceIdProvider) {
         this.buffer = buffer;
+        this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
     }
 
     public void register(@Observes Filters filters) {
@@ -58,6 +68,7 @@ public class QuarkusHttpExchangeCaptureFilter {
         Instant started = Instant.now();
         HttpServerRequest request = rc.request();
         Map<String, List<String>> requestHeaders = headers(request.headers());
+        String traceId = currentTraceId();
         rc.addBodyEndHandler(v -> {
             long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
             HttpServerResponse response = rc.response();
@@ -71,9 +82,25 @@ public class QuarkusHttpExchangeCaptureFilter {
                     null,
                     null,
                     requestHeaders,
-                    headers(response.headers())));
+                    headers(response.headers()),
+                    traceId));
         });
         rc.next();
+    }
+
+    /**
+     * The active span's trace id, or {@code null} when OpenTelemetry is absent (no provider) or no span is in
+     * context. Fully guarded so capture never disrupts request handling.
+     */
+    private String currentTraceId() {
+        if (traceIdProvider == null) {
+            return null;
+        }
+        try {
+            return traceIdProvider.currentTraceId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     static boolean isBootUiRequest(String path) {

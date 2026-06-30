@@ -3,10 +3,12 @@ package io.github.jdubois.bootui.quarkus.sqltrace;
 import io.agroal.api.AgroalDataSource;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.agroal.runtime.AgroalDataSourceUtil;
 import io.quarkus.datasource.common.runtime.DataSourceUtil;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 import java.util.Optional;
@@ -35,7 +37,7 @@ public class BootUiSqlTraceProducer {
 
     @Produces
     @Singleton
-    public SqlTraceRecorder sqlTraceRecorder(Config config) {
+    public SqlTraceRecorder sqlTraceRecorder(Config config, Instance<TraceIdProvider> traceIdProvider) {
         boolean enabled = config.getOptionalValue("bootui.sql-trace.enabled", Boolean.class)
                 .orElse(true);
         boolean recording = config.getOptionalValue("bootui.sql-trace.recording", Boolean.class)
@@ -52,7 +54,7 @@ public class BootUiSqlTraceProducer {
                 .orElse(200);
         int nPlusOne = config.getOptionalValue("bootui.sql-trace.n-plus-one-threshold", Integer.class)
                 .orElse(5);
-        return new SqlTraceRecorder(
+        SqlTraceRecorder recorder = new SqlTraceRecorder(
                 enabled,
                 recording,
                 captureParameters,
@@ -61,6 +63,15 @@ public class BootUiSqlTraceProducer {
                 maxSqlLength,
                 maxParamLength,
                 nPlusOne);
+        // When OpenTelemetry is present, stamp each recorded statement with the active span's trace id so the
+        // Live Activity timeline nests it under its owning request. This replaces the engine's default SLF4J
+        // MDC lookup, which Quarkus does not populate on the worker thread blocking SQL runs on; the
+        // OpenTelemetry context, by contrast, propagates onto that thread. Absent OpenTelemetry the provider
+        // is unresolvable and the recorder keeps its default (null trace id → flat feed).
+        if (traceIdProvider.isResolvable()) {
+            recorder.setTraceIdProvider(traceIdProvider.get());
+        }
+        return recorder;
     }
 
     @Produces

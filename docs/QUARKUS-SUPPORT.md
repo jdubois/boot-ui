@@ -198,7 +198,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `REST API` advisor    | **Implemented** — conventions (status codes, versioning, pagination) shared; the engine models JAX-RS `@Path` resources alongside Spring MVC, and irreducibly-Spring rules (ProblemDetail, ResponseEntity codes) SKIP honestly on JAX-RS |
 | `DB Connection Pools` | Read **Agroal** metrics instead of HikariCP MXBeans                                                                                            |
 | `SQL Trace`           | **Implemented** — two complementary feeders into the shared `SqlTraceRecorder`: an `@Alternative` Agroal `DataSource` wrap (manual JDBC, gated on Agroal) **and** a `@PersistenceUnitExtension` Hibernate `StatementInspector` (ORM SQL, which bypasses the wrapped DataSource; gated on Hibernate). Statement text/type/category/N+1 full-fidelity; per-statement duration/rows/params are best-effort for ORM SQL (the StatementInspector SPI has no execution-end hook). `clear`/`recording` behind the `LocalhostGuard` write floor |
-| `Live Activity`       | **Implemented** — merges the three captured signals (HTTP requests via the Vert.x ring buffer + SQL trace + exceptions) into the shared activity feed; SQL contributes only when a datasource is configured (a clean warning otherwise). Per-request profiling + signal-to-request correlation stay Spring-only (no thread identity on the Vert.x event loop) |
+| `Live Activity`       | **Implemented** — merges the three captured signals (HTTP requests via the Vert.x ring buffer + SQL trace + exceptions) into the shared activity feed; SQL contributes only when a datasource is configured (a clean warning otherwise). **Signal-to-request correlation is trace-id-based, gated on `quarkus-opentelemetry`:** Spring's thread-per-request anchor is unportable on the Vert.x event loop, so instead the adapter stamps the active server span's trace id at each capture point (HTTP filter, SQL recorder, exception store) via a capability-gated `QuarkusOtelTraceIdProvider`, and the engine `LiveActivityAssembler` nests SQL/exception entries under the request sharing that trace id (OTel `Context` propagates across the event-loop→worker hop). With OpenTelemetry absent, trace ids stay null and the feed renders flat (status quo). The per-request **profile** drill-down (`profileable`) stays Spring-only |
 | `HTTP Exchanges`      | **Implemented** — buffer exchanges via a Vert.x filter instead of Actuator's repository                                                       |
 | `Exceptions`          | **Implemented** — captured into the shared `ExceptionStore` by a `java.util.logging` handler (logged throwables) + a Vert.x failure handler (unhandled web failures), deduped across feeders across the whole cause chain; BootUI's own frames self-filtered |
 | `Security Logs`       | Source events from CDI security events instead of Actuator `AuditEventRepository`                                                              |
@@ -331,7 +331,9 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 - **Build-time augmentation effort.** A Quarkus extension (runtime + deployment + `@BuildStep`s) is more involved than a
   Spring auto-configuration. Phase 0/1 should validate the route + dev-mode wiring early.
 - **Reactive capture fidelity.** Vert.x-based request/exchange/SQL capture must be verified to match the servlet panels'
-  detail (timing, headers, correlation).
+  detail (timing, headers, correlation). Correlation is now resolved via the OpenTelemetry trace id (Live Activity nests
+  SQL/exceptions under their request when `quarkus-opentelemetry` is present); the remaining gap is the Spring-only
+  per-request profile drill-down.
 - **Module naming & coordinates.** New shared/adapter modules keep `com.julien-dubois.bootui:*` coordinates and
   `io.github.jdubois.bootui.*` packages; the Quarkus extension follows Quarkus's `runtime` / `deployment` convention.
 - **Docs & checks.** The Quarkus application advisor is backed by `docs/QUARKUS-ADVISOR-CHECKS.md` and the Quarkus
@@ -375,7 +377,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | REST API            | partial     | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
 | DB Connection Pools | partial     | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
 | SQL Trace           | partial     | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |
-| Live Activity       | partial     | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x             |
+| Live Activity       | partial     | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; OTel trace-id correlation |
 | HTTP Exchanges      | partial     | Rebuild | Exchange model                   | `HttpExchangeProvider` → Vert.x             |
 | Exceptions          | partial     | Rebuild | Exception model                  | Vert.x failure handler                      |
 | Security Logs       | partial     | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |

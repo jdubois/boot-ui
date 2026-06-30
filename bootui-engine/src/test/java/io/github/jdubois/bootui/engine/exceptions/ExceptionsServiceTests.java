@@ -38,6 +38,26 @@ class ExceptionsServiceTests {
     }
 
     @Test
+    void surfacesLastTraceIdFromOccurrence() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "worker-1", "GET", "/x", "Handler#x", "web", "trace-a");
+
+        ExceptionsReport report = new ExceptionsService(policy(ValueExposure.FULL, true)).report(store);
+
+        assertThat(report.groups().get(0).lastTraceId()).isEqualTo("trace-a");
+    }
+
+    @Test
+    void lastTraceIdIsNullWhenNoneRecorded() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "main", "GET", "/x", "Handler#x", "web");
+
+        ExceptionsReport report = new ExceptionsService(policy(ValueExposure.FULL, true)).report(store);
+
+        assertThat(report.groups().get(0).lastTraceId()).isNull();
+    }
+
+    @Test
     void masksSecretAssignmentsInMaskedMode() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         store.record(new IllegalStateException("auth failed password=hunter2"), "main", null, null, null, "log");

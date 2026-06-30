@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -95,6 +96,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private volatile boolean idleSuspended = false;
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
+    private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
 
     public SqlTraceRecorder(
             boolean enabled,
@@ -132,6 +134,18 @@ public final class SqlTraceRecorder implements IdleReclaimable {
 
     public boolean isCaptureParameters() {
         return captureParameters;
+    }
+
+    /**
+     * Replaces the trace-id source used to stamp each captured statement. Defaults to the SLF4J MDC
+     * {@code traceId} key that Micrometer Tracing publishes on Spring, which works because Spring MVC
+     * serves a request start-to-finish on one thread. The Quarkus adapter installs an OpenTelemetry-backed
+     * provider instead, because its blocking SQL runs on a worker thread the MDC key never reaches but the
+     * OpenTelemetry context does. Passing {@code null} restores the default MDC lookup, so the Spring
+     * adapter (which never calls this) is unaffected.
+     */
+    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
+        this.traceIdProvider = traceIdProvider == null ? SqlTraceRecorder::mdcTraceId : traceIdProvider;
     }
 
     public int getMaxEntries() {
@@ -190,7 +204,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 Math.max(0, batchSize),
                 connectionId,
                 thread,
-                currentTraceId(),
+                resolveTraceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of());
         synchronized (lock) {
             buffer.addLast(entry);
@@ -420,12 +434,26 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     }
 
     /**
-     * Best-effort current trace id, read from the SLF4J MDC where Micrometer Tracing publishes it
-     * (the {@code traceId} correlation key). Returns {@code null} when no tracer is active or the key
-     * is absent, in which case downstream correlation falls back to its time-window heuristic. The
-     * lookup is fully guarded so SQL execution is never disrupted by a missing or misbehaving MDC.
+     * The trace id to stamp on the next captured statement, taken from the configured
+     * {@link TraceIdProvider} and fully guarded so SQL execution is never disrupted by a missing or
+     * misbehaving provider. Returns {@code null} (no correlation) when blank or on any failure.
      */
-    private static String currentTraceId() {
+    private String resolveTraceId() {
+        try {
+            String traceId = traceIdProvider.currentTraceId();
+            return traceId == null || traceId.isBlank() ? null : traceId;
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Default trace-id source: the SLF4J MDC where Micrometer Tracing publishes it (the {@code traceId}
+     * correlation key). Returns {@code null} when no tracer is active or the key is absent, in which case
+     * downstream correlation falls back to its time-window heuristic. The lookup is fully guarded so SQL
+     * execution is never disrupted by a missing or misbehaving MDC.
+     */
+    private static String mdcTraceId() {
         try {
             String traceId = org.slf4j.MDC.get("traceId");
             return traceId == null || traceId.isBlank() ? null : traceId;

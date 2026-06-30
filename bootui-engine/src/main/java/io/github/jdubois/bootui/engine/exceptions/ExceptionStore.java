@@ -110,6 +110,24 @@ public final class ExceptionStore {
      * same cause is also recognized as a duplicate.
      */
     public void record(Throwable throwable, String thread, String method, String path, String handler, String source) {
+        record(throwable, thread, method, path, handler, source, null);
+    }
+
+    /**
+     * Records a thrown exception, stamping the distributed-trace id of the request in flight so the Live
+     * Activity timeline can nest the exception under its owning request. The {@code traceId} is supplied by
+     * the adapter capture point (the Quarkus filter reads the active OpenTelemetry span); pass {@code null}
+     * when no trace context is available, which is the behavior of the {@linkplain #record(Throwable,
+     * String, String, String, String, String) six-argument overload} the Spring adapter uses.
+     */
+    public void record(
+            Throwable throwable,
+            String thread,
+            String method,
+            String path,
+            String handler,
+            String source,
+            String traceId) {
         if (throwable == null || ignore.test(throwable) || !markSeen(throwable)) {
             return;
         }
@@ -124,7 +142,8 @@ public final class ExceptionStore {
                 method,
                 path,
                 handler,
-                source);
+                source,
+                traceId);
     }
 
     /**
@@ -154,7 +173,8 @@ public final class ExceptionStore {
             String method,
             String path,
             String handler,
-            String source) {
+            String source,
+            String traceId) {
         String className = exceptionClassName == null ? "java.lang.Throwable" : exceptionClassName;
         List<Frame> safeFrames = frames == null ? List.of() : frames;
         List<Cause> safeCauses = causes == null ? List.of() : causes;
@@ -163,7 +183,7 @@ public final class ExceptionStore {
         String location = location(safeFrames);
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
-        Occurrence occurrence = new Occurrence(now, thread, method, path, handler, source);
+        Occurrence occurrence = new Occurrence(now, thread, method, path, handler, source, traceId);
 
         synchronized (lock) {
             Group group = groups.get(fingerprint);
@@ -446,7 +466,13 @@ public final class ExceptionStore {
     public record Cause(String exceptionClassName, String message, List<Frame> frames, int commonFrames) {}
 
     public record Occurrence(
-            long timestamp, String thread, String requestMethod, String requestPath, String handler, String source) {}
+            long timestamp,
+            String thread,
+            String requestMethod,
+            String requestPath,
+            String handler,
+            String source,
+            String traceId) {}
 
     public record GroupSummary(
             String fingerprint,

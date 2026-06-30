@@ -448,6 +448,19 @@ class LiveActivityServiceTests {
 
     private static ExceptionGroupDto group(String id, String className, long lastSeen) {
         return new ExceptionGroupDto(
-                id, className, "boom", 1, lastSeen, lastSeen, "Foo.java:1", true, "http-thread", "GET", "/a", "h", "s");
+                id,
+                className,
+                "boom",
+                1,
+                lastSeen,
+                lastSeen,
+                "Foo.java:1",
+                true,
+                "http-thread",
+                "GET",
+                "/a",
+                "h",
+                "s",
+                null);
     }
 }

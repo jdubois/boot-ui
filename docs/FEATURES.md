@@ -120,9 +120,13 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 On Quarkus the panel merges the three signals captured on this platform: HTTP requests (from the same Vert.x-fed ring
 buffer as HTTP Exchanges), SQL trace, and exceptions, alongside JVM heap KPIs. SQL trace contributes only when a JDBC
 datasource is configured (the recorder is gated on Agroal); when none is present those entries drop out and the report
-carries a clear note. Per-request profiling and signal-to-request correlation remain Spring-only, and thread-based
-correlation is deliberately skipped on the Vert.x event loop, where thread identity does not map to a single request;
-entries correlate by trace id only.
+carries a clear note. Signal-to-request correlation works by **trace id**: Spring's thread-per-request anchor is
+unportable on the Vert.x event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is
+present the adapter stamps the active server span's trace id at each capture point and the engine nests SQL and exception
+entries under the request sharing that trace id — the OpenTelemetry context propagates across the event-loop→worker hop,
+so the same trace id is available even for blocking JDBC on a worker thread. With OpenTelemetry absent, entries carry no
+trace id and the feed renders flat. The per-request **profiler** drawer (the Symfony-style drill-down) remains
+Spring-only.
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 

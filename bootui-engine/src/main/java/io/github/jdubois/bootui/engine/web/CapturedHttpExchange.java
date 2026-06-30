@@ -11,6 +11,12 @@ import java.util.Map;
  * {@code RoutingContext}) into this record and feed it to {@link HttpExchangesService}; the engine
  * owns masking, trace-id extraction, self-exclusion and paging so the wire is identical across
  * frameworks. Header maps are raw, multi-valued and case-preserving — the service sorts and folds them.
+ *
+ * <p>{@code traceId} is the trace id the adapter resolved from the active server span (the Quarkus
+ * adapter reads {@code Span.current()} when OpenTelemetry is present); it is preferred over the trace id
+ * the service would otherwise parse from inbound propagation headers, so signal-to-request correlation
+ * works for same-origin local requests that carry no {@code traceparent}. Pass {@code null} to keep the
+ * header-derived behavior (the Spring adapter does).
  */
 public record CapturedHttpExchange(
         Instant timestamp,
@@ -22,7 +28,8 @@ public record CapturedHttpExchange(
         String principal,
         String sessionId,
         Map<String, List<String>> requestHeaders,
-        Map<String, List<String>> responseHeaders) {
+        Map<String, List<String>> responseHeaders,
+        String traceId) {
 
     public CapturedHttpExchange {
         requestHeaders = requestHeaders == null ? Map.of() : requestHeaders;

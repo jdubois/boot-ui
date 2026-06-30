@@ -216,4 +216,49 @@ class SqlTraceRecorderTests {
         record(recorder, Category.SELECT, "select", 0);
         assertThat(notifications.get()).isEqualTo(3);
     }
+
+    @Test
+    void stampsTraceIdFromConfiguredProvider() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        recorder.setTraceIdProvider(() -> "trace-x");
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent().get(0).traceId()).isEqualTo("trace-x");
+    }
+
+    @Test
+    void usesNoTraceIdByDefault() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent().get(0).traceId()).isNull();
+    }
+
+    @Test
+    void treatsBlankProviderTraceIdAsNone() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        recorder.setTraceIdProvider(() -> "   ");
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent().get(0).traceId()).isNull();
+    }
+
+    @Test
+    void nullProviderRestoresDefaultAndNeverThrows() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        recorder.setTraceIdProvider(() -> {
+            throw new IllegalStateException("tracer broke");
+        });
+        recorder.setTraceIdProvider(null);
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent().get(0).traceId()).isNull();
+    }
+
+    @Test
+    void guardsAgainstThrowingProvider() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        recorder.setTraceIdProvider(() -> {
+            throw new IllegalStateException("tracer broke");
+        });
+        record(recorder, Category.SELECT, "select 1", 0);
+        assertThat(recorder.recent()).hasSize(1);
+        assertThat(recorder.recent().get(0).traceId()).isNull();
+    }
 }

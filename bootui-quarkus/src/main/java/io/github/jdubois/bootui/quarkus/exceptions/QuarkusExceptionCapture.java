@@ -2,10 +2,12 @@ package io.github.jdubois.bootui.quarkus.exceptions;
 
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.List;
 import java.util.logging.Handler;
@@ -24,11 +26,13 @@ import java.util.logging.Logger;
 public class QuarkusExceptionCapture {
 
     private final ExceptionStore store;
+    private final TraceIdProvider traceIdProvider;
     private QuarkusExceptionLogHandler handler;
 
     @Inject
-    public QuarkusExceptionCapture(ExceptionStore store) {
+    public QuarkusExceptionCapture(ExceptionStore store, Instance<TraceIdProvider> traceIdProvider) {
         this.store = store;
+        this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
     }
 
     void onStart(@Observes StartupEvent event) {
@@ -43,7 +47,8 @@ public class QuarkusExceptionCapture {
                 new InternalPackageMatcher(List.of(
                         "io.github.jdubois.bootui.quarkus",
                         "io.github.jdubois.bootui.engine",
-                        "io.github.jdubois.bootui.core")));
+                        "io.github.jdubois.bootui.core")),
+                traceIdProvider);
         root.addHandler(handler);
     }
 

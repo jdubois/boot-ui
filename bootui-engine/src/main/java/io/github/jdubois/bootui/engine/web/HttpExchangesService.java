@@ -97,9 +97,21 @@ public final class HttpExchangesService {
                 exchange.remoteAddress(),
                 principal,
                 sessionId,
-                traceId(requestHeaders),
+                resolveTraceId(exchange.traceId(), requestHeaders),
                 requestHeaders,
                 responseHeaders);
+    }
+
+    /**
+     * Prefer the trace id the adapter captured from the active server span (so same-origin local requests
+     * with no {@code traceparent} still correlate); otherwise fall back to the id parsed from inbound
+     * propagation headers. The Spring adapter passes {@code null}, preserving the header-derived behavior.
+     */
+    private String resolveTraceId(String capturedTraceId, List<HttpHeaderDto> requestHeaders) {
+        if (capturedTraceId != null && !capturedTraceId.isBlank()) {
+            return capturedTraceId;
+        }
+        return traceId(requestHeaders);
     }
 
     private List<HttpHeaderDto> headers(

@@ -110,6 +110,13 @@ class BootUiQuarkusProcessor {
     // link the OTel SDK that must stay absent — R2/BF2).
     private static final String OTEL_PRODUCER_CLASS = "io.github.jdubois.bootui.quarkus.BootUiOtelProducer";
 
+    // Referenced by class name only: this is the sole OpenTelemetry-importing type added for Live Activity
+    // correlation. Like OTEL_PRODUCER_CLASS, the deployment classloader must never load it while augmenting
+    // an application that has no quarkus-opentelemetry on its classpath (loading it would resolve its
+    // io.opentelemetry.api.trace.Span reference and link the OTel API that must stay absent — R2/BF2).
+    private static final String OTEL_TRACE_ID_PROVIDER_CLASS =
+            "io.github.jdubois.bootui.quarkus.QuarkusOtelTraceIdProvider";
+
     // Referenced by class name only: this is the sole SmallRye-Health-importing type in the extension, and the
     // deployment classloader must never load it while augmenting an application that has no
     // quarkus-smallrye-health on its classpath (loading it would resolve its SmallRyeHealthReporter parameter
@@ -592,6 +599,46 @@ class BootUiQuarkusProcessor {
             // discovery so Arc never tries to resolve its SpanProcessor return type. Traces/AI still wire
             // via BootUiTelemetryProducer and render empty.
             excludedTypes.produce(new ExcludedTypeBuildItem(OTEL_PRODUCER_CLASS));
+        }
+    }
+
+    /**
+     * Registers the OpenTelemetry-backed {@code QuarkusOtelTraceIdProvider} <strong>only when OpenTelemetry
+     * tracing is on the application classpath</strong> and not in production, and otherwise
+     * <strong>excludes it from bean discovery entirely</strong>. This is the seam that lets the Live Activity
+     * timeline correlate signals on Quarkus: the provider reads the active server span's trace id (whose
+     * context propagates across the Vert.x event-loop→worker hops), and the HTTP / exception / SQL capture
+     * points stamp it so the engine assembler can nest each signal under its owning request.
+     *
+     * <p>The mechanism mirrors {@link #registerOpenTelemetryCapture} exactly. {@code QuarkusOtelTraceIdProvider}
+     * has a {@code @Produces TraceIdProvider} method and the extension runtime jar is Jandex-indexed, so the
+     * indexed producer would be discovered <em>unconditionally</em> — and Arc would fail to resolve the
+     * {@code io.opentelemetry.api.trace.Span} it references in an application without
+     * {@code quarkus-opentelemetry}, linking the API that must stay absent (R2/BF2). A missing CDI scope is
+     * therefore not enough; the producer must be actively {@linkplain ExcludedTypeBuildItem excluded} from
+     * discovery when OpenTelemetry is absent. When present it is registered (and pinned unremovable, since its
+     * consumers resolve it through {@code Instance<TraceIdProvider>} and degrade silently when it is absent).
+     * When excluded, no {@code TraceIdProvider} bean exists, every capture point stamps {@code null}, and the
+     * feed renders flat.</p>
+     */
+    @BuildStep
+    void registerOpenTelemetryCorrelation(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean enableCorrelation = launchMode.getLaunchMode() != LaunchMode.NORMAL
+                && capabilities.isPresent(Capability.OPENTELEMETRY_TRACER);
+        if (enableCorrelation) {
+            additionalBeans.produce(AdditionalBeanBuildItem.builder()
+                    .addBeanClass(OTEL_TRACE_ID_PROVIDER_CLASS)
+                    .setUnremovable()
+                    .build());
+        } else {
+            // No OpenTelemetry tracing (or production): keep the OTel-importing provider out of bean discovery
+            // so Arc never tries to resolve the Span it references. The capture points then resolve no
+            // TraceIdProvider and stamp null, so Live Activity stays flat (the honest status quo).
+            excludedTypes.produce(new ExcludedTypeBuildItem(OTEL_TRACE_ID_PROVIDER_CLASS));
         }
     }
 

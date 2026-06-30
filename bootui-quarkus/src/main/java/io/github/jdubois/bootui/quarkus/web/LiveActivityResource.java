@@ -32,7 +32,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@link SqlTraceRecorder}) and exceptions (via the shared {@link ExceptionStore}) — plus JVM heap into the
  * neutral {@link LiveActivityReport}. SQL trace contributes only when a datasource is configured (the
  * recorder is gated on Agroal); when it is absent the assembler surfaces a warning and SQL entries are
- * omitted. Per-request profiling and signal-to-request correlation remain Spring-only. Read-only, plus the
+ * omitted. Signal-to-request correlation is data-driven on the OpenTelemetry trace id when present: each
+ * captured signal is stamped with the active span's trace id (see {@code QuarkusOtelTraceIdProvider}), and
+ * the engine {@link LiveActivityAssembler} nests SQL/exception entries under the request sharing that trace
+ * id. The per-request <em>profile</em> drill-down (flipping {@code profileable}) remains Spring-only.
+ * Read-only, plus the
  * SSE change-notification stream {@code /stream} that ticks whenever a new HTTP exchange is captured so the
  * shared Vue panel's auto-refresh toggle works identically to Spring.
  */

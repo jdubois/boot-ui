@@ -65,7 +65,8 @@ public final class ExceptionsService {
                 last == null ? null : last.requestMethod(),
                 last == null ? null : last.requestPath(),
                 last == null ? null : last.handler(),
-                last == null ? null : last.source());
+                last == null ? null : last.source(),
+                last == null ? null : last.traceId());
     }
 
     private ExceptionFrameDto toFrameDto(ExceptionStore.Frame frame) {

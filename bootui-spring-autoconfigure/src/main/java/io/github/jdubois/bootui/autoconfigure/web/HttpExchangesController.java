@@ -92,6 +92,7 @@ public class HttpExchangesController {
                 exchange.getPrincipal() == null ? null : exchange.getPrincipal().getName(),
                 exchange.getSession() == null ? null : exchange.getSession().getId(),
                 request == null ? null : request.getHeaders(),
-                response == null ? null : response.getHeaders());
+                response == null ? null : response.getHeaders(),
+                null);
     }
 }
