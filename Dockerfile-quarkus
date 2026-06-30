@@ -14,9 +14,26 @@
 # jar, and there is no runtime flag to turn it back on (fail-closed by design). A standard
 # `java -jar quarkus-run.jar` therefore shows no BootUI at all.
 #
-# To demo BootUI we build a Quarkus *mutable jar* and launch it with QUARKUS_LAUNCH_DEVMODE=true, which
-# boots the app in DEVELOPMENT launch mode (the same mode `quarkus:dev` uses) so the console activates.
-# This mirrors the Spring image, which runs with the "dev" profile so BootUI is enabled there too.
+# To demo BootUI we launch the sample from source with `quarkus:dev`, which boots the app in DEVELOPMENT
+# launch mode so the console activates. This mirrors the Spring image, which runs with the "dev" profile
+# so BootUI is enabled there too.
+#
+# Why source-based `quarkus:dev` and not a (slimmer) mutable jar
+# -------------------------------------------------------------
+# The obvious lighter-weight alternative is to package a Quarkus *mutable jar* and launch it with
+# QUARKUS_LAUNCH_DEVMODE=true (no source tree, no in-image Maven repository, a much smaller image). That
+# path is currently broken for any app that uses Hibernate ORM, like this sample: a mutable jar launched
+# standalone in dev mode runs as DevModeType.REMOTE_SERVER_SIDE, and Hibernate's dev integrator then
+# loads under a different classloader than the Hibernate `Integrator` SPI it implements, so startup dies
+# during augmentation with:
+#   java.lang.ClassCastException: io.quarkus.hibernate.orm.dev.HibernateOrmDevIntegrator
+#       cannot be cast to org.hibernate.integrator.spi.Integrator
+# This is an open, maintainer-acknowledged upstream Quarkus bug with no config/env/runtime workaround:
+#   https://github.com/quarkusio/quarkus/issues/51130
+# Until it is fixed upstream we launch from source with `quarkus:dev`, which uses the normal local
+# dev-mode classloading and boots cleanly. The cost is a larger image (full JDK + the source tree + an
+# image-local Maven repository) — an accepted trade-off for a demo image. Once #51130 is fixed this can
+# revert to the mutable-jar approach (see git history) for a much smaller image.
 #
 # Docker-free, like the Spring image
 # ----------------------------------
@@ -26,7 +43,7 @@
 # also disables datasource Dev Services). Hibernate ORM (drop-and-create) builds the schema. This is
 # the Quarkus analogue of the Spring image's Docker-free "dev" profile on H2.
 #
-# Because dev mode re-runs build-time augmentation at container start, the H2 selection must be an
+# Because dev mode runs build-time augmentation at container start, the H2 selection must be an
 # ENVIRONMENT VARIABLE (read during augmentation), not a value baked into the build.
 #
 # Build and run:
@@ -41,12 +58,12 @@
 #     bootui-quarkus-sample-app
 
 # ---------------------------------------------------------------------------
-# Build stage: compile the reactor and package the sample as a Quarkus mutable jar.
+# Image stage: compile the reactor and keep the source tree for Quarkus dev mode.
 # A glibc JDK 21 (Ubuntu "noble") is used because (a) the Quarkus sample is wired into the reactor
 # only on JDK 17/21 (the root pom's quarkus-sample-app profile), and (b) the frontend-maven-plugin
 # downloads glibc-linked Node.js binaries to build the bundled Vue UI.
 # ---------------------------------------------------------------------------
-FROM eclipse-temurin:21-jdk-noble AS build
+FROM eclipse-temurin:21-jdk-noble
 
 WORKDIR /app
 
@@ -56,49 +73,28 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
+# Run as a non-root user. Quarkus dev mode writes under target/, and BootUI writes its runtime state
+# under the working directory, so /app and everything under it is owned by this user.
+RUN useradd --uid 1001 --create-home --home-dir /home/bootui --shell /usr/sbin/nologin bootui \
+    && chown 1001:1001 /app
+
 # Copy the whole multi-module project (see .dockerignore for exclusions).
-COPY . .
+COPY --chown=1001:1001 . .
 RUN chmod +x mvnw
 
-# Build the sample app and its reactor dependencies as a mutable jar (fast-jar layout plus the
-# deployment dependencies needed to re-augment in dev mode). The Maven local repository (~/.m2) and the
-# npm cache (~/.npm) are kept in BuildKit cache mounts so they survive across rebuilds; they live in
-# the builder, not in the image, so they add nothing to the final image size.
+USER 1001
+ENV HOME=/home/bootui
+
+# Build the sample app and its reactor dependencies into the image-local Maven repository so the
+# container starts without downloading BootUI reactor artifacts.
 #
 # bootui-quarkus-deployment is listed explicitly so it joins the reactor: the sample only depends on the
 # runtime extension (bootui-quarkus), and Quarkus pulls the -deployment counterpart in at augmentation
 # time, not as a Maven dependency. Without it, the runtime extension-descriptor check fails and the
 # sample's augmentation can't resolve the deployment artifact. `install` publishes it to the (cached)
 # local repository so augmentation finds it.
-RUN --mount=type=cache,target=/root/.m2 \
-    --mount=type=cache,target=/root/.npm \
-    ./mvnw -B -ntp -DskipTests -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am clean install \
-      -Dquarkus.package.jar.type=mutable-jar
+RUN ./mvnw -B -ntp -DskipTests -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am clean install
 
-# ---------------------------------------------------------------------------
-# Runtime stage: a full JDK (not a JRE) because Quarkus dev mode re-runs augmentation at startup, which
-# needs the compiler/tooling modules. This is necessarily larger than the Spring image's distroless
-# runtime, and is the trade-off for BootUI being dev-mode-only on Quarkus.
-# ---------------------------------------------------------------------------
-FROM eclipse-temurin:21-jdk-noble
-
-# Run as a non-root user. Dev mode re-augments into the application directory and extracts dev-mode
-# classes under it (e.g. /deployments/dev), and BootUI writes its runtime state under the working
-# directory, so /deployments and everything under it is owned by this user.
-RUN useradd --uid 1001 --create-home --home-dir /home/bootui --shell /usr/sbin/nologin bootui \
-    && mkdir -p /deployments && chown 1001:1001 /deployments
-
-WORKDIR /deployments
-
-# Copy the exploded mutable-jar application (quarkus-run.jar + lib/ + app/ + quarkus/ + the deployment
-# bits used to re-augment in dev mode), owned by the runtime user.
-COPY --from=build --chown=1001:1001 /app/bootui-quarkus-sample-app/target/quarkus-app/ ./
-
-USER 1001
-ENV HOME=/home/bootui
-
-# Boot in DEVELOPMENT launch mode so the BootUI console activates (see header).
-ENV QUARKUS_LAUNCH_DEVMODE=true
 # Bind all interfaces so the published port is reachable from the host.
 ENV QUARKUS_HTTP_HOST=0.0.0.0
 ENV QUARKUS_HTTP_PORT=8080
@@ -126,6 +122,6 @@ ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"
 
 EXPOSE 8080
 
-# Launch the mutable jar; QUARKUS_LAUNCH_DEVMODE=true (above) makes it boot in dev mode. Exec form so
-# `java` is PID 1 and receives SIGTERM from `docker stop` for a graceful shutdown.
-ENTRYPOINT ["java", "-jar", "quarkus-run.jar"]
+# Launch source-based Quarkus dev mode. Exec form so `java` receives SIGTERM from `docker stop` for a
+# graceful shutdown through the Maven wrapper process.
+ENTRYPOINT ["./mvnw", "-B", "-ntp", "-f", "bootui-quarkus-sample-app/pom.xml", "quarkus:dev"]

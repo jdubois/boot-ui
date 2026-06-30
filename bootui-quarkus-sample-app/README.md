@@ -83,8 +83,8 @@ docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-quark
 This is the **only** image flavor for Quarkus — deliberately no AOT, GraalVM native, or CRaC variants
 (Quarkus builds native images itself, and BootUI's GraalVM/CRaC advisors are Spring-oriented and report *not
 applicable* on Quarkus). Because BootUI activates only outside production launch mode, the image launches the
-app in **dev mode** (`QUARKUS_LAUNCH_DEVMODE=true` on a Quarkus *mutable jar*), which is why it needs a full
-JDK base and is larger than the Spring sample's distroless image. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets
+app in **source-based dev mode** (`quarkus:dev`), which is why it needs a full JDK base and is larger
+than the Spring sample's distroless image. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets
 the host browser reach BootUI through Docker's bridge gateway while the Host allow-list and CSRF defenses stay
 in force.
 
