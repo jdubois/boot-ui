@@ -210,7 +210,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `Spring` advisor | **Implemented** — **`Quarkus` advisor**: new Quarkus-native ruleset over the shared scanning engine (CDI/Arc scopes, build-time config, reactive idioms, profiles) under the same panel id `spring` + `/bootui/api/spring` + `SpringReport`. See [QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) |
 | `Cache`          | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven) |
 
-### 5.5 Dropped on Quarkus (10)
+### 5.5 Dropped on Quarkus (8)
 
 No equivalent, low value, or superseded by Quarkus's own tooling:
 
@@ -224,8 +224,11 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
   it niche), `DevTools` (**Implemented as `NOT_APPLICABLE`** — Quarkus has built-in dev-mode live reload, so there is no
   Spring-style DevTools restart/LiveReload to expose; the panel reports *not applicable* rather than *not yet*).
 
-**Result:** ~36 of the ~47 panels ship on Quarkus (17 ported as-is, 9 source-swapped, 8 capture-rebuilt, 2 replaced),
-with 11 dropped.
+**Result:** 38 of the ~47 panels ship on Quarkus (17 ported as-is, 10 source-swapped, 8 capture-rebuilt, 2 replaced,
+plus the advisors and the runtime panels lit up through the shared engine), 8 are dropped as *not applicable*
+(GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security, DevTools), and only the
+Overview *dashboard* panel remains *not yet* ported (the Overview shell endpoint that feeds the header is already
+served on both adapters).
 
 ## 6. Activation & safety on Quarkus
 
@@ -377,8 +380,8 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Log Tail            | partial     | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
 | Spring              | spring-only | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
 | Cache               | spring-only | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
-| Beans               | partial     | Drop    | —                                | Arc build-time; low fidelity                |
-| Profile Diff        | partial     | Drop    | —                                | Quarkus config profiles differ              |
+| Beans               | equiv       | Adapt   | Beans service                    | `BeanProvider` → Arc (build-time; low fidelity) |
+| Profile Diff        | equiv       | Adapt   | Config service                   | `ConfigProvider` → SmallRye profiles        |
 | Security (advisor)  | partial     | Replace | Quarkus security ruleset         | Quarkus-native checks (OIDC/auth/TLS/CORS/annotations); see QUARKUS-CHECKS.md |
 | GraalVM             | partial     | Drop    | —                                | Quarkus native-first; moot                  |
 | CRaC                | partial     | Drop    | —                                | native focus; niche                         |
