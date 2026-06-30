@@ -90,7 +90,7 @@ BootUI also ships as a Quarkus extension, and its Quarkus sample app is publishe
 **same** Vue console at `/bootui`, backed by the Quarkus build of the BootUI engine:
 
 ```bash
-docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-quarkus-sample-app
+docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-quarkus
 ```
 
 Then open <http://localhost:8080/bootui> from a browser on the same machine.
@@ -107,7 +107,7 @@ Populate the Flyway and Liquibase panels with the sample migrations (disabled by
 docker run --rm -p 8080:8080 \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
-  jdubois/bootui-quarkus-sample-app
+  jdubois/bootui-sample-app-quarkus
 ```
 
 Most panels light up on Quarkus; a handful stay Spring- or framework-specific (for example GraalVM, CRaC, Conditions,

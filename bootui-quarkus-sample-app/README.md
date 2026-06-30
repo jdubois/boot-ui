@@ -75,8 +75,8 @@ Hibernate ByteBuddy reason as above; on JDK 26+ the module imports and compiles 
 runs this app with the BootUI console, **Docker-free** (in-memory H2 — no PostgreSQL Dev Service needed):
 
 ```bash
-docker build -f Dockerfile-quarkus -t bootui-quarkus-sample-app .
-docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-quarkus-sample-app
+docker build -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
+docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
 # then open http://localhost:8080/bootui
 ```
 
@@ -95,7 +95,7 @@ tables). Re-enable them to populate the Flyway/Liquibase panels:
 docker run --rm -p 8080:8080 \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
-  bootui-quarkus-sample-app
+  bootui-sample-app-quarkus
 ```
 
 ## Not published

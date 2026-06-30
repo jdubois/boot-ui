@@ -47,15 +47,15 @@
 # ENVIRONMENT VARIABLE (read during augmentation), not a value baked into the build.
 #
 # Build and run:
-#   docker build -f Dockerfile-quarkus -t bootui-quarkus-sample-app .
-#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-quarkus-sample-app
+#   docker build -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
+#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
 #   # then open http://localhost:8080/bootui
 #
 # Populate the Flyway/Liquibase panels with the sample migrations (off by default for a faster boot):
 #   docker run --rm -p 8080:8080 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
 #     -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
-#     bootui-quarkus-sample-app
+#     bootui-sample-app-quarkus
 
 # ---------------------------------------------------------------------------
 # Image stage: compile the reactor and keep the source tree for Quarkus dev mode.

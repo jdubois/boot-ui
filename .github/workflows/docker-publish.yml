@@ -7,7 +7,7 @@ name: Publish Docker images
 #   Dockerfile-aot     -> <user>/bootui-sample-app-aot      (JVM + Spring AOT + JDK cache image)
 #   Dockerfile-crac    -> <user>/bootui-sample-app-crac     (CRaC image)
 #   Dockerfile-native  -> <user>/bootui-sample-app-native   (GraalVM native image)
-#   Dockerfile-quarkus -> <user>/bootui-quarkus-sample-app  (Quarkus JVM dev-mode image, a separate sample app)
+#   Dockerfile-quarkus -> <user>/bootui-sample-app-quarkus  (Quarkus JVM dev-mode image, a separate sample app)
 #
 # Each Dockerfile copies the whole multi-module reactor and builds its sample app from
 # that reactor, so the build context is the repository root. (The four Spring images
@@ -192,7 +192,7 @@ jobs:
           - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
-          - bootui-quarkus-sample-app
+          - bootui-sample-app-quarkus
         platform:
           - linux/amd64
           - linux/arm64
@@ -229,7 +229,7 @@ jobs:
             health_timeout: '120'
             ready_url: /actuator/health
             ready_match: '"status":"UP"'
-          - image: bootui-quarkus-sample-app
+          - image: bootui-sample-app-quarkus
             dockerfile: Dockerfile-quarkus
             # Quarkus JVM image launched in dev mode (BootUI activates only outside the
             # production launch mode); no special privileges, but dev-mode re-augmentation
@@ -476,7 +476,7 @@ jobs:
           - bootui-sample-app-aot
           - bootui-sample-app-crac
           - bootui-sample-app-native
-          - bootui-quarkus-sample-app
+          - bootui-sample-app-quarkus
     steps:
       - name: Resolve image name
         run: echo "REGISTRY_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}" >> "$GITHUB_ENV"
@@ -552,7 +552,7 @@ jobs:
 
           cutoff=$(date -u -d "${MAX_AGE_DAYS} days ago" +%s)
 
-          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-quarkus-sample-app; do
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-sample-app-quarkus; do
             echo "::group::Pruning ${DOCKERHUB_USERNAME}/${repo}"
             url="https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/tags/?page_size=100"
             while [ -n "$url" ] && [ "$url" != 'null' ]; do
@@ -612,7 +612,7 @@ jobs:
           # Untagged manifests last active (pushed or pulled) before this moment are pruned.
           active_from=$(date -u -d "${MAX_AGE_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
 
-          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-quarkus-sample-app; do
+          for repo in bootui-sample-app bootui-sample-app-aot bootui-sample-app-crac bootui-sample-app-native bootui-sample-app-quarkus; do
             echo "::group::Sweeping untagged manifests in ${DOCKERHUB_USERNAME}/${repo}"
 
             # Collect the digests of untagged, inactive manifests older than the cutoff.
