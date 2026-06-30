@@ -23,6 +23,9 @@ import io.github.jdubois.bootui.quarkus.mappings.MappingsRecorder;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappings;
 import io.github.jdubois.bootui.quarkus.mappings.RawMapping;
+import io.github.jdubois.bootui.quarkus.mcp.BootUiMcpProducer;
+import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpEnvelope;
+import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpTools;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTasks;
 import io.github.jdubois.bootui.quarkus.scheduled.RawScheduledTask;
@@ -33,6 +36,7 @@ import io.github.jdubois.bootui.quarkus.web.DevServicesResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
+import io.github.jdubois.bootui.quarkus.web.McpBridgeResource;
 import io.github.jdubois.bootui.quarkus.web.McpServerResource;
 import io.github.jdubois.bootui.quarkus.web.QuarkusExceptionCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
@@ -193,6 +197,10 @@ class BootUiQuarkusProcessor {
                         CopilotResource.class,
                         ClaudeCodeResource.class,
                         McpServerResource.class,
+                        McpBridgeResource.class,
+                        BootUiMcpProducer.class,
+                        QuarkusMcpTools.class,
+                        QuarkusMcpEnvelope.class,
                         BootUiQuarkusSafetyFilter.class)
                 .setUnremovable()
                 .build());

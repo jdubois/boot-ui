@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
  * ({@code CopilotResource}), Claude Code ({@code ClaudeCodeResource}) and MCP Server
  * ({@code McpServerResource}). Copilot/Claude reuse the shared engine {@code AgentSessionStore}; this
  * pins that the GET endpoints render JSON (empty when no local CLI sessions exist) and that the
- * MCP panel reports its honest-partial, read-only status with no tool catalog on Quarkus.
+ * MCP panel reports a live status (HTTP transport + a non-empty tool catalog) — the full JSON-RPC
+ * bridge is exercised separately by {@code BootUiQuarkusMcpResourceTest}.
  */
 @QuarkusTest
 class BootUiQuarkusAgentPanelsTest {
@@ -50,16 +51,18 @@ class BootUiQuarkusAgentPanelsTest {
     }
 
     @Test
-    void mcpServerReportsHonestPartialStatus() {
+    void mcpServerReportsLiveStatus() {
         Response response = probe().get("/bootui/api/mcp-server");
         assertThat(response.status()).isEqualTo(200);
         assertThat(response.isJson()).isTrue();
         JsonNode body = response.json();
+        // Disabled by default (bootui.mcp.enabled defaults to OFF) but the bridge is fully wired.
         assertThat(body.path("enabled").asBoolean()).isFalse();
-        assertThat(body.path("transport").asText()).isEqualTo("none");
-        assertThat(body.path("toolCount").asInt()).isZero();
+        assertThat(body.path("transport").asText()).isEqualTo("http");
+        assertThat(body.path("endpoint").asText()).isEqualTo("/bootui/api/mcp");
+        assertThat(body.path("toolCount").asInt()).isPositive();
         assertThat(body.path("tools").isArray()).isTrue();
-        assertThat(body.path("tools").size()).isZero();
+        assertThat(body.path("tools")).isNotEmpty();
     }
 
     @Test

@@ -157,7 +157,9 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 · `Hibernate` advisor (Hibernate ORM + `jakarta.persistence`; rules port directly) · `Vulnerabilities` (classpath Maven
 metadata + OSV) · `Pentesting` · `HTTP Probe` (local HTTP probing) · `AI Usage` · `Traces` (OTLP — a standard;
 Quarkus/LangChain4j export it) · `GitHub` (`HttpClient`) · `Copilot` · `Claude Code` (read `~/.copilot` / `~/.claude`) ·
-`MCP Server` (BootUI's own server) · `Dev Services` (**Implemented** — a Quarkus-native concept; build-time
+`MCP Server` (**Implemented** — full JSON-RPC bridge: the shared engine `McpDispatcher` owns method routing/gating/tool
+lookup, a thin Jackson-2 `QuarkusMcpEnvelope` codec + `QuarkusMcpTools` catalog + working enable toggle sit behind the
+`LocalhostGuard` write floor) · `Dev Services` (**Implemented** — a Quarkus-native concept; build-time
 `DevServicesResultBuildItem` snapshot captured via recorder + synthetic bean, masked config, logs/restart unavailable).
 
 ### 5.2 Ported by swapping the data source (10)

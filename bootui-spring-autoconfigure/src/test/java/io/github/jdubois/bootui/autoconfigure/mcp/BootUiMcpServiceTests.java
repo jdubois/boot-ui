@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -135,11 +137,43 @@ class BootUiMcpServiceTests {
         assertThat(service.handle(notification)).isNull();
     }
 
-    private static ObjectNode schema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        schema.set("properties", JsonNodeFactory.instance.objectNode());
-        return schema;
+    @Test
+    void toolHandlerExceptionWithoutMessageReportsGenericErrorMessage() {
+        List<McpTool> tools = List.of(new McpTool(
+                "get_overview", "Read the overview.", McpToolSchema.NONE, BootUiPanels.OVERVIEW, false, args -> {
+                    throw new IllegalStateException();
+                }));
+        BootUiMcpService failing = new BootUiMcpService(new BootUiMcpTools(tools), properties, objectMapper, "1.2.3");
+
+        JsonNode response = failing.handle(callRequest("get_overview", 9));
+
+        assertThat(response.path("error").path("code").asInt()).isEqualTo(-32603);
+        assertThat(response.path("error").path("message").asString()).isEqualTo("Error");
+    }
+
+    @Test
+    void toolResultSerializationFailureReturnsInternalError() {
+        List<McpTool> tools = List.of(new McpTool(
+                "get_overview",
+                "Read the overview.",
+                McpToolSchema.NONE,
+                BootUiPanels.OVERVIEW,
+                false,
+                args -> new Object() {
+                    @SuppressWarnings("unused")
+                    public String getValue() {
+                        throw new IllegalStateException("cannot serialize");
+                    }
+                }));
+        BootUiMcpService failing = new BootUiMcpService(new BootUiMcpTools(tools), properties, objectMapper, "1.2.3");
+
+        JsonNode response = failing.handle(callRequest("get_overview", 10));
+
+        assertThat(response.path("error").path("code").asInt()).isEqualTo(-32603);
+    }
+
+    private static McpToolSchema schema() {
+        return McpToolSchema.NONE;
     }
 
     private ObjectNode callRequest(String toolName, int id) {

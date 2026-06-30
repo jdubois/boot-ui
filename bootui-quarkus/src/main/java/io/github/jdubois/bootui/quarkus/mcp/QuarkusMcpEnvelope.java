@@ -1,6 +1,11 @@
-package io.github.jdubois.bootui.autoconfigure.mcp;
+package io.github.jdubois.bootui.quarkus.mcp;
 
-import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
@@ -14,61 +19,37 @@ import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptor;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ArrayNode;
-import tools.jackson.databind.node.JsonNodeFactory;
-import tools.jackson.databind.node.ObjectNode;
+import jakarta.inject.Singleton;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
- * Spring Boot (Jackson 3) JSON-RPC envelope codec for the BootUI MCP server.
+ * Quarkus (Jackson 2) JSON-RPC envelope codec for the BootUI MCP server — the byte-for-byte twin of
+ * the Spring adapter's {@code BootUiMcpService}, over the same framework- and JSON-free engine
+ * {@link McpDispatcher}.
  *
- * <p>This is a transport-agnostic JSON-RPC 2.0 handler. {@link BootUiMcpController} adapts it to a
- * single loopback HTTP endpoint; the handler itself only understands JSON-RPC messages. Supported
- * methods: {@code initialize}, {@code notifications/initialized} (notification), {@code ping},
- * {@code tools/list}, and {@code tools/call}.
- *
- * <p>The protocol decisions (method routing, per-panel gating, tool lookup, argument capping, error
- * codes and canonical messages) live in the framework- and JSON-free engine {@link McpDispatcher};
- * this class only does the irreducibly-Jackson part — parse a request node into a neutral
+ * <p>It does only the irreducibly-Jackson part: parse a request node into a neutral
  * {@link McpRequest}, dispatch it, and render the {@link McpDispatchOutcome} back to JSON (echoing the
- * id, building each tool's input schema, and serializing the tool payload with its own
- * {@link ObjectMapper}). The Quarkus adapter keeps a Jackson 2 twin of this codec over the same engine
- * dispatcher.
+ * id, building each tool's input schema, and serializing the tool payload). All protocol decisions
+ * (method routing, per-panel gating, tool lookup, argument capping, error codes and canonical
+ * messages) live in the engine, so the two adapters answer identically.
  *
- * <p>Safety: every {@code tools/call} is gated by the same per-panel toggles the browser UI obeys —
- * a tool whose backing panel is disabled ({@code bootui.panels.<id>.enabled=false}) is refused, and
- * an action tool whose panel is read-only ({@code bootui.panels.<id>.read-only=true} or the global
- * {@code bootui.read-only=true}) is refused for the same reasons {@code PanelAccessFilter} blocks a
- * state-changing HTTP request. The endpoint also inherits the loopback/Host/cross-site defenses of
- * {@code LocalhostOnlyFilter} because it lives under {@code /bootui/api}.
+ * <p>Jackson 2 differences from the Jackson 3 twin: node text is read with {@code asText()} (not
+ * {@code asString()}), and {@link ObjectMapper#writeValueAsString} throws the <em>checked</em>
+ * {@link JsonProcessingException}, so the tool-result serialization catches it explicitly (a failure
+ * is reported in-band as a {@code -32603} error, exactly like the Spring twin).
  */
-public class BootUiMcpService {
+@Singleton
+public class QuarkusMcpEnvelope {
 
-    /** MCP protocol revision advertised when the client does not request a specific one. */
-    static final String DEFAULT_PROTOCOL_VERSION = McpProtocol.DEFAULT_PROTOCOL_VERSION;
-
-    static final String SERVER_NAME = McpProtocol.SERVER_NAME;
-
-    private static final String INSTRUCTIONS =
-            "BootUI exposes a running Spring Boot application. Call the *_scan advisor tools to get "
-                    + "actionable findings to fix, and the get_* tools (exceptions, security logs, SQL traces, "
-                    + "traces, HTTP exchanges, config, beans, mappings) to understand runtime behavior. All data "
-                    + "is read locally and secret values are masked.";
-
-    private static final Logger log = LoggerFactory.getLogger(BootUiMcpService.class);
+    private static final Logger LOG = Logger.getLogger(QuarkusMcpEnvelope.class.getName());
 
     private final McpDispatcher dispatcher;
     private final ObjectMapper objectMapper;
 
-    public BootUiMcpService(
-            BootUiMcpTools tools, BootUiProperties properties, ObjectMapper objectMapper, String serverVersion) {
+    public QuarkusMcpEnvelope(McpDispatcher dispatcher, ObjectMapper objectMapper) {
+        this.dispatcher = dispatcher;
         this.objectMapper = objectMapper;
-        int maxResults = Math.max(1, properties.getMcp().getMaxResults());
-        this.dispatcher = new McpDispatcher(
-                tools.tools(), new SpringMcpPanelPolicy(properties), serverVersion, INSTRUCTIONS, maxResults);
     }
 
     /**
@@ -85,13 +66,23 @@ public class BootUiMcpService {
         return render(outcome, id);
     }
 
+    /**
+     * Builds the JSON-RPC error returned (HTTP 200, error {@link McpProtocol#SERVER_DISABLED}) while
+     * the server is disabled, preserving the request id when present so a compliant client can
+     * correlate it.
+     */
+    public JsonNode disabledError(JsonNode request) {
+        JsonNode id = request != null && request.isObject() ? request.get("id") : null;
+        return error(id, McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE);
+    }
+
     private static McpRequest parse(JsonNode request) {
-        String method = request.path("method").asString();
+        String method = request.path("method").asText();
         JsonNode id = request.get("id");
         boolean notification = id == null || id.isNull();
         JsonNode params = request.path("params");
-        String requestedProtocolVersion = params.path("protocolVersion").asString();
-        String toolName = params.path("name").asString();
+        String requestedProtocolVersion = params.path("protocolVersion").asText();
+        String toolName = params.path("name").asText();
         JsonNode arguments = params.get("arguments");
         return new McpRequest(
                 method, notification, requestedProtocolVersion, toolName, rawQuery(arguments), rawLimit(arguments));
@@ -103,7 +94,7 @@ public class BootUiMcpService {
                 || arguments.get("query").isNull()) {
             return null;
         }
-        return arguments.get("query").asString();
+        return arguments.get("query").asText();
     }
 
     private static Integer rawLimit(JsonNode arguments) {
@@ -179,8 +170,8 @@ public class BootUiMcpService {
         String text;
         try {
             text = objectMapper.writeValueAsString(call.payload());
-        } catch (RuntimeException ex) {
-            log.debug("BootUI MCP tool result serialization failed", ex);
+        } catch (JsonProcessingException | RuntimeException ex) {
+            LOG.log(Level.FINE, "BootUI MCP tool result serialization failed", ex);
             return error(id, McpProtocol.INTERNAL_ERROR, ex.getMessage());
         }
         ObjectNode result = JsonNodeFactory.instance.objectNode();

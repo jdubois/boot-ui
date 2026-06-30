@@ -385,25 +385,39 @@ public class QuarkusPanelAvailability {
     }
 
     private PanelDto toDto(BootUiPanels.Panel panel) {
-        boolean available = AVAILABLE_PANELS.contains(panel.id())
-                || (BootUiPanels.HIBERNATE.equals(panel.id()) && hibernatePresent)
-                || (BootUiPanels.SCHEDULED.equals(panel.id()) && schedulingPresent)
-                || (BootUiPanels.CACHE.equals(panel.id()) && cachePresent)
-                || (BootUiPanels.FLYWAY.equals(panel.id()) && flywayPresent)
-                || (BootUiPanels.LIQUIBASE.equals(panel.id()) && liquibasePresent)
-                || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panel.id()) && connectionPoolsPresent)
-                || (BootUiPanels.DEV_SERVICES.equals(panel.id()) && devServicesPresent)
-                || (BootUiPanels.SECURITY_LOGS.equals(panel.id()) && securityLogsAvailable)
-                || (BootUiPanels.SQL_TRACE.equals(panel.id()) && connectionPoolsPresent)
-                || (BootUiPanels.PROFILE_DIFF.equals(panel.id()) && profilesActive)
-                || (BootUiPanels.REST_API.equals(panel.id()) && restApiPresent)
-                || (BootUiPanels.COPILOT.equals(panel.id()) && copilotPanelAvailable)
-                || (BootUiPanels.CLAUDE_CODE.equals(panel.id()) && claudeCodePanelAvailable)
-                || (BootUiPanels.GITHUB.equals(panel.id()) && githubAvailable());
+        boolean available = isPanelAvailable(panel.id());
         String unavailableReason = available ? null : unavailableReason(panel.id());
         boolean readOnly = available && BootUiPanels.CONFIG.equals(panel.id());
         String readOnlyReason = readOnly ? CONFIG_READONLY : null;
         return new PanelDto(panel.id(), panel.title(), available, unavailableReason, true, readOnly, readOnlyReason);
+    }
+
+    /**
+     * Whether the panel with the given id is available on this Quarkus runtime.
+     *
+     * <p>This is the single source of truth for panel availability — the manifest ({@link #toDto})
+     * and the MCP tool catalog ({@code QuarkusMcpTools}) both consult it so a tool is advertised iff
+     * its backing panel is live. It combines the static {@link #AVAILABLE_PANELS} set with the
+     * build-time capability flags (Hibernate ORM, Scheduler, Cache, Flyway, Liquibase, Agroal pools,
+     * Dev Services, REST API), the dynamic detectors (GitHub repository, active profiles, agent
+     * directories), and the security-events gate.
+     */
+    public boolean isPanelAvailable(String panelId) {
+        return AVAILABLE_PANELS.contains(panelId)
+                || (BootUiPanels.HIBERNATE.equals(panelId) && hibernatePresent)
+                || (BootUiPanels.SCHEDULED.equals(panelId) && schedulingPresent)
+                || (BootUiPanels.CACHE.equals(panelId) && cachePresent)
+                || (BootUiPanels.FLYWAY.equals(panelId) && flywayPresent)
+                || (BootUiPanels.LIQUIBASE.equals(panelId) && liquibasePresent)
+                || (BootUiPanels.DATABASE_CONNECTION_POOLS.equals(panelId) && connectionPoolsPresent)
+                || (BootUiPanels.DEV_SERVICES.equals(panelId) && devServicesPresent)
+                || (BootUiPanels.SECURITY_LOGS.equals(panelId) && securityLogsAvailable)
+                || (BootUiPanels.SQL_TRACE.equals(panelId) && connectionPoolsPresent)
+                || (BootUiPanels.PROFILE_DIFF.equals(panelId) && profilesActive)
+                || (BootUiPanels.REST_API.equals(panelId) && restApiPresent)
+                || (BootUiPanels.COPILOT.equals(panelId) && copilotPanelAvailable)
+                || (BootUiPanels.CLAUDE_CODE.equals(panelId) && claudeCodePanelAvailable)
+                || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable());
     }
 
     private String unavailableReason(String panelId) {

@@ -20,14 +20,14 @@ import io.github.jdubois.bootui.autoconfigure.web.MappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.engine.mcp.McpArguments;
+import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 import org.springframework.beans.factory.ObjectProvider;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.JsonNodeFactory;
-import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Builds the catalog of MCP tools exposed by the BootUI MCP server.
@@ -35,8 +35,10 @@ import tools.jackson.databind.node.ObjectNode;
  * <p>Tools are thin adapters over the existing BootUI controllers; they reuse the same services,
  * immutable {@code record} DTOs, {@code SecretMasker}/{@code expose-values} handling, and self-data
  * filtering, so the agent sees exactly the sanitized shape the browser UI sees. Each tool is bound
- * to a {@link BootUiPanels} id so {@link BootUiMcpService} can enforce per-panel enable/read-only
- * toggles.
+ * to a {@link BootUiPanels} id so the engine {@code McpDispatcher} can enforce per-panel
+ * enable/read-only toggles. Argument normalization (the optional {@code query} filter and the
+ * {@code bootui.mcp.max-results} cap on {@code limit}) is applied once by the engine, so each handler
+ * simply reads {@link McpArguments#query()} / {@link McpArguments#limit()}.
  */
 public class BootUiMcpTools {
 
@@ -62,8 +64,7 @@ public class BootUiMcpTools {
             ObjectProvider<PentestingController> pentesting,
             ObjectProvider<RestApiController> restApi,
             ObjectProvider<GraalVmController> graalvm,
-            ObjectProvider<CracController> crac,
-            int maxResults) {
+            ObjectProvider<CracController> crac) {
         // Resolve each (lazy) controller bean; conditionally-registered controllers (e.g. Hibernate,
         // Spring Security) may be absent depending on the host app's classpath, so the matching tool is
         // simply not advertised rather than failing the whole server.
@@ -169,7 +170,7 @@ public class BootUiMcpTools {
                     "get_security_logs",
                     "List recent security audit events (authentication, authorization, etc.).",
                     BootUiPanels.SECURITY_LOGS,
-                    args -> securityLogsBean.logs(null, null, null, null, limit(args, maxResults))));
+                    args -> securityLogsBean.logs(null, null, null, null, args.limit())));
         }
         if (sqlTraceBean != null) {
             registry.add(read(
@@ -183,7 +184,7 @@ public class BootUiMcpTools {
                     "get_traces",
                     "Return recent distributed/local traces captured by BootUI.",
                     BootUiPanels.TRACES,
-                    args -> tracesBean.list(limit(args, maxResults))));
+                    args -> tracesBean.list(args.limit())));
         }
         if (logTailBean != null) {
             registry.add(read(
@@ -197,7 +198,7 @@ public class BootUiMcpTools {
                     "get_http_exchanges",
                     "List recent HTTP request/response exchanges handled by the application.",
                     BootUiPanels.HTTP_EXCHANGES,
-                    args -> httpExchangesBean.exchanges(null, null, null, null, limit(args, maxResults))));
+                    args -> httpExchangesBean.exchanges(null, null, null, null, args.limit())));
         }
 
         // --- Core context read tools ---
@@ -221,21 +222,21 @@ public class BootUiMcpTools {
                     "Return effective configuration properties (secret values masked). Optional 'query' "
                             + "filters by property name/value.",
                     BootUiPanels.CONFIG,
-                    args -> configBean.list(query(args), null, false, null, limit(args, maxResults))));
+                    args -> configBean.list(args.query(), null, false, null, args.limit())));
         }
         if (beansBean != null) {
             registry.add(searchRead(
                     "get_beans",
                     "List Spring beans. Optional 'query' filters by bean name or type.",
                     BootUiPanels.BEANS,
-                    args -> beansBean.beans(query(args), null, null, limit(args, maxResults))));
+                    args -> beansBean.beans(args.query(), null, null, args.limit())));
         }
         if (mappingsBean != null) {
             registry.add(searchRead(
                     "get_mappings",
                     "List request mappings (URL patterns to handlers). Optional 'query' filters them.",
                     BootUiPanels.MAPPINGS,
-                    args -> mappingsBean.flatMappings(query(args), null, limit(args, maxResults))));
+                    args -> mappingsBean.flatMappings(args.query(), null, args.limit())));
         }
 
         this.tools = List.copyOf(registry);
@@ -251,85 +252,23 @@ public class BootUiMcpTools {
         return tools;
     }
 
-    private static McpTool action(String name, String description, String panelId, Function<JsonNode, Object> handler) {
-        return new McpTool(name, description, emptyObjectSchema(), panelId, true, handler);
+    private static McpTool action(
+            String name, String description, String panelId, Function<McpArguments, Object> handler) {
+        return new McpTool(name, description, McpToolSchema.NONE, panelId, true, handler);
     }
 
-    private static McpTool read(String name, String description, String panelId, Function<JsonNode, Object> handler) {
-        return new McpTool(name, description, emptyObjectSchema(), panelId, false, handler);
+    private static McpTool read(
+            String name, String description, String panelId, Function<McpArguments, Object> handler) {
+        return new McpTool(name, description, McpToolSchema.NONE, panelId, false, handler);
     }
 
     private static McpTool limitRead(
-            String name, String description, String panelId, Function<JsonNode, Object> handler) {
-        return new McpTool(name, description, limitSchema(), panelId, false, handler);
+            String name, String description, String panelId, Function<McpArguments, Object> handler) {
+        return new McpTool(name, description, McpToolSchema.LIMIT, panelId, false, handler);
     }
 
     private static McpTool searchRead(
-            String name, String description, String panelId, Function<JsonNode, Object> handler) {
-        return new McpTool(name, description, querySchema(), panelId, false, handler);
-    }
-
-    private static ObjectNode emptyObjectSchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        schema.set("properties", JsonNodeFactory.instance.objectNode());
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode limitSchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        properties.set("limit", limitProperty());
-        schema.set("properties", properties);
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode querySchema() {
-        ObjectNode schema = JsonNodeFactory.instance.objectNode();
-        schema.put("type", "object");
-        ObjectNode properties = JsonNodeFactory.instance.objectNode();
-        ObjectNode query = JsonNodeFactory.instance.objectNode();
-        query.put("type", "string");
-        query.put("description", "Optional case-insensitive filter applied to the results.");
-        properties.set("query", query);
-        properties.set("limit", limitProperty());
-        schema.set("properties", properties);
-        schema.put("additionalProperties", false);
-        return schema;
-    }
-
-    private static ObjectNode limitProperty() {
-        ObjectNode limit = JsonNodeFactory.instance.objectNode();
-        limit.put("type", "integer");
-        limit.put("minimum", 1);
-        limit.put(
-                "description",
-                "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit.");
-        return limit;
-    }
-
-    private static String query(JsonNode args) {
-        if (args == null || !args.has("query") || args.get("query").isNull()) {
-            return null;
-        }
-        String value = args.get("query").asString().trim();
-        return value.isEmpty() ? null : value;
-    }
-
-    /**
-     * Resolve the effective page size for a read tool: honor an optional client-supplied positive
-     * {@code limit} argument, but never exceed the configured {@code bootui.mcp.max-results} cap.
-     */
-    private static Integer limit(JsonNode args, int maxResults) {
-        if (args != null && args.has("limit") && args.get("limit").isIntegralNumber()) {
-            int requested = args.get("limit").asInt();
-            if (requested >= 1) {
-                return Math.min(requested, maxResults);
-            }
-        }
-        return maxResults;
+            String name, String description, String panelId, Function<McpArguments, Object> handler) {
+        return new McpTool(name, description, McpToolSchema.QUERY_LIMIT, panelId, false, handler);
     }
 }

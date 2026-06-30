@@ -1010,6 +1010,14 @@ running app:
 See [docs/PROPERTIES.md](./PROPERTIES.md) for the `bootui.mcp.*` settings, and [AI agents](./AI-AGENTS.md) for an
 end-to-end agent workflow and how BootUI pairs with [Coffilot](https://github.com/jdubois/coffilot).
 
+On Quarkus the panel is identical, running the same live JSON-RPC bridge over the same `POST /bootui/api/mcp` endpoint
+and the same working enable/disable toggle (the `bootui.mcp.*` keys are read from MicroProfile Config). The protocol
+core — method routing, per-panel gating, tool lookup, and the `max-results` cap — lives in the shared framework-neutral
+engine; each adapter only supplies a thin Jackson envelope codec (Jackson 2 on Quarkus) and its own tool catalog, so
+requests and responses are byte-identical across the two backends. The advertised tools track which panels are actually
+live on Quarkus: `get_overview` (the Overview dashboard is not ported), `graalvm_scan`, and `crac_scan` (both
+deliberately not applicable on Quarkus) are not offered, and `spring_scan` runs the Quarkus-native idiom advisor.
+
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)
 
 ### DevTools

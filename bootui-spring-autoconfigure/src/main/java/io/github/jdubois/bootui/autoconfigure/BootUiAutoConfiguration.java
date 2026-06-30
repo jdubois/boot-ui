@@ -387,8 +387,7 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<PentestingController> pentesting,
                 ObjectProvider<RestApiController> restApi,
                 ObjectProvider<GraalVmController> graalvm,
-                ObjectProvider<CracController> crac,
-                BootUiProperties properties) {
+                ObjectProvider<CracController> crac) {
             return new BootUiMcpTools(
                     overview,
                     health,
@@ -409,8 +408,7 @@ public class BootUiAutoConfiguration {
                     pentesting,
                     restApi,
                     graalvm,
-                    crac,
-                    Math.max(1, properties.getMcp().getMaxResults()));
+                    crac);
         }
 
         @Bean

@@ -580,7 +580,17 @@ hide newer ones. Keep API, UI,
   no RESTEasy types at runtime); the read-only `MappingsResource` mirrors the Spring `MappingsController` (`GET` root +
   `GET /flat`, no write path), and the Quarkus handler format (`classFQN#method`) is an accepted display-string divergence
   from Spring's Actuator handler text. Only annotation-discovered JAX-RS resources are captured (no programmatic Vert.x
-  routes). Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
+  routes). The **MCP Server** panel is fully live on Quarkus: the JSON-RPC bridge was ported by extracting a
+  framework- and JSON-free dispatch core (`bootui-engine` `McpDispatcher` → a sealed `McpDispatchOutcome`) that owns
+  method routing, per-panel gating, tool lookup and `max-results` capping, while each adapter keeps a thin per-Jackson
+  envelope codec (`QuarkusMcpEnvelope`, Jackson 2; `BootUiMcpService`, Jackson 3), its own tool catalog
+  (`QuarkusMcpTools` — the 17 Quarkus-available tools, gated by `QuarkusPanelAvailability.isPanelAvailable` so a tool is
+  advertised iff its backing panel is live; `graalvm_scan`/`crac_scan`/`get_overview` are absent), live state
+  (`McpServerState`), and panel policy (`QuarkusMcpPanelPolicy` — always-enabled/never-read-only, since Quarkus has no
+  `PanelAccessFilter` yet). `POST /bootui/api/mcp` (the `@Blocking` JSON-RPC transport, `McpBridgeResource`) and the
+  `POST /bootui/api/mcp-server/toggle` enable switch (`McpServerResource`) both sit behind the shared `LocalhostGuard`
+  write floor; the bridge short-circuits to a `-32000` error while disabled and answers byte-identically to Spring.
+  Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
   `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing
