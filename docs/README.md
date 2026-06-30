@@ -11,7 +11,7 @@ actions:
     type: secondary
 features:
   - title: Runtime observability
-    details: Inspect health, metrics, memory, threads, heap dumps, startup timing, and JVM sizing from the running Spring Boot app.
+    details: Inspect health, metrics, memory, threads, heap dumps, startup timing, and JVM sizing from the running Spring Boot or Quarkus app.
   - title: Advisors dashboard
     details: Analyze and score your application with advanced advisors for architecture, REST API, Spring, Hibernate, JVM memory, Spring Security, pentesting, and vulnerabilities.
   - title: Diagnostics toolbox

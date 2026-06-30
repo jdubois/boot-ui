@@ -1,6 +1,7 @@
 # BootUI properties
 
-BootUI binds Spring Boot configuration under the `bootui.*` prefix. It is local-only by default: it activates only in
+BootUI reads its `bootui.*` configuration from the host application's own configuration — Spring Boot property sources
+on the Spring adapter, MicroProfile Config on the Quarkus adapter. It is local-only by default: it activates only in
 development contexts, rejects non-loopback callers, masks secret-like values, and disables itself for production profiles
 unless explicitly forced on.
 

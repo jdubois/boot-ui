@@ -38,7 +38,7 @@ Out of scope for the current 1.x line:
 
 ### 2.1 Primary goal
 
-Make a running Spring Boot application understandable in minutes.
+Make a running Spring Boot or Quarkus application understandable in minutes.
 
 ### 2.2 Secondary goals
 
