@@ -38,11 +38,13 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     /**
      * Panels whose primary data lives at a plain {@code GET /bootui/api/<id>} and must answer 200 with
-     * JSON whenever the manifest reports them available. Panels whose primary data lives at a sub-path
-     * (database-connection-pools, data, ai, log-tail, flyway, liquibase), advisor/scan panels
-     * (architecture, rest-api, spring, pentesting, security, vulnerabilities, graalvm, crac) and
-     * action-first panels (heap-dump, http-probe) are intentionally excluded: they are exercised by
-     * adapter-specific tests instead of this cross-adapter contract.
+     * JSON whenever the manifest reports them available — this includes the advisor panels that serve a
+     * meaningful unscanned root report (hibernate, security, spring). Panels whose primary data lives at a
+     * sub-path (database-connection-pools, data, ai, log-tail, flyway, liquibase), scan-first advisor panels
+     * whose root GET is exercised through a {@code POST /scan} (architecture, rest-api, pentesting,
+     * vulnerabilities) or that are not applicable on every adapter (graalvm, crac), and action-first panels
+     * (heap-dump, http-probe) are intentionally excluded: they are exercised by adapter-specific tests
+     * instead of this cross-adapter contract.
      */
     private static final Set<String> DATA_PANEL_ROOT_GETS = Set.of(
             "overview",

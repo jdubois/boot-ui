@@ -98,14 +98,17 @@ import org.eclipse.microprofile.config.Config;
  * endpoint is the shared shell's framework-neutral chrome/CSRF-priming source, which the shell needs on
  * every platform, whereas the Overview dashboard panel itself has not yet been ported.</p>
  *
- * <p>The Mappings panel is served on Quarkus by capturing RESTEasy Reactive's resource model — a
- * build-time artifact ({@code ResteasyReactiveResourceMethodEntriesBuildItem}) — into a synthetic bean via
- * a build step + {@code @Recorder}, since Quarkus exposes no clean <em>runtime</em> route-enumeration API
- * (Vert.x {@code Router.getRoutes()} yields paths but not the per-route method/produces/consumes the
- * {@code MappingDto} contract needs). {@code quarkus-rest} is a hard dependency of the BootUI extension, so
- * that build item is always present and the panel is statically available, mapping JAX-RS resource methods
- * one-to-one onto the same {@code /flat} contract the Spring adapter serves from Actuator's
- * {@code MappingsEndpoint}.</p>
+ * <p>The Mappings panel is served on Quarkus by capturing the host application's JAX-RS routes at build
+ * time — scanning the {@code BeanArchiveIndexBuildItem} Jandex index for {@code @Path} resources — and
+ * replaying them into a synthetic bean via a build step + {@code @Recorder}, since Quarkus exposes no clean
+ * <em>runtime</em> route-enumeration API (Vert.x {@code Router.getRoutes()} yields paths but not the
+ * per-route method/produces/consumes the {@code MappingDto} contract needs). The pre-resolved
+ * {@code ResteasyReactiveResourceMethodEntriesBuildItem} is produced <em>after</em> Arc builds the bean
+ * container, so consuming it to register the synthetic bean (which Arc must see <em>before</em> it builds
+ * the container) forms a build-step cycle; reading the Jandex index — available early — avoids it. {@code
+ * quarkus-rest} is a hard dependency of the BootUI extension, so the Mappings panel is statically available,
+ * mapping JAX-RS resource methods one-to-one onto the same {@code /flat} contract the Spring adapter serves
+ * from Actuator's {@code MappingsEndpoint}.</p>
  *
  *
  * <p>The <strong>GraalVM</strong> and <strong>CRaC</strong> advisors are deliberate, permanent exceptions
