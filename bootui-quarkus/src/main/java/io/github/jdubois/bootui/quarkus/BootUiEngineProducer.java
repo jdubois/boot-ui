@@ -136,16 +136,17 @@ public class BootUiEngineProducer {
     /**
      * The Quarkus-only HTTP exchange ring buffer fed by the Vert.x capture filter — Quarkus has no
      * Actuator {@code HttpExchangeRepository}, so this is the capture source for the HTTP Exchanges and
-     * Live Activity panels. Capacity bounds memory ({@code bootui.http-exchanges.capacity}, default 100,
-     * matching Actuator); the buffer caps and reverses, the engine service masks. A singleton so writes
-     * and reads share one bounded buffer.
+     * Live Activity panels. Capacity bounds memory ({@code bootui.http-exchanges.max-exchanges}, default
+     * 200, unified with the Spring adapter's {@code BootUiProperties.HttpExchanges.maxExchanges}); the
+     * buffer caps and reverses, the engine service masks. A singleton so writes and reads share one
+     * bounded buffer.
      */
     @Produces
     @Singleton
     public HttpExchangeBuffer httpExchangeBuffer(Config config) {
-        int capacity = config.getOptionalValue("bootui.http-exchanges.capacity", Integer.class)
-                .orElse(100);
-        return new HttpExchangeBuffer(capacity);
+        int maxExchanges = config.getOptionalValue("bootui.http-exchanges.max-exchanges", Integer.class)
+                .orElse(200);
+        return new HttpExchangeBuffer(maxExchanges);
     }
 
     /**

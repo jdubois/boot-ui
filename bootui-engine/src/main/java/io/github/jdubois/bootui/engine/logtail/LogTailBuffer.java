@@ -57,6 +57,11 @@ public final class LogTailBuffer {
         this.lines = new ArrayDeque<>(this.maxLines);
     }
 
+    /** The approximate retained-byte budget; {@link Long#MAX_VALUE} when unbounded. */
+    public long maxBytes() {
+        return maxBytes;
+    }
+
     /** Appends a line, evicting oldest lines past the line/byte caps, then notifies subscribers. */
     public void add(LogLineDto line) {
         if (line == null || Boolean.TRUE.equals(appending.get())) {

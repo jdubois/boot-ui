@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import java.util.List;
@@ -83,7 +84,7 @@ class LogTailControllerTests {
     @Test
     void recentEndpointReturnsTailFromInstalledAppender() throws Exception {
         // LogTailController's ctor installs (idempotently) and owns the buffer; reuse its appender.
-        LogTailController controller = new LogTailController();
+        LogTailController controller = new LogTailController(new BootUiProperties());
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
 
         String uniqueMsg = "unique-test-" + System.nanoTime();
@@ -101,7 +102,7 @@ class LogTailControllerTests {
 
     @Test
     void recentEndpointDtoShapeMatchesLogLineDtoRecord() throws Exception {
-        LogTailController controller = new LogTailController();
+        LogTailController controller = new LogTailController(new BootUiProperties());
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
         long ts = System.currentTimeMillis();
         String uniqueMsg = "shape-check-" + System.nanoTime();
@@ -126,5 +127,32 @@ class LogTailControllerTests {
                         .value("shape.Logger"))
                 .andExpect(jsonPath("$[?(@.message == '" + uniqueMsg + "')].thread")
                         .value("shape-thread"));
+    }
+
+    @Test
+    void defaultLogTailMaxBytesIsUnbounded() {
+        assertThat(new BootUiProperties().getLogTail().getMaxBytes()).isZero();
+    }
+
+    @Test
+    void controllerBoundsInstalledBufferWithConfiguredMaxBytes() {
+        // Drop any globally installed appender so this controller's bounded buffer is the one installed.
+        BootUiLogAppender existing = BootUiLogAppender.find();
+        if (existing != null) {
+            existing.uninstall();
+        }
+        try {
+            BootUiProperties properties = new BootUiProperties();
+            properties.getLogTail().setMaxBytes(4096L);
+
+            new LogTailController(properties);
+
+            assertThat(BootUiLogAppender.find().buffer().maxBytes()).isEqualTo(4096L);
+        } finally {
+            BootUiLogAppender installed = BootUiLogAppender.find();
+            if (installed != null) {
+                installed.uninstall();
+            }
+        }
     }
 }

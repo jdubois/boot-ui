@@ -29,6 +29,11 @@ public final class HttpExchangeBuffer implements IdleReclaimable {
         this.entries = new ArrayDeque<>(this.capacity);
     }
 
+    /** The configured maximum number of retained exchanges (clamped to at least 1). */
+    public int capacity() {
+        return capacity;
+    }
+
     /** Records a completed exchange, evicting the oldest when at capacity. No-op while suspended. */
     public void record(CapturedHttpExchange exchange) {
         if (!recording || exchange == null) {

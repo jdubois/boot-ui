@@ -124,6 +124,10 @@ public class BootUiProperties {
      */
     private HttpExchanges httpExchanges = new HttpExchanges();
     /**
+     * Log Tail panel settings.
+     */
+    private LogTail logTail = new LogTail();
+    /**
      * SQL Trace panel settings.
      */
     private SqlTrace sqlTrace = new SqlTrace();
@@ -375,6 +379,14 @@ public class BootUiProperties {
 
     public void setHttpExchanges(HttpExchanges httpExchanges) {
         this.httpExchanges = httpExchanges == null ? new HttpExchanges() : httpExchanges;
+    }
+
+    public LogTail getLogTail() {
+        return logTail;
+    }
+
+    public void setLogTail(LogTail logTail) {
+        this.logTail = logTail == null ? new LogTail() : logTail;
     }
 
     public SqlTrace getSqlTrace() {
@@ -629,6 +641,13 @@ public class BootUiProperties {
          */
         private int maxAdvisories = 200;
 
+        /**
+         * Base URI of the OSV.dev API queried during a scan. Configurable mainly so tests can point at a
+         * local stub; defaults to the public OSV endpoint, preserving the panel's existing network
+         * behaviour, and matches the Quarkus adapter's {@code bootui.vulnerabilities.osv-base-uri} key.
+         */
+        private String osvBaseUri = "https://api.osv.dev";
+
         public boolean isOsvEnabled() {
             return osvEnabled;
         }
@@ -659,6 +678,14 @@ public class BootUiProperties {
 
         public void setMaxAdvisories(int maxAdvisories) {
             this.maxAdvisories = maxAdvisories;
+        }
+
+        public String getOsvBaseUri() {
+            return osvBaseUri;
+        }
+
+        public void setOsvBaseUri(String osvBaseUri) {
+            this.osvBaseUri = osvBaseUri;
         }
     }
 
@@ -842,6 +869,26 @@ public class BootUiProperties {
 
         public void setMaxExchanges(int maxExchanges) {
             this.maxExchanges = maxExchanges;
+        }
+    }
+
+    public static class LogTail {
+
+        /**
+         * Approximate retained-byte budget for the in-memory Log Tail ring buffer, bounding it alongside
+         * its fixed line cap (oldest evicted first when either bound trips). {@code 0} (the default) means
+         * unbounded — preserving the Spring adapter's historical behaviour — and matches the Quarkus
+         * adapter's {@code bootui.log-tail.max-bytes} default, so the same key sizes the buffer identically
+         * on both frameworks.
+         */
+        private long maxBytes = 0;
+
+        public long getMaxBytes() {
+            return maxBytes;
+        }
+
+        public void setMaxBytes(long maxBytes) {
+            this.maxBytes = maxBytes;
         }
     }
 

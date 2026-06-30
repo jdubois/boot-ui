@@ -53,25 +53,24 @@ equivalents).
 | `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
 | `bootui.activity.*`                                                          | Spring only                | Per-request profiling and signal-to-request correlation are Spring-only.                                                                 |
 | `bootui.telemetry.max-request-bytes`                                         | Spring only                | Sizes the embedded OTLP receiver, which Quarkus does not run (it captures spans in-process).                                             |
-| `bootui.log-tail.max-bytes`                                                  | **Quarkus only**           | Spring's Log Tail buffer is unbounded and not configurable.                                                                              |
-| `bootui.vulnerabilities.osv-base-uri`                                        | **Quarkus only**           | Spring hardcodes `https://api.osv.dev`.                                                                                                  |
 | `bootui.internal.*`                                                          | **Quarkus only, internal** | Build-time facts (base packages, dependency inventory, capability-present flags) emitted by build steps. Not a user setting — never set by hand. |
 
-### Keys whose name or default differs
+### Keys with a shared name but platform-specific behavior
 
-| Concept                    | Spring                                                    | Quarkus                                                                                                                |
-| -------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| HTTP Exchanges buffer size | `bootui.http-exchanges.max-exchanges` (default `200`)    | `bootui.http-exchanges.capacity` (default `100`)                                                                      |
-| `bootui.overrides-file`    | The Configuration panel persists runtime overrides here. | The Configuration panel is read-only on Quarkus; the key is used only to locate the advisor dismissed-rules file (`.bootui/boot-ui.yml`). |
+| Key                     | Spring                                                                                                              | Quarkus                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.overrides-file` | The Configuration panel persists runtime overrides here, and the key also locates the advisor dismissed-rules file. | The Configuration panel is read-only on Quarkus, so the key only locates the advisor dismissed-rules file (`.bootui/boot-ui.yml`). |
 
-Everything not listed in the two tables above is honored under the same key on both adapters — the
-safety keys (`bootui.allow-non-localhost`, `bootui.allowed-hosts`, `bootui.trusted-proxies`,
-`bootui.trust-container-gateway`), `bootui.expose-values`, `bootui.mask-secrets`,
-`bootui.path` / `bootui.api-path`, `bootui.monitoring.exclude-self`, and the `bootui.github.*`,
-`bootui.vulnerabilities.*` (except `osv-base-uri`), `bootui.sql-trace.*`, `bootui.telemetry.*`
-(except `max-request-bytes`), `bootui.heap-dump.*`, `bootui.exceptions.*`, `bootui.security-logs.*`,
-`bootui.cache.*`, `bootui.mcp.*`, `bootui.ai.*`, `bootui.copilot.*`, and `bootui.claude-code.*`
-families.
+Everything not listed in the two tables above is honored under the same key — and with the same
+default — on both adapters. This includes the safety keys (`bootui.allow-non-localhost`,
+`bootui.allowed-hosts`, `bootui.trusted-proxies`, `bootui.trust-container-gateway`),
+`bootui.expose-values`, `bootui.mask-secrets`, `bootui.path` / `bootui.api-path`,
+`bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
+`bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
+`bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
+`bootui.sql-trace.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
+`bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*`, `bootui.mcp.*`, `bootui.ai.*`,
+`bootui.copilot.*`, and `bootui.claude-code.*` families.
 
 ## Global settings
 
@@ -342,6 +341,13 @@ read-only.
 | `bootui.exceptions.max-occurrences-per-group` | `25`  | Maximum number of recent occurrences retained per exception group.                                         |
 | `bootui.exceptions.max-stack-frames`        | `50`    | Maximum number of stack-trace frames retained per exception (and per cause).                               |
 
+### Log Tail
+
+| Property                         | Default | Description                                                                                                                      |
+| -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.log-tail.enabled` | `true`  | Show the Log Tail panel and its live log stream.                                                                                 |
+| `bootui.log-tail.max-bytes`      | `0`     | Approximate retained-byte budget for the in-memory log-tail ring buffer, bounding it alongside its fixed 500-line cap (oldest evicted first). `0` (the default) means unbounded. |
+
 ### Vulnerabilities
 
 | Property                                  | Default | Description                                             |
@@ -352,6 +358,7 @@ read-only.
 | `bootui.vulnerabilities.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
 | `bootui.vulnerabilities.max-packages`        | `250`   | Maximum packages included in one OSV batch query.       |
 | `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
+| `bootui.vulnerabilities.osv-base-uri`        | `https://api.osv.dev` | Base URI of the OSV.dev API queried during a scan. Mainly useful for pointing scans at a local stub in tests. |
 
 ### Heap Dump
 

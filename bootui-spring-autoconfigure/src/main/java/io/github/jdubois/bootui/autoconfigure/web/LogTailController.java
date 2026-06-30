@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import java.io.IOException;
@@ -26,8 +27,9 @@ public class LogTailController {
     /** Upper bound on simultaneous log-tail streams; this is a local dev tool, not a fan-out hub. */
     static final int MAX_CONCURRENT_STREAMS = 20;
 
-    public LogTailController() {
-        this.appender = BootUiLogAppender.install(new LogTailBuffer());
+    public LogTailController(BootUiProperties properties) {
+        this.appender = BootUiLogAppender.install(new LogTailBuffer(
+                LogTailBuffer.DEFAULT_MAX_LINES, properties.getLogTail().getMaxBytes()));
         this.buffer = appender.buffer();
     }
 

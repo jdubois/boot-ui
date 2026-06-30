@@ -244,6 +244,12 @@ adapters).
 - **Loopback safety preserved.** The shared `LocalhostGuard` enforces the same loopback / allowed-hosts / CSRF rules; the
   Quarkus adapter binds it as a high-priority Vert.x handler on `/bootui/*` and `/bootui/api/*`, failing closed for
   non-loopback callers — matching `LocalhostOnlyFilter`'s `Integer.MIN_VALUE` servlet ordering.
+- **Configuration is read live from MicroProfile Config.** BootUI's `bootui.*` keys are largely shared by name with the
+  Spring adapter but are read per-request through MicroProfile `Config` (fail-closed, exact kebab-case) rather than bound
+  into `@ConfigurationProperties`, and activation is decided at build time by launch mode rather than by `bootui.enabled`.
+  See [PROPERTIES.md → "Spring vs Quarkus (cross-adapter parity)"](PROPERTIES.md#spring-vs-quarkus-cross-adapter-parity)
+  for the full key-by-key comparison (shared keys, Spring-only keys, and the Quarkus-only `bootui.internal.*` build-time
+  namespace).
 
 ## 7. Code-sharing scorecard
 

@@ -950,7 +950,7 @@ state instead of implying that no traffic has occurred.
 
 On Quarkus the panel is identical, but Quarkus has no Actuator `HttpExchangeRepository`, so capture is done by a small
 Vert.x route filter that samples each completed request — recorded in the response body-end handler so status, duration
-and size are final — into a capped, framework-neutral ring buffer (`bootui.http-exchanges.capacity`, default 100). The
+and size are final — into a capped, framework-neutral ring buffer sized by the same `bootui.http-exchanges.max-exchanges` key (default 200) as Spring. The
 masking, trace-id extraction, self-exclusion and paging run through the same shared engine service, so the wire is
 byte-identical to Spring. Capture is wired in dev/test only and never in production.
 
