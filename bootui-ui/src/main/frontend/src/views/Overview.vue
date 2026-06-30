@@ -67,7 +67,7 @@ const scannerDefs = [
     id: 'spring',
     title: 'Spring',
     titleByPlatform: {quarkus: 'Quarkus'},
-    icon: 'bi-leaf',
+    icon: 'bi-boxes',
     tone: 'info',
     to: '/spring',
     endpoint: 'api/spring/scan',

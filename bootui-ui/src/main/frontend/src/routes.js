@@ -150,7 +150,7 @@ export const routes = [
     component: Spring,
     meta: {
       group: groups.advisors,
-      icon: 'bi-leaf',
+      icon: 'bi-boxes',
       title: 'Spring',
       titleByPlatform: {quarkus: 'Quarkus'},
       shortcut: 'sr',

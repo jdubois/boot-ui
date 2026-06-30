@@ -32,7 +32,7 @@ const panel = useAdvisorPanel(props, {
 <template>
   <div>
     <PanelHeader
-      icon="bi-leaf"
+      icon="bi-boxes"
       :title="fwName"
       :subtitle="
         isQuarkus
