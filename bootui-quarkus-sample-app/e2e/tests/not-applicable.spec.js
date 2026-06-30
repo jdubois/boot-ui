@@ -12,6 +12,8 @@ const NOT_APPLICABLE = [
   {id: 'conditions', label: 'Conditions'},
   {id: 'http-sessions', label: 'HTTP Sessions'},
   {id: 'graalvm', label: 'GraalVM'},
+  {id: 'crac', label: 'CRaC'},
+  {id: 'startup', label: 'Startup Timeline'},
   {id: 'spring-security', label: 'Spring Security'},
   {id: 'data', label: 'Spring Data'}
 ]

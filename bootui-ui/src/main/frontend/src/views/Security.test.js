@@ -1,5 +1,6 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {ref} from 'vue'
 
 import Security from './Security.vue'
 
@@ -49,13 +50,14 @@ function severityCount(results, severity) {
   return results.filter((result) => result.status === 'VIOLATION' && result.severity === severity).length
 }
 
-async function mountWithReport(report) {
+async function mountWithReport(report, {platform} = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn(() => Promise.resolve(new Response(JSON.stringify(report), {status: 200})))
   )
 
-  const wrapper = mount(Security)
+  const global = platform ? {provide: {panels: ref({platform})}} : {}
+  const wrapper = mount(Security, {global})
   await flushPromises()
   return wrapper
 }
@@ -96,5 +98,17 @@ describe('Security', () => {
 
     expect(wrapper.text()).toContain('No Security Advisor findings')
     expect(wrapper.text()).not.toContain('Passing header rule')
+  })
+
+  it('renders Quarkus permission-policy copy when the platform is quarkus', async () => {
+    const wrapper = await mountWithReport(
+      advisorReport([ruleResult('SEC-AUTHZ-002', 'High severity finding', 'HIGH', 'VIOLATION', 1)]),
+      {platform: 'quarkus'}
+    )
+
+    expect(wrapper.text()).toContain('Permission policies')
+    expect(wrapper.text()).toContain('Heuristic Quarkus rules.')
+    expect(wrapper.text()).not.toContain('Filter chains analysed')
+    expect(wrapper.text()).not.toContain('Heuristic Spring Security rules.')
   })
 })
