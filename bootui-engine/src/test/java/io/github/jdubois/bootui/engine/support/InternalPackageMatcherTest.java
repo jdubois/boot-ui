@@ -76,4 +76,29 @@ class InternalPackageMatcherTest {
         assertThat(quarkus.matchesName("io.github.jdubois.bootui.autoconfigure.web.LoggersController"))
                 .isFalse();
     }
+
+    @Test
+    void quarkusAdapterDoesNotHideTheRelocatedSampleApp() {
+        // Regression guard. The Quarkus sample app was once nested under the adapter's own namespace
+        // (io.github.jdubois.bootui.quarkus.sample.**); because the matcher uses a dotted-prefix boundary,
+        // that made every sample @Scheduled task / bean / mapping / log a "BootUI internal" and the panels
+        // silently dropped them. The sample now lives at io.github.jdubois.bootui.sample.** (mirroring the
+        // Spring sample), so it must read as application code — visible — while genuine adapter internals
+        // stay hidden. This pins the boundary so nobody re-nests the sample under the adapter package.
+        InternalPackageMatcher quarkus = new InternalPackageMatcher(
+                List.of("io.github.jdubois.bootui.quarkus", "io.github.jdubois.bootui.core"));
+
+        // The relocated sample's scheduled-task runnable (declaringClass#method) is application code.
+        assertThat(quarkus.matchesName("io.github.jdubois.bootui.sample.scheduling.EchoScheduler#echo"))
+                .as("relocated sample app code must stay visible in the panels")
+                .isFalse();
+        // A genuine adapter-internal scheduled method is still hidden.
+        assertThat(quarkus.matchesName("io.github.jdubois.bootui.quarkus.scheduled.Foo#bar"))
+                .as("real BootUI-Quarkus internals must stay hidden")
+                .isTrue();
+        // Document the old bug: the previous, mis-nested location WOULD have been hidden.
+        assertThat(quarkus.matchesName("io.github.jdubois.bootui.quarkus.sample.scheduling.EchoScheduler#echo"))
+                .as("the former mis-nested package is what the boundary must never accept again")
+                .isTrue();
+    }
 }
