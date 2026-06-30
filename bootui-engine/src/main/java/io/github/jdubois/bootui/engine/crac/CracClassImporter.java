@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.engine.crac;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
-import com.tngtech.archunit.core.importer.ClassFileImporter;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitClassImports;
 import java.util.List;
 
 /**
@@ -21,6 +21,6 @@ final class ClassFileCracImporter implements CracClassImporter {
 
     @Override
     public JavaClasses importPackages(List<String> basePackages) {
-        return new ClassFileImporter().importPackages(basePackages);
+        return ArchUnitClassImports.importPackages(basePackages);
     }
 }
