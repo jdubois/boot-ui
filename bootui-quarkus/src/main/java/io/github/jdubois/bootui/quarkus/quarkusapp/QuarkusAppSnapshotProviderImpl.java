@@ -27,6 +27,8 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     static final String REACTIVE_ENDPOINTS_KEY = "bootui.internal.app.reactive-endpoints";
     static final String BLOCKING_KEY = "bootui.internal.app.blocking";
     static final String SCHEDULED_KEY = "bootui.internal.app.scheduled";
+    static final String CONFIG_MAPPING_KEY = "bootui.internal.app.config-mapping";
+    static final String PUBLIC_RESOURCE_FIELDS_KEY = "bootui.internal.app.public-resource-fields";
 
     private final Config config;
 
@@ -61,7 +63,39 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 activeProfiles(),
                 prodKeys,
                 prodDevServices,
-                false);
+                false,
+                count(CONFIG_MAPPING_KEY),
+                jdbcDatasourcePresent(),
+                prodSchemaGeneration(),
+                str("%prod.quarkus.datasource.db-kind", "").toLowerCase(),
+                prodJdbcUrlInMemory(),
+                bool("%prod.quarkus.hibernate-orm.log.sql"),
+                bool("quarkus.quartz.clustered"),
+                strList(PUBLIC_RESOURCE_FIELDS_KEY));
+    }
+
+    private boolean jdbcDatasourcePresent() {
+        return has("quarkus.datasource.db-kind")
+                || has("quarkus.datasource.jdbc.url")
+                || has("%prod.quarkus.datasource.db-kind")
+                || has("%prod.quarkus.datasource.jdbc.url");
+    }
+
+    private String prodSchemaGeneration() {
+        String v = config.getOptionalValue("%prod.quarkus.hibernate-orm.schema-management.strategy", String.class)
+                .orElseGet(
+                        () -> config.getOptionalValue("%prod.quarkus.hibernate-orm.database.generation", String.class)
+                                .orElse(""));
+        v = v.trim().toLowerCase();
+        return v.equals("create-drop") ? "drop-and-create" : v;
+    }
+
+    private boolean prodJdbcUrlInMemory() {
+        String url = str("%prod.quarkus.datasource.jdbc.url", "").toLowerCase();
+        return url.contains(":mem:")
+                || url.contains("h2:mem")
+                || url.contains("hsqldb:mem")
+                || url.contains("derby:memory");
     }
 
     private List<String> activeProfiles() {
@@ -80,8 +114,18 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         return List.of(v.split(","));
     }
 
+    private boolean has(String key) {
+        return config.getOptionalValue(key, String.class)
+                .filter(v -> !v.isBlank())
+                .isPresent();
+    }
+
     private boolean bool(String key) {
         return config.getOptionalValue(key, Boolean.class).orElse(false);
+    }
+
+    private String str(String key, String def) {
+        return config.getOptionalValue(key, String.class).orElse(def);
     }
 
     private int count(String key) {

@@ -62,6 +62,26 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean openapi = bool("quarkus.smallrye-openapi.always-include", false);
         boolean csrf = bool(CSRF_KEY, false);
 
+        boolean behindProxy = bool("quarkus.http.proxy.proxy-address-forwarding", false)
+                || bool("quarkus.http.proxy.allow-forwarded", false)
+                || bool("quarkus.http.proxy.allow-x-forwarded", false);
+        boolean jwtIssuer = has("mp.jwt.verify.issuer");
+        boolean proactiveAuthDisabled = !bool("quarkus.http.auth.proactive", true);
+        boolean oidcAudience = has("quarkus.oidc.token.audience");
+        String oidcAppType = str("quarkus.oidc.application-type", "").toLowerCase();
+        boolean oidcCookieForceSecure = bool("quarkus.oidc.authentication.cookie-force-secure", false);
+        boolean tlsTrustAll = bool("quarkus.tls.trust-all", false);
+        String corsMethods = str("quarkus.http.cors.methods", null);
+        String corsHeaders = str("quarkus.http.cors.headers", null);
+        String hstsValue = str("quarkus.http.header.\"Strict-Transport-Security\".value", null);
+        String cspValue = str("quarkus.http.header.\"Content-Security-Policy\".value", null);
+        boolean xFrame = has("quarkus.http.header.\"X-Frame-Options\".value");
+        boolean xContentType = has("quarkus.http.header.\"X-Content-Type-Options\".value");
+        boolean denyUnannotated = bool("quarkus.security.jaxrs.deny-unannotated-endpoints", false);
+        boolean managementEnabled = bool("quarkus.management.enabled", false);
+        boolean managementHostNonLoopback =
+                managementEnabled && !isLoopbackHost(str("quarkus.management.host", "0.0.0.0"));
+
         return new QuarkusSecuritySnapshot(
                 oidc,
                 jwt,
@@ -86,7 +106,35 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 count(AUTH_KEY),
                 count(ENDPOINTS_KEY),
                 count(SECURED_KEY),
-                suspectedSecrets());
+                suspectedSecrets(),
+                behindProxy,
+                jwtIssuer,
+                proactiveAuthDisabled,
+                oidcAudience,
+                oidcAppType,
+                oidcCookieForceSecure,
+                tlsTrustAll,
+                corsMethods,
+                corsHeaders,
+                hstsValue,
+                cspValue,
+                xFrame,
+                xContentType,
+                denyUnannotated,
+                managementEnabled,
+                managementHostNonLoopback);
+    }
+
+    private static boolean isLoopbackHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String h = host.trim().toLowerCase();
+        return h.equals("localhost")
+                || h.equals("127.0.0.1")
+                || h.startsWith("127.")
+                || h.equals("::1")
+                || h.equals("0:0:0:0:0:0:0:1");
     }
 
     private List<QuarkusSecurityPermission> permissions() {

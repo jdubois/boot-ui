@@ -2,9 +2,11 @@
 
 The Spring advisor panel, on Quarkus, runs a fixed, on-demand ruleset against the host application's
 **Quarkus idioms** — not the Spring application context. It reads build-time counts of CDI scope
-annotations, `@ConfigProperty` injection sites, JAX-RS endpoints, reactive (`Uni`/`Multi`) signatures,
-`@Blocking` sites, and shared mutable fields on `@ApplicationScoped` beans, plus active/`%prod.` profile
-keys from MicroProfile config. It never intercepts live traffic, exposes config values, or modifies the
+annotations, `@ConfigProperty` injection sites, `@ConfigMapping` interfaces, JAX-RS endpoints, reactive
+(`Uni`/`Multi`) signatures, `@Blocking` sites, `@Scheduled` methods, public mutable fields on JAX-RS
+resources, and shared mutable fields on `@ApplicationScoped` beans, plus active/`%prod.` profile keys
+(Hibernate schema strategy, datasource kind/URL, SQL logging, Dev Services, clustered scheduler) from
+MicroProfile config. It never intercepts live traffic, exposes config values, or modifies the
 application. Findings are heuristic review prompts; the right remediation depends on the application.
 
 This is the Quarkus replacement for the Spring ruleset in [SPRING-CHECKS.md](SPRING-CHECKS.md): the panel
@@ -28,34 +30,60 @@ in dev/test only (skipped in `NORMAL`/production); profile keys are read live. M
 ## CDI
 
 ### QA-CDI-001 - Shared mutable state on @ApplicationScoped bean (MEDIUM)
-Public or non-final fields on a single-instance `@ApplicationScoped` bean hold unsynchronised shared state.
-Make fields `private final`, or move per-request state to a `@RequestScoped` bean.
+`@ApplicationScoped` beans are single instances shared across threads; public or non-final fields (other
+than injected dependencies — `@Inject`/`@ConfigProperty`/`@RestClient` fields are excluded) hold
+unsynchronised shared state. Make fields `private final`, or move per-request state to a `@RequestScoped`
+bean.
 
-### QA-CDI-002 - JAX-RS resource without an explicit scope (LOW)
-A JAX-RS resource with no explicit CDI scope defaults to `@Singleton`. Annotate it `@ApplicationScoped`
-(stateless) or `@RequestScoped` (per-request) to make intent clear.
-
-### QA-EP-001 - Endpoints without managed beans (LOW)
-JAX-RS endpoints exist but no CDI beans were discovered; move business logic into `@ApplicationScoped`
-beans injected into resources.
+### QA-CDI-002 - Public mutable field on a JAX-RS resource (MEDIUM)
+JAX-RS resources default to `@Singleton`, so a public non-final (non-static) field is process-wide shared
+mutable state accessed concurrently across requests. Make the field `private final`, inject it, or move
+per-request state to a `@RequestScoped` bean. (Private fields set in `@PostConstruct`, e.g. injected
+Micrometer meters, are not flagged.)
 
 ## Config
 
-### QA-CFG-001 - No @ConfigProperty usage (LOW)
-No `@ConfigProperty` injection sites — configuration is likely read ad hoc. Use `@ConfigProperty` or a
-`@ConfigMapping` interface for type-safe MicroProfile Config.
+### QA-CFG-001 - No type-safe configuration (LOW)
+The app declares no `@ConfigProperty` injection sites and no `@ConfigMapping` interfaces, suggesting
+configuration is read ad hoc rather than through type-safe MicroProfile Config. Inject configuration with
+`@ConfigProperty` or a `@ConfigMapping` interface.
+
+### QA-CFG-002 - Hibernate SQL logging enabled in the prod profile (MEDIUM)
+`%prod.quarkus.hibernate-orm.log.sql=true` logs every statement in production, hurting performance and
+risking sensitive data in logs. Disable SQL logging in `%prod`; enable it only in `%dev` when debugging.
 
 ## Reactive
 
-### QA-RX-001 - Reactive endpoints without @Blocking guards (INFO)
-Endpoints return `Uni`/`Multi` but no `@Blocking` is declared; confirm no blocking call runs on the I/O
-thread inside those handlers.
+### QA-RX-001 - Reactive endpoints with a blocking JDBC datasource (INFO)
+Endpoints return `Uni`/`Multi` (run on the I/O event loop) and a blocking JDBC datasource is configured,
+yet no `@Blocking` guard was found; a JDBC call on the event loop stalls it. Annotate blocking work with
+`@Blocking`, or use a reactive datasource client. (Only raised when a JDBC datasource is present, so
+fully-reactive apps are not flagged.)
+
+## Scheduling
+
+### QA-SCH-001 - Scheduled tasks without a clustered scheduler (LOW)
+`@Scheduled` methods run on every instance; without a clustered scheduler each replica fires the job,
+causing duplicate work in a scaled-out deployment. Use the Quartz extension with
+`quarkus.quartz.clustered=true`, or confirm single-instance deployment.
 
 ## Profiles
 
 ### QA-PROD-001 - Dev Services enabled in the prod profile (HIGH)
-A `%prod.*devservices.enabled=true` key would start throwaway containers in production. Remove it and
-configure a real datasource/broker.
+A `%prod.*devservices.enabled=true` key would start throwaway containers in production. Remove the `%prod`
+Dev Services override; configure a real datasource/broker for prod.
 
-### QA-PROF-001 - No profile configuration (LOW)
-No active profile and no `%prod.` overrides — production likely shares dev defaults. Add `%prod.` overrides.
+### QA-PROD-002 - Destructive Hibernate schema strategy in the prod profile (HIGH)
+A `%prod` Hibernate schema strategy of `drop-and-create`/`create`/`drop` rebuilds or drops the production
+schema on every boot, destroying data. Use `none` (or `validate`) in `%prod` and manage the schema with
+Flyway/Liquibase.
+
+### QA-PROD-003 - In-memory/dev datasource in the prod profile (MEDIUM)
+The `%prod` datasource targets an in-memory/embedded database (H2/HSQLDB/Derby) — by `db-kind` or a
+`jdbc:*:mem:`/`:memory:` URL — so production data is lost on restart and never shared across instances.
+Point `%prod` at a real managed database (PostgreSQL, MySQL, …).
+
+### QA-PROF-001 - No profile configuration (INFO)
+No active profile and no `%prod.` overrides were found. This is fine when production config is externalised
+(env vars, Secrets/ConfigMaps); otherwise prod shares dev defaults. Add `%prod.` overrides (or externalise
+config) so production differs from dev defaults.

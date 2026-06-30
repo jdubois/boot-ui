@@ -374,6 +374,10 @@ class BootUiQuarkusProcessor {
             DotName.createSimple("org.eclipse.microprofile.config.inject.ConfigProperty");
     private static final DotName PATH = DotName.createSimple("jakarta.ws.rs.Path");
     private static final DotName BLOCKING = DotName.createSimple("io.smallrye.common.annotation.Blocking");
+    private static final DotName CONFIG_MAPPING = DotName.createSimple("io.smallrye.config.ConfigMapping");
+    private static final DotName INJECT = DotName.createSimple("jakarta.inject.Inject");
+    private static final DotName REST_CLIENT =
+            DotName.createSimple("org.eclipse.microprofile.rest.client.inject.RestClient");
 
     /** The seven JAX-RS HTTP-method annotations ({@code @GET}, {@code @POST}, …) by fully-qualified name. */
     private static final List<String> JAXRS_HTTP_METHODS = List.of(
@@ -390,9 +394,10 @@ class BootUiQuarkusProcessor {
 
     /**
      * Captures build-time idiom counts for the Quarkus-native application advisor: CDI scope annotation counts,
-     * {@code @ConfigProperty} sites, JAX-RS resources without an explicit scope, reactive ({@code Uni}/{@code Multi})
-     * endpoints, {@code @Blocking} sites, and shared mutable fields on {@code @ApplicationScoped} beans. Emitted as
-     * runtime config defaults the advisor reads. Dev/test only — skipped in {@link LaunchMode#NORMAL}.
+     * {@code @ConfigProperty} sites, {@code @ConfigMapping} interfaces, JAX-RS resources without an explicit scope,
+     * reactive ({@code Uni}/{@code Multi}) endpoints, {@code @Blocking} sites, shared mutable fields on
+     * {@code @ApplicationScoped} beans (excluding injected fields), and public mutable fields on JAX-RS resources.
+     * Emitted as runtime config defaults the advisor reads. Dev/test only — skipped in {@link LaunchMode#NORMAL}.
      */
     @BuildStep
     void registerAppIdioms(
@@ -413,6 +418,7 @@ class BootUiQuarkusProcessor {
                 runtimeDefaults,
                 "bootui.internal.app.config-property",
                 beans.getAnnotations(CONFIG_PROPERTY).size());
+        emit(runtimeDefaults, "bootui.internal.app.config-mapping", classAnnotations(app, CONFIG_MAPPING));
         emit(
                 runtimeDefaults,
                 "bootui.internal.app.blocking",
@@ -434,7 +440,7 @@ class BootUiQuarkusProcessor {
         emit(runtimeDefaults, "bootui.internal.app.reactive-endpoints", reactive);
 
         int defaultScopeResources = 0;
-        List<String> mutableFields = new ArrayList<>();
+        List<String> publicResourceFields = new ArrayList<>();
         for (AnnotationInstance ann : app.getAnnotations(PATH)) {
             if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.CLASS) {
                 continue;
@@ -446,7 +452,16 @@ class BootUiQuarkusProcessor {
                     && cls.declaredAnnotation(DEPENDENT) == null) {
                 defaultScopeResources++;
             }
+            for (FieldInfo f : cls.fields()) {
+                boolean isPublic = (f.flags() & 0x0001) != 0;
+                boolean isFinal = (f.flags() & 0x0010) != 0;
+                boolean isStatic = (f.flags() & 0x0008) != 0;
+                if (isPublic && !isStatic && !isFinal) {
+                    publicResourceFields.add(cls.simpleName() + "." + f.name());
+                }
+            }
         }
+        List<String> mutableFields = new ArrayList<>();
         for (AnnotationInstance ann : app.getAnnotations(APPLICATION_SCOPED)) {
             if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.CLASS) {
                 continue;
@@ -456,7 +471,9 @@ class BootUiQuarkusProcessor {
                 boolean isPublic = (f.flags() & 0x0001) != 0;
                 boolean isFinal = (f.flags() & 0x0010) != 0;
                 boolean isStatic = (f.flags() & 0x0008) != 0;
-                if (!isStatic && (isPublic || !isFinal)) {
+                boolean injected =
+                        f.hasAnnotation(INJECT) || f.hasAnnotation(CONFIG_PROPERTY) || f.hasAnnotation(REST_CLIENT);
+                if (!isStatic && !injected && (isPublic || !isFinal)) {
                     mutableFields.add(cls.simpleName() + "." + f.name());
                 }
             }
@@ -465,6 +482,10 @@ class BootUiQuarkusProcessor {
         if (!mutableFields.isEmpty()) {
             runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
                     "bootui.internal.app.mutable-fields", String.join(",", mutableFields)));
+        }
+        if (!publicResourceFields.isEmpty()) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    "bootui.internal.app.public-resource-fields", String.join(",", publicResourceFields)));
         }
     }
 

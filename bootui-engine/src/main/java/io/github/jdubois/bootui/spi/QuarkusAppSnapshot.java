@@ -27,6 +27,14 @@ import java.util.List;
  * @param prodProfileKeys the {@code %prod.*} config keys present
  * @param prodDevServicesEnabled whether a {@code %prod.*devservices.enabled=true} key is present
  * @param nativeBuild whether the snapshot was taken during a native build
+ * @param configMappingCount number of {@code @ConfigMapping} interfaces (type-safe config groups)
+ * @param jdbcDatasourcePresent whether a JDBC datasource (db-kind or jdbc url) is configured
+ * @param prodSchemaGeneration effective {@code %prod} Hibernate schema strategy (normalised, may be empty)
+ * @param prodDbKind the {@code %prod.quarkus.datasource.db-kind} value (may be empty)
+ * @param prodJdbcUrlInMemory whether a {@code %prod} JDBC url points at an in-memory database
+ * @param prodSqlLoggingEnabled whether {@code %prod.quarkus.hibernate-orm.log.sql=true}
+ * @param clusteredScheduler whether a clustered (Quartz) scheduler is configured
+ * @param publicResourceFields public, non-final instance fields on JAX-RS resource classes (shared mutable state)
  */
 public record QuarkusAppSnapshot(
         int applicationScopedCount,
@@ -43,12 +51,23 @@ public record QuarkusAppSnapshot(
         List<String> activeProfiles,
         List<String> prodProfileKeys,
         boolean prodDevServicesEnabled,
-        boolean nativeBuild) {
+        boolean nativeBuild,
+        int configMappingCount,
+        boolean jdbcDatasourcePresent,
+        String prodSchemaGeneration,
+        String prodDbKind,
+        boolean prodJdbcUrlInMemory,
+        boolean prodSqlLoggingEnabled,
+        boolean clusteredScheduler,
+        List<String> publicResourceFields) {
 
     public QuarkusAppSnapshot {
         mutableAppScopedFields = mutableAppScopedFields == null ? List.of() : List.copyOf(mutableAppScopedFields);
         activeProfiles = activeProfiles == null ? List.of() : List.copyOf(activeProfiles);
         prodProfileKeys = prodProfileKeys == null ? List.of() : List.copyOf(prodProfileKeys);
+        prodSchemaGeneration = prodSchemaGeneration == null ? "" : prodSchemaGeneration;
+        prodDbKind = prodDbKind == null ? "" : prodDbKind;
+        publicResourceFields = publicResourceFields == null ? List.of() : List.copyOf(publicResourceFields);
     }
 
     public int beanCount() {

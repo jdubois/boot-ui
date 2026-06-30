@@ -35,6 +35,22 @@ import java.util.List;
  * @param endpointCount discovered JAX-RS endpoint methods
  * @param securedEndpointCount endpoints carrying an authorization annotation
  * @param suspectedSecretKeys config keys that look like literal secrets (already masked names)
+ * @param behindProxy whether the app runs behind a TLS-terminating reverse proxy (forwarded headers trusted)
+ * @param jwtIssuerConfigured whether a JWT issuer ({@code mp.jwt.verify.issuer}) is configured
+ * @param proactiveAuthDisabled whether {@code quarkus.http.auth.proactive=false}
+ * @param oidcAudienceConfigured whether OIDC token audience validation is configured
+ * @param oidcApplicationType the {@code quarkus.oidc.application-type} (service/web-app/hybrid; may be empty)
+ * @param oidcCookieForceSecure whether OIDC forces the Secure flag on its session cookie
+ * @param tlsTrustAll whether outbound TLS certificate validation is globally disabled
+ * @param corsMethods the configured {@code quarkus.http.cors.methods}, or {@code null}
+ * @param corsHeaders the configured {@code quarkus.http.cors.headers}, or {@code null}
+ * @param hstsHeaderValue the raw Strict-Transport-Security header value, or {@code null}
+ * @param cspHeaderValue the raw Content-Security-Policy header value, or {@code null}
+ * @param xFrameOptionsHeader whether an X-Frame-Options response header is configured
+ * @param xContentTypeOptionsHeader whether an X-Content-Type-Options response header is configured
+ * @param denyUnannotatedEndpoints whether {@code quarkus.security.jaxrs.deny-unannotated-endpoints=true}
+ * @param managementEnabled whether the separate management interface is enabled
+ * @param managementHostNonLoopback whether the management interface binds a non-loopback host
  */
 public record QuarkusSecuritySnapshot(
         boolean oidcConfigured,
@@ -60,11 +76,28 @@ public record QuarkusSecuritySnapshot(
         int authenticatedCount,
         int endpointCount,
         int securedEndpointCount,
-        List<String> suspectedSecretKeys) {
+        List<String> suspectedSecretKeys,
+        boolean behindProxy,
+        boolean jwtIssuerConfigured,
+        boolean proactiveAuthDisabled,
+        boolean oidcAudienceConfigured,
+        String oidcApplicationType,
+        boolean oidcCookieForceSecure,
+        boolean tlsTrustAll,
+        String corsMethods,
+        String corsHeaders,
+        String hstsHeaderValue,
+        String cspHeaderValue,
+        boolean xFrameOptionsHeader,
+        boolean xContentTypeOptionsHeader,
+        boolean denyUnannotatedEndpoints,
+        boolean managementEnabled,
+        boolean managementHostNonLoopback) {
 
     public QuarkusSecuritySnapshot {
         permissions = permissions == null ? List.of() : List.copyOf(permissions);
         suspectedSecretKeys = suspectedSecretKeys == null ? List.of() : List.copyOf(suspectedSecretKeys);
+        oidcApplicationType = oidcApplicationType == null ? "" : oidcApplicationType;
     }
 
     public boolean anyAuthMechanism() {
