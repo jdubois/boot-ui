@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * Framework-neutral snapshot of a Quarkus application's effective idioms, collected by the Quarkus adapter
  * from MicroProfile config plus build-time annotation/signature counts. Consumed by the engine
- * {@code QuarkusAppScanner} to evaluate the Quarkus-native advisor ruleset (see {@code docs/QUARKUS-CHECKS.md}).
+ * {@code QuarkusAppScanner} to evaluate the Quarkus-native advisor ruleset (see {@code docs/QUARKUS-ADVISOR-CHECKS.md}).
  *
  * <p>This carries only neutral values (booleans, strings, counts, and lists) so it never leaks an
  * {@code io.quarkus.*} type into the engine. All fields fail safe: an unknown value is rendered as absent

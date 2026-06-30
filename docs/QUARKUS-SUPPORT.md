@@ -149,6 +149,17 @@ The console keeps a single `routes.js`. The backend's `/bootui/api/panels` manif
 **supported on this platform** (hidden when not) versus **available** (shown, possibly read-only). This is a small
 extension of the mechanism `App.vue` already uses, so the same UI build renders the correct sidebar on each backend.
 
+> **Implementation status (current).** The Quarkus adapter now lights up the large majority of the panel set — all of
+> §5.1 and §5.2 below, plus the advisors (Architecture, the Quarkus application advisor replacing Spring, Hibernate,
+> Pentesting, a Quarkus-native Security advisor, REST API, Memory) and the §5.3 capture panels (HTTP Exchanges, Live
+> Activity, Log Tail, SQL Trace, Exceptions, Security Logs). **Action-capable panels behave identically to Spring**,
+> behind the shared `LocalhostGuard` write floor: Heap Dump (capture/analyze/delete/download), Threads (download), the
+> advisor scans, Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Traces
+> (clear), and the MCP Server toggle. Only **GraalVM**, **CRaC**, **Conditions**, **Startup Timeline**, **HTTP
+> Sessions**, **Spring Data**, **Spring Security**, and **DevTools** stay deliberately unavailable, each with a
+> panel-specific not-applicable reason. The per-panel `**Implemented**` markers below and `docs/FEATURES.md` carry the
+> authoritative, current per-platform detail.
+
 ### 5.1 Ported as-is — framework-agnostic or same library (17)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
@@ -318,7 +329,8 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
   detail (timing, headers, correlation).
 - **Module naming & coordinates.** New shared/adapter modules keep `com.julien-dubois.bootui:*` coordinates and
   `io.github.jdubois.bootui.*` packages; the Quarkus extension follows Quarkus's `runtime` / `deployment` convention.
-- **Docs & checks.** A `Quarkus` advisor needs a `docs/QUARKUS-CHECKS.md` ruleset doc, mirroring the existing
+- **Docs & checks.** The Quarkus application advisor is backed by `docs/QUARKUS-ADVISOR-CHECKS.md` and the Quarkus
+  Security advisor by `docs/QUARKUS-CHECKS.md`, mirroring the existing
   `*-CHECKS.md` files; `docs/FEATURES.md` would gain a per-platform availability note; and the contributor docs
   (`CONTRIBUTING.md`, AI instructions) would document the second sample app and its e2e suite.
 

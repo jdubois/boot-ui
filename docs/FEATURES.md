@@ -50,7 +50,7 @@ same framework-neutral `GET /bootui/api/overview` endpoint that both adapters ex
 
 ![BootUI Overview panel](./images/bootui-overview.webp)
 
-## Live Activity
+### Live Activity
 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It does not add any new
@@ -122,7 +122,7 @@ the Vert.x event loop, where thread identity does not map to a single request; e
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
-## GitHub
+### GitHub
 
 The GitHub panel sits in the Overview group and summarizes the current project's GitHub state from the local `origin`
 remote. It uses BootUI's standard auto-refresh control with a one-minute interval while the tab is visible; the initial

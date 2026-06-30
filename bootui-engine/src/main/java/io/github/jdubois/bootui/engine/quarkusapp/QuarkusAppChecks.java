@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The fixed Quarkus-native application advisor ruleset (see {@code docs/QUARKUS-CHECKS.md}). Each rule
+ * The fixed Quarkus-native application advisor ruleset (see {@code docs/QUARKUS-ADVISOR-CHECKS.md}). Each rule
  * inspects the neutral {@link QuarkusAppSnapshot} and, when triggered, emits one {@link SpringRuleResultDto}
  * with status {@code VIOLATION}. The full set evaluated is {@link #ruleCount()}; only violations are returned.
  * All signals are build-time computable (CDI scopes, {@code @ConfigProperty}, JAX-RS signatures, profiles) —

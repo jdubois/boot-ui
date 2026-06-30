@@ -18,7 +18,7 @@ import java.util.function.Supplier;
  * Quarkus-native application advisor scanner. The Quarkus replacement for the Spring {@code SpringScanner}:
  * it shares the {@link SpringReport} DTO (so the panel and UI are identical) but evaluates a framework-specific
  * ruleset over a neutral {@link QuarkusAppSnapshot} (CDI scope hygiene, build-time config, reactive idioms,
- * profiles, dev services). The catalogue lives in {@code docs/QUARKUS-CHECKS.md}. Framework-free: depends only
+ * profiles, dev services). The catalogue lives in {@code docs/QUARKUS-ADVISOR-CHECKS.md}. Framework-free: depends only
  * on core DTOs and the SPI carrier.
  */
 public final class QuarkusAppScanner {

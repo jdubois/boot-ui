@@ -368,12 +368,22 @@ hide newer ones. Keep API, UI,
   metadata at build time, and CRaC targets the Spring startup model, so both report a panel-specific "not applicable on
   Quarkus" reason (`QuarkusPanelAvailability.NOT_APPLICABLE`) rather than the generic "not yet" message. Use the shared
   registry + per-adapter availability rather than forking the route list.
-- As of today the Quarkus adapter reports these panels **available**: Architecture, Hibernate, Pentesting,
-  Vulnerabilities, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Health, HTTP Probe, Traces, AI Usage,
-  GitHub, Beans, Mappings, Scheduled Tasks, Cache, Flyway, Liquibase, Database Connection Pools, the Memory advisor,
-  Configuration (read-only — no override write path), Profile Diff (when profiles are active), and Security (a
-  Quarkus-native ruleset — Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, `@RolesAllowed` — replacing the
-  Spring-Security-coupled advisor; see `docs/QUARKUS-CHECKS.md`). The
+- As of today the Quarkus adapter lights up the large majority of the panel surface. **Statically available** (no
+  capability gate): Architecture, the Quarkus application advisor (panel id `spring`), Pentesting, Vulnerabilities,
+  Memory, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Log Tail, Health, HTTP Probe, Beans, Mappings,
+  Configuration (read-only — no override write path), Traces, AI Usage, HTTP Exchanges, Live Activity, Exceptions, MCP
+  Server, and Security (a Quarkus-native ruleset — Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS,
+  `@RolesAllowed` — replacing the Spring-Security-coupled advisor; see `docs/QUARKUS-CHECKS.md`). **Available when their
+  capability or detector is present:** Hibernate (Hibernate ORM), Scheduled Tasks (`quarkus-scheduler`), Cache
+  (`quarkus-cache`), Flyway, Liquibase, Database Connection Pools (an Agroal datasource), Dev Services, Security Logs
+  (`quarkus-security` + `quarkus.security.events.enabled`), SQL Trace (a datasource), REST API (app-owned JAX-RS
+  resources), Profile Diff (active profiles), GitHub (a detected repository), and Copilot / Claude Code (a detected
+  agent session directory). **Action-capable panels behave identically to Spring**, all behind the shared
+  `LocalhostGuard` write floor: the advisor scans (Architecture, the Quarkus app advisor, Pentesting, Hibernate,
+  Security, Memory, REST API, and Vulnerabilities/OSV), Heap Dump (capture/analyze/delete/download), Threads (download),
+  Loggers (set level), HTTP Probe, Cache (clear), Flyway (migrate/clean), Liquibase (update), Traces (clear), and the
+  MCP Server toggle. Only GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security, and
+  DevTools stay deliberately unavailable, each with a panel-specific not-applicable reason. The
   **Memory** advisor is the cleanest port: every scanner/rule/context class was already framework-neutral (JMX +
   `java.lang.management` only), so it relocated wholesale into the engine `MemoryScanner` (built via
   `MemoryScanner.create(ThreadDumpService, Clock)`) with the Spring `MemoryController` reduced to thin wiring and a
@@ -593,7 +603,8 @@ hide newer ones. Keep API, UI,
   Everything else is reported unavailable with a clear reason until its Quarkus backing lands.
 - **Advisors** read their backing analysis rules from `docs/*-CHECKS.md` (`ARCHITECTURE-CHECKS.md`, `SPRING-CHECKS.md`,
   `HIBERNATE-CHECKS.md`, `MEMORY-CHECKS.md`, `SECURITY-CHECKS.md`, `PENTEST-CHECKS.md`, `REST-API-CHECKS.md`,
-  `GRAALVM-READINESS-CHECKS.md`; a `QUARKUS-CHECKS.md` will back the Quarkus advisor). Update the matching doc when changing
+  `GRAALVM-READINESS-CHECKS.md`; on Quarkus, `QUARKUS-ADVISOR-CHECKS.md` backs the Quarkus application advisor and
+  `QUARKUS-CHECKS.md` backs the Quarkus Security advisor). Update the matching doc when changing
   advisor logic.
 - The Claude Code panel reuses `views/Copilot.vue` (`component: Copilot`); there is no separate `ClaudeCode.vue`.
 - The route order and `meta.group` keys in `routes.js` (each `group` must exist in its `groups` map), `docs/FEATURES.md`,
