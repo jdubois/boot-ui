@@ -197,15 +197,23 @@
 
     <build>
         <plugins>
-            <!-- Generates META-INF/quarkus-extension.properties (with the deployment-artifact GAV) and the
-                 extension metadata, linking this runtime jar to bootui-quarkus-deployment. -->
+            <!-- Generates the final META-INF/quarkus-extension.yaml (injecting the runtime `artifact` GAV) and
+                 META-INF/quarkus-extension.properties (with the deployment-artifact GAV), linking this runtime jar
+                 to bootui-quarkus-deployment. Bound to process-resources — the canonical Quarkus phase, matching
+                 quarkus-build-parent's own generate-extension-descriptor execution — so it runs right after the
+                 hand-authored template is copied into target/classes and overwrites it with the GAV-bearing
+                 descriptor. The later `compile` phase also works under a full Maven build (so CI never saw a
+                 problem), but IntelliJ's native builder runs only the resource phases plus its own compiler and
+                 skips compile-bound plugin goals, leaving the template — which lacks `artifact` — in target/classes
+                 and breaking the Dev UI's DevUIProcessor under quarkus:dev. -->
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-extension-maven-plugin</artifactId>
                 <version>${quarkus.platform.version}</version>
                 <executions>
                     <execution>
-                        <phase>compile</phase>
+                        <id>generate-extension-descriptor</id>
+                        <phase>process-resources</phase>
                         <goals>
                             <goal>extension-descriptor</goal>
                         </goals>
