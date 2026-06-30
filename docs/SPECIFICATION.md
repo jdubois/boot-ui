@@ -128,9 +128,16 @@ When BootUI is enabled, the application startup output should include:
 BootUI is available at http://localhost:8080/bootui
 ```
 
-The scheme follows `server.ssl.enabled`: when TLS is enabled the banner uses `https://`
-instead of `http://`. The port and context path are resolved from `local.server.port`
-(falling back to `server.port`, then `8080`) and `server.servlet.context-path`.
+On Spring the scheme follows `server.ssl.enabled`: when TLS is enabled the banner uses
+`https://` instead of `http://`. The port and context path are resolved from
+`local.server.port` (falling back to `server.port`, then `8080`) and
+`server.servlet.context-path`.
+
+The Quarkus adapter logs the same line at startup, gated by the same `bootui.show-banner`
+key. Because the console is a local developer tool there, the Quarkus banner always uses
+`http://`; the port is the live bound HTTP port (`quarkus.http.test-port` under tests,
+otherwise `quarkus.http.port`) and the path is `quarkus.http.root-path` plus the fixed
+`/bootui` mount.
 
 This should integrate with the project's startup banner convention.
 

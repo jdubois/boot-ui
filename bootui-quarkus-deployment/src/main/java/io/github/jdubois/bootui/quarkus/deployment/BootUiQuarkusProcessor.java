@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.deployment;
 
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
+import io.github.jdubois.bootui.quarkus.BootUiQuarkusStartupBanner;
 import io.github.jdubois.bootui.quarkus.BootUiTelemetryProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusApplicationInfo;
 import io.github.jdubois.bootui.quarkus.QuarkusBasePackageProvider;
@@ -215,7 +216,8 @@ class BootUiQuarkusProcessor {
                         BootUiMcpProducer.class,
                         QuarkusMcpTools.class,
                         QuarkusMcpEnvelope.class,
-                        BootUiQuarkusSafetyFilter.class)
+                        BootUiQuarkusSafetyFilter.class,
+                        BootUiQuarkusStartupBanner.class)
                 .setUnremovable()
                 .build());
     }
