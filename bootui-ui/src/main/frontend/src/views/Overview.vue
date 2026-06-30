@@ -23,6 +23,14 @@ function panelAvailable(id) {
   return !panel || panel.available !== false
 }
 
+const platform = computed(() => injectedPanels?.value?.platform ?? localPanels.value?.platform ?? 'spring-boot')
+
+// Resolves a scanner's display title for the active framework: the shared `spring` advisor renders as
+// "Quarkus" on Quarkus, mirroring App.vue's platform-aware navigation/header titles.
+function displayTitle(def) {
+  return def.titleByPlatform?.[platform.value] || def.title
+}
+
 // Severity-based scanners share the same {severityCounts, scan.status} contract.
 // GitHub renders as the first grid card, so the scanner order below lays out the
 // remaining cards into a 3-column grid: Architecture, Memory, REST API / Spring,
@@ -58,6 +66,7 @@ const scannerDefs = [
   {
     id: 'spring',
     title: 'Spring',
+    titleByPlatform: {quarkus: 'Quarkus'},
     icon: 'bi-leaf',
     tone: 'info',
     to: '/spring',
@@ -142,7 +151,7 @@ async function runScanner(def) {
   } catch (e) {
     if (token !== requestTokens[def.id]) return
     state.state = 'error'
-    state.error = describeLoadError(e, `Unable to run ${def.title}`).message
+    state.error = describeLoadError(e, `Unable to run ${displayTitle(def)}`).message
   }
 }
 
@@ -250,7 +259,7 @@ const overallBandTone = computed(() => (Number.isFinite(overall.value) ? scoreBa
 
 const overallContributions = computed(() => {
   const items = visibleScanners.value
-    .map((def) => ({title: def.title, score: scanners[def.id].score, state: scanners[def.id].state}))
+    .map((def) => ({title: displayTitle(def), score: scanners[def.id].score, state: scanners[def.id].state}))
     .filter((item) => item.state === 'done' && Number.isFinite(item.score))
   if (githubVisible.value && githubScored.value) items.push({title: 'GitHub', score: github.score, state: 'done'})
   return items
@@ -474,7 +483,7 @@ onActivated(refreshScores)
 
       <div v-for="def in visibleScanners" :key="def.id" class="col-md-6 col-lg-4">
         <ScannerScoreCard
-          :title="def.title"
+          :title="displayTitle(def)"
           :icon="def.icon"
           :tone="def.tone"
           :to="def.to"

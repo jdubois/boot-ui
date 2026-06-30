@@ -111,6 +111,30 @@ describe('Overview', () => {
     expect(wrapper.text()).not.toContain('Connect to GitHub')
   })
 
+  it('labels the shared advisor "Quarkus" on the Quarkus platform', async () => {
+    stubFetch({})
+    const wrapper = mountOverview({
+      platform: 'quarkus',
+      panels: [{id: 'spring', available: true}]
+    })
+    await flushPromises()
+    const titles = wrapper.findAllComponents(ScannerScoreCard).map((card) => card.props('title'))
+    expect(titles).toContain('Quarkus')
+    expect(titles).not.toContain('Spring')
+  })
+
+  it('labels the shared advisor "Spring" on the Spring Boot platform', async () => {
+    stubFetch({})
+    const wrapper = mountOverview({
+      platform: 'spring-boot',
+      panels: [{id: 'spring', available: true}]
+    })
+    await flushPromises()
+    const titles = wrapper.findAllComponents(ScannerScoreCard).map((card) => card.props('title'))
+    expect(titles).toContain('Spring')
+    expect(titles).not.toContain('Quarkus')
+  })
+
   it('does not run any scanner automatically', async () => {
     const fetchHandlers = {}
     stubFetch(fetchHandlers)
