@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
+import io.smallrye.mutiny.Multi;
+import io.smallrye.mutiny.subscription.BackPressureStrategy;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -10,11 +12,8 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
-import jakarta.ws.rs.sse.SseEventSink;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * JAX-RS resource for the Log Tail panel ({@code GET /bootui/api/log-tail/recent} and the SSE stream
@@ -47,47 +46,45 @@ public class LogTailResource {
     @GET
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
-    public void stream(@Context SseEventSink sink, @Context Sse sse) {
-        if (openStreams.incrementAndGet() > MAX_CONCURRENT_STREAMS) {
-            openStreams.decrementAndGet();
-            sink.close();
-            return;
-        }
-        AtomicBoolean done = new AtomicBoolean();
-        AtomicReference<Runnable> unsubscribe = new AtomicReference<>(() -> {});
-        Runnable cleanup = () -> {
-            if (done.compareAndSet(false, true)) {
-                unsubscribe.get().run();
-                openStreams.decrementAndGet();
-            }
-        };
-        LogTailBuffer.Subscription subscription = buffer.subscribeWithReplay(line -> send(sink, sse, line, cleanup));
-        unsubscribe.set(subscription.unsubscribe());
-        for (LogLineDto line : subscription.backlog()) {
-            if (done.get()) {
-                break;
-            }
-            send(sink, sse, line, cleanup);
-        }
+    public Multi<OutboundSseEvent> stream(@Context Sse sse) {
+        return Multi.createFrom()
+                .<OutboundSseEvent>emitter(
+                        emitter -> {
+                            if (openStreams.incrementAndGet() > MAX_CONCURRENT_STREAMS) {
+                                openStreams.decrementAndGet();
+                                emitter.complete();
+                                return;
+                            }
+                            // Atomically snapshot the backlog and register the live subscriber under one
+                            // lock, then replay the backlog: no line is dropped or duplicated across the
+                            // replay/live boundary. Live delivery arrives on arbitrary logging threads, so
+                            // BUFFER (a multi-producer queue with a single serialised drain) is required for
+                            // thread-safe emission — and, unlike the tick streams, log lines must not be
+                            // dropped, which BUFFER also guarantees.
+                            LogTailBuffer.Subscription subscription = buffer.subscribeWithReplay(line -> {
+                                if (!emitter.isCancelled()) {
+                                    emitter.emit(event(sse, line));
+                                }
+                            });
+                            emitter.onTermination(() -> {
+                                subscription.unsubscribe().run();
+                                openStreams.decrementAndGet();
+                            });
+                            for (LogLineDto line : subscription.backlog()) {
+                                if (emitter.isCancelled()) {
+                                    break;
+                                }
+                                emitter.emit(event(sse, line));
+                            }
+                        },
+                        BackPressureStrategy.BUFFER);
     }
 
-    private void send(SseEventSink sink, Sse sse, LogLineDto line, Runnable cleanup) {
-        if (sink.isClosed()) {
-            cleanup.run();
-            return;
-        }
-        OutboundSseEvent event = sse.newEventBuilder()
+    private static OutboundSseEvent event(Sse sse, LogLineDto line) {
+        return sse.newEventBuilder()
                 .name("log")
                 .mediaType(MediaType.APPLICATION_JSON_TYPE)
                 .data(line)
                 .build();
-        try {
-            sink.send(event).exceptionally(error -> {
-                cleanup.run();
-                return null;
-            });
-        } catch (RuntimeException ex) {
-            cleanup.run();
-        }
     }
 }

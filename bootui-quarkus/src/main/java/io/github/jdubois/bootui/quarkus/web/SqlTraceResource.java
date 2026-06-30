@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
+import io.smallrye.mutiny.Multi;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -15,10 +16,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
-import jakarta.ws.rs.sse.SseEventSink;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * JAX-RS resource for the SQL Trace panel ({@code GET /bootui/api/sql-trace} plus {@code /clear} and
@@ -85,47 +83,12 @@ public class SqlTraceResource {
     @GET
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
-    public void stream(@Context SseEventSink sink, @Context Sse sse) {
-        if (openStreams.incrementAndGet() > MAX_CONCURRENT_STREAMS) {
-            openStreams.decrementAndGet();
-            sink.close();
-            return;
-        }
+    public Multi<OutboundSseEvent> stream(@Context Sse sse) {
         SqlTraceRecorder rec = recorder.isResolvable() ? recorder.get() : null;
         if (rec == null) {
-            openStreams.decrementAndGet();
-            sink.close();
-            return;
+            return Multi.createFrom().<OutboundSseEvent>empty();
         }
-        AtomicBoolean done = new AtomicBoolean();
-        AtomicReference<Runnable> unsubscribe = new AtomicReference<>(() -> {});
-        Runnable cleanup = () -> {
-            if (done.compareAndSet(false, true)) {
-                unsubscribe.get().run();
-                openStreams.decrementAndGet();
-            }
-        };
-        unsubscribe.set(rec.subscribe(() -> send(sink, sse, cleanup)));
-    }
-
-    private void send(SseEventSink sink, Sse sse, Runnable cleanup) {
-        if (sink.isClosed()) {
-            cleanup.run();
-            return;
-        }
-        OutboundSseEvent event = sse.newEventBuilder()
-                .name("update")
-                .mediaType(MediaType.TEXT_PLAIN_TYPE)
-                .data("update")
-                .build();
-        try {
-            sink.send(event).exceptionally(error -> {
-                cleanup.run();
-                return null;
-            });
-        } catch (RuntimeException ex) {
-            cleanup.run();
-        }
+        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, rec::subscribe);
     }
 
     private SqlTraceReport report(SqlTraceRecorder rec) {

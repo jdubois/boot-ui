@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
+import io.smallrye.mutiny.Multi;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -13,11 +14,8 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
-import jakarta.ws.rs.sse.SseEventSink;
 import java.time.Instant;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.microprofile.config.Config;
 
 /**
@@ -84,41 +82,8 @@ public class SecurityLogsResource {
     @GET
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
-    public void stream(@Context SseEventSink sink, @Context Sse sse) {
-        if (openStreams.incrementAndGet() > MAX_CONCURRENT_STREAMS) {
-            openStreams.decrementAndGet();
-            sink.close();
-            return;
-        }
-        AtomicBoolean done = new AtomicBoolean();
-        AtomicReference<Runnable> unsubscribe = new AtomicReference<>(() -> {});
-        Runnable cleanup = () -> {
-            if (done.compareAndSet(false, true)) {
-                unsubscribe.get().run();
-                openStreams.decrementAndGet();
-            }
-        };
-        unsubscribe.set(buffer.subscribe(() -> send(sink, sse, cleanup)));
-    }
-
-    private void send(SseEventSink sink, Sse sse, Runnable cleanup) {
-        if (sink.isClosed()) {
-            cleanup.run();
-            return;
-        }
-        OutboundSseEvent event = sse.newEventBuilder()
-                .name("update")
-                .mediaType(MediaType.TEXT_PLAIN_TYPE)
-                .data("update")
-                .build();
-        try {
-            sink.send(event).exceptionally(error -> {
-                cleanup.run();
-                return null;
-            });
-        } catch (RuntimeException ex) {
-            cleanup.run();
-        }
+    public Multi<OutboundSseEvent> stream(@Context Sse sse) {
+        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, buffer::subscribe);
     }
 
     private boolean eventsEnabled() {
