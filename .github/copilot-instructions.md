@@ -367,7 +367,12 @@ hide newer ones. Keep API, UI,
   have no meaningful Quarkus equivalent): Quarkus compiles native images itself and generates its own reachability
   metadata at build time, and CRaC targets the Spring startup model, so both report a panel-specific "not applicable on
   Quarkus" reason (`QuarkusPanelAvailability.NOT_APPLICABLE`) rather than the generic "not yet" message. Use the shared
-  registry + per-adapter availability rather than forking the route list.
+  registry + per-adapter availability rather than forking the route list. The Quarkus application advisor deliberately
+  **keeps the Spring advisor's panel id `spring`** (route `/spring`, `/bootui/api/spring`, `SpringReport` DTO) instead of
+  minting a `quarkus` id: one shared `Spring.vue` reads the manifest `platform` and `routes.js` `meta.titleByPlatform` so
+  the sidebar/header already render the **"Quarkus"** label on Quarkus, and a rename would ripple through `routes.js`,
+  `App.vue` `navTitle`, both adapters' panel registries/resources, the MCP catalog, the conformance golden fixtures, and
+  the e2e suite for purely cosmetic gain — the platform-aware label is the intended seam, so reuse the id.
 - As of today the Quarkus adapter lights up the large majority of the panel surface. **Statically available** (no
   capability gate): Architecture, the Quarkus application advisor (panel id `spring`), Pentesting, Vulnerabilities,
   Memory, Threads, Heap Dump, Live Memory, JVM Tuning, Metrics, Loggers, Log Tail, Health, HTTP Probe, Beans, Mappings,
