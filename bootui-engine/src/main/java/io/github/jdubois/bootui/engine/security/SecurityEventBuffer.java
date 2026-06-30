@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.spi.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Capped, thread-safe ring buffer of {@link CapturedSecurityEvent} records — the Quarkus capture source
@@ -20,6 +21,7 @@ public final class SecurityEventBuffer implements IdleReclaimable {
 
     private final int capacity;
     private final ArrayDeque<CapturedSecurityEvent> entries;
+    private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile boolean recording = true;
 
     public SecurityEventBuffer(int capacity) {
@@ -38,6 +40,7 @@ public final class SecurityEventBuffer implements IdleReclaimable {
             }
             entries.addLast(event);
         }
+        notifyListeners();
     }
 
     /** Newest-first immutable snapshot, matching Actuator's reverse-chronological ordering. */
@@ -64,5 +67,25 @@ public final class SecurityEventBuffer implements IdleReclaimable {
     @Override
     public void resumeFromIdle() {
         recording = true;
+    }
+
+    /**
+     * Registers a listener invoked (with no payload) whenever a new event is recorded. Returns a handle
+     * that removes the listener when run. Listener failures are isolated so one bad SSE subscriber cannot
+     * break security-event capture. Suspend/resume do not notify.
+     */
+    public Runnable subscribe(Runnable listener) {
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
+    private void notifyListeners() {
+        for (Runnable listener : listeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException ignored) {
+                // A misbehaving stream subscriber must never disrupt security-event capture.
+            }
+        }
     }
 }

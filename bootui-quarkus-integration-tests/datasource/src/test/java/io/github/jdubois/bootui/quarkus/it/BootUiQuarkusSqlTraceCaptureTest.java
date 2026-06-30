@@ -8,10 +8,15 @@ import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
+import java.net.URI;
 import java.net.URL;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.time.Duration;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,5 +84,28 @@ class BootUiQuarkusSqlTraceCaptureTest {
         assertThat(entry.path("parameters").size())
                 .as("bound parameter values stay masked while capture-parameters is off")
                 .isEqualTo(0);
+    }
+
+    @Test
+    void sqlTraceStreamOpens() throws Exception {
+        // The SSE change-notification stream backs the shared Vue panel's auto-refresh toggle; it must open
+        // (200 + text/event-stream) whenever a recorder is wrapped, mirroring the Spring adapter. The push
+        // payload is pinned deterministically by the engine SqlTraceRecorder unit tests.
+        HttpClient client =
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl.toExternalForm().replaceAll("/$", "") + "/bootui/api/sql-trace/stream"))
+                .timeout(Duration.ofSeconds(10))
+                .header("Accept", "text/event-stream")
+                .GET()
+                .build();
+        HttpResponse<java.io.InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        response.body().close();
+        assertThat(response.statusCode())
+                .as("GET /bootui/api/sql-trace/stream status")
+                .isEqualTo(200);
+        assertThat(response.headers().firstValue("content-type").orElse(""))
+                .as("GET /bootui/api/sql-trace/stream content-type")
+                .contains("text/event-stream");
     }
 }

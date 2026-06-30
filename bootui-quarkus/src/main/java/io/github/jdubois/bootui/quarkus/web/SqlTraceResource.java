@@ -11,7 +11,14 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.sse.OutboundSseEvent;
+import jakarta.ws.rs.sse.Sse;
+import jakarta.ws.rs.sse.SseEventSink;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * JAX-RS resource for the SQL Trace panel ({@code GET /bootui/api/sql-trace} plus {@code /clear} and
@@ -21,15 +28,21 @@ import jakarta.ws.rs.core.MediaType;
  * wrap from {@code BootUiSqlTraceProducer}; bind values surface only when capture is on and value exposure is
  * not metadata-only. The recorder is resolved through an {@link Instance} so the panel renders unavailable
  * when no JDBC datasource is present (AGROAL gate). State-changing endpoints are gated by the panel-access
- * filter when the panel is read-only.
+ * filter when the panel is read-only. The SSE change-notification stream {@code /stream} ticks whenever a new
+ * statement is recorded (or recording is toggled/cleared) so the shared Vue panel's auto-refresh toggle works
+ * identically to Spring; it closes immediately when no recorder is present.
  */
 @Path("/bootui/api/sql-trace")
 public class SqlTraceResource {
 
     private static final String NOT_CONFIGURED = "SQL tracing is not configured";
 
+    /** Upper bound on simultaneous SQL-trace streams; this is a local dev tool, not a fan-out hub. */
+    static final int MAX_CONCURRENT_STREAMS = 20;
+
     private final Instance<SqlTraceRecorder> recorder;
     private final QuarkusExposurePolicy exposure;
+    private final AtomicInteger openStreams = new AtomicInteger();
 
     @Inject
     public SqlTraceResource(Instance<SqlTraceRecorder> recorder, QuarkusExposurePolicy exposure) {
@@ -67,6 +80,52 @@ public class SqlTraceResource {
         boolean enabled = (request == null || request.enabled() == null) ? !rec.isRecording() : request.enabled();
         rec.setRecording(enabled);
         return report(rec);
+    }
+
+    @GET
+    @Path("/stream")
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    public void stream(@Context SseEventSink sink, @Context Sse sse) {
+        if (openStreams.incrementAndGet() > MAX_CONCURRENT_STREAMS) {
+            openStreams.decrementAndGet();
+            sink.close();
+            return;
+        }
+        SqlTraceRecorder rec = recorder.isResolvable() ? recorder.get() : null;
+        if (rec == null) {
+            openStreams.decrementAndGet();
+            sink.close();
+            return;
+        }
+        AtomicBoolean done = new AtomicBoolean();
+        AtomicReference<Runnable> unsubscribe = new AtomicReference<>(() -> {});
+        Runnable cleanup = () -> {
+            if (done.compareAndSet(false, true)) {
+                unsubscribe.get().run();
+                openStreams.decrementAndGet();
+            }
+        };
+        unsubscribe.set(rec.subscribe(() -> send(sink, sse, cleanup)));
+    }
+
+    private void send(SseEventSink sink, Sse sse, Runnable cleanup) {
+        if (sink.isClosed()) {
+            cleanup.run();
+            return;
+        }
+        OutboundSseEvent event = sse.newEventBuilder()
+                .name("update")
+                .mediaType(MediaType.TEXT_PLAIN_TYPE)
+                .data("update")
+                .build();
+        try {
+            sink.send(event).exceptionally(error -> {
+                cleanup.run();
+                return null;
+            });
+        } catch (RuntimeException ex) {
+            cleanup.run();
+        }
     }
 
     private SqlTraceReport report(SqlTraceRecorder rec) {
