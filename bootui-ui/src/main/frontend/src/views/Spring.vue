@@ -13,10 +13,18 @@ const fwName = computed(() => (isQuarkus.value ? 'Quarkus' : 'Spring'))
 const beansLabel = computed(() => (isQuarkus.value ? 'Managed beans' : 'Beans analysed'))
 const panel = useAdvisorPanel(props, {
   apiPath: 'api/spring',
-  loadErrorMessage: 'Unable to load Spring Advisor report',
-  scanErrorMessage: 'Unable to run Spring checks',
-  emptyScanPrompt: 'Run Spring checks to see advisor findings',
-  emptyNoFindings: 'No Spring Advisor findings',
+  get loadErrorMessage() {
+    return `Unable to load ${fwName.value} Advisor report`
+  },
+  get scanErrorMessage() {
+    return `Unable to run ${fwName.value} checks`
+  },
+  get emptyScanPrompt() {
+    return `Run ${fwName.value} checks to see advisor findings`
+  },
+  get emptyNoFindings() {
+    return `No ${fwName.value} Advisor findings`
+  },
   countNoun: 'finding'
 })
 </script>

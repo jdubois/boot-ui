@@ -170,5 +170,7 @@ describe('Spring', () => {
     expect(wrapper.text()).toContain('Run Quarkus checks')
     expect(wrapper.text()).toContain('Managed beans')
     expect(wrapper.text()).not.toContain('Beans analysed')
+    expect(wrapper.text()).toContain('No Quarkus Advisor findings')
+    expect(wrapper.text()).not.toContain('No Spring Advisor findings')
   })
 })
