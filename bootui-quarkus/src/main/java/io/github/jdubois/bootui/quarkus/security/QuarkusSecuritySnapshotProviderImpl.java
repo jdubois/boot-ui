@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.security;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshotProvider;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +26,8 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
     static final String ENDPOINTS_KEY = "bootui.internal.sec.endpoints";
     static final String SECURED_KEY = "bootui.internal.sec.secured-endpoints";
     static final String CSRF_KEY = "bootui.internal.sec.csrf-present";
+    static final String GRPC_PRESENT_KEY = "bootui.internal.sec.grpc-present";
+    static final String GRAPHQL_PRESENT_KEY = "bootui.internal.sec.graphql-present";
 
     private static final Pattern PERMISSION =
             Pattern.compile("^quarkus\\.http\\.auth\\.permission\\.([^.]+)\\.policy$");
@@ -60,7 +63,8 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean oidcVerifyNone = "none".equalsIgnoreCase(str("quarkus.oidc.tls.verification", ""));
         boolean swagger = bool("quarkus.swagger-ui.always-include", false);
         boolean openapi = bool("quarkus.smallrye-openapi.always-include", false);
-        boolean csrf = bool(CSRF_KEY, false);
+        boolean csrfExtensionPresent = bool(CSRF_KEY, false);
+        boolean csrf = csrfExtensionPresent && bool("quarkus.rest-csrf.enabled", true);
 
         boolean behindProxy = bool("quarkus.http.proxy.proxy-address-forwarding", false)
                 || bool("quarkus.http.proxy.allow-forwarded", false)
@@ -81,6 +85,26 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         boolean managementEnabled = bool("quarkus.management.enabled", false);
         boolean managementHostNonLoopback =
                 managementEnabled && !isLoopbackHost(str("quarkus.management.host", "0.0.0.0"));
+
+        boolean jwtAllowUnsigned = bool("quarkus.smallrye-jwt.allow-unsigned-tokens", false);
+        boolean jdbcClearPasswordMapper = jdbcClearPasswordMapperEnabled();
+        boolean jdbcBcryptWorkFactorLow = jdbcBcryptWorkFactorLow();
+        boolean embeddedUsers = bool("quarkus.security.users.embedded.enabled", false);
+        boolean jwtAudiences = has("mp.jwt.verify.audiences");
+        boolean jwtInlineKey = has("mp.jwt.verify.publickey");
+        boolean referrerPolicy = has("quarkus.http.header.\"Referrer-Policy\".value");
+        boolean permissionsPolicy = has("quarkus.http.header.\"Permissions-Policy\".value");
+        String nonApplicationRootPath = str("quarkus.http.non-application-root-path", "/q");
+        boolean grpcPresent = bool(GRPC_PRESENT_KEY, false);
+        boolean grpcReflectionProd = grpcPresent && grpcReflectionEnabledInProdProfile();
+        boolean graphqlPresent = bool(GRAPHQL_PRESENT_KEY, false);
+        boolean graphqlIntrospection = bool("quarkus.smallrye-graphql.introspection-enabled", true);
+        boolean graphqlUiAlwaysInclude = bool("quarkus.smallrye-graphql.ui.always-include", false);
+        boolean messagingCredsWithoutTls = messagingCredentialsWithoutTls();
+        boolean formCookieHttpOnly = bool("quarkus.http.auth.form.http-only-cookie", false);
+        boolean formCookieSameSiteNone =
+                "none".equalsIgnoreCase(str("quarkus.http.auth.form.cookie-same-site", "strict"));
+        boolean formSessionTimeoutExcessive = formSessionTimeoutExcessive();
 
         return new QuarkusSecuritySnapshot(
                 oidc,
@@ -122,7 +146,24 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 xContentType,
                 denyUnannotated,
                 managementEnabled,
-                managementHostNonLoopback);
+                managementHostNonLoopback,
+                jwtAllowUnsigned,
+                jdbcClearPasswordMapper,
+                jdbcBcryptWorkFactorLow,
+                embeddedUsers,
+                jwtAudiences,
+                jwtInlineKey,
+                referrerPolicy,
+                permissionsPolicy,
+                nonApplicationRootPath,
+                grpcReflectionProd,
+                graphqlPresent,
+                graphqlIntrospection,
+                graphqlUiAlwaysInclude,
+                messagingCredsWithoutTls,
+                formCookieHttpOnly,
+                formCookieSameSiteNone,
+                formSessionTimeoutExcessive);
     }
 
     private static boolean isLoopbackHost(String host) {
@@ -135,6 +176,70 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 || h.startsWith("127.")
                 || h.equals("::1")
                 || h.equals("0:0:0:0:0:0:0:1");
+    }
+
+    private boolean jdbcClearPasswordMapperEnabled() {
+        for (String name : config.getPropertyNames()) {
+            if (name.contains("principal-query")
+                    && name.endsWith("clear-password-mapper.enabled")
+                    && bool(name, false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean jdbcBcryptWorkFactorLow() {
+        for (String name : config.getPropertyNames()) {
+            if (name.contains("principal-query") && name.endsWith("bcrypt-password-mapper.work-factor")) {
+                Integer workFactor =
+                        config.getOptionalValue(name, Integer.class).orElse(null);
+                if (workFactor != null && workFactor < 10) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Checks only the literal {@code quarkus.grpc.server.enable-reflection-service} or
+     * {@code %prod.quarkus.grpc.server.enable-reflection-service} keys (not the profile-resolved value), so a
+     * dev/test-scoped override doesn't trigger a false positive while the advisor itself runs in dev/test mode.
+     */
+    private boolean grpcReflectionEnabledInProdProfile() {
+        for (String name : config.getPropertyNames()) {
+            if ((name.equals("quarkus.grpc.server.enable-reflection-service")
+                            || name.equals("%prod.quarkus.grpc.server.enable-reflection-service"))
+                    && bool(name, false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean messagingCredentialsWithoutTls() {
+        boolean saslCredentialsConfigured = false;
+        boolean encryptedProtocolConfigured = false;
+        for (String name : config.getPropertyNames()) {
+            String lower = name.toLowerCase();
+            if ((lower.endsWith(".sasl.password") || lower.endsWith(".sasl.jaas.config"))
+                    && !str(name, "").isBlank()) {
+                saslCredentialsConfigured = true;
+            } else if (lower.endsWith(".security.protocol")) {
+                String protocol = str(name, "").toUpperCase();
+                if (protocol.equals("SASL_SSL") || protocol.equals("SSL")) {
+                    encryptedProtocolConfigured = true;
+                }
+            }
+        }
+        return saslCredentialsConfigured && !encryptedProtocolConfigured;
+    }
+
+    private boolean formSessionTimeoutExcessive() {
+        return config.getOptionalValue("quarkus.http.auth.form.timeout", Duration.class)
+                .map(timeout -> timeout.toHours() >= 8)
+                .orElse(false);
     }
 
     private List<QuarkusSecurityPermission> permissions() {

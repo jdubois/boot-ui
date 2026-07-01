@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 final class QuarkusSecurityChecks {
 
     private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 25;
+    private static final int RULE_COUNT = 43;
     private static final String GUIDE = "https://quarkus.io/guides/security-overview";
     private static final Pattern MAX_AGE = Pattern.compile("max-age\\s*=\\s*(\\d+)");
     private static final long HSTS_MIN_MAX_AGE = 31536000L;
@@ -59,11 +59,11 @@ final class QuarkusSecurityChecks {
                     "Form authentication without CSRF protection",
                     "Authentication",
                     "HIGH",
-                    "Cookie-based form authentication is enabled but the CSRF reactive filter is absent, leaving"
+                    "Cookie-based form authentication is enabled but the CSRF filter is absent, leaving"
                             + " state-changing requests open to cross-site request forgery.",
                     1,
-                    List.of("quarkus.http.auth.form.enabled=true, quarkus-csrf-reactive absent"),
-                    "Add the quarkus-csrf-reactive extension and embed the CSRF token in forms."));
+                    List.of("quarkus.http.auth.form.enabled=true, quarkus-rest-csrf absent"),
+                    "Add the io.quarkus:quarkus-rest-csrf extension and embed the CSRF token in forms."));
         }
         if (s.jwtConfigured() && !s.jwtIssuerConfigured()) {
             v.add(rule(
@@ -89,6 +89,80 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("quarkus.http.auth.proactive=false"),
                     "Confirm this is intentional; enable quarkus.security.jaxrs.deny-unannotated-endpoints."));
+        }
+        if (s.jwtAllowUnsignedTokens()) {
+            v.add(rule(
+                    "QS-AUTH-006",
+                    "JWT unsigned tokens allowed",
+                    "Authentication",
+                    "CRITICAL",
+                    "quarkus.smallrye-jwt.allow-unsigned-tokens=true accepts JWTs with alg=none, meaning anyone"
+                            + " can forge a token with an arbitrary payload and no signature at all.",
+                    1,
+                    List.of("quarkus.smallrye-jwt.allow-unsigned-tokens=true"),
+                    "Remove the override; only allow unsigned tokens in a throwaway local dev profile, never"
+                            + " in any deployed environment."));
+        }
+        if (s.embeddedUsersEnabled()) {
+            v.add(rule(
+                    "QS-AUTH-007",
+                    "Embedded properties-file users enabled",
+                    "Authentication",
+                    "MEDIUM",
+                    "quarkus.security.users.embedded.enabled=true authenticates against a static in-memory/"
+                            + "properties-file user list — a convenience meant for demos/tests, not a real"
+                            + " identity store.",
+                    1,
+                    List.of("quarkus.security.users.embedded.enabled=true"),
+                    "Use quarkus-elytron-security-jdbc/oidc for real deployments; keep embedded users to %dev/%test."));
+        }
+        if (s.jwtConfigured() && !s.jwtAudiencesConfigured()) {
+            v.add(rule(
+                    "QS-AUTH-008",
+                    "JWT verification without audience validation",
+                    "Authentication",
+                    "MEDIUM",
+                    "SmallRye JWT verification is configured without mp.jwt.verify.audiences, so a token minted"
+                            + " for a different client/service by the same trusted issuer is still accepted.",
+                    1,
+                    List.of("mp.jwt.verify.publickey* set, mp.jwt.verify.audiences absent"),
+                    "Set mp.jwt.verify.audiences to this service's expected audience(s)."));
+        }
+        if (s.jwtConfigured() && s.jwtInlinePublicKey()) {
+            v.add(rule(
+                    "QS-AUTH-009",
+                    "JWT public key configured inline",
+                    "Authentication",
+                    "LOW",
+                    "mp.jwt.verify.publickey holds a static inline key. Unlike a JWKS location, an inline key"
+                            + " cannot be rotated without a redeploy.",
+                    1,
+                    List.of("mp.jwt.verify.publickey set"),
+                    "Prefer mp.jwt.verify.publickey.location pointing at a JWKS endpoint that supports rotation."));
+        }
+        if (s.jdbcClearPasswordMapperEnabled()) {
+            v.add(rule(
+                    "QS-AUTH-010",
+                    "JDBC identity store using clear-text password mapper",
+                    "Authentication",
+                    "HIGH",
+                    "A quarkus-elytron-security-jdbc principal-query uses the clear-password mapper, meaning"
+                            + " passwords are compared/stored in plain text rather than hashed.",
+                    1,
+                    List.of("principal-query *.clear-password-mapper.enabled=true"),
+                    "Switch to bcrypt-password-mapper (or another hashing mapper) and re-hash stored passwords."));
+        }
+        if (s.jdbcBcryptWorkFactorLow()) {
+            v.add(rule(
+                    "QS-AUTH-011",
+                    "JDBC identity store bcrypt work-factor too low",
+                    "Authentication",
+                    "MEDIUM",
+                    "A quarkus-elytron-security-jdbc principal-query's bcrypt-password-mapper work-factor is set"
+                            + " below the default (10), weakening resistance to offline brute-force attacks.",
+                    1,
+                    List.of("principal-query *.bcrypt-password-mapper.work-factor < 10"),
+                    "Remove the override, or raise it to at least the default of 10."));
         }
         if (s.permissions().isEmpty() && s.annotationCount() == 0 && s.anyAuthMechanism()) {
             v.add(rule(
@@ -223,20 +297,23 @@ final class QuarkusSecurityChecks {
                     List.of("cors.access-control-allow-credentials=true with cors.methods/headers=*"),
                     "List the exact methods and headers the client needs instead of *."));
         }
-        if (!s.hstsHeader() && !s.cspHeader()) {
+        List<String> unanchoredCorsRegexes = unanchoredCorsRegexOrigins(s);
+        if (!unanchoredCorsRegexes.isEmpty()) {
             v.add(rule(
-                    "QS-HDR-001",
-                    "No security headers configured",
-                    "Headers",
-                    "LOW",
-                    "No Strict-Transport-Security or Content-Security-Policy response headers are configured.",
-                    1,
-                    List.of("quarkus.http.header.* absent"),
-                    "Add HSTS and CSP headers via quarkus.http.header.\"...\"."));
+                    "QS-CORS-004",
+                    "CORS regex origin pattern not anchored",
+                    "CORS",
+                    "MEDIUM",
+                    "A quarkus.http.cors.origins entry uses the /regex/ syntax without ^/$ anchors. Quarkus"
+                            + " matches the pattern anywhere in the origin string, so e.g. /example\\.com/ also"
+                            + " matches \"evil-example.com.attacker.net\" (quarkusio/quarkus#34718).",
+                    unanchoredCorsRegexes.size(),
+                    unanchoredCorsRegexes,
+                    "Anchor the pattern with ^ and $, e.g. /^https:\\/\\/(?:[a-z0-9-]+\\.)*example\\.com$/."));
         }
         if (s.hstsHeader() && isWeakHsts(s.hstsHeaderValue())) {
             v.add(rule(
-                    "QS-HDR-002",
+                    "QS-HDR-001",
                     "Weak Strict-Transport-Security policy",
                     "Headers",
                     "LOW",
@@ -246,21 +323,9 @@ final class QuarkusSecurityChecks {
                     List.of("Strict-Transport-Security: " + nullToEmpty(s.hstsHeaderValue())),
                     "Use max-age=31536000 (1 year) and add includeSubDomains."));
         }
-        if (missingFramingHeaders(s)) {
-            v.add(rule(
-                    "QS-HDR-003",
-                    "Missing clickjacking/MIME-sniffing headers",
-                    "Headers",
-                    "LOW",
-                    "No X-Frame-Options/CSP frame-ancestors (clickjacking) or X-Content-Type-Options=nosniff"
-                            + " (MIME sniffing) protection is configured.",
-                    1,
-                    List.of("X-Frame-Options/frame-ancestors and/or X-Content-Type-Options absent"),
-                    "Add X-Frame-Options=DENY (or CSP frame-ancestors 'none') and X-Content-Type-Options=nosniff."));
-        }
         if (s.cspHeader() && isWeakCsp(s.cspHeaderValue())) {
             v.add(rule(
-                    "QS-HDR-004",
+                    "QS-HDR-002",
                     "Weak Content-Security-Policy",
                     "Headers",
                     "MEDIUM",
@@ -269,6 +334,85 @@ final class QuarkusSecurityChecks {
                     1,
                     List.of("Content-Security-Policy: " + nullToEmpty(s.cspHeaderValue())),
                     "Remove unsafe-inline/unsafe-eval and wildcard sources; use nonces/hashes for scripts."));
+        }
+        if (!s.hstsHeader()) {
+            v.add(
+                    rule(
+                            "QS-HDR-003",
+                            "Missing Strict-Transport-Security header",
+                            "Headers",
+                            "LOW",
+                            "No Strict-Transport-Security response header is configured, so browsers fall back to"
+                                    + " trusting whatever scheme a link/redirect uses instead of enforcing HTTPS.",
+                            1,
+                            List.of("quarkus.http.header.\"Strict-Transport-Security\".value absent"),
+                            "Add quarkus.http.header.\"Strict-Transport-Security\".value=max-age=31536000; includeSubDomains."));
+        }
+        if (!s.cspHeader()) {
+            v.add(rule(
+                    "QS-HDR-004",
+                    "Missing Content-Security-Policy header",
+                    "Headers",
+                    "LOW",
+                    "No Content-Security-Policy response header is configured, losing a defense-in-depth"
+                            + " control against XSS and data-injection attacks.",
+                    1,
+                    List.of("quarkus.http.header.\"Content-Security-Policy\".value absent"),
+                    "Add a Content-Security-Policy tailored to the app's script/style/asset origins."));
+        }
+        boolean cspFrameAncestors =
+                s.cspHeaderValue() != null && s.cspHeaderValue().toLowerCase().contains("frame-ancestors");
+        if (!s.xFrameOptionsHeader() && !cspFrameAncestors) {
+            v.add(rule(
+                    "QS-HDR-005",
+                    "Missing clickjacking protection",
+                    "Headers",
+                    "LOW",
+                    "Neither X-Frame-Options nor a CSP frame-ancestors directive is configured, so the app can"
+                            + " be embedded in a hidden/opaque iframe on an attacker's page (clickjacking).",
+                    1,
+                    List.of("X-Frame-Options and CSP frame-ancestors both absent"),
+                    "Add quarkus.http.header.\"X-Frame-Options\".value=DENY (or a CSP frame-ancestors 'none')."));
+        }
+        if (!s.xContentTypeOptionsHeader()) {
+            v.add(rule(
+                    "QS-HDR-006",
+                    "Missing X-Content-Type-Options header",
+                    "Headers",
+                    "LOW",
+                    "No X-Content-Type-Options=nosniff response header is configured, allowing browsers to"
+                            + " MIME-sniff responses and potentially execute content served with the wrong"
+                            + " Content-Type.",
+                    1,
+                    List.of("quarkus.http.header.\"X-Content-Type-Options\".value absent"),
+                    "Add quarkus.http.header.\"X-Content-Type-Options\".value=nosniff."));
+        }
+        if (!s.referrerPolicyHeader()) {
+            v.add(
+                    rule(
+                            "QS-HDR-007",
+                            "Missing Referrer-Policy header",
+                            "Headers",
+                            "INFO",
+                            "No Referrer-Policy response header is configured, so browsers may forward the full"
+                                    + " request URL (including any sensitive query parameters) to third-party sites"
+                                    + " linked from the app.",
+                            1,
+                            List.of("quarkus.http.header.\"Referrer-Policy\".value absent"),
+                            "Add quarkus.http.header.\"Referrer-Policy\".value=strict-origin-when-cross-origin (or stricter)."));
+        }
+        if (!s.permissionsPolicyHeader()) {
+            v.add(rule(
+                    "QS-HDR-008",
+                    "Missing Permissions-Policy header",
+                    "Headers",
+                    "INFO",
+                    "No Permissions-Policy response header is configured, leaving browser features (camera,"
+                            + " microphone, geolocation, …) at their default availability instead of explicitly"
+                            + " disabled where unused.",
+                    1,
+                    List.of("quarkus.http.header.\"Permissions-Policy\".value absent"),
+                    "Add quarkus.http.header.\"Permissions-Policy\".value listing only the features the app uses."));
         }
         if (s.oidcTlsVerificationNone()) {
             v.add(rule(
@@ -282,15 +426,25 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.oidc.tls.verification=none"),
                     "Remove the override outside local dev; never ship with verification disabled."));
         }
-        if (s.swaggerUiAlwaysInclude() || s.openApiAlwaysInclude()) {
+        if (s.swaggerUiAlwaysInclude() || s.openApiAlwaysInclude() || s.graphqlUiAlwaysInclude()) {
+            List<String> alwaysIncluded = new ArrayList<>();
+            if (s.swaggerUiAlwaysInclude()) {
+                alwaysIncluded.add("swagger-ui.always-include=true");
+            }
+            if (s.openApiAlwaysInclude()) {
+                alwaysIncluded.add("smallrye-openapi.always-include=true");
+            }
+            if (s.graphqlUiAlwaysInclude()) {
+                alwaysIncluded.add("smallrye-graphql.ui.always-include=true");
+            }
             v.add(rule(
                     "QS-DEV-002",
-                    "OpenAPI/Swagger UI always included",
+                    "OpenAPI/Swagger/GraphQL UI always included",
                     "Dev exposure",
                     "MEDIUM",
-                    "API documentation is exposed in all profiles, including production.",
-                    1,
-                    List.of("swagger-ui/smallrye-openapi always-include=true"),
+                    "API documentation and/or the GraphQL UI is exposed in all profiles, including production.",
+                    alwaysIncluded.size(),
+                    alwaysIncluded,
                     "Restrict to dev, or remove always-include."));
         }
         if (s.oidcConfigured() && !s.oidcAudienceConfigured()) {
@@ -331,6 +485,22 @@ final class QuarkusSecurityChecks {
                     List.of("quarkus.management.enabled=true on a non-loopback host"),
                     "Bind quarkus.management.host to 127.0.0.1, or protect the management endpoints."));
         }
+        if ("/".equals(s.nonApplicationRootPath())) {
+            v.add(rule(
+                    "QS-MGMT-002",
+                    "Non-application endpoints merged into the main application path",
+                    "Management",
+                    "MEDIUM",
+                    "quarkus.http.non-application-root-path=/ collapses health/metrics/OpenAPI endpoints into the"
+                            + " main application namespace instead of keeping them on the separate /q root,"
+                            + " widening the app's exposed surface and risking accidental path collisions"
+                            + " (quarkusio/quarkus#14800). Quarkus-specific: there is no Spring equivalent of this"
+                            + " particular footgun.",
+                    1,
+                    List.of("quarkus.http.non-application-root-path=/"),
+                    "Leave non-application-root-path at its default (/q), or use the separate management"
+                            + " interface (quarkus.management.enabled=true) instead."));
+        }
         if (!s.suspectedSecretKeys().isEmpty()) {
             v.add(rule(
                     "QS-CFG-001",
@@ -341,6 +511,85 @@ final class QuarkusSecurityChecks {
                     s.suspectedSecretKeys().size(),
                     s.suspectedSecretKeys(),
                     "Move secrets to a vault or environment variables; never commit literals."));
+        }
+        if (s.formAuth() && !s.formCookieHttpOnly()) {
+            v.add(rule(
+                    "QS-SESSION-001",
+                    "Form-auth session cookie not HttpOnly",
+                    "Session",
+                    "HIGH",
+                    "quarkus.http.auth.form.http-only-cookie defaults to false, so the form-auth session cookie"
+                            + " is readable from JavaScript — a single XSS bug is enough to steal the session.",
+                    1,
+                    List.of("quarkus.http.auth.form.http-only-cookie=false (the Quarkus default)"),
+                    "Set quarkus.http.auth.form.http-only-cookie=true."));
+        }
+        if (s.formAuth() && s.formCookieSameSiteNone()) {
+            v.add(rule(
+                    "QS-SESSION-002",
+                    "Form-auth session cookie SameSite=None",
+                    "Session",
+                    "MEDIUM",
+                    "quarkus.http.auth.form.cookie-same-site was weakened from the secure default (strict) to"
+                            + " none, letting the session cookie be sent on cross-site requests (CSRF exposure).",
+                    1,
+                    List.of("quarkus.http.auth.form.cookie-same-site=none"),
+                    "Remove the override (default strict), or use lax only if cross-site GET flows require it."));
+        }
+        if (s.formAuth() && s.formSessionTimeoutExcessive()) {
+            v.add(rule(
+                    "QS-SESSION-003",
+                    "Excessive form-auth session timeout",
+                    "Session",
+                    "LOW",
+                    "quarkus.http.auth.form.timeout is set above 8 hours, keeping an authenticated session alive"
+                            + " long after a user has stepped away.",
+                    1,
+                    List.of("quarkus.http.auth.form.timeout > 8h"),
+                    "Lower the timeout (the Quarkus default is 30 minutes) and pair it with new-cookie-interval."));
+        }
+        if (s.grpcReflectionEnabledInProd()) {
+            v.add(rule(
+                    "QS-GRPC-001",
+                    "gRPC server reflection enabled in the prod profile",
+                    "gRPC",
+                    "MEDIUM",
+                    "quarkus.grpc.server.enable-reflection-service is enabled for the prod profile. Quarkus"
+                            + " disables reflection in prod by default specifically so the full service/method/"
+                            + " message schema isn't discoverable; an explicit override re-exposes it. No Spring"
+                            + " equivalent — Spring has no first-party gRPC server support.",
+                    1,
+                    List.of("%prod quarkus.grpc.server.enable-reflection-service=true"),
+                    "Remove the %prod override; keep reflection enabled only in %dev/%test."));
+        }
+        if (s.graphqlPresent() && s.graphqlIntrospectionEnabled()) {
+            v.add(rule(
+                    "QS-GRAPHQL-001",
+                    "GraphQL schema introspection enabled",
+                    "GraphQL",
+                    "LOW",
+                    "quarkus.smallrye-graphql.introspection-enabled defaults to true in every profile, including"
+                            + " production, letting any client enumerate the full schema (types, fields,"
+                            + " mutations). Often intentional for public APIs, but worth a deliberate decision."
+                            + " No Spring equivalent — Spring has no first-party GraphQL server support.",
+                    1,
+                    List.of("quarkus.smallrye-graphql.introspection-enabled=true (the Quarkus default)"),
+                    "Set quarkus.smallrye-graphql.introspection-enabled=false in %prod unless the schema is"
+                            + " meant to be publicly discoverable."));
+        }
+        if (s.messagingCredentialsWithoutTls()) {
+            v.add(rule(
+                    "QS-MSG-001",
+                    "Messaging credentials configured without an encrypted protocol",
+                    "Messaging",
+                    "HIGH",
+                    "A Kafka/SmallRye Reactive Messaging channel configures SASL credentials (username/password"
+                            + " or JAAS config) without a corresponding SASL_SSL/SSL security.protocol, sending"
+                            + " broker credentials in clear text over the wire. No Spring equivalent in the same"
+                            + " idiomatic reactive-messaging form.",
+                    1,
+                    List.of("*.sasl.password/*.sasl.jaas.config set, *.security.protocol not SASL_SSL/SSL"),
+                    "Set security.protocol=SASL_SSL (or SSL) alongside the SASL credentials."));
         }
         return v;
     }
@@ -371,6 +620,29 @@ final class QuarkusSecurityChecks {
         return csv != null && csv.contains("*");
     }
 
+    /**
+     * Finds {@code /regex/}-syntax CORS origin entries that are not anchored with {@code ^}/{@code $}. Quarkus
+     * matches such a pattern anywhere in the origin string rather than against the whole string, so e.g.
+     * {@code /example\.com/} also matches {@code https://evil-example.com.attacker.net}
+     * (quarkusio/quarkus#34718).
+     */
+    private static List<String> unanchoredCorsRegexOrigins(QuarkusSecuritySnapshot s) {
+        List<String> found = new ArrayList<>();
+        if (!s.corsEnabled() || s.corsOrigins() == null) {
+            return found;
+        }
+        for (String origin : s.corsOrigins().split(",")) {
+            String o = origin.trim();
+            if (o.length() > 2 && o.startsWith("/") && o.endsWith("/")) {
+                String pattern = o.substring(1, o.length() - 1);
+                if (!pattern.startsWith("^") || !pattern.endsWith("$")) {
+                    found.add(o);
+                }
+            }
+        }
+        return found;
+    }
+
     private static boolean isWeakHsts(String value) {
         if (value == null || value.isBlank()) {
             return false;
@@ -397,13 +669,6 @@ final class QuarkusSecurityChecks {
             return true;
         }
         return v.matches(".*(default-src|script-src)\\s+[^;]*\\*.*");
-    }
-
-    private static boolean missingFramingHeaders(QuarkusSecuritySnapshot s) {
-        boolean cspFrameAncestors =
-                s.cspHeaderValue() != null && s.cspHeaderValue().toLowerCase().contains("frame-ancestors");
-        boolean clickjackingProtected = s.xFrameOptionsHeader() || cspFrameAncestors;
-        return !clickjackingProtected || !s.xContentTypeOptionsHeader();
     }
 
     private static String nullToEmpty(String s) {

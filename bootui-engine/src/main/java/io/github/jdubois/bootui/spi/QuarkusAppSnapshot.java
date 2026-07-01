@@ -21,6 +21,9 @@ import java.util.List;
  * @param endpointCount discovered JAX-RS endpoint methods
  * @param defaultScopeResourceCount JAX-RS resources with no explicit CDI scope
  * @param reactiveEndpointCount endpoints returning {@code Uni}/{@code Multi}
+ * @param reactiveEndpointsWithoutBlockingCount reactive ({@code Uni}/{@code Multi}) endpoints whose method and
+ *     declaring class both lack {@code @Blocking} — the exact endpoints QA-RX-001 should flag, correlated
+ *     per-endpoint rather than against the app's total {@code @Blocking} count
  * @param blockingAnnotationCount {@code @Blocking} sites
  * @param scheduledCount {@code @Scheduled} methods
  * @param activeProfiles the SmallRye active profiles
@@ -35,6 +38,14 @@ import java.util.List;
  * @param prodSqlLoggingEnabled whether {@code %prod.quarkus.hibernate-orm.log.sql=true}
  * @param clusteredScheduler whether a clustered (Quartz) scheduler is configured
  * @param publicResourceFields public, non-final instance fields on JAX-RS resource classes (shared mutable state)
+ * @param prodLogLevelVerbose whether {@code %prod.quarkus.log.level} resolves to DEBUG/TRACE/ALL
+ * @param compressionEnabled whether {@code quarkus.http.enable-compression} is on
+ * @param shutdownTimeoutZeroed whether the graceful shutdown grace period was explicitly zeroed
+ * @param restClientsRegistered whether any {@code @RegisterRestClient} interface is declared
+ * @param restClientTimeoutConfigured whether a global or per-client REST client connect/read timeout is set
+ * @param virtualThreadEndpointCount {@code @RunOnVirtualThread} sites (methods or classes)
+ * @param virtualThreadSynchronizedCount {@code @RunOnVirtualThread} sites that are also {@code synchronized}
+ * @param jdkMajorVersion the build JDK's major version (0 if undetermined)
  */
 public record QuarkusAppSnapshot(
         int applicationScopedCount,
@@ -46,6 +57,7 @@ public record QuarkusAppSnapshot(
         int endpointCount,
         int defaultScopeResourceCount,
         int reactiveEndpointCount,
+        int reactiveEndpointsWithoutBlockingCount,
         int blockingAnnotationCount,
         int scheduledCount,
         List<String> activeProfiles,
@@ -59,7 +71,15 @@ public record QuarkusAppSnapshot(
         boolean prodJdbcUrlInMemory,
         boolean prodSqlLoggingEnabled,
         boolean clusteredScheduler,
-        List<String> publicResourceFields) {
+        List<String> publicResourceFields,
+        boolean prodLogLevelVerbose,
+        boolean compressionEnabled,
+        boolean shutdownTimeoutZeroed,
+        boolean restClientsRegistered,
+        boolean restClientTimeoutConfigured,
+        int virtualThreadEndpointCount,
+        int virtualThreadSynchronizedCount,
+        int jdkMajorVersion) {
 
     public QuarkusAppSnapshot {
         mutableAppScopedFields = mutableAppScopedFields == null ? List.of() : List.copyOf(mutableAppScopedFields);

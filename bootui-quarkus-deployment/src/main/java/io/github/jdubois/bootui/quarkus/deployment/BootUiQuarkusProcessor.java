@@ -356,10 +356,52 @@ class BootUiQuarkusProcessor {
         emit(runtimeDefaults, "bootui.internal.sec.secured-endpoints", secured);
     }
 
+    /**
+     * Detects whether the {@code io.quarkus:quarkus-rest-csrf} extension is active by checking the build's
+     * registered {@link FeatureBuildItem}s for its feature name ({@code "rest-csrf"}) — fixing a previously dead
+     * {@code bootui.internal.sec.csrf-present} key that no build step ever populated (QS-CSRF-001 bug fix). The
+     * provider additionally reads the live {@code quarkus.rest-csrf.enabled} config flag (default {@code true}),
+     * since the extension can be present but explicitly disabled.
+     */
+    @BuildStep
+    void registerCsrfDetection(
+            LaunchModeBuildItem launchMode,
+            List<FeatureBuildItem> features,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return;
+        }
+        boolean present = features.stream().anyMatch(f -> "rest-csrf".equals(f.getName()));
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem("bootui.internal.sec.csrf-present", "" + present));
+    }
+
+    /**
+     * Emits build-time presence flags for two Quarkus-specific optional capabilities the Security advisor
+     * checks: gRPC server reflection (QS-GRPC-001) and SmallRye GraphQL introspection (QS-GRAPHQL-001). Both
+     * are pure presence checks — no optional {@code io.quarkus.grpc.*}/{@code io.smallrye.graphql.*} type is
+     * imported at runtime — so unlike the Cache/Flyway/Liquibase/Hibernate ports, no {@link ExcludedTypeBuildItem}
+     * gate is needed.
+     */
+    @BuildStep
+    void registerQuarkusSpecificCapabilityFlags(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return;
+        }
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec.grpc-present", "" + capabilities.isPresent(Capability.GRPC)));
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "bootui.internal.sec.graphql-present", "" + capabilities.isPresent(Capability.SMALLRYE_GRAPHQL)));
+    }
+
     private static boolean isSecuredEndpoint(MethodInfo method) {
         for (String sec : List.of(
                 "jakarta.annotation.security.RolesAllowed",
                 "jakarta.annotation.security.PermitAll",
+                "jakarta.annotation.security.DenyAll",
                 "io.quarkus.security.Authenticated")) {
             DotName name = DotName.createSimple(sec);
             if (method.hasAnnotation(name) || method.declaringClass().hasAnnotation(name)) {
@@ -387,6 +429,13 @@ class BootUiQuarkusProcessor {
     private static final DotName INJECT = DotName.createSimple("jakarta.inject.Inject");
     private static final DotName REST_CLIENT =
             DotName.createSimple("org.eclipse.microprofile.rest.client.inject.RestClient");
+    private static final DotName REGISTER_REST_CLIENT =
+            DotName.createSimple("org.eclipse.microprofile.rest.client.inject.RegisterRestClient");
+    private static final DotName RUN_ON_VIRTUAL_THREAD =
+            DotName.createSimple("io.smallrye.common.annotation.RunOnVirtualThread");
+
+    /** Bytecode access-flag bit for the {@code synchronized} method modifier ({@code ACC_SYNCHRONIZED}). */
+    private static final int ACC_SYNCHRONIZED = 0x0020;
 
     /** The seven JAX-RS HTTP-method annotations ({@code @GET}, {@code @POST}, …) by fully-qualified name. */
     private static final List<String> JAXRS_HTTP_METHODS = List.of(
@@ -405,7 +454,12 @@ class BootUiQuarkusProcessor {
      * Captures build-time idiom counts for the Quarkus-native application advisor: CDI scope annotation counts,
      * {@code @ConfigProperty} sites, {@code @ConfigMapping} interfaces, JAX-RS resources without an explicit scope,
      * reactive ({@code Uni}/{@code Multi}) endpoints, {@code @Blocking} sites, shared mutable fields on
-     * {@code @ApplicationScoped} beans (excluding injected fields), and public mutable fields on JAX-RS resources.
+     * {@code @ApplicationScoped} beans (excluding injected fields), public mutable fields on JAX-RS resources,
+     * {@code @RegisterRestClient} interfaces (QA-WEB-003), and the JEP-491 virtual-thread-pinning correlation
+     * (QA-PERF-002): {@code @RunOnVirtualThread} sites total vs. the subset that are also declared {@code
+     * synchronized}, plus the build JDK's major version (the pinning-on-{@code synchronized} bug is fixed in
+     * JDK 24). Note the {@code synchronized}-count only sees the method-level modifier — Jandex does not index
+     * {@code synchronized(lock) { … }} blocks inside a method body, so this is a real but incomplete signal.
      * Emitted as runtime config defaults the advisor reads. Dev/test only — skipped in {@link LaunchMode#NORMAL}.
      */
     @BuildStep
@@ -435,18 +489,26 @@ class BootUiQuarkusProcessor {
 
         int endpoints = 0;
         int reactive = 0;
+        int reactiveWithoutBlocking = 0;
         for (String http : JAXRS_HTTP_METHODS) {
             for (AnnotationInstance ann : app.getAnnotations(DotName.createSimple(http))) {
                 if (ann.target() != null && ann.target().kind() == AnnotationTarget.Kind.METHOD) {
                     endpoints++;
-                    if (isReactive(ann.target().asMethod().returnType())) {
+                    MethodInfo method = ann.target().asMethod();
+                    if (isReactive(method.returnType())) {
                         reactive++;
+                        boolean guarded = method.hasAnnotation(BLOCKING)
+                                || method.declaringClass().hasAnnotation(BLOCKING);
+                        if (!guarded) {
+                            reactiveWithoutBlocking++;
+                        }
                     }
                 }
             }
         }
         emit(runtimeDefaults, "bootui.internal.app.endpoints", endpoints);
         emit(runtimeDefaults, "bootui.internal.app.reactive-endpoints", reactive);
+        emit(runtimeDefaults, "bootui.internal.app.reactive-endpoints-without-blocking", reactiveWithoutBlocking);
 
         int defaultScopeResources = 0;
         List<String> publicResourceFields = new ArrayList<>();
@@ -496,6 +558,27 @@ class BootUiQuarkusProcessor {
             runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
                     "bootui.internal.app.public-resource-fields", String.join(",", publicResourceFields)));
         }
+
+        emit(runtimeDefaults, "bootui.internal.app.rest-clients", classAnnotations(app, REGISTER_REST_CLIENT));
+
+        int virtualThreadSites = 0;
+        int virtualThreadSynchronizedSites = 0;
+        for (AnnotationInstance ann : app.getAnnotations(RUN_ON_VIRTUAL_THREAD)) {
+            if (ann.target() == null || ann.target().kind() != AnnotationTarget.Kind.METHOD) {
+                continue;
+            }
+            virtualThreadSites++;
+            MethodInfo method = ann.target().asMethod();
+            if ((method.flags() & ACC_SYNCHRONIZED) != 0) {
+                virtualThreadSynchronizedSites++;
+            }
+        }
+        emit(runtimeDefaults, "bootui.internal.app.virtual-thread-endpoints", virtualThreadSites);
+        emit(runtimeDefaults, "bootui.internal.app.virtual-thread-synchronized", virtualThreadSynchronizedSites);
+        emit(
+                runtimeDefaults,
+                "bootui.internal.app.jdk-major-version",
+                Runtime.version().feature());
     }
 
     private static int classAnnotations(IndexView index, DotName annotation) {
