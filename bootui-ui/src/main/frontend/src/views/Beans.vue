@@ -52,7 +52,7 @@ watch([filter, classification], scheduleReload)
         <select v-model="classification" class="form-select">
           <option value="">All classifications</option>
           <option value="APPLICATION">Application</option>
-          <option value="FRAMEWORK">Spring framework</option>
+          <option value="FRAMEWORK">Framework</option>
           <option value="BOOTUI">BootUI</option>
           <option value="PLATFORM">Platform</option>
           <option value="OTHER">Other</option>

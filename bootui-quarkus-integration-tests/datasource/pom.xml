@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.7.0</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-datasource-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Datasource Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds a JDBC datasource (quarkus-jdbc-h2, backed by
+        Agroal) on top of the bootui-quarkus extension and proves the Database Connection Pools panel light-up:
+        the live Agroal pool configuration and AgroalDataSourceMetrics read by the QuarkusAgroalConnectionPoolProvider
+        are mapped into the shared HikariPool* wire contract by the engine ConnectionPoolService, the JDBC URL /
+        username are masked through the shared SecretMasker, and the panel is surfaced on
+        GET /bootui/api/database-connection-pools/pools (plus the per-pool /snapshot route). Kept separate from
+        bootui-quarkus-integration-tests (which deliberately has NO datasource, so the AGROAL capability gate
+        keeps the panel unavailable) so the datasource-present and datasource-absent paths are each proven in
+        isolation — the same split used for the cache-present/absent and SmallRye-Health-present/absent coverage.</description>
+
+    <!--
+        Uses an in-memory H2 datasource (quarkus-jdbc-h2), so a @QuarkusTest boots without Docker. Never published.
+    -->
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Adds an in-memory H2 JDBC datasource, backed by Agroal. Its presence makes the AGROAL capability
+             available, so the deployment build step wires BootUiAgroalProducer and the Database Connection Pools
+             panel is reported available; the Agroal pool exposes the configuration + live metrics the panel reads. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+
+        <!-- The Agroal connection-pool extension. quarkus-jdbc-h2 declares it <optional>, so a real datasource
+             app pulls it in explicitly (it is THE Quarkus JDBC pool extension); adding it here registers the
+             build-time AGROAL capability the registerConnectionPools build step gates on, and activates the
+             agroal feature so AgroalDataSourceUtil enumerates the live pool at runtime. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-agroal</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

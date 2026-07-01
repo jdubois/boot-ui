@@ -1,12 +1,14 @@
 <script setup>
 import {getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
+const panels = inject('panels', ref(null))
+const isQuarkus = computed(() => (panels.value?.platform ?? 'spring-boot') === 'quarkus')
 const report = ref(null)
 const error = ref(null)
 const principal = ref('')
@@ -101,10 +103,15 @@ function typeBadgeClass(typeName) {
     />
 
     <p class="text-muted small">
-      Read-only Spring Boot audit events from the application <code>AuditEventRepository</code>.
+      <template v-if="isQuarkus">
+        Read-only Quarkus security events captured from CDI authentication/authorization events.
+      </template>
+      <template v-else>
+        Read-only Spring Boot audit events from the application <code>AuditEventRepository</code>.
+      </template>
       <template v-if="report">
-        This application returns up to <strong>{{ report.maxLogs }}</strong> recent audit events per response; change
-        <code>bootui.security-logs.max-logs</code> in Spring Boot configuration to adjust that cap.
+        This application returns up to <strong>{{ report.maxLogs }}</strong> recent events per response; change
+        <code>bootui.security-logs.max-logs</code> to adjust that cap.
       </template>
       <template v-else>
         The response cap comes from <code>bootui.security-logs.max-logs</code> and will appear after the first refresh.
@@ -112,12 +119,23 @@ function typeBadgeClass(typeName) {
       Sensitive event data is masked before it reaches the browser.
     </p>
 
+    <p v-if="isQuarkus && report && report.auditEventsPresent" class="text-muted small">
+      On Quarkus this panel captures CDI security events — authentication success/failure and authorization failure
+      only; logout and session events have no Quarkus equivalent.
+    </p>
+
     <PanelSkeleton v-if="initialLoading" />
 
     <template v-else-if="report && !report.auditEventsPresent">
       <div class="alert alert-secondary">
-        {{ report.unavailableReason }}. Define an <code>AuditEventRepository</code> bean to record Spring Security audit
-        events for this panel.
+        {{ report.unavailableReason }}.
+        <template v-if="isQuarkus">
+          Set <code>quarkus.security.events.enabled=true</code> (with a security extension) to record
+          authentication/authorization events for this panel.
+        </template>
+        <template v-else>
+          Define an <code>AuditEventRepository</code> bean to record Spring Security audit events for this panel.
+        </template>
       </div>
     </template>
 

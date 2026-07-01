@@ -22,7 +22,8 @@ const {
 } = useMemoryReport({endpoint: 'api/jvm-tuning', tuningInputs: true})
 const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
-const springVirtualThreadsEnabled = computed(() => data.value?.calculation?.virtualThreadsEnabled === true)
+const virtualThreadsProperty = computed(() => data.value?.calculation?.virtualThreadsProperty ?? null)
+const virtualThreadsActive = computed(() => data.value?.calculation?.virtualThreadsEnabled === true)
 
 const breakdown = computed(() => {
   const c = data.value?.calculation
@@ -93,34 +94,30 @@ async function copyKubernetesYaml() {
       </div>
 
       <div
-        v-if="data.calculation"
-        :class="['alert mb-4 virtual-threads-status', springVirtualThreadsEnabled ? 'alert-info' : 'alert-warning']"
+        v-if="data.calculation && virtualThreadsProperty"
+        :class="['alert mb-4 virtual-threads-status', virtualThreadsActive ? 'alert-info' : 'alert-warning']"
       >
         <div class="d-flex gap-2">
-          <i
-            :class="['bi', springVirtualThreadsEnabled ? 'bi-info-circle' : 'bi-exclamation-triangle', 'flex-shrink-0']"
-          ></i>
+          <i :class="['bi', virtualThreadsActive ? 'bi-info-circle' : 'bi-exclamation-triangle', 'flex-shrink-0']"></i>
           <div>
-            <div class="fw-semibold mb-1">
-              Spring virtual threads {{ springVirtualThreadsEnabled ? 'enabled' : 'not enabled' }}
-            </div>
-            <template v-if="springVirtualThreadsEnabled">
+            <div class="fw-semibold mb-1">Virtual threads {{ virtualThreadsActive ? 'enabled' : 'not enabled' }}</div>
+            <template v-if="virtualThreadsActive">
               <p class="small mb-2">
-                This application is running with <code>spring.threads.virtual.enabled=true</code>. That is positive for
-                performance because Spring Boot can use virtual threads for web requests and supported task executors,
-                reducing platform-thread pressure during blocking work.
+                This application is running with <code>{{ virtualThreadsProperty }}=true</code>. That is positive for
+                performance because the application can use virtual threads for web requests and supported task
+                executors, reducing platform-thread pressure during blocking work.
               </p>
             </template>
             <template v-else>
               <p class="small mb-2">
-                <code>spring.threads.virtual.enabled=true</code> is not active for this application. On Java 21+,
-                enabling it in application configuration is recommended for services that handle blocking web requests
-                or supported task-executor work because it can improve throughput and latency under concurrent blocking
+                <code>{{ virtualThreadsProperty }}=true</code> is not active for this application. On Java 21+, enabling
+                it in application configuration is recommended for services that handle blocking web requests or
+                supported task-executor work because it can improve throughput and latency under concurrent blocking
                 workloads.
               </p>
               <p class="small mb-0">
                 BootUI keeps the JVM and Kubernetes snippets in platform-thread mode until the running application
-                enables Spring virtual threads.
+                enables virtual threads.
               </p>
             </template>
           </div>
@@ -297,10 +294,10 @@ async function copyKubernetesYaml() {
               <div class="border rounded p-3 h-100">
                 <div class="d-flex justify-content-between gap-3">
                   <div>
-                    <div class="fw-semibold">Spring Boot Actuator probes</div>
+                    <div class="fw-semibold">Kubernetes health probes</div>
                     <div class="text-muted small">
-                      Initialized from the current health/probes configuration. Recommended so Kubernetes can use
-                      startup, readiness, and liveness checks from <code>/actuator/health</code>.
+                      Initialized from the current health configuration. Recommended so Kubernetes can use startup,
+                      readiness, and liveness checks; the snippet below uses this application's health endpoints.
                     </div>
                   </div>
                   <div class="form-check form-switch mb-0 flex-shrink-0">

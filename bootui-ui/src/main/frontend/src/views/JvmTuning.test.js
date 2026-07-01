@@ -7,6 +7,7 @@ const MB = 1024 * 1024
 
 function memoryReport({
   virtualThreadsEnabled = false,
+  virtualThreadsProperty = 'spring.threads.virtual.enabled',
   kubernetesBurstableEnabled = false,
   kubernetesActuatorEnabled = true
 } = {}) {
@@ -46,6 +47,7 @@ function memoryReport({
       liveLoadedClassCount: 5000,
       headRoomPercent: 10,
       virtualThreadsEnabled,
+      virtualThreadsProperty,
       jvmOptions: '-Xms512m -Xmx512m -XX:+UseG1GC',
       valid: true,
       error: null
@@ -82,7 +84,7 @@ function memoryReport({
       initialRamPercentage: 62.5,
       javaToolOptions,
       burstableEnabled: kubernetesBurstableEnabled,
-      actuatorProbesEnabled: kubernetesActuatorEnabled
+      healthProbesEnabled: kubernetesActuatorEnabled
     }
   }
 }
@@ -116,7 +118,7 @@ describe('JvmTuning', () => {
     const renderedText = wrapper.text()
     const panelOrder = [
       'Current JVM Arguments',
-      'Spring virtual threads',
+      'Virtual threads',
       'Bare metal JVM calculator',
       'Bare metal JVM options',
       'Kubernetes calculator'
@@ -137,10 +139,10 @@ describe('JvmTuning', () => {
     expect(renderedText.indexOf('Deployment snippet')).toBeLessThan(renderedText.indexOf('Sizing notes'))
     expect(renderedText.indexOf('Garbage collector: G1GC')).toBeLessThan(renderedText.indexOf('Request equals limit'))
     expect(renderedText).toContain('Burstable resources')
-    expect(renderedText).toContain('Spring Boot Actuator probes')
+    expect(renderedText).toContain('Kubernetes health probes')
     const virtualThreadsStatus = wrapper.find('.virtual-threads-status')
     expect(virtualThreadsStatus.classes()).toContain('alert-warning')
-    expect(virtualThreadsStatus.text()).toContain('Spring virtual threads not enabled')
+    expect(virtualThreadsStatus.text()).toContain('Virtual threads not enabled')
     expect(virtualThreadsStatus.text()).toContain('improve throughput')
     const optionsText = wrapper
       .findAll('.options-box code')
@@ -156,7 +158,7 @@ describe('JvmTuning', () => {
     expect(wrapper.find('#kubernetesActuatorEnabled').element.checked).toBe(true)
   })
 
-  it('shows an information bubble when Spring virtual threads are detected', async () => {
+  it('shows an information bubble when virtual threads are detected', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport({virtualThreadsEnabled: true}))))
 
     wrapper = mount(JvmTuning)
@@ -165,7 +167,7 @@ describe('JvmTuning', () => {
     expect(fetch).toHaveBeenCalledWith('api/jvm-tuning')
     const virtualThreadsStatus = wrapper.find('.virtual-threads-status')
     expect(virtualThreadsStatus.classes()).toContain('alert-info')
-    expect(virtualThreadsStatus.text()).toContain('Spring virtual threads enabled')
+    expect(virtualThreadsStatus.text()).toContain('Virtual threads enabled')
     expect(virtualThreadsStatus.text()).toContain('positive for performance')
     expect(wrapper.find('#virtualThreadsEnabled').exists()).toBe(false)
     expect(wrapper.text()).toContain('virtual-thread mode uses')
@@ -174,6 +176,20 @@ describe('JvmTuning', () => {
       .map((node) => node.text())
       .join('\n')
     expect(optionsText).not.toContain('spring.threads.virtual.enabled=true')
+  })
+
+  it('hides the virtual-threads advisory when no app-wide switch exists (Quarkus)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(memoryReport({virtualThreadsProperty: null}))))
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledWith('api/jvm-tuning')
+    expect(wrapper.find('.virtual-threads-status').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Virtual threads not enabled')
+    // The rest of the panel still renders (calculator + Kubernetes recommendation).
+    expect(wrapper.text()).toContain('Kubernetes health probes')
+    expect(wrapper.find('#kubernetesActuatorEnabled').exists()).toBe(true)
   })
 
   it('initializes Kubernetes toggles from the memory report', async () => {

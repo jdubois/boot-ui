@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, nextTick, onMounted, ref, watch} from 'vue'
+import {computed, inject, nextTick, onMounted, ref, watch} from 'vue'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
@@ -14,6 +14,13 @@ const MAX_PROPERTY_SUGGESTIONS = 200
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const {confirm} = useConfirm()
+
+const panels = inject('panels', ref(null))
+const platform = computed(() => panels.value?.platform || 'spring-boot')
+const frameworkLabel = computed(() => (platform.value === 'quarkus' ? 'Quarkus' : 'Spring Boot'))
+const configKeyPlaceholder = computed(() =>
+  platform.value === 'quarkus' ? 'quarkus.application.name' : 'spring.application.name'
+)
 
 const filter = ref('')
 const sourceFilter = ref('')
@@ -276,7 +283,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
     <PanelHeader
       icon="bi-sliders"
       title="Configuration"
-      subtitle="Inspect and override every Spring property the running application can see."
+      subtitle="Inspect every configuration property the running application can see."
       :error="error"
       @refresh="load"
     >
@@ -298,7 +305,8 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
           <strong>Properties are editable.</strong>
           Click <span class="badge bg-primary"><i class="bi bi-pencil"></i> Edit</span>
           on any row to set a runtime override, or use
-          <strong>Add override</strong> to add a new property. The new-property picker includes known Spring Boot
+          <strong>Add override</strong> to add a new property. The new-property picker includes known
+          {{ frameworkLabel }}
           configuration keys and their defaults. Overrides are persisted to
           <code>.bootui/application-bootui.properties</code> and take precedence over all other property sources.
           <span class="text-muted">
@@ -359,7 +367,7 @@ watch([filter, sourceFilter, showOnlyOverrides], scheduleReload)
                 :disabled="readOnly"
                 class="form-control form-control-sm font-monospace"
                 list="bootPropertySuggestions"
-                placeholder="spring.application.name"
+                :placeholder="configKeyPlaceholder"
                 @keyup.enter="saveCreate"
                 @keyup.esc="cancelCreate"
               />

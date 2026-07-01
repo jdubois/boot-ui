@@ -18,7 +18,7 @@ function jsonResponse(body) {
   }
 }
 
-function mockShellFetch() {
+function mockShellFetch(platform = 'spring-boot') {
   vi.stubGlobal(
     'fetch',
     vi.fn((url) => {
@@ -27,7 +27,8 @@ function mockShellFetch() {
         return Promise.resolve(
           jsonResponse({
             applicationName: 'bootui-sample',
-            springBootVersion: '4.0.6',
+            frameworkName: 'Spring Boot',
+            frameworkVersion: '4.0.6',
             javaVersion: '17',
             activeProfiles: ['dev'],
             activation: {enabled: true}
@@ -38,6 +39,7 @@ function mockShellFetch() {
       if (requestUrl === 'api/panels') {
         return Promise.resolve(
           jsonResponse({
+            platform,
             panels: namedRoutes.map((route) => ({
               id: route.name,
               title: route.meta.title,
@@ -160,5 +162,31 @@ describe('App sidebar navigation', () => {
 
     expect(securityToggle.attributes('aria-expanded')).toBe('true')
     expect(document.activeElement).toBe(securityToggle.element)
+  })
+})
+
+describe('App shell footer', () => {
+  beforeEach(() => {
+    stubLocalStorage()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    restoreLocalStorage()
+    document.body.innerHTML = ''
+  })
+
+  it('labels the footer for Spring Boot when the manifest platform is spring-boot', async () => {
+    mockShellFetch('spring-boot')
+    const {wrapper} = await mountApp()
+
+    expect(wrapper.find('.bootui-footer a').text()).toBe('BootUI - The missing developer UI for Spring Boot!')
+  })
+
+  it('labels the footer for Quarkus when the manifest platform is quarkus', async () => {
+    mockShellFetch('quarkus')
+    const {wrapper} = await mountApp()
+
+    expect(wrapper.find('.bootui-footer a').text()).toBe('BootUI - The missing developer UI for Quarkus!')
   })
 })

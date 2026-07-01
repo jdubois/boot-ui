@@ -1,0 +1,22 @@
+name: BootUI
+description: Local-only developer console for Quarkus, served at /bootui (the Quarkus adapter over bootui-engine).
+# group-id/artifact-id make this hand-authored template a self-sufficient extension descriptor so the Dev UI's
+# DevUIProcessor.getExtensionNamespace (which needs `artifact` OR `group-id`+`artifact-id`) works even when the
+# quarkus-extension-maven-plugin's extension-descriptor goal did NOT run. A full Maven build runs that goal and
+# overwrites this file in target/classes with the resolved `artifact` GAV — but IntelliJ's native (JPS) builder
+# never runs Maven plugin goals (in any phase); it just copies src/main/resources verbatim into target/classes,
+# so without these keys the copied descriptor is GAV-less and quarkus:dev fails. Kept version-free (group-id +
+# artifact-id only, the published coordinates) so it can never go stale across releases; the build-time goal
+# still injects the full versioned `artifact` for real builds.
+group-id: com.julien-dubois.bootui
+artifact-id: bootui-quarkus
+metadata:
+  keywords:
+    - bootui
+    - developer-console
+    - dev-tools
+    - diagnostics
+  categories:
+    - "developer-tools"
+  status: "experimental"
+  guide: "https://github.com/jdubois/boot-ui/blob/main/docs/QUARKUS-SUPPORT.md"

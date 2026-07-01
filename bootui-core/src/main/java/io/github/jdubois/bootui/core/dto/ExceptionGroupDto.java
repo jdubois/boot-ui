@@ -7,6 +7,11 @@ package io.github.jdubois.bootui.core.dto;
  * top stack frames) so repeated failures collapse into a single row with an occurrence
  * {@code count}. The {@code last*} fields describe the most recent occurrence. {@code message} is
  * already masked according to the configured value-exposure policy.</p>
+ *
+ * <p>{@code lastTraceId} is the distributed-trace id of the most recent occurrence, or {@code null} when
+ * none was captured. It lets the Live Activity timeline nest this exception under the HTTP request that
+ * shares the same trace id (used by the Quarkus adapter; {@code null} on Spring, which correlates by
+ * serving thread instead).</p>
  */
 public record ExceptionGroupDto(
         String id,
@@ -21,4 +26,5 @@ public record ExceptionGroupDto(
         String lastRequestMethod,
         String lastRequestPath,
         String lastHandler,
-        String lastSource) {}
+        String lastSource,
+        String lastTraceId) {}

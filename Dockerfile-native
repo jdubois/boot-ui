@@ -4,7 +4,7 @@
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into
 # the build stage and the sample app is built together with the modules it
-# depends on (`-pl bootui-sample-app -am`).
+# depends on (`-pl bootui-spring-sample-app -am`).
 #
 # For a JVM image see Dockerfile, for a JVM image using CRaC see Dockerfile-crac.
 #
@@ -12,12 +12,12 @@
 #
 # The image runs with the "dev" Spring profile, which is baked in at *build time*: a native
 # image freezes auto-configuration during AOT, so the profile is activated by the `native`
-# profile's process-aot step in bootui-sample-app/pom.xml (not via a runtime env var). It starts
+# profile's process-aot step in bootui-spring-sample-app/pom.xml (not via a runtime env var). It starts
 # Docker-free on an in-memory H2 database with BootUI enabled.
 #
 # For a faster startup the sample database migrations are disabled by default, also at build time
 # (process-aot sets -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false in
-# bootui-sample-app/pom.xml). Unlike the JVM and CRaC images this cannot be toggled with a runtime
+# bootui-spring-sample-app/pom.xml). Unlike the JVM and CRaC images this cannot be toggled with a runtime
 # env var, because AOT freezes auto-configuration; to populate the BootUI Flyway/Liquibase panels,
 # rebuild the image with those two flags removed from the process-aot <jvmArguments>.
 #
@@ -43,7 +43,7 @@ RUN chmod +x mvnw
 ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC"
 
 # Build the native executable for the sample app and its reactor dependencies.
-# The `native` profile (declared in bootui-sample-app/pom.xml) runs Spring
+# The `native` profile (declared in bootui-spring-sample-app/pom.xml) runs Spring
 # Boot's process-aot goal, downloads GraalVM reachability metadata and then
 # compiles the native image during the `package` phase (build-native).
 #
@@ -56,16 +56,16 @@ ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC"
 # root, so the Maven/npm home is /root.
 RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
-    ./mvnw -Pnative -DskipTests -pl bootui-sample-app -am clean package
+    ./mvnw -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package
 
 # Move the native executable to a known path (the native-maven-plugin names it
-# after the module artifactId, i.e. bootui-sample-app).
-RUN if [ -f bootui-sample-app/target/bootui-sample-app ]; then \
-      cp bootui-sample-app/target/bootui-sample-app native-app; \
+# after the module artifactId, i.e. bootui-spring-sample-app).
+RUN if [ -f bootui-spring-sample-app/target/bootui-spring-sample-app ]; then \
+      cp bootui-spring-sample-app/target/bootui-spring-sample-app native-app; \
     else \
-      native_exe=$(find bootui-sample-app/target -maxdepth 1 -type f -executable ! -name '*.jar' ! -name '*.jar.original' | head -1) && \
+      native_exe=$(find bootui-spring-sample-app/target -maxdepth 1 -type f -executable ! -name '*.jar' ! -name '*.jar.original' | head -1) && \
       if [ -n "$native_exe" ]; then cp "$native_exe" native-app; \
-      else echo "ERROR: Native executable not found"; ls -laR bootui-sample-app/target | head -40; exit 1; fi; \
+      else echo "ERROR: Native executable not found"; ls -laR bootui-spring-sample-app/target | head -40; exit 1; fi; \
     fi
 
 # Runtime stage: Google "distroless" base. It ships glibc (and the dynamic loader) but no shell,

@@ -8,7 +8,8 @@ import java.util.List;
 public record OverviewDto(
         String bootUiVersion,
         String applicationName,
-        String springBootVersion,
+        String frameworkName,
+        String frameworkVersion,
         String javaVersion,
         String javaVendor,
         List<String> activeProfiles,

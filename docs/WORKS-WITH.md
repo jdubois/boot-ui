@@ -6,7 +6,7 @@ Each owns one color in a shared **circle of color**:
 
 | Color         | Project                                               | Role                                                                                        |
 | ------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 🟢 Green      | BootUI (this site)                                    | An in-app developer console served by the running Spring Boot app over `/bootui/`.          |
+| 🟢 Green      | BootUI (this site)                                    | An in-app developer console served by the running Spring Boot or Quarkus app over `/bootui/`. |
 | 🔵 Blue       | [Coffilot](https://www.julien-dubois.com/coffilot/)   | A Copilot canvas extension that builds, tests, runs and debugs the app from the side panel. |
 | 🟤 Terracotta | [Dr JSkill](https://www.julien-dubois.com/dr-jskill/) | Generates a Spring Boot application to start from.                                          |
 

@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.7.0</version>
+    </parent>
+
+    <artifactId>bootui-spring-sample-app</artifactId>
+    <name>BootUI :: Spring Sample App</name>
+    <description>Reference Spring Boot 4 application that demonstrates the BootUI developer console.</description>
+
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <spring-ai.version>2.0.0</spring-ai.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-liquibase</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.liquibase</groupId>
+            <artifactId>liquibase-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-ollama</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-docker-compose</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.11</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!--
+            In-memory database used by the Docker-free "dev" profile
+            (the default; see application-dev.properties) so the sample app can
+            run without the Docker Compose PostgreSQL service. The "docker"
+            profile uses PostgreSQL via the Docker Compose connection details.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <!--
+                    This module inherits the BootUI parent (not spring-boot-starter-parent), so the
+                    plugin's default "repackage" execution is not pre-bound. Bind it explicitly so
+                    `package` produces a runnable Spring Boot jar (with BOOT-INF and a Main-Class),
+                    as the Dockerfile and CRaC container image expect when running it with `java -jar`.
+                -->
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>macos-aarch64-netty-dns</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-resolver-dns-native-macos</artifactId>
+                    <classifier>osx-aarch_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>macos-x86_64-netty-dns</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>x86_64</arch>
+                </os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-resolver-dns-native-macos</artifactId>
+                    <classifier>osx-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!--
+            JVM AOT support (Spring AOT for JVM, used by Dockerfile-aot).
+
+            This module does not inherit spring-boot-starter-parent, so the
+            `process-aot` goal is not pre-bound. This profile binds it explicitly.
+            Activate it with `-Paot` to run Spring Boot's AOT processing at build
+            time so the repackaged jar contains the pre-generated AOT classes:
+
+                ./mvnw -Paot -DskipTests -pl bootui-spring-sample-app -am package
+
+            At runtime, pass -Dspring.aot.enabled=true (or set the environment
+            variable SPRING_AOT_ENABLED=true) to activate the pre-generated code
+            instead of the default runtime reflection/dynamic-proxy path.
+
+            Dockerfile-aot uses this profile and additionally trains a JDK 25 AOT
+            class loading cache (JEP 483) during the Docker build, combining both
+            optimizations for the fastest possible JVM startup.
+        -->
+        <profile>
+            <id>aot</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>process-aot</id>
+                                <goals>
+                                    <goal>process-aot</goal>
+                                </goals>
+                                <configuration>
+                                    <!--
+                                        Run process-aot under the "dev" profile so the JVM container
+                                        uses H2 in-memory storage (no Docker services needed) and BootUI
+                                        is enabled. Unlike the native image, the profile is NOT frozen
+                                        into the generated code; the Spring profile can still be changed
+                                        at container runtime via the SPRING_PROFILES_ACTIVE environment
+                                        variable. The AOT-generated code is activated at runtime with
+                                        SPRING_AOT_ENABLED=true (already set in JAVA_TOOL_OPTIONS in
+                                        Dockerfile-aot).
+
+                                        Flyway and Liquibase are disabled so the process-aot fork exits
+                                        quickly without touching the schema. Remove those flags if you
+                                        want the generated code to include migration hints.
+                                    -->
+                                    <profiles>
+                                        <profile>dev</profile>
+                                    </profiles>
+                                    <jvmArguments>-Dbootui.enabled=ON -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false</jvmArguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!--
+            GraalVM native image support.
+
+            This module does not inherit spring-boot-starter-parent, so the
+            `native` profile that Spring Boot normally provides is declared
+            explicitly here. Activate it with `-Pnative` to:
+              1. run Spring Boot's AOT processing (process-aot),
+              2. download GraalVM reachability metadata for third-party
+                 libraries (add-reachability-metadata), and
+              3. compile a native executable during the `package` phase
+                 (build-native / compile-no-fork).
+
+            Build a native executable (a GraalVM 25+ toolchain must be on the
+            PATH) with:
+
+                ./mvnw -Pnative -DskipTests -pl bootui-spring-sample-app -am package
+
+            or build the container image with the root `Dockerfile-native`.
+        -->
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>process-aot</id>
+                                <goals>
+                                    <goal>process-aot</goal>
+                                </goals>
+                                <configuration>
+                                    <!--
+                                        Activate the "dev" profile at AOT build time so the native
+                                        image runs Docker-free on the in-memory H2 datasource (the
+                                        same default profile used by `spring-boot:run` and the JVM /
+                                        CRaC images). A native image freezes bean conditions during
+                                        AOT, so the profile has to be active here at build time - it
+                                        cannot be switched on with a runtime env var.
+
+                                        For a faster startup the sample Flyway/Liquibase demo
+                                        migrations are disabled here too (the JVM and CRaC images do
+                                        this with baked SPRING_FLYWAY_ENABLED/SPRING_LIQUIBASE_ENABLED
+                                        env vars; the native image must bake it in at build time).
+                                        Remove the two -Dspring.*.enabled=false flags below to keep
+                                        the migrations and populate the BootUI Flyway/Liquibase panels.
+
+                                        BootUI is a development console that is disabled by default
+                                        outside dev profiles, and spring-boot-devtools (which would
+                                        otherwise activate it) is excluded from the native image.
+                                        Enabling it explicitly keeps its panels and runtime hints in
+                                        the executable even if the build-time profile changes.
+                                    -->
+                                    <profiles>
+                                        <profile>dev</profile>
+                                    </profiles>
+                                    <jvmArguments>-Dbootui.enabled=ON -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false</jvmArguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>${native-build-tools-plugin.version}</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                            <metadataRepository>
+                                <enabled>true</enabled>
+                            </metadataRepository>
+                            <exclusions>
+                                <exclusion>
+                                    <groupId>org.springframework.boot</groupId>
+                                    <artifactId>spring-boot-devtools</artifactId>
+                                </exclusion>
+                            </exclusions>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>add-reachability-metadata</id>
+                                <goals>
+                                    <goal>add-reachability-metadata</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>build-native</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>crac</id>
+            <dependencies>
+                <!--
+                    CRaC (Coordinated Restore at Checkpoint) adapter. Required on the
+                    classpath for spring.context.checkpoint=onRefresh to work on a
+                    CRaC-enabled JVM. See the "Run it with CRaC" section in README.md
+                    and Dockerfile-crac. The version is managed by the Spring Boot BOM.
+                -->
+                <dependency>
+                    <groupId>org.crac</groupId>
+                    <artifactId>crac</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+</project>

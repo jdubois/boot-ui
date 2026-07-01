@@ -75,4 +75,30 @@ describe('Liquibase', () => {
     expect(wrapper.text()).toContain('change set(s) across')
     expect(wrapper.text()).toContain('create-users')
   })
+
+  it('shows Quarkus-specific copy when Liquibase is not configured on Quarkus', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(null, false, 404)))
+
+    wrapper = mount(Liquibase, {
+      global: {provide: {panels: {value: {platform: 'quarkus'}}}}
+    })
+    await flushPromises()
+
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toContain('quarkus-liquibase')
+    expect(alert.text()).not.toContain('liquibase-core')
+  })
+
+  it('reports a Quarkus-specific empty state when no datasource is detected on Quarkus', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({total: 0, databases: []})))
+
+    wrapper = mount(Liquibase, {
+      global: {provide: {panels: {value: {platform: 'quarkus'}}}}
+    })
+    await flushPromises()
+
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toContain('no Liquibase datasource was detected')
+    expect(alert.text()).not.toContain('application context')
+  })
 })

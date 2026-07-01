@@ -16,7 +16,7 @@ operations. The dialog defaults focus to Cancel, dismisses on Escape or a backdr
 `prefers-reduced-motion`. Read-only scans and reversible toggles never prompt.
 
 Monitoring-oriented panels hide BootUI's own runtime data by default so Beans, Conditions, Mappings, Loggers, Metrics,
-Startup Timeline, Scheduled Tasks, Spring Cache, Spring Security, Security Logs, and Traces stay focused on the host
+Startup Timeline, Scheduled Tasks, Cache, Spring Security, Security Logs, and Traces stay focused on the host
 application. Set
 `bootui.monitoring.exclude-self=false` to include BootUI internals while debugging the console itself.
 
@@ -43,9 +43,16 @@ contributes a score derived from open security alerts. The overall score is the 
 scored, and only scanners whose panels are available for the current application are shown, so the dashboard degrades
 gracefully when optional infrastructure is missing.
 
+On Quarkus the Overview panel is fully available. Its scoring *dashboard* is rendered entirely in the browser:
+the shell aggregates each advisor's own scan/report endpoints (only those whose panels are available on Quarkus
+contribute) and computes the same combined score, so no backend dashboard service is involved. The shared shell
+chrome around every panel — the header application name, framework and version (for example "Quarkus 3.33"), Java
+version, active profiles, and the active/disabled status — is populated by the same framework-neutral
+`GET /bootui/api/overview` endpoint that both adapters expose for the shell.
+
 ![BootUI Overview panel](./images/bootui-overview.webp)
 
-## Live Activity
+### Live Activity
 
 The Live Activity panel is the diagnostics "home base": a single reverse-chronological stream of everything the
 application just did, plus a per-request profiler for drilling into any single request. It does not add any new
@@ -110,9 +117,20 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 `bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
 `bootui.panels.*` toggles (a disabled source simply drops out of the stream).
 
+On Quarkus the panel merges the three signals captured on this platform: HTTP requests (from the same Vert.x-fed ring
+buffer as HTTP Exchanges), SQL trace, and exceptions, alongside JVM heap KPIs. SQL trace contributes only when a JDBC
+datasource is configured (the recorder is gated on Agroal); when none is present those entries drop out and the report
+carries a clear note. Signal-to-request correlation works by **trace id**: Spring's thread-per-request anchor is
+unportable on the Vert.x event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is
+present the adapter stamps the active server span's trace id at each capture point and the engine nests SQL and exception
+entries under the request sharing that trace id — the OpenTelemetry context propagates across the event-loop→worker hop,
+so the same trace id is available even for blocking JDBC on a worker thread. With OpenTelemetry absent, entries carry no
+trace id and the feed renders flat. The per-request **profiler** drawer (the Symfony-style drill-down) remains
+Spring-only.
+
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
-## GitHub
+### GitHub
 
 The GitHub panel sits in the Overview group and summarizes the current project's GitHub state from the local `origin`
 remote. It uses BootUI's standard auto-refresh control with a one-minute interval while the tab is visible; the initial
@@ -141,6 +159,16 @@ Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, o
 token is never sent to the browser, persisted by BootUI, or included in warnings; without a token, public repositories use
 GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and a quota
 safety threshold that skips optional sections before exhausting the core API quota.
+
+On Quarkus the panel is identical, running over the same framework-neutral engine `GitHubDashboardService` and the same
+`/bootui/api/github` contract. The Quarkus adapter supplies a Jackson 2 (`com.fasterxml.jackson.*`)
+`GitHubClient` implementation in place of the Spring adapter's Jackson 3 one — the only difference, since Quarkus ships
+Jackson 2 while Spring Boot 4 ships Jackson 3 — and reuses the shared, framework-free `DefaultGitHubTokenProvider` (env
+tokens + `gh` CLI) for credentials. The same `bootui.github.*` keys and defaults bind from MicroProfile Config, panel
+availability is computed the same way (the host application's working directory is a GitHub-origin git checkout on an
+allow-listed API host), and the no-network-on-render rule holds: `GET /bootui/api/github` never calls GitHub, and only the
+explicit `POST /bootui/api/github/refresh` action does (gated by `bootui.github.api-enabled` and the host allow-list).
+
 
 ![BootUI GitHub panel](./images/bootui-github.webp)
 
@@ -190,6 +218,15 @@ violating rules, sorted by severity and violation count. See
 > `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
 > application is detected to be running as a native image.
 
+On Quarkus the panel is identical, running the same shared ArchUnit ruleset and on-demand scan over the same report
+contract — the framework-agnostic hygiene rules apply unchanged, while the Spring-stereotype rules simply find no
+matching classes on a Quarkus application. The one platform difference is base-package discovery: Quarkus has no
+`@SpringBootApplication` to read and no reliable runtime package scan under its classloader, so the application's base
+packages are discovered at **build time** from the Jandex application index and supplied to the scanner. Discovery is
+single-module today (sibling modules in a multi-module build are not auto-discovered; the `bootui.internal.base-packages`
+config key — a comma-separated package list — overrides it when needed). The scan still runs on demand and caches the
+last report, and dismissing a rule persists to `.bootui/boot-ui.yml` exactly as on Spring Boot.
+
 ![BootUI Architecture panel](./images/bootui-architecture.webp)
 
 ### REST API
@@ -230,7 +267,25 @@ wired runtime context instead. The report is a heuristic review prompt, not a ve
 intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
 catalogue and remediation links.
 
+This is a single framework-application advisor that is **relabelled per framework**: it appears as **Spring** on the
+Spring Boot adapter and as **Quarkus** on the Quarkus adapter — the same menu slot, the same `/bootui/api/spring`
+contract, and the same report shape. The [Quarkus](#quarkus) section below covers the Quarkus flavour.
+
 ![BootUI Spring panel](./images/bootui-spring.webp)
+
+### Quarkus
+
+On the Quarkus adapter the framework-application advisor above is relabelled **Quarkus** and runs a Quarkus-native idiom
+ruleset in place of the Spring rules. It takes the same explicit, read-only approach — evaluating a curated set of checks
+against the running application and its MicroProfile `Config` — but the rules target Quarkus idioms: CDI/Arc scopes and
+shared mutable state on `@ApplicationScoped` beans, build-time type-safe configuration (`@ConfigProperty` vs
+`@ConfigMapping`), reactive-versus-blocking endpoints, `@Scheduled` clustering, and production-profile hygiene
+(destructive Hibernate schema strategies, SQL logging). It is the **same panel and menu slot** as the Spring advisor —
+the same `/spring` route, `/bootui/api/spring` endpoint, and report contract — so the shared UI simply renders the
+"Quarkus" label and Quarkus-flavoured copy. The report is a heuristic review prompt, not a verdict. See
+[QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
+
+![BootUI Quarkus panel](./images/bootui-quarkus.webp)
 
 ### Hibernate
 
@@ -240,6 +295,20 @@ metadata for common Hibernate/JPA performance and mapping risks such as eager fe
 generators, collection fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report
 is framed as a review prompt, not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies
 mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catalogue and remediation links.
+
+On Quarkus the panel is identical, running the same shared rule engine over the same report contract when
+`quarkus-hibernate-orm` is present: entities are discovered from the live JPA `EntityManagerFactory` metamodel (across
+all persistence units, de-duplicated by identity), and the mapping/identifier/fetch rules apply unchanged. Two platform
+differences are worth noting. First, persistence configuration is read through a key-mapping layer that translates the
+Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
+`quarkus.hibernate-orm.schema-management.strategy` (or the deprecated `quarkus.hibernate-orm.database.generation`,
+including the `drop-and-create` ↔ `create-drop` value alias),
+`show-sql` → `quarkus.hibernate-orm.log.sql`, `format_sql` → `quarkus.hibernate-orm.log.format-sql`, and `batch_size` →
+`quarkus.hibernate-orm.jdbc.statement-batch-size`. Unmapped configuration rules find no value and stay silent, and
+their INFO advisories may still cite the Spring-flavored property name. Second, the Open-Session-in-View check is
+correctly **inert** on Quarkus: Quarkus has no OSIV concept, so the effective state is always disabled and the rule never
+fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour). Spring Data repository hints are
+specific to the Spring adapter and are not reported on Quarkus.
 
 ![BootUI Hibernate panel](./images/bootui-hibernate.webp)
 
@@ -265,7 +334,20 @@ resource-server validation, and configuration hygiene. The report is framed as a
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
 [SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Security panel](./images/bootui-security.webp)
+The Security advisor supports **both** framework security stacks from the same panel, menu slot, and
+`/bootui/api/security` report contract. On **Spring Boot** it analyses Spring Security — the `SecurityFilterChain` beans
+and security beans described above.
+
+![BootUI Security panel — Spring Security](./images/bootui-security.webp)
+
+On **Quarkus** it runs a Quarkus-native ruleset instead, reading the application's HTTP permission policies, MicroProfile
+`Config`, and role-annotated endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS
+and transport policy, CORS (including the wildcard-origin-with-credentials trap), security response headers, and
+`@RolesAllowed`/`@PermitAll`/`@DenyAll` usage. It surfaces the same severity-ranked review prompts, so the shared UI only
+relabels the metrics ("Permission policies" in place of "Filter chains") — the panel is otherwise identical. See
+[QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) for the full Quarkus rule catalogue and remediation links.
+
+![BootUI Security panel — Quarkus Security](./images/bootui-quarkus-security.webp)
 
 ### Pentesting
 
@@ -282,6 +364,18 @@ Each hygiene check is registered with a stable identifier, OWASP 2025 category, 
 new checks can be added without expanding the scanner's HTTP surface. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the
 full catalogue of checks and what each one inspects.
 
+On Quarkus the panel is identical, running the same shared scanner over the same report contract and the same on-demand
+`POST /bootui/api/pentesting/scan` action. The framework-neutral value comes entirely from the engine's bounded synthetic
+loopback probes (missing or unsafe security headers, cookie flags, CORS, TRACE, technology disclosure, verbose error
+bodies); the Quarkus adapter supplies only the inputs those probes need — the live server port (resolved per scan by the
+same launch-mode-aware port supplier the HTTP Probe panel uses) and the `quarkus.http.root-path` context path. The
+Spring-specific inputs are deliberately neutral: the adapter reports an **empty endpoint inventory** (a non-zero mapping
+count would otherwise flag every Quarkus application as "spring-security-web is not present", a false positive), no Spring
+Security wiring, and an absent Spring/Actuator configuration snapshot, so the Spring-Security and Actuator-exposure checks
+stay correctly silent rather than misfiring. One honesty caveat: the OWASP coverage matrix copy is engine-owned and
+Spring-worded, so a category in which nothing fired (for example A07) renders a Spring-flavored `PASS`/`REVIEW` line even
+though no Spring-specific probe ran on Quarkus.
+
 ![BootUI Pentesting panel](./images/bootui-pentesting.webp)
 
 ### Vulnerabilities
@@ -289,6 +383,13 @@ full catalogue of checks and what each one inspects.
 The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
 vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
 ordered by severity first, with dependencies and advisories alphabetized within the same severity.
+
+On Quarkus the panel is identical, listing the local inventory first and contacting OSV.dev only on the user-initiated
+scan, over the same report contract. The one platform difference is dependency discovery: the Spring adapter scans the
+classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus runtime classloader, so the
+Quarkus inventory is captured at build time from the application's resolved runtime dependency model and read back at
+runtime (mirroring the Architecture panel's build-time base-package discovery). The OSV lookup itself is identical, and
+`bootui.vulnerabilities.osv-enabled=false` disables on-demand scanning on both adapters.
 
 ![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.webp)
 
@@ -301,6 +402,13 @@ the host app exposes it. It keeps unavailable health data separate from unhealth
 infrastructure is clear, and shows setup guidance instead of a healthy-looking status when the Actuator health endpoint
 is not available. When Actuator health is present but only Spring Boot's default indicators are reported, it keeps the
 live statuses visible and shows guidance for adding application or dependency health contributors.
+
+On Quarkus the panel is identical, served over SmallRye Health (the MicroProfile Health implementation Quarkus uses): it
+reads the aggregated liveness and readiness report in-process and maps each check onto the same neutral status tree, with
+every check's reported data shown as nested details. When `quarkus-smallrye-health` is absent the panel stays visible and
+shows setup guidance for adding it instead of a healthy-looking status. SmallRye has no fixed framework-default
+contributors — every check is application-authored — so the Spring-only "default indicators only" guidance does not apply
+on Quarkus.
 
 ![BootUI Health panel](./images/bootui-health.webp)
 
@@ -323,6 +431,11 @@ not running on embedded Tomcat, the panel shows an unavailable state instead of 
 
 The Metrics panel browses Micrometer meters exposed by Actuator. You can inspect meter descriptions, base units, tags,
 available measurements, and render a local live chart for a selected metric/tag combination.
+
+On Quarkus the panel is identical, served over Micrometer directly (Quarkus has no Actuator): it reads the live composite
+`MeterRegistry` when the application adds a `quarkus-micrometer` registry (for example
+`quarkus-micrometer-registry-prometheus`), and otherwise renders as unavailable while staying in the sidebar. As on Spring
+Boot, meters describing BootUI's own `/bootui/**` traffic are hidden so the console never reports on itself.
 
 ![BootUI Metrics panel](./images/bootui-metrics.webp)
 
@@ -347,7 +460,7 @@ thread stacks, and headroom, then turns that plan into copyable JVM options with
 Kubernetes calculator keeps `requests.memory == limits.memory` for Guaranteed QoS by default, but can switch to a
 snapshot-based Burstable request when the operator intentionally overcommits memory. Its `JAVA_TOOL_OPTIONS` uses
 `-XX:MaxRAMPercentage` and `-XX:InitialRAMPercentage` instead of fixed heap sizes so the JVM heap follows the container
-memory limit when an operator resizes the pod. A Spring Boot Actuator probes toggle initializes from the current health
+memory limit when an operator resizes the pod. A Kubernetes health probes toggle initializes from the current health
 probe configuration and, when enabled, adds startup/readiness/liveness probe YAML plus the health-probes property. Fixed
 non-heap caps remain visible in the snippet and sizing notes because they still need to fit inside any smaller limit.
 
@@ -441,6 +554,12 @@ inspects.
 > to help you *prepare* an application for native-image compilation; once the application is already running as a native
 > executable the advisor has no purpose, and the panel is automatically hidden.
 
+This panel is Spring Boot only and is **deliberately not applicable on Quarkus**. Quarkus compiles native images itself
+(`quarkus build -Dnative` / the native build profile) and generates its own reachability metadata at build time through
+its build-time augmentation, so a Spring-oriented native-readiness advisor — and the generic `reachability-metadata.json`
+and `Dockerfile-native` it scaffolds — would not match how Quarkus produces native images. The panel therefore reports an
+honest "not applicable on Quarkus" reason rather than implying a port is forthcoming.
+
 ![BootUI GraalVM panel](./images/bootui-graalvm.webp)
 
 ### CRaC
@@ -473,6 +592,12 @@ overwrite a file BootUI did not generate. This shares the same source-tree write
 > mutually exclusive with native executables; the panel is automatically hidden when the application is detected to be
 > running as a native image.
 
+This panel is Spring Boot only and is **deliberately not applicable on Quarkus**. The advisor and its generated assets
+target the Spring Boot startup model (`spring.context.checkpoint=onRefresh` and Spring's checkpoint/restore lifecycle),
+whereas Quarkus achieves fast startup through build-time augmentation and native images rather than CRaC checkpoint/
+restore. The panel therefore reports an honest "not applicable on Quarkus" reason rather than implying a port is
+forthcoming.
+
 ![BootUI CRaC panel](./images/bootui-crac.webp)
 
 ## Configuration
@@ -497,9 +622,14 @@ masking rules.
 
 ### Loggers
 
-The Loggers panel lists runtime logger configuration from Actuator. It shows configured and effective levels, supports
-server-side search, and can update or clear logger levels without restarting the application. Large logger lists load in
-bounded pages while filtering still searches the full logger set.
+The Loggers panel lists runtime logger configuration. On Spring Boot it reads from Actuator's loggers endpoint. It shows
+configured and effective levels, supports server-side search, and can update or clear logger levels without restarting
+the application. Large logger lists load in bounded pages while filtering still searches the full logger set.
+
+On Quarkus the panel is identical, served over the JBoss LogManager that Quarkus uses at runtime: it enumerates the live
+loggers, maps their levels onto the same canonical vocabulary (`OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`,
+`TRACE`), and applies level changes to the running JVM. BootUI refuses to change the level of its own loggers on either
+platform.
 
 ![BootUI Loggers panel](./images/bootui-loggers.webp)
 
@@ -509,6 +639,15 @@ The Beans panel helps answer which Spring beans exist and where they came from. 
 bean names and types, plus classifications such as application, Spring framework, Java/Jakarta, and other beans. BootUI's
 own beans are hidden by default; when self-data filtering is disabled they are classified separately as BootUI beans.
 Large bean lists load in bounded pages so the initial payload stays small while filters still apply to the full bean set.
+
+On Quarkus the panel is identical from the UI's point of view, running over the same framework-neutral engine
+`BeansService` and the same `/bootui/api/beans` contract. The Quarkus adapter enumerates beans from the live Arc/CDI
+container (in place of the Spring adapter's Actuator beans endpoint), filters out BootUI's own beans, and classifies them
+with Quarkus-aware framework prefixes (`io.quarkus.`, `io.vertx.`, `org.jboss.`, …). A few fields have reduced fidelity
+because Arc does not expose them at runtime the way Actuator does: the defining `resource` and inter-bean `dependencies`
+are empty, the `scope` uses the CDI vocabulary (`ApplicationScoped`, `Singleton`, …) rather than Spring's
+`singleton`/`prototype`, and unnamed beans get a synthetic decapitalized class name. The inventory also reflects only the
+beans Arc retains, since Arc removes unused beans at build time.
 
 ![BootUI Beans panel](./images/bootui-beans.webp)
 
@@ -523,10 +662,17 @@ results.
 
 ### Mappings
 
-The Mappings panel lists HTTP routes from Actuator mappings data. It shows request methods, path patterns, handlers, and
+The Mappings panel lists HTTP routes from the running application's route table (Actuator mappings data on Spring Boot,
+the JAX-RS resource table on Quarkus). It shows request methods, path patterns, handlers, and
 produces/consumes metadata so the running application's web surface is visible without reading controllers manually.
 Large mapping lists load through a stable, paged BootUI DTO, and the filter continues to search every discovered route
 on the server.
+
+On Quarkus the same panel is served by scanning the application's JAX-RS resources from the build-time Jandex index
+(Vert.x exposes no clean runtime route-enumeration API carrying the per-route method and produces/consumes the panel
+renders), then mapping each JAX-RS resource method one-to-one onto the same paged, filterable DTO the Spring adapter
+serves from Actuator. `quarkus-rest` is a hard dependency of the BootUI extension, so the panel is available on both
+frameworks; BootUI's own `/bootui` routes are filtered out on each.
 
 ![BootUI Mappings panel](./images/bootui-mappings.webp)
 
@@ -540,6 +686,14 @@ username, driver, min/max sizing, and timeout/lifetime settings, and surfaces a 
 uninitialized pools. A local live chart polls bounded snapshots of active, idle, total, and pending connections every two
 seconds so you can watch saturation trends without leaving BootUI. It never executes SQL, borrows connections, or resizes
 pools.
+
+On the Quarkus adapter the same panel is served over **Agroal** (Quarkus' pool library) instead of HikariCP: the shared
+engine `ConnectionPoolService` and the `HikariPool*` wire contract are unchanged, and a Quarkus provider maps the live
+Agroal pool configuration and `AgroalDataSourceMetrics` (active/available/awaiting counts) into the same DTO shape — so
+the panel looks and behaves identically. Pool metrics require `quarkus.datasource.jdbc.metrics.enabled=true`; with metrics
+disabled the pool configuration still renders but the live snapshot is marked unavailable. A few Hikari-specific fields
+have no faithful Agroal equivalent and are reported as neutral defaults (per-call validation timeout, keepalive interval,
+and read-only flag).
 
 ![BootUI Database Connection Pools panel](./images/bootui-database-connection-pools.webp)
 
@@ -580,6 +734,18 @@ or the tab is hidden the stream is closed, and the panel falls back to its initi
 > native executable. If a proxy ever cannot be created (for example an interface set that was not registered), wrapping
 > still fails open and the `DataSource` is left untraced rather than breaking application startup.
 
+On Quarkus the panel is identical, running over the same framework-neutral engine recorder (the bounded buffer, grouping,
+stats, and N+1 detection are byte-identical to Spring). Capture comes from two complementary feeders into that one
+recorder: an `@Alternative` Agroal `DataSource` that wraps the default pool with the same JDK-proxy tracer (manual JDBC
+access, gated on a datasource being present), and — because Hibernate ORM resolves its pool from Agroal's own registry
+and so bypasses that CDI `DataSource` — a `@PersistenceUnitExtension` Hibernate `StatementInspector` that records
+ORM-issued SQL for the default persistence unit (gated on `quarkus-hibernate-orm`; SQL from a named persistence
+unit is not traced). Between them the panel reaches parity with Spring regardless of
+whether SQL originates from raw JDBC or the ORM. Statement text, type, category, execution count and N+1 detection are
+full-fidelity; for ORM SQL the per-statement duration, affected-row count, and bound parameters are not available (the
+`StatementInspector` SPI exposes only the SQL text at prepare time, with no execution-end hook), so those degrade
+cleanly while never leaking ORM parameter values. Both feeders are wired in dev/test only and never in production.
+
 ![BootUI SQL Trace panel](./images/bootui-sql-trace.webp)
 
 ### Spring Data
@@ -603,19 +769,28 @@ Flyway's own `clean-disabled=false` setting. Spring Modulith module-aware entrie
 module-specific history tables are managed by Spring Modulith's migration strategy. The panel degrades to a clear empty
 state when Flyway is not on the classpath or no `Flyway` beans are present.
 
+On Quarkus the panel is identical, running over the same framework-neutral engine `FlywayService` and the same report
+contract — because both frameworks use the same `org.flywaydb.core.Flyway` library. The Quarkus adapter reads the active
+`io.quarkus.flyway.runtime.FlywayContainer` beans (one per datasource, default or `@FlywayDataSource`-named) and exposes
+the same confirmation-gated `migrate`/`clean` actions, with `clean` likewise honoring Flyway's disabled-by-default
+setting (`quarkus.flyway.clean-disabled`). The optional `quarkus-flyway` extension is capability-gated, so when it is
+absent the panel reports an honest "add the quarkus-flyway extension" reason rather than failing. The Spring Modulith
+module-aware history block is Spring-specific and is not reported on Quarkus.
+
 ![BootUI Flyway panel](./images/bootui-flyway.webp)
 
 ### Liquibase
 
-The Liquibase panel shows change sets for each `SpringLiquibase` bean in the context. It reads the change-log history and
-configured changelog, then lists applied and pending change sets per database (id, author, change-log, description,
-comments, execution type, date executed, order executed, checksum, tag, deployment id, contexts, and labels). Multiple or
-named datasources appear independently.
+The Liquibase panel shows change sets for each discovered Liquibase database (on Spring Boot, each `SpringLiquibase`
+bean; on Quarkus, each active `LiquibaseFactory` — including `@LiquibaseDataSource`-named datasources). It reads the
+change-log history and configured changelog, then lists applied and pending change sets per database (id, author,
+change-log, description, comments, execution type, date executed, order executed, checksum, tag, deployment id,
+contexts, and labels). Multiple or named datasources appear independently.
 
 The panel also exposes a confirmation-gated `update` action that applies pending change sets. It is available by default
-for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`. The panel
-fails closed per bean when its history cannot be read and degrades to a clear empty state when Liquibase is not on the
-classpath or no `SpringLiquibase` beans are present.
+for trusted local sessions and is blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`
+(per-panel read-only gating is Spring-only today). The panel fails closed per database when its history cannot be read
+and degrades to a clear empty state when Liquibase is not on the classpath or no Liquibase databases are present.
 
 ![BootUI Liquibase panel](./images/bootui-liquibase.webp)
 
@@ -639,6 +814,8 @@ summarizes retained event counts by type, refreshes live over **Server-Sent Even
 and masks sensitive event data before rendering. Responses are bounded by `bootui.security-logs.max-logs`, which defaults to
 `500`; if audit support is explicitly disabled with `management.auditevents.enabled=false`, the panel remains unavailable.
 
+On Quarkus, the panel sources its events from CDI security events (`io.quarkus.security.spi.runtime.SecurityEvent`) captured into a capped buffer instead of an `AuditEventRepository`. This is honestly partial: it requires a security extension with `quarkus.security.events.enabled=true`, and only authentication success/failure and authorization failure events are emitted — there is no Quarkus equivalent for logout/session events — otherwise the panel reports unavailable with a clear reason. Filtering, type summary, masking, and the `bootui.security-logs.max-logs` cap are identical across both frameworks.
+
 ![BootUI Security Logs panel](./images/bootui-security-logs.webp)
 
 ## Services
@@ -650,14 +827,35 @@ trigger metadata so background activity is visible during local development.
 
 ![BootUI Scheduled Tasks panel](./images/bootui-scheduled-tasks.webp)
 
-### Spring Cache
+On Quarkus the panel is identical, running over the same framework-neutral engine `ScheduledTasksService` and the same
+`/bootui/api/scheduled` contract. The data source differs because the runtime `io.quarkus.scheduler.Scheduler` exposes
+only trigger ids and next-fire times — neither of which the shared task contract carries — while the cron/`every`
+expressions and target method are known only at build time. So the Quarkus adapter captures every `@Scheduled` method
+from the application's Jandex index at **build time** (the same pattern as Architecture base-package and Vulnerabilities
+dependency-inventory capture) and maps it onto the same trigger/expression/initial-delay fields: a `cron` member becomes a
+`CRON` row, an `every` member a `FIXED_RATE` row (with the duration parsed to milliseconds), and a `delay`/`delayed`
+initial delay is carried through. The panel is available only when the `quarkus-scheduler` extension is present;
+programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered tasks only).
 
-The Spring Cache panel inspects Spring Cache infrastructure. It lists cache manager beans, known caches, native
-implementations, safe local sizes, Micrometer cache metrics when registered, and discovered `@Cacheable`, `@CachePut`,
-and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser
-confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
+### Cache
 
-![BootUI Spring Cache panel](./images/bootui-spring-cache.webp)
+The Cache panel inspects the application's cache infrastructure on **both** frameworks from one shared panel and report
+contract: Spring's cache abstraction on Spring Boot, and `quarkus-cache` on Quarkus (covered below). On Spring Boot it
+lists cache manager beans, known caches, native implementations, safe local sizes, Micrometer cache metrics when
+registered, and discovered `@Cacheable`, `@CachePut`, and `@CacheEvict` operations. Cache clear actions are enabled by
+default for local development, require explicit browser confirmation, and can be disabled with
+`bootui.cache.clear-enabled=false`.
+
+![BootUI Cache panel](./images/bootui-cache.webp)
+
+On Quarkus the same panel (kept under the shared id `cache`) is served over `quarkus-cache`: the shared engine
+`CacheService` reads the live cache topology from the application's `io.quarkus.cache.CacheManager`, overlays the same
+Micrometer cache metrics (when a `quarkus-micrometer` registry is present and per-cache metrics are enabled), and the
+clear action evicts via `cache.invalidateAll()`. Because Quarkus binds caching with build-time annotations
+(`@CacheResult`, `@CacheInvalidate`, `@CacheInvalidateAll`) woven into methods, there is no runtime registry of cached
+operations, so the operations table is replaced by a short explanatory note and the panel shows cache names + metrics +
+clear. The panel is gated on the `quarkus-cache` extension (the `CACHE` capability) and is reported unavailable, with a
+capability hint, on applications that do not use it.
 
 ### AI Usage
 
@@ -679,6 +877,13 @@ yet, the panel shows a ready empty state rather than setup guidance. Recent chat
 windows, spans, and attributes
 are bounded so large local runs stay responsive. As with the Traces panel, data is sourced from BootUI's local telemetry
 capture, is in-memory only, and is cleared on restart.
+
+On Quarkus the AI Usage panel is identical and reads from the same in-memory telemetry store; GenAI spans are captured
+when the application depends on `quarkus-opentelemetry` (for example alongside `quarkus-langchain4j`, or any
+OpenTelemetry GenAI instrumentation that emits the `gen_ai.*` semantic-convention spans). When no framework is detected,
+the setup checklist adapts to the platform: on Quarkus it shows a single LangChain4j guide using `quarkus-langchain4j`
+plus `quarkus-opentelemetry` and BootUI's in-process capture model — no embedded OTLP receiver — instead of the Spring
+AI / LangChain4j side-by-side guides.
 
 ![BootUI AI Usage panel](./images/bootui-ai.webp)
 
@@ -708,6 +913,15 @@ tracing is merely empty. The in-memory trace buffer is bounded by `bootui.teleme
 `bootui.telemetry.max-spans-per-trace`, request-size limits, and attribute-value truncation, with additional internal
 caps to keep misconfigured local exporters from overflowing the UI. Trace data is reset on application restart or via
 the panel's clear action.
+
+The capture mechanics above (starter-contributed tracing dependencies, the `management.tracing.sampling.probability`
+default, and the `logging.level.io.opentelemetry`/`io.micrometer.tracing` pins) and the embedded OTLP/HTTP receiver are
+specific to the Spring Boot starter. On Quarkus the same Traces panel and in-memory store are served by the extension,
+but spans are captured **in-process** through an OpenTelemetry `SpanProcessor` that is registered only when the
+application depends on `quarkus-opentelemetry` — there is no embedded OTLP receiver. Self-span filtering and the
+`bootui.telemetry.*` retention bounds behave identically on both platforms. The panel's empty-state guidance adapts too:
+on Quarkus it points to `quarkus-opentelemetry` and the in-process capture model rather than the embedded
+`/bootui/api/otlp/v1/traces` receiver.
 
 ![BootUI Traces panel](./images/bootui-traces.webp)
 
@@ -744,6 +958,14 @@ surfaced, and stack frames carry only class/method/file/line information. The in
 panel's clear action. The panel can be disabled with `bootui.panels.exceptions.enabled=false`, and clearing honors the
 panel's read-only setting.
 
+On Quarkus the panel is identical, running over the same framework-neutral engine store and `ExceptionsService`, so
+the wire is byte-identical to Spring. In place of the MVC resolver and logback appender, capture comes from two
+complementary sources: a `java.util.logging` handler that records anything logged with a throwable (excluding BootUI's
+own loggers), and a Vert.x failure handler that records the throwable escaping a failed request with its method and
+path. The shared store still de-duplicates by throwable identity across the cause chain, so a failure seen by both
+sources is counted once. Capture is installed on `StartupEvent` and detached on `ShutdownEvent`, wired in dev/test
+only and never in production, and bounded by the same `bootui.exceptions.*` limits.
+
 ![BootUI Exceptions panel](./images/bootui-exceptions.webp)
 
 ### HTTP Exchanges
@@ -759,12 +981,24 @@ exists. The default buffer retains 200 exchanges and can be changed with `bootui
 that capacity requires an application restart. If the repository is unavailable, the panel shows a clear unavailable
 state instead of implying that no traffic has occurred.
 
+On Quarkus the panel is identical, but Quarkus has no Actuator `HttpExchangeRepository`, so capture is done by a small
+Vert.x route filter that samples each completed request — recorded in the response body-end handler so status, duration
+and size are final — into a capped, framework-neutral ring buffer sized by the same `bootui.http-exchanges.max-exchanges` key (default 200) as Spring. The
+masking, trace-id extraction, self-exclusion and paging run through the same shared engine service, so the wire is
+byte-identical to Spring. Capture is wired in dev/test only and never in production.
+
 ![BootUI HTTP Exchanges panel](./images/bootui-http-exchanges.webp)
 
 ### HTTP Probe
 
 The HTTP Probe panel sends local-only requests to the running application and displays response status, headers,
 duration, and body. It is designed for quick route checks from inside the same local development context as BootUI.
+
+On Quarkus the panel is identical: the probe always targets the application's *own* loopback address, so it can never
+reach an external host. The only platform difference is how the live local port is resolved — Quarkus has no single
+config key that always equals the bound port, so the adapter selects `quarkus.http.test-port` or `quarkus.http.port` by
+launch mode (and a random `=0` port still resolves, because Quarkus rewrites the property to the actual port once the
+server is up). As a state-changing action it is gated by the same localhost-only safety floor as every other write.
 
 ![BootUI HTTP Probe panel](./images/bootui-http-probe.webp)
 
@@ -825,6 +1059,15 @@ running app:
 See [docs/PROPERTIES.md](./PROPERTIES.md) for the `bootui.mcp.*` settings, and [AI agents](./AI-AGENTS.md) for an
 end-to-end agent workflow and how BootUI pairs with [Coffilot](https://github.com/jdubois/coffilot).
 
+On Quarkus the panel is identical, running the same live JSON-RPC bridge over the same `POST /bootui/api/mcp` endpoint
+and the same working enable/disable toggle (the `bootui.mcp.*` keys are read from MicroProfile Config). The protocol
+core — method routing, per-panel gating, tool lookup, and the `max-results` cap — lives in the shared framework-neutral
+engine; each adapter only supplies a thin Jackson envelope codec (Jackson 2 on Quarkus) and its own tool catalog, so
+requests and responses are byte-identical across the two backends. The advertised tools track which panels are actually
+live on Quarkus: `graalvm_scan` and `crac_scan` (both deliberately not applicable on Quarkus) are not offered,
+`get_overview` is advertised (the Overview panel is available, its dashboard rendering client-side), and
+`spring_scan` runs the Quarkus-native idiom advisor.
+
 ![BootUI MCP Server panel](./images/bootui-mcp-server.webp)
 
 ### DevTools
@@ -857,6 +1100,13 @@ warnings in the panel.
 > developer console.
 
 ![BootUI Dev Services panel](./images/bootui-dev-services.webp)
+
+On Quarkus, the Dev Services panel reports the framework's native Dev Services (auto-started dev/test containers such as
+databases, Kafka, or Redis). The list is captured from the build-time `DevServicesResultBuildItem` snapshot via a
+recorder + synthetic bean: each entry shows the service name, container id, and configuration injected by the
+container, with secret-bearing config values masked. Live logs and restart are managed by Quarkus itself, so those
+controls are unavailable on Quarkus. DevTools is reported *not applicable* on Quarkus, which uses built-in dev-mode
+live reload instead of a Spring Boot DevTools restart bridge.
 
 ### Copilot
 

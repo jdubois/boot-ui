@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch, getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -11,6 +11,8 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const panels = inject('panels', ref(null))
+const isQuarkus = computed(() => (panels.value?.platform || 'spring-boot') === 'quarkus')
 const {confirm} = useConfirm()
 const report = ref(null)
 const error = ref(null)
@@ -55,7 +57,8 @@ function sourceClass(source) {
     {
       'Docker Compose': 'bg-primary',
       Testcontainers: 'bg-success',
-      'Connection details': 'bg-info text-dark'
+      'Connection details': 'bg-info text-dark',
+      'Quarkus Dev Services': 'bg-primary'
     }[source] || 'bg-secondary'
   )
 }
@@ -198,7 +201,9 @@ async function responseMessage(res) {
       title="Dev Services"
       :subtitle="
         report
-          ? `Snapshot ${formatSnapshot(report.snapshotTimestamp)} · Docker Compose ${report.dockerComposePresent ? 'available' : 'not detected'} · Testcontainers ${report.testcontainersPresent ? 'available' : 'not detected'}`
+          ? isQuarkus
+            ? `Snapshot ${formatSnapshot(report.snapshotTimestamp)} · ${report.total} Dev Service${report.total === 1 ? '' : 's'}`
+            : `Snapshot ${formatSnapshot(report.snapshotTimestamp)} · Docker Compose ${report.dockerComposePresent ? 'available' : 'not detected'} · Testcontainers ${report.testcontainersPresent ? 'available' : 'not detected'}`
           : null
       "
       :loading="loading"
@@ -209,8 +214,14 @@ async function responseMessage(res) {
     />
 
     <div class="alert alert-info">
-      Docker Compose services are shown from Spring Boot's startup snapshot. Restart controls appear only for
-      bean-backed Testcontainers services when <code>bootui.dev-services.restart-enabled=true</code>.
+      <template v-if="isQuarkus">
+        Quarkus Dev Services start throwaway containers in dev/test. This is a build-time snapshot; live logs and
+        restart are managed by Quarkus, not BootUI. Config values with secrets are masked.
+      </template>
+      <template v-else>
+        Docker Compose services are shown from Spring Boot's startup snapshot. Restart controls appear only for
+        bean-backed Testcontainers services when <code>bootui.dev-services.restart-enabled=true</code>.
+      </template>
       <span v-if="readOnly"> Restart actions are read-only. {{ readOnlyReason }}</span>
     </div>
 
@@ -223,7 +234,13 @@ async function responseMessage(res) {
 
     <PanelSkeleton v-if="initialLoading && !report" />
     <div v-else-if="report && report.total === 0" class="alert alert-secondary">
-      No Docker Compose, Testcontainers, or Spring Boot service connection beans were detected.
+      <template v-if="isQuarkus">
+        No Quarkus Dev Services are running. Start the app in dev/test with a Dev Services-backed extension (and
+        Docker/Podman available) so containers are auto-started.
+      </template>
+      <template v-else>
+        No Docker Compose, Testcontainers, or Spring Boot service connection beans were detected.
+      </template>
     </div>
 
     <template v-else-if="report">

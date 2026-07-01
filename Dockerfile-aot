@@ -33,7 +33,7 @@
 #   the image therefore grows from ~170 MB (plain JVM) to ~240–270 MB. CRaC
 #   stores a similar-sized checkpoint in a named Docker volume outside the
 #   image itself; GraalVM native is the smallest option (~45 MB). See the
-#   benchmark table in bootui-sample-app/README.md for the full comparison.
+#   benchmark table in bootui-spring-sample-app/README.md for the full comparison.
 #
 # For a GraalVM native image, see Dockerfile-native.
 # For a JVM image using CRaC, see Dockerfile-crac.
@@ -86,14 +86,14 @@ RUN chmod +x mvnw
 # not in the image. (Requires BuildKit, the default in modern Docker.)
 RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
-    ./mvnw -Paot -DskipTests -pl bootui-sample-app -am clean package
+    ./mvnw -Paot -DskipTests -pl bootui-spring-sample-app -am clean package
 
 # Explode the repackaged Spring Boot jar into its layers (dependencies,
 # spring-boot-loader, snapshot-dependencies, application). These are copied
 # separately into the runtime stage so the large, rarely-changing dependency
 # layer is reused from cache across rebuilds, and the app runs exploded via the
 # JarLauncher rather than re-copying the whole fat jar.
-RUN cp bootui-sample-app/target/bootui-sample-app-*.jar app.jar && \
+RUN cp bootui-spring-sample-app/target/bootui-spring-sample-app-*.jar app.jar && \
     java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 # ---------------------------------------------------------------------------

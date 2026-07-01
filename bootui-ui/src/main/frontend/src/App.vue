@@ -163,12 +163,13 @@ const activePanelUnavailableReason = computed(() => {
 })
 const activePanelReadOnly = computed(() => activePanel.value?.readOnly === true && !activePanelUnavailable.value)
 const activePanelReadOnlyReason = computed(() => activePanel.value?.readOnlyReason || 'This panel is read-only.')
-const applicationTitle = computed(() => overview.value?.applicationName || 'Spring Boot app')
+const applicationTitle = computed(() => overview.value?.applicationName || 'application')
 const runtimeSummary = computed(() => {
-  if (shellServerUnreachable.value) return 'Spring Boot app is not responding. Restart it and retry.'
+  if (shellServerUnreachable.value) return 'The application is not responding. Restart it and retry.'
   if (shellError.value && !overview.value) return 'Unable to load BootUI runtime details.'
   if (!overview.value) return 'Loading runtime details'
-  return `Spring Boot ${overview.value.springBootVersion} · Java ${overview.value.javaVersion}`
+  const framework = [overview.value.frameworkName, overview.value.frameworkVersion].filter(Boolean).join(' ')
+  return framework ? `${framework} · Java ${overview.value.javaVersion}` : `Java ${overview.value.javaVersion}`
 })
 const activeProfiles = computed(() => overview.value?.activeProfiles ?? [])
 const shellErrorMessage = computed(() => shellError.value?.message ?? null)
@@ -203,11 +204,26 @@ const activationTitle = computed(
       disabled: 'BootUI answered the local API but is disabled for this application.',
       error: 'BootUI reached the local API but could not load the shell data.',
       checking: 'Checking the BootUI API connection.',
-      unreachable: 'BootUI cannot reach the Spring Boot app. It may have been stopped.'
+      unreachable: 'BootUI cannot reach the application. It may have been stopped.'
     })[connectionState.value]
 )
 const statusPillClass = computed(() => `status-pill--${connectionState.value}`)
+const frameworkLabel = computed(() => {
+  const platform = panels.value?.platform
+  if (platform === 'quarkus') return 'Quarkus'
+  if (platform === 'spring-boot') return 'Spring Boot'
+  return null
+})
+const footerText = computed(() =>
+  frameworkLabel.value
+    ? `BootUI - The missing developer UI for ${frameworkLabel.value}!`
+    : 'BootUI - The missing developer UI!'
+)
 const githubProjectUrl = 'https://github.com/jdubois/boot-ui'
+function navTitle(r) {
+  const platform = panels.value?.platform
+  return r.meta?.titleByPlatform?.[platform] || r.meta?.title
+}
 const navigationSections = computed(() => {
   const sections = [
     {
@@ -298,16 +314,17 @@ function panelDisabledReason(panel) {
 
 function routeAvailabilityLabel(r) {
   const panel = panelForRoute(r)
+  const title = navTitle(r)
   if (panel?.enabled === false) {
-    return `${r.meta.title} - disabled: ${panelDisabledReason(panel)}`
+    return `${title} - disabled: ${panelDisabledReason(panel)}`
   }
   if (panel?.available === false) {
-    return `${r.meta.title} - unavailable: ${panel.unavailableReason || 'required support is unavailable'}`
+    return `${title} - unavailable: ${panel.unavailableReason || 'required support is unavailable'}`
   }
   if (panel?.readOnly === true) {
-    return `${r.meta.title} - read-only: ${panel.readOnlyReason || 'mutating actions are disabled'}`
+    return `${title} - read-only: ${panel.readOnlyReason || 'mutating actions are disabled'}`
   }
-  return r.meta.title
+  return title
 }
 
 function groupDomId(group) {
@@ -521,7 +538,7 @@ function onGlobalKeydown(e) {
                 @click="navigate"
               >
                 <i :class="['bi', r.meta.icon]"></i>
-                <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+                <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
                 <i
                   v-if="routeStatusIcon(r)"
                   :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
@@ -581,7 +598,7 @@ function onGlobalKeydown(e) {
             @click="onFlyoutLinkClick(navigate, $event)"
           >
             <i :class="['bi', r.meta.icon]"></i>
-            <span class="bootui-nav-link__label">{{ r.meta.title }}</span>
+            <span class="bootui-nav-link__label">{{ navTitle(r) }}</span>
             <i
               v-if="routeStatusIcon(r)"
               :class="['bi', routeStatusIcon(r), 'bootui-nav-link__status']"
@@ -670,7 +687,7 @@ function onGlobalKeydown(e) {
 
       <footer class="bootui-footer">
         <a :href="githubProjectUrl" rel="noopener noreferrer" target="_blank">
-          BootUI - The missing developer UI for Spring Boot!
+          {{ footerText }}
         </a>
       </footer>
     </div>

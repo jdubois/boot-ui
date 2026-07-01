@@ -22,10 +22,10 @@ participating you are expected to uphold this code.
 
 ```
 bootui-core/                  Shared DTOs and helpers
-bootui-autoconfigure/         Auto-configuration, REST controllers, safety filter
+bootui-spring-autoconfigure/         Auto-configuration, REST controllers, safety filter
 bootui-spring-boot-starter/   Drop-in starter that pulls in everything
 bootui-ui/                    Vue 3 SPA bundled into META-INF/resources/bootui
-bootui-sample-app/            Reference Spring Boot 4 app that demos the starter
+bootui-spring-sample-app/            Reference Spring Boot 4 app that demos the starter
 docs/                         Specification and roadmap
 ```
 
@@ -42,7 +42,7 @@ about a minute on a warm cache.
 To rebuild only the backend (useful while iterating on Java code):
 
 ```bash
-./mvnw -pl bootui-core,bootui-autoconfigure,bootui-spring-boot-starter,bootui-sample-app -am install
+./mvnw -pl bootui-core,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-sample-app -am install
 ```
 
 ## Testing
@@ -64,7 +64,7 @@ npm test
 Run the browser end-to-end suite when you change the UI, browser-facing API responses, or sample-app behavior:
 
 ```bash
-cd bootui-sample-app/e2e
+cd bootui-spring-sample-app/e2e
 npm install
 npx playwright install chromium
 npm test
@@ -86,13 +86,13 @@ Use Prettier for the Vue app and Playwright tests:
 
 ```bash
 (cd bootui-ui/src/main/frontend && npm run format)
-(cd bootui-sample-app/e2e && npm run format)
+(cd bootui-spring-sample-app/e2e && npm run format)
 ```
 
 ## Run the sample app
 
 ```bash
-./mvnw -pl bootui-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -pl bootui-spring-sample-app spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 Then open <http://localhost:8080/bootui>.

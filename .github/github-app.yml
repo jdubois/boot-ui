@@ -18,7 +18,7 @@ scripts:
   # clash in the shared ~/.m2 registry.
   - name: Setup
     command: >-
-      ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app -am
+      ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app -am
       -DskipTests install
       && npm install
     triggers:
@@ -40,9 +40,9 @@ scripts:
   # -Dmaven.repo.local=.m2 still keeps the build isolated from the shared ~/.m2.
   - name: Dev server (sample app)
     command: >-
-      ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app -am
+      ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app -am
       -DskipTests install
-      && ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-sample-app
+      && ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app
       -Dmaven.test.skip=true spring-boot:run -Dspring-boot.run.profiles=dev
       -Dspring-boot.run.arguments=--server.port=$COPILOT_PORT
 

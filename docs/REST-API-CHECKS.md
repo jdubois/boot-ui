@@ -5,9 +5,9 @@ The REST API panel runs a fixed, zero-config ruleset against the host applicatio
 inspects, when it fires, and what to do about it.
 
 Each rule is a small class registered in
-[`RestApiRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiRuleRegistry.java)
+[`RestApiRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiRuleRegistry.java)
 and implemented in
-[`RestApiRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiRules.java).
+[`RestApiRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiRules.java).
 The list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry
 entry.
 

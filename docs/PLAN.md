@@ -2,14 +2,15 @@
 
 ## 1. Strategy
 
-BootUI ships as a **Spring Boot 4 starter** that adds a safe, local-only developer console to a running application. The
-released surface already covers runtime introspection, configuration, database migrations, services, diagnostics, project
-health, and developer tooling, including the recently shipped Threads, HTTP Exchanges, Flyway, Liquibase,
-Hibernate Advisor, HTTP Sessions, GitHub, Security Advisor, and Overview scanner dashboard panels. This plan describes the
-**next merged feature workstream** after the `1.0.0` release: it keeps the remaining roadmap items and the one
-capture-oriented addition chosen to close the clearest gaps against comparable developer dashboards (Spring Boot Admin,
-Quarkus Dev UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire, Symfony Web Profiler) while staying inside
-BootUI's read-mostly, fail-closed safety model.
+BootUI adds a safe, local-only developer console to a running application, shipping on **both Spring Boot 4 (a starter)
+and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and the same
+`/bootui/api/**` contract on either runtime. The released surface already covers runtime introspection, configuration,
+database migrations, services, diagnostics, project health, and developer tooling, including the recently shipped
+Threads, HTTP Exchanges, Flyway, Liquibase, Hibernate Advisor, HTTP Sessions, GitHub, Security Advisor, and Overview
+scanner dashboard panels. This plan describes the **next merged feature workstream** after the `1.0.0` release: it keeps
+the remaining roadmap items and the one capture-oriented addition chosen to close the clearest gaps against comparable
+developer dashboards (Spring Boot Admin, Quarkus Dev UI, Laravel Telescope/Pulse, Phoenix LiveDashboard, .NET Aspire,
+Symfony Web Profiler) while staying inside BootUI's read-mostly, fail-closed safety model.
 
 The priorities for every item below remain unchanged:
 
@@ -41,7 +42,7 @@ The priorities for every item below remain unchanged:
 
 Each new panel must:
 
-- be **read-only or read-mostly**, with any mutating control explicitly confirmation-gated like the existing Spring Cache
+- be **read-only or read-mostly**, with any mutating control explicitly confirmation-gated like the existing Cache
   clear action;
 - **fail closed** when its required classes, beans, Actuator endpoints, or data are unavailable, returning stable empty
   DTOs and a clear unavailable reason;

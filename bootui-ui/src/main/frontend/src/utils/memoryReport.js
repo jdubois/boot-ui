@@ -68,7 +68,7 @@ export function useMemoryReport({endpoint = 'api/live-memory', tuningInputs = fa
         threadCount.value = payload.calculation.threadCount
         headRoomPercent.value = payload.calculation.headRoomPercent
         kubernetesBurstableEnabled.value = payload.kubernetes?.burstableEnabled ?? false
-        kubernetesActuatorEnabled.value = payload.kubernetes?.actuatorProbesEnabled ?? true
+        kubernetesActuatorEnabled.value = payload.kubernetes?.healthProbesEnabled ?? true
         inputsInitialized.value = true
         queueMicrotask(() => {
           initializingInputs = false

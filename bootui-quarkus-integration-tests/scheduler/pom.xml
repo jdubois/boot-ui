@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.7.0</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bootui-quarkus-scheduler-integration-tests</artifactId>
+    <name>BootUI :: Quarkus Extension (Scheduler Integration Tests)</name>
+    <description>Minimal, Docker-free Quarkus app that adds the quarkus-scheduler extension on top of the
+        bootui-quarkus extension and proves the Scheduled Tasks panel light-up: @Scheduled methods discovered at
+        build time by the deployment processor's Jandex scan are recorded into a synthetic QuarkusScheduledTasks
+        bean, mapped by QuarkusScheduledTaskProvider onto the neutral ScheduledTaskDto contract, and surfaced on
+        GET /bootui/api/scheduled, with the panel reported available in the manifest. Kept separate from
+        bootui-quarkus-integration-tests (which deliberately has NO scheduler) so the scheduler-absent
+        unavailable path and the scheduler-present capture path are each proven in isolation — the same split
+        used for the Micrometer-present/absent, SmallRye-Health-present/absent and OpenTelemetry-present/absent
+        coverage.</description>
+
+    <!--
+        Like the other Quarkus integration-test modules, this app has NO datasource / messaging dependencies, so
+        a @QuarkusTest boots without Docker. It is never published.
+    -->
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- The extension under test. Brings bootui-engine, bootui-ui (the shared bundle), quarkus-rest and
+             quarkus-vertx-http transitively, so this app serves /bootui/ and /bootui/api/** with no extra deps. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-quarkus</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Adds the Quarkus scheduler. Its presence flips the SCHEDULER capability, so the deployment
+             processor's registerScheduledTasks build step captures the app's @Scheduled methods and lights up
+             the Scheduled Tasks panel. Without it the panel reports unavailable (proven in the sibling
+             bootui-quarkus-integration-tests module). -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
+
+        <!-- The shared, framework-neutral HTTP probe used to assert the /bootui/api/** responses. -->
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-conformance</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

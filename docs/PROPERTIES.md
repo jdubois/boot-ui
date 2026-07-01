@@ -1,6 +1,7 @@
 # BootUI properties
 
-BootUI binds Spring Boot configuration under the `bootui.*` prefix. It is local-only by default: it activates only in
+BootUI reads its `bootui.*` configuration from the host application's own configuration — Spring Boot property sources
+on the Spring adapter, MicroProfile Config on the Quarkus adapter. It is local-only by default: it activates only in
 development contexts, rejects non-loopback callers, masks secret-like values, and disables itself for production profiles
 unless explicitly forced on.
 
@@ -12,6 +13,63 @@ Panel settings are consistent across the UI and API:
 - Disabled panels are moved to the Disabled / unavailable sidebar group and their panel API routes return `403`.
 - Read-only panels keep read endpoints visible but block mutating API requests. Safe methods (`GET`, `HEAD`, `OPTIONS`)
   remain allowed.
+
+## Spring vs Quarkus (cross-adapter parity)
+
+BootUI targets Spring Boot and Quarkus from one codebase, and its `bootui.*` keys are **largely the
+same by name on both adapters** — but they are read by different configuration engines, and a few
+keys are platform-specific.
+
+**How keys are read.** On Spring, `bootui.*` keys are bound once into a `@ConfigurationProperties`
+object, so Spring's relaxed binding applies (camelCase, kebab-case, and underscores are all
+accepted). On Quarkus, each key is read **live, per request** through MicroProfile Config and must be
+written in **exact kebab-case**; a missing or invalid value **fails closed** (for example, masking
+stays on and non-loopback access stays denied). Most keys below are honored identically on both
+adapters.
+
+**Activation.** Spring decides activation at runtime from `bootui.enabled` and the
+`enabled-profiles` / `disabled-profiles` lists (plus DevTools). Quarkus decides activation at
+**build time from the launch mode**: the console is wired in `dev` and `test` and is completely
+absent (prod-dark) in a production build. The three Spring activation keys therefore **have no effect
+on Quarkus**.
+
+**Host application namespace.** The host application itself is configured with its own framework's
+properties — `spring.*` on Spring, **`quarkus.*` on Quarkus**. BootUI does **not** read `spring.*`
+keys on Quarkus; its advisors bridge the two namespaces internally (for example, the Hibernate
+advisor maps the Spring property names its rules expect onto their `quarkus.hibernate-orm.*`
+equivalents).
+
+### Keys that are not shared
+
+| Key(s)                                                                       | Scope                      | Notes                                                                                                                                      |
+| ---------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.enabled`, `bootui.enabled-profiles`, `bootui.disabled-profiles`      | Spring only                | Quarkus activates by build-time launch mode.                                                                                             |
+| `bootui.panels.<id>.enabled` / `.read-only`, `bootui.read-only`              | Spring only                | Quarkus has no per-panel access filter yet; the shared localhost write-guard still applies to every mutating request.                    |
+| `bootui.force-web`, `bootui.startup.enabled`, `bootui.startup.capacity`      | Spring only                | Driven by Spring `EnvironmentPostProcessor`s with no Quarkus analogue.                                                                   |
+| `bootui.free-on-idle.enabled` / `.timeout`                                   | Spring only                | The idle-buffer-release optimization is Spring-only.                                                                                     |
+| `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
+| `bootui.graalvm.*`                                                           | Spring only                | The GraalVM panel is not applicable on Quarkus.                                                                                          |
+| `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
+| `bootui.activity.*`                                                          | Spring only                | Per-request profiling and signal-to-request correlation are Spring-only.                                                                 |
+| `bootui.telemetry.max-request-bytes`                                         | Spring only                | Sizes the embedded OTLP receiver, which Quarkus does not run (it captures spans in-process).                                             |
+| `bootui.internal.*`                                                          | **Quarkus only, internal** | Build-time facts (base packages, dependency inventory, capability-present flags) emitted by build steps. Not a user setting — never set by hand. |
+
+### Keys with a shared name but platform-specific behavior
+
+| Key                     | Spring                                                                                                              | Quarkus                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.overrides-file` | The Configuration panel persists runtime overrides here, and the key also locates the advisor dismissed-rules file. | The Configuration panel is read-only on Quarkus, so the key only locates the advisor dismissed-rules file (`.bootui/boot-ui.yml`). |
+
+Everything not listed in the two tables above is honored under the same key — and with the same
+default — on both adapters. This includes the safety keys (`bootui.allow-non-localhost`,
+`bootui.allowed-hosts`, `bootui.trusted-proxies`, `bootui.trust-container-gateway`),
+`bootui.expose-values`, `bootui.mask-secrets`, `bootui.path` / `bootui.api-path`,
+`bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
+`bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
+`bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
+`bootui.sql-trace.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
+`bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*`, `bootui.mcp.*`, `bootui.ai.*`,
+`bootui.copilot.*`, and `bootui.claude-code.*` families.
 
 ## Global settings
 
@@ -77,7 +135,7 @@ Panel settings are consistent across the UI and API:
 | Security        | Spring Security           | `spring-security`           | `bootui.panels.spring-security.enabled`           | Not applicable; view-only.                |
 | Security        | Security Logs             | `security-logs`             | `bootui.panels.security-logs.enabled`             | Not applicable; view-only.                |
 | Services        | Scheduled Tasks           | `scheduled`                 | `bootui.panels.scheduled.enabled`                 | Not applicable; view-only.                |
-| Services        | Spring Cache              | `spring-cache`              | `bootui.panels.spring-cache.enabled`              | `bootui.panels.spring-cache.read-only`    |
+| Services        | Cache                     | `cache`                     | `bootui.panels.cache.enabled`                     | `bootui.panels.cache.read-only`           |
 | Services        | AI Usage                  | `ai`                        | `bootui.panels.ai.enabled`                        | Not applicable; view-only.                |
 | Diagnostics     | Traces                    | `traces`                    | `bootui.panels.traces.enabled`                    | `bootui.panels.traces.read-only`          |
 | Diagnostics     | Log Tail                  | `log-tail`                  | `bootui.panels.log-tail.enabled`                  | Not applicable; view-only.                |
@@ -181,12 +239,12 @@ Panel settings are consistent across the UI and API:
 | `bootui.panels.pentesting.enabled`   | `true`  | Show the host-application OWASP hygiene panel and its latest report. |
 | `bootui.panels.pentesting.read-only` | `false` | Disable the explicit local scan action.                              |
 
-### Spring Cache
+### Cache
 
 | Property                               | Default | Description                                                                                       |
 | -------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `bootui.panels.spring-cache.enabled`   | `true`  | Show Spring Cache managers, caches, metrics, and cache annotations.                               |
-| `bootui.panels.spring-cache.read-only` | `false` | Disable cache clear actions.                                                                      |
+| `bootui.panels.cache.enabled`          | `true`  | Show cache managers, caches, metrics, and cache annotations.                                      |
+| `bootui.panels.cache.read-only`        | `false` | Disable cache clear actions.                                                                      |
 | `bootui.cache.clear-enabled`           | `true`  | Additional action gate for cache clearing. Both this and the read-only state must allow clearing. |
 
 ### Hibernate
@@ -282,6 +340,13 @@ read-only.
 | `bootui.exceptions.max-occurrences-per-group` | `25`  | Maximum number of recent occurrences retained per exception group.                                         |
 | `bootui.exceptions.max-stack-frames`        | `50`    | Maximum number of stack-trace frames retained per exception (and per cause).                               |
 
+### Log Tail
+
+| Property                         | Default | Description                                                                                                                      |
+| -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `bootui.panels.log-tail.enabled` | `true`  | Show the Log Tail panel and its live log stream.                                                                                 |
+| `bootui.log-tail.max-bytes`      | `0`     | Approximate retained-byte budget for the in-memory log-tail ring buffer, bounding it alongside its fixed 500-line cap (oldest evicted first). `0` (the default) means unbounded. |
+
 ### Vulnerabilities
 
 | Property                                  | Default | Description                                             |
@@ -292,6 +357,7 @@ read-only.
 | `bootui.vulnerabilities.request-timeout`     | `10s`   | Timeout for each OSV request.                           |
 | `bootui.vulnerabilities.max-packages`        | `250`   | Maximum packages included in one OSV batch query.       |
 | `bootui.vulnerabilities.max-advisories`      | `200`   | Maximum advisory details fetched after a package query. |
+| `bootui.vulnerabilities.osv-base-uri`        | `https://api.osv.dev` | Base URI of the OSV.dev API queried during a scan. Mainly useful for pointing scans at a local stub in tests. |
 
 ### Heap Dump
 

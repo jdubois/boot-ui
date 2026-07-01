@@ -6,7 +6,7 @@
 # CRaC snapshots a fully warmed-up JVM process to disk and restores it in tens of
 # milliseconds. It only works on Linux and needs a CRaC-enabled JDK plus elevated
 # container privileges (CRIU) to take and restore the checkpoint - see
-# docker-compose-crac.yml and bootui-sample-app/README.md.
+# docker-compose-crac.yml and bootui-spring-sample-app/README.md.
 #
 # The sample app runs with its default "dev" profile, which uses an in-memory H2
 # database (and an in-memory cache) instead of PostgreSQL/Redis, so the checkpoint
@@ -16,7 +16,7 @@
 #
 # BootUI is a multi-module Maven project, so the whole reactor is copied into the
 # build stage and the sample app is built together with the modules it depends on
-# (`-pl bootui-sample-app -am`). For a JVM image see Dockerfile, for a GraalVM
+# (`-pl bootui-spring-sample-app -am`). For a JVM image see Dockerfile, for a GraalVM
 # native image see Dockerfile-native.
 #
 # Build and run (CRIU needs extra privileges; the named volume keeps the checkpoint
@@ -62,7 +62,7 @@ RUN chmod +x mvnw
 # not in the image. (Requires BuildKit, the default in modern Docker.)
 RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
-    ./mvnw -Pcrac -DskipTests -pl bootui-sample-app -am clean package
+    ./mvnw -Pcrac -DskipTests -pl bootui-spring-sample-app -am clean package
 
 # Runtime stage with a CRaC-enabled JDK (BellSoft Liberica with CRaC support).
 FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc
@@ -99,8 +99,8 @@ ENV JAVA_OPTS="-Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m -XX:ReservedCodeCache
 
 # Copy the repackaged, runnable Spring Boot jar (the glob skips the thin
 # *.jar.original) and the checkpoint/restore entrypoint.
-COPY --from=build /app/bootui-sample-app/target/bootui-sample-app-*.jar ${APP_JAR}
-COPY --from=build /app/bootui-sample-app/src/main/script/checkpoint-and-run.sh /app/checkpoint-and-run.sh
+COPY --from=build /app/bootui-spring-sample-app/target/bootui-spring-sample-app-*.jar ${APP_JAR}
+COPY --from=build /app/bootui-spring-sample-app/src/main/script/checkpoint-and-run.sh /app/checkpoint-and-run.sh
 
 RUN chmod +x /app/checkpoint-and-run.sh && mkdir -p ${CRAC_CHECKPOINT_DIR}
 

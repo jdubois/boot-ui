@@ -1,6 +1,6 @@
 <script setup>
 import {getJson} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -9,6 +9,15 @@ import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 const data = ref(null)
 const detail = ref(null)
 const error = ref(null)
+
+const injectedPanels = inject('panels', null)
+const platform = computed(() => injectedPanels?.value?.platform ?? 'spring-boot')
+const metricsUnavailableHelp = computed(() =>
+  platform.value === 'quarkus'
+    ? 'Micrometer metrics are not available. Add a quarkus-micrometer registry (for example quarkus-micrometer-registry-prometheus) to browse live metrics.'
+    : 'Micrometer metrics are not available. Add Actuator or a MeterRegistry to browse live metrics.'
+)
+
 const detailError = ref(null)
 const search = ref('')
 const typeFilter = ref('')
@@ -193,7 +202,7 @@ const {autoRefresh, loading, initialLoading, load: loadMetrics} = useAutoRefresh
     <PanelSkeleton v-if="initialLoading" />
 
     <div v-else-if="data && !data.metricsAvailable" class="alert alert-warning">
-      Micrometer metrics are not available. Add Actuator or a MeterRegistry to browse live metrics.
+      {{ metricsUnavailableHelp }}
     </div>
 
     <template v-else-if="data">

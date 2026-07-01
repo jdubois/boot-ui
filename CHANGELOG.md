@@ -7,6 +7,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed the "Spring Cache" panel to "Cache".** The panel, route, and API are now framework-neutral so
+  the same UI covers Spring Cache and `quarkus-cache`: route `/cache`, API `GET`/`POST /bootui/api/cache[/clear]`,
+  and panel id `cache` (config keys `bootui.panels.cache.enabled` / `.read-only`). The advisor sidebar label now
+  follows the running framework (shows "Quarkus" on Quarkus), matching the panel header. **This is a breaking
+  change for existing integrations:** the browser route `/spring-cache` still redirects to `/cache`, but the old
+  API path `GET /bootui/api/spring-cache` has been removed with no server-side alias (use `/bootui/api/cache`),
+  and the old `bootui.panels.spring-cache.*` config keys are no longer read (rename them to
+  `bootui.panels.cache.*`).
+- **Renamed the Spring adapter modules to carry a `spring` token**, matching the Quarkus adapter's naming
+  (`bootui-quarkus*`): the auto-configuration module `bootui-autoconfigure` is now `bootui-spring-autoconfigure`,
+  and the reference app `bootui-sample-app` is now `bootui-spring-sample-app`. **The only breaking change is the
+  published Maven Central coordinate `com.julien-dubois.bootui:bootui-autoconfigure` → `…:bootui-spring-autoconfigure`.**
+  Consumers who depend on `bootui-spring-boot-starter` (the recommended path) need no change — the starter pulls in
+  the renamed module transitively. Only projects that declared a direct dependency on `bootui-autoconfigure` must
+  update the artifact id. The `bootui-spring-boot-starter` artifact id is unchanged, Java package names
+  (`io.github.jdubois.bootui.*`) are unchanged, and the published Docker image names (`jdubois/bootui-sample-app*`)
+  are unchanged.
+- **Merged the `bootui-spi` module into `bootui-engine`.** The framework-neutral service-provider interfaces now
+  live in the `io.github.jdubois.bootui.spi` package inside `bootui-engine` (the boundary is still enforced by
+  `SpiBoundaryArchitectureTests`), reducing the shared modules from four to three (`bootui-core`, `bootui-engine`,
+  `bootui-conformance`). **The only breaking change is that the published Maven Central coordinate
+  `com.julien-dubois.bootui:bootui-spi` no longer exists** — its types ship in `bootui-engine`. Java package names
+  (`io.github.jdubois.bootui.spi.*`) are unchanged, so code that imports these interfaces still compiles; consumers
+  who depend on `bootui-spring-boot-starter` or `bootui-quarkus` (the recommended paths) need no change, since both
+  pull the engine in. Only projects that declared a direct dependency on `bootui-spi` must drop it (the engine
+  already provides those classes).
+
 ## [1.7.0] - 2026-06-29
 
 Feature release headlined by **richer Dependabot insight in the GitHub panel** and **filterable readiness concerns on the

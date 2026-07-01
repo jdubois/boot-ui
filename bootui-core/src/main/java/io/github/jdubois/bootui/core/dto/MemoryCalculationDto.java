@@ -25,6 +25,7 @@ public record MemoryCalculationDto(
         int liveLoadedClassCount,
         int headRoomPercent,
         boolean virtualThreadsEnabled,
+        String virtualThreadsProperty,
         String jvmOptions,
         boolean valid,
         String error) {}

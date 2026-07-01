@@ -2,35 +2,43 @@
 
 ## 1. Overview
 
-BootUI is a **Spring Boot 4 Starter** that adds an embedded, local-only developer console to Spring Boot 4 applications.
-It is inspired by Quarkus Dev UI, .NET Aspire Dashboard, Laravel Telescope, Micronaut Control Panel, and Spring Boot
-Admin, but is focused specifically on the inner development loop of a single Spring Boot 4 application.
+BootUI is a **local-only developer console** that adds an embedded, safe introspection and explanation layer to a
+running application. It runs on **both Spring Boot 4 and Quarkus** from a single codebase: each framework ships a thin
+adapter — a Spring Boot starter or a Quarkus extension — over a shared, framework-neutral engine, so both serve the
+**same Vue UI** and the **same `/bootui/api/**` REST contract**. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard,
+Laravel Telescope, Micronaut Control Panel, and Spring Boot Admin, but is focused specifically on the inner development
+loop of a single application.
 
 BootUI is not a standalone application, production monitoring tool, APM product, cloud service, IDE plugin, or
-replacement for Actuator. It is a Spring-native visualization and explanation layer loaded into the user's running
-Spring Boot 4 application through a starter dependency.
+replacement for Actuator. It is a framework-native visualization and explanation layer loaded into the user's running
+application through a starter (Spring Boot) or extension (Quarkus) dependency.
 
 ## 1.1 Target platform
 
 BootUI currently targets:
 
-- Spring Boot 4.x.
+- Spring Boot 4.x and Quarkus 3.x, from one shared, framework-neutral codebase.
 - Java 17 or later.
 - Maven-based applications first.
-- Servlet web applications first.
+- Spring Boot servlet web applications and Quarkus (Vert.x / RESTEasy Reactive) applications.
+
+Maturity is stated honestly: the **Spring Boot adapter is complete** (all panels). The **Quarkus adapter is being built
+out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the current per-platform
+status.
 
 Out of scope for the current 1.x line:
 
 - Spring Boot 3.x compatibility.
 - Spring Framework 6 / Boot 3 compatibility shims.
-- Gradle plugin support.
+- A dedicated BootUI Gradle plugin (the Spring starter and Quarkus extension are consumable from Maven or Gradle as
+  ordinary dependencies).
 - WebFlux-specific UX beyond what Actuator mappings expose by default.
 
 ## 2. Product goals
 
 ### 2.1 Primary goal
 
-Make a running Spring Boot application understandable in minutes.
+Make a running Spring Boot or Quarkus application understandable in minutes.
 
 ### 2.2 Secondary goals
 
@@ -120,9 +128,16 @@ When BootUI is enabled, the application startup output should include:
 BootUI is available at http://localhost:8080/bootui
 ```
 
-The scheme follows `server.ssl.enabled`: when TLS is enabled the banner uses `https://`
-instead of `http://`. The port and context path are resolved from `local.server.port`
-(falling back to `server.port`, then `8080`) and `server.servlet.context-path`.
+On Spring the scheme follows `server.ssl.enabled`: when TLS is enabled the banner uses
+`https://` instead of `http://`. The port and context path are resolved from
+`local.server.port` (falling back to `server.port`, then `8080`) and
+`server.servlet.context-path`.
+
+The Quarkus adapter logs the same line at startup, gated by the same `bootui.show-banner`
+key. Because the console is a local developer tool there, the Quarkus banner always uses
+`http://`; the port is the live bound HTTP port (`quarkus.http.test-port` under tests,
+otherwise `quarkus.http.port`) and the path is `quarkus.http.root-path` plus the fixed
+`/bootui` mount.
 
 This should integrate with the project's startup banner convention.
 
@@ -502,7 +517,7 @@ Features:
   for Guaranteed QoS and percentage-based heap sizing (`-XX:MaxRAMPercentage` / `-XX:InitialRAMPercentage`) instead of
   fixed `-Xmx` / `-Xms`, while keeping fixed non-heap caps and warnings visible.
 - The JVM Tuning panel lets the user opt into a Burstable Kubernetes request based on the current memory snapshot,
-  and lets the user include or omit Spring Boot Actuator startup/readiness/liveness probes. The Actuator toggle
+  and lets the user include or omit Kubernetes startup/readiness/liveness health probes. The toggle
   initializes from the current application health-probe configuration and is recommended for Kubernetes deployments.
 
 Acceptance criteria:
@@ -877,15 +892,15 @@ Acceptance criteria:
 - Opening the panel only reads changelog and history metadata; no Liquibase update command is executed as a side effect.
 - Mutating Liquibase actions require browser confirmation and a non-read-only app and panel.
 
-### 5.18 Spring Cache Panel
+### 5.18 Cache Panel
 
-Purpose: answer "Which Spring Cache managers and caches exist, how are they used, and can I clear them during local
+Purpose: answer "Which cache managers and caches exist, how are they used, and can I clear them during local
 development?"
 
 Data sources:
 
 - Spring `CacheManager` beans discovered in the application context.
-- Spring Cache `CacheOperationSource` metadata for `@Cacheable`, `@CachePut`, `@CacheEvict`, and composed `@Caching`
+- `CacheOperationSource` metadata for `@Cacheable`, `@CachePut`, `@CacheEvict`, and composed `@Caching`
   operations.
 - Micrometer cache meters when the host application has cache metrics registered.
 
@@ -1000,10 +1015,10 @@ BootUI/
 │   └── PLAN.md
 ├── pom.xml
 ├── bootui-core/
-├── bootui-autoconfigure/
+├── bootui-spring-autoconfigure/
 ├── bootui-spring-boot-starter/
 ├── bootui-ui/
-└── bootui-sample-app/
+└── bootui-spring-sample-app/
 ```
 
 ### 6.2 Modules
@@ -1020,7 +1035,7 @@ Responsibilities:
 - Safe value rendering.
 - Common error model.
 
-#### `bootui-autoconfigure`
+#### `bootui-spring-autoconfigure`
 
 Spring Boot 4 auto-configuration module.
 
@@ -1038,7 +1053,7 @@ Spring Boot 4 starter dependency for users.
 
 Responsibilities:
 
-- Pull `bootui-autoconfigure`.
+- Pull `bootui-spring-autoconfigure`.
 - Pull `bootui-ui`, `spring-boot-starter-web`, and `spring-boot-starter-actuator`.
 - Avoid bringing production-heavy dependencies.
 
@@ -1066,21 +1081,21 @@ Build requirements:
 
 - The Maven build must install/use the configured Node.js and npm versions for reproducible frontend builds.
 - The frontend build must run before Java resources are packaged.
-- The generated Vue assets must be copied into a classpath location served by `bootui-autoconfigure`, such as
+- The generated Vue assets must be copied into a classpath location served by `bootui-spring-autoconfigure`, such as
   `META-INF/resources/bootui/`.
 - `./mvnw clean package` from the repository root must produce BootUI artifacts that already contain the compiled Vue
   UI.
 - Consumer Spring Boot 4 applications should only need the `bootui-spring-boot-starter` dependency; they must not run
   `npm install` or `npm run build` themselves.
 
-#### `bootui-sample-app`
+#### `bootui-spring-sample-app`
 
 Sample Spring Boot app used for demos and integration tests.
 
 Responsibilities:
 
 - Demonstrate common Spring Boot features.
-- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, Redis-backed Spring Cache, scheduling, and
+- Include Actuator, DevTools, web, JPA/PostgreSQL through Docker Compose, Redis-backed Cache, scheduling, and
   Spring Security.
 - Provide enough beans, mappings, config, health, repositories, scheduled tasks, security chains, and logs to test
   BootUI.
@@ -1195,8 +1210,8 @@ Initial endpoints:
 | `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, not read-only, and not Modulith-managed |
 | `/bootui/api/liquibase/changesets`           | GET    | Applied/pending Liquibase change sets and action availability per database             |
 | `/bootui/api/liquibase/update`               | POST   | Apply pending Liquibase change sets only when confirmed and not read-only              |
-| `/bootui/api/spring-cache`                   | GET    | Spring Cache managers, caches, metrics, and annotation operations                      |
-| `/bootui/api/spring-cache/clear`             | POST   | Clear one or all known caches only when explicitly enabled and confirmed               |
+| `/bootui/api/cache`                          | GET    | Cache managers, caches, metrics, and annotation operations                      |
+| `/bootui/api/cache/clear`                    | POST   | Clear one or all known caches only when explicitly enabled and confirmed               |
 | `/bootui/api/spring-security`                | GET    | Spring Security filter chain report                                                    |
 | `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
@@ -1241,7 +1256,7 @@ Initial properties:
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides.                                       |
 | `bootui.monitoring.exclude-self`             | `true`                                  | Hide BootUI's own runtime data from monitoring panels.                                            |
-| `bootui.cache.clear-enabled`                 | `true`                                  | Enable Spring Cache clear actions after explicit browser confirmation.                            |
+| `bootui.cache.clear-enabled`                 | `true`                                  | Enable Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
@@ -1404,7 +1419,7 @@ Top-level navigation:
   - Security Logs.
 - Services:
   - Scheduled Tasks.
-  - Spring Cache.
+  - Cache.
   - AI Usage.
 - Diagnostics:
   - Traces.
@@ -1495,7 +1510,7 @@ Future compatibility:
 
 ### 9.4 Browser/UI tests
 
-- Playwright smoke tests for all visible panels in `bootui-sample-app/e2e`.
+- Playwright smoke tests for all visible panels in `bootui-spring-sample-app/e2e`.
 - Search and filter behavior.
 - Masked values stay masked.
 - Empty states are readable.
@@ -1509,7 +1524,7 @@ BootUI's 1.0 release surface is complete when:
   Disabled / unavailable navigation groups covering Health, HTTP Sessions, Metrics, Live Memory, JVM Tuning, Heap Dump,
   Threads, Startup Timeline, GraalVM, Configuration, Profile Diff, Loggers, Beans, Conditions, Mappings, Database
   Connection Pools, Spring Data, Hibernate, Flyway, Liquibase, Spring Security, Security Logs, Security, Pentesting,
-  Vulnerabilities, Scheduled Tasks, Spring Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
+  Vulnerabilities, Scheduled Tasks, Cache, AI Usage, Traces, Log Tail, HTTP Exchanges, HTTP Probe, Architecture,
   REST API, Spring, Memory,
   DevTools,
   Dev Services, Copilot, Claude Code, and GitHub.

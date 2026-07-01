@@ -1,0 +1,127 @@
+# syntax=docker/dockerfile:1
+#
+# Multi-stage Dockerfile for a JVM image of the BootUI **Quarkus** sample app.
+#
+# Unlike the Spring sample (root Dockerfile), this is the *only* image flavor for Quarkus: there is
+# deliberately no CRaC, AOT, or native variant. Quarkus already starts fast from build-time
+# augmentation, and BootUI's GraalVM/CRaC advisors are Spring-oriented and report NOT_APPLICABLE on
+# Quarkus, so those flavors would demo nothing extra.
+#
+# Why this image runs Quarkus in DEV mode
+# ---------------------------------------
+# The bootui-quarkus extension exposes the /bootui console only when the app is NOT in the NORMAL
+# (production) launch mode — the console registration is skipped at build time for a packaged prod
+# jar, and there is no runtime flag to turn it back on (fail-closed by design). A standard
+# `java -jar quarkus-run.jar` therefore shows no BootUI at all.
+#
+# To demo BootUI we launch the sample from source with `quarkus:dev`, which boots the app in DEVELOPMENT
+# launch mode so the console activates. This mirrors the Spring image, which runs with the "dev" profile
+# so BootUI is enabled there too.
+#
+# Why source-based `quarkus:dev` and not a (slimmer) mutable jar
+# -------------------------------------------------------------
+# The obvious lighter-weight alternative is to package a Quarkus *mutable jar* and launch it with
+# QUARKUS_LAUNCH_DEVMODE=true (no source tree, no in-image Maven repository, a much smaller image). That
+# path is currently broken for any app that uses Hibernate ORM, like this sample: a mutable jar launched
+# standalone in dev mode runs as DevModeType.REMOTE_SERVER_SIDE, and Hibernate's dev integrator then
+# loads under a different classloader than the Hibernate `Integrator` SPI it implements, so startup dies
+# during augmentation with:
+#   java.lang.ClassCastException: io.quarkus.hibernate.orm.dev.HibernateOrmDevIntegrator
+#       cannot be cast to org.hibernate.integrator.spi.Integrator
+# This is an open, maintainer-acknowledged upstream Quarkus bug with no config/env/runtime workaround:
+#   https://github.com/quarkusio/quarkus/issues/51130
+# Until it is fixed upstream we launch from source with `quarkus:dev`, which uses the normal local
+# dev-mode classloading and boots cleanly. The cost is a larger image (full JDK + the source tree + an
+# image-local Maven repository) — an accepted trade-off for a demo image. Once #51130 is fixed this can
+# revert to the mutable-jar approach (see git history) for a much smaller image.
+#
+# Docker-free, like the Spring image
+# ----------------------------------
+# The sample is wired for PostgreSQL (Quarkus Dev Services start a throwaway container in dev/test).
+# That would need Docker-in-Docker here, so the image instead points the datasource at an in-memory
+# H2 database via environment variables (QUARKUS_DATASOURCE_DB_KIND=h2 + an explicit JDBC URL, which
+# also disables datasource Dev Services). Hibernate ORM (drop-and-create) builds the schema. This is
+# the Quarkus analogue of the Spring image's Docker-free "dev" profile on H2.
+#
+# Because dev mode runs build-time augmentation at container start, the H2 selection must be an
+# ENVIRONMENT VARIABLE (read during augmentation), not a value baked into the build.
+#
+# Build and run:
+#   docker build -f Dockerfile-quarkus -t bootui-sample-app-quarkus .
+#   docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sample-app-quarkus
+#   # then open http://localhost:8080/bootui
+#
+# Populate the Flyway/Liquibase panels with the sample migrations (off by default for a faster boot):
+#   docker run --rm -p 8080:8080 \
+#     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
+#     -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
+#     bootui-sample-app-quarkus
+
+# ---------------------------------------------------------------------------
+# Image stage: compile the reactor and keep the source tree for Quarkus dev mode.
+# A glibc JDK 21 (Ubuntu "noble") is used because (a) the Quarkus sample is wired into the reactor
+# only on JDK 17/21 (the root pom's quarkus-sample-app profile), and (b) the frontend-maven-plugin
+# downloads glibc-linked Node.js binaries to build the bundled Vue UI.
+# ---------------------------------------------------------------------------
+FROM eclipse-temurin:21-jdk-noble
+
+WORKDIR /app
+
+# Install curl so the Maven wrapper can download maven-wrapper.jar (this base image ships without
+# curl/wget, and the wrapper jar is not committed to the repository).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Run as a non-root user. Quarkus dev mode writes under target/, and BootUI writes its runtime state
+# under the working directory, so /app and everything under it is owned by this user.
+RUN useradd --uid 1001 --create-home --home-dir /home/bootui --shell /usr/sbin/nologin bootui \
+    && chown 1001:1001 /app
+
+# Copy the whole multi-module project (see .dockerignore for exclusions).
+COPY --chown=1001:1001 . .
+RUN chmod +x mvnw
+
+USER 1001
+ENV HOME=/home/bootui
+
+# Build the sample app and its reactor dependencies into the image-local Maven repository so the
+# container starts without downloading BootUI reactor artifacts.
+#
+# bootui-quarkus-deployment is listed explicitly so it joins the reactor: the sample only depends on the
+# runtime extension (bootui-quarkus), and Quarkus pulls the -deployment counterpart in at augmentation
+# time, not as a Maven dependency. Without it, the runtime extension-descriptor check fails and the
+# sample's augmentation can't resolve the deployment artifact. `install` publishes it to the (cached)
+# local repository so augmentation finds it.
+RUN ./mvnw -B -ntp -DskipTests -pl bootui-quarkus-deployment,bootui-quarkus-sample-app -am clean install
+
+# Bind all interfaces so the published port is reachable from the host.
+ENV QUARKUS_HTTP_HOST=0.0.0.0
+ENV QUARKUS_HTTP_PORT=8080
+
+# Run Docker-free on in-memory H2 instead of the PostgreSQL Dev Service. db-kind is a build-time
+# setting, but dev mode re-augments at startup and reads these environment variables; the explicit URL
+# also disables datasource Dev Services so no container is required. Hibernate ORM builds the schema.
+ENV QUARKUS_DATASOURCE_DB_KIND=h2
+ENV QUARKUS_DATASOURCE_USERNAME=sa
+ENV QUARKUS_DATASOURCE_JDBC_URL="jdbc:h2:mem:bootui;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false"
+
+# The Flyway/Liquibase migrations are off by default for a faster boot (Hibernate still creates the
+# sample tables). Re-enable them at runtime to populate the Flyway/Liquibase panels (see header).
+ENV QUARKUS_FLYWAY_MIGRATE_AT_START=false
+ENV QUARKUS_LIQUIBASE_MIGRATE_AT_START=false
+
+# Keep dev mode non-interactive in a container: no continuous testing, no analytics prompt.
+ENV QUARKUS_TEST_CONTINUOUS_TESTING=disabled
+ENV QUARKUS_ANALYTICS_DISABLED=true
+
+# A modest, bounded footprint. Dev mode (augmentation) needs more headroom than a packaged prod jar,
+# so this is more generous than the Spring image's 200m prod heap. The JVM reads JAVA_TOOL_OPTIONS
+# itself; override the whole set at runtime with -e JAVA_TOOL_OPTIONS="...".
+ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"
+
+EXPOSE 8080
+
+# Launch source-based Quarkus dev mode. Exec form so `java` receives SIGTERM from `docker stop` for a
+# graceful shutdown through the Maven wrapper process.
+ENTRYPOINT ["./mvnw", "-B", "-ntp", "-f", "bootui-quarkus-sample-app/pom.xml", "quarkus:dev"]

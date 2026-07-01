@@ -5,9 +5,9 @@ application's own classes. This page lists every rule that ships with BootUI tod
 what to do about it.
 
 Each rule is a small class registered in
-[`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRuleRegistry.java)
+[`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRuleRegistry.java)
 and implemented in
-[`ArchitectureRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRules.java).
+[`ArchitectureRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRules.java).
 The list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry
 entry.
 
@@ -18,7 +18,10 @@ The scanner detects the host application's base package(s) from the `@SpringBoot
 `ClassFileImporter`, and evaluates every registered rule against the imported classes. Importing is bounded to the
 application's own base package(s) — never the entire classpath — and runs only on demand when the scan action is
 invoked, caching the last report in the controller. When several base packages are detected, all of them are imported
-and analyzed together.
+and analyzed together. ArchUnit still resolves the external types those classes reference (super-classes, interfaces)
+from the classpath so hierarchy-aware checks work; BootUI keeps that resolution enabled but quietly skips any referenced
+class whose resource location uses a URL scheme the JVM cannot open — such as the Quarkus runtime classloader's
+`quarkus:` scheme — so a scan never floods the console with per-class resolution warnings.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when:

@@ -17,7 +17,7 @@
     <dependencies>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-autoconfigure</artifactId>
+            <artifactId>bootui-spring-autoconfigure</artifactId>
         </dependency>
         <dependency>
             <groupId>com.julien-dubois.bootui</groupId>

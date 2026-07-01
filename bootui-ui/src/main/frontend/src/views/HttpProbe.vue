@@ -1,6 +1,6 @@
 <script setup>
 import {apiFetch} from '../api.js'
-import {computed, ref} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {formatLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -9,6 +9,11 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
+const panels = inject('panels', ref(null))
+const frameworkLabel = computed(() => (panels.value?.platform === 'quarkus' ? 'Quarkus' : 'Spring Boot'))
+const probeSubtitle = computed(
+  () => `Send local HTTP requests against your running ${frameworkLabel.value} app without leaving BootUI.`
+)
 const method = ref('GET')
 const path = ref('')
 const requestBody = ref('')
@@ -102,11 +107,7 @@ function clearForm() {
 
 <template>
   <div>
-    <PanelHeader
-      icon="bi-send"
-      title="HTTP Probe"
-      subtitle="Send local HTTP requests against your running Spring Boot app without leaving BootUI."
-    >
+    <PanelHeader icon="bi-send" title="HTTP Probe" :subtitle="probeSubtitle">
       <template #actions>
         <button :disabled="loading" class="btn btn-outline-secondary" @click="clearForm">
           <i class="bi bi-x-circle me-1"></i>Clear
