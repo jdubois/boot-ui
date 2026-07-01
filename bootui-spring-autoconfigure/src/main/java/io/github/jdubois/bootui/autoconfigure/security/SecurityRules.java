@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 abstract class AbstractSecurityRule implements SecurityRule {
 
@@ -220,6 +221,34 @@ final class WeakBcryptStrengthRule extends AbstractSecurityRule {
             if (strength != null && strength >= 0 && strength < RECOMMENDED_MINIMUM_STRENGTH) {
                 details.add("PasswordEncoder bean " + encoder.type() + " uses BCrypt strength " + strength
                         + ", below the recommended minimum of " + RECOMMENDED_MINIMUM_STRENGTH + ".");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class BasicAuthWithoutTlsRule extends AbstractSecurityRule {
+
+    BasicAuthWithoutTlsRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-AUTH-007",
+                "HTTP Basic authentication should run only over HTTPS",
+                SecurityCategory.AUTHENTICATION,
+                "HIGH",
+                "Detects an HTTP Basic authentication chain (BasicAuthenticationFilter) while a production profile is active and no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Basic sends the username/password Base64-encoded, not encrypted, on every request.",
+                "Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for any chain using httpBasic(), or switch to a mechanism that does not repeat credentials on every request.",
+                "https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/basic.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (!context.isProductionProfileActive() || context.isTlsConfigured()) {
+            return pass();
+        }
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.hasFilter("BasicAuthenticationFilter")) {
+                details.add(chain.describe() + " authenticates with HTTP Basic while no TLS is configured.");
             }
         }
         return violation(details);
@@ -762,7 +791,7 @@ final class PermissionsPolicyHeaderRule extends AbstractSecurityRule {
 }
 
 // ---------------------------------------------------------------------------
-// CORS
+// Transport & security headers (continued)
 // ---------------------------------------------------------------------------
 
 final class HeaderWritersDisabledRule extends AbstractSecurityRule {
@@ -790,6 +819,63 @@ final class HeaderWritersDisabledRule extends AbstractSecurityRule {
         return violation(details);
     }
 }
+
+final class WeakHstsPolicyRule extends AbstractSecurityRule {
+
+    WeakHstsPolicyRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-HEAD-008",
+                "HSTS should use a strong max-age and includeSubDomains",
+                SecurityCategory.HEADERS,
+                "LOW",
+                "Detects an HstsHeaderWriter configured with a max-age under one year or without includeSubDomains, which weakens the protocol-downgrade and cookie-hijacking protection HSTS is meant to provide.",
+                "Keep the default HstsHeaderWriter settings (max-age=31536000, includeSubDomains=true), or configure headers().httpStrictTransportSecurity() explicitly with those values.",
+                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-hsts"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.hasWeakHsts()) {
+                details.add(
+                        chain.describe() + " emits an HSTS header with a weak max-age or without includeSubDomains.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
+
+    WeakContentSecurityPolicyRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-HEAD-009",
+                "Content-Security-Policy should not allow unsafe-inline/unsafe-eval or wildcard sources",
+                SecurityCategory.HEADERS,
+                "MEDIUM",
+                "Detects a ContentSecurityPolicyHeaderWriter policy that includes 'unsafe-inline' or 'unsafe-eval', or a wildcard (*) default-src/script-src, which largely defeats the XSS mitigation a CSP is meant to provide.",
+                "Remove 'unsafe-inline'/'unsafe-eval' and wildcard sources; use nonces or hashes for the scripts/styles the application actually serves.",
+                "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-csp"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        List<String> details = new ArrayList<>();
+        for (FilterChainModel chain : context.chains()) {
+            if (chain.hasWeakCsp()) {
+                details.add(
+                        chain.describe()
+                                + " defines a Content-Security-Policy that allows unsafe-inline/unsafe-eval or a wildcard source.");
+            }
+        }
+        return violation(details);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CORS
+// ---------------------------------------------------------------------------
 
 final class CorsWildcardOriginRule extends AbstractSecurityRule {
 
@@ -1172,7 +1258,7 @@ final class ManagementPortIsolationRule extends AbstractSecurityRule {
 }
 
 // ---------------------------------------------------------------------------
-// OAuth2 / JWT resource server
+// Actuator exposure (continued)
 // ---------------------------------------------------------------------------
 
 final class ActuatorShowValuesRule extends AbstractSecurityRule {
@@ -1203,7 +1289,7 @@ final class ActuatorShowValuesRule extends AbstractSecurityRule {
 }
 
 // ---------------------------------------------------------------------------
-// OAuth2 / JWT resource server (continued)
+// OAuth2 / JWT resource server
 // ---------------------------------------------------------------------------
 
 final class ResourceServerValidationRule extends AbstractSecurityRule {
@@ -1430,27 +1516,39 @@ final class HttpsEnforcementRule extends AbstractSecurityRule {
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.isProductionProfileActive() || isTlsHandled(context)) {
+        if (!context.isProductionProfileActive() || context.isTlsConfigured()) {
             return pass();
         }
         return violation(
                 List.of(
                         "No server-side TLS, HTTPS redirect, or forwarded-header strategy is configured while a production profile is active."));
     }
+}
 
-    private boolean isTlsHandled(SecurityContext context) {
-        if (context.isPropertyTrue("server.ssl.enabled")
-                || context.firstProperty("server.ssl.key-store") != null
-                || context.firstProperty("server.ssl.bundle") != null
-                || context.firstProperty("server.ssl.certificate") != null) {
-            return true;
+final class HardcodedSecretPropertyRule extends AbstractSecurityRule {
+
+    HardcodedSecretPropertyRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-CONFIG-007",
+                "Configuration should not hold literal secret values",
+                SecurityCategory.CONFIGURATION,
+                "CRITICAL",
+                "Detects configuration property names that look like they hold a credential (password, secret, token, api-key, client-secret, private-key) whose value is a literal, unresolved string rather than an externalized reference. System properties, the OS environment, the random-value source, and mounted config-tree secrets are not scanned because they are already externalized. Property values are never read into the finding; only the offending property name is reported.",
+                "Move the literal value out of the configuration file into an environment variable, a secrets manager, or a mounted config-tree secret, and reference it with ${ENV_VAR_NAME} instead of a hardcoded literal.",
+                "https://docs.spring.io/spring-boot/reference/features/external-config.html"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        Set<String> keys = context.suspectedHardcodedSecretKeys();
+        if (keys.isEmpty()) {
+            return pass();
         }
-        String forwarded = context.firstProperty("server.forward-headers-strategy");
-        if (forwarded != null && ("framework".equalsIgnoreCase(forwarded) || "native".equalsIgnoreCase(forwarded))) {
-            return true;
-        }
-        return context.chains().stream()
-                .anyMatch(
-                        chain -> chain.hasFilter("ChannelProcessingFilter") || chain.hasFilter("HttpsRedirectFilter"));
+        List<String> details = keys.stream()
+                .sorted()
+                .map(key -> "Property '" + key
+                        + "' appears to hold a hardcoded secret value in the application configuration.")
+                .toList();
+        return violation(details);
     }
 }
