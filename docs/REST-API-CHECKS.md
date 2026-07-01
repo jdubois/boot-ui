@@ -1,24 +1,26 @@
 # REST API checks
 
-The REST API panel runs a fixed, zero-config ruleset against the host application's own web layer
-(`@RestController` / `@Controller` handler methods). This page lists every rule that ships with BootUI today, what it
-inspects, when it fires, and what to do about it.
+The REST API panel runs a fixed, zero-config ruleset against the host application's own web layer — Spring MVC
+(`@RestController` / `@Controller` handler methods) or, on Quarkus, JAX-RS/RESTEasy Reactive (`@Path` resource methods).
+This page lists every rule that ships with BootUI today, what it inspects, when it fires, and what to do about it.
 
 Each rule is a small class registered in
-[`RestApiRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiRuleRegistry.java)
+[`RestApiRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRuleRegistry.java)
 and implemented in
-[`RestApiRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiRules.java).
-The list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry
-entry.
+[`RestApiRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java),
+both in the framework-neutral `bootui-engine` module so the same 47 rules run identically on Spring Boot and Quarkus. The
+list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry entry.
 
 ## What BootUI does
 
-The scanner detects the host application's base package(s) from the `@SpringBootApplication` configuration via
-`AutoConfigurationPackages`, imports the compiled `.class` files from those packages with ArchUnit's
-`ClassFileImporter`, derives a read-only handler model (HTTP method(s), path(s), parameters and their annotations,
-return type, `produces`/`consumes`, validation flags, declared throws) once, and evaluates every registered rule against
-that model. Importing is bounded to the application's own base package(s) — never the entire classpath — and runs only
-on demand when the scan action is invoked, caching the last report in the controller.
+The scanner detects the host application's base package(s) — from the `@SpringBootApplication` configuration via
+`AutoConfigurationPackages` on Spring, or from a build-time Jandex index on Quarkus — imports the compiled `.class`
+files from those packages with ArchUnit's `ClassFileImporter`, derives a read-only handler model (HTTP method(s),
+path(s), parameters and their annotations, return type, `produces`/`consumes`, validation flags, declared throws) once,
+and evaluates every registered rule against that model. Importing is bounded to the application's own base package(s) —
+never the entire classpath — and runs only on demand when the scan action is invoked, caching the last report in the
+controller. A handful of rules reason about Spring-only types with no JAX-RS equivalent (RFC 9457 `ProblemDetail`); on
+Quarkus those report `SKIPPED` with an explanatory reason instead of misfiring — see RAPI-ERR-003 and RAPI-ERR-006 below.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
 without an extra application dependency. The panel is available only when:
@@ -175,7 +177,7 @@ reported as `SKIPPED`.
 ### RAPI-RESP-002 - Void DELETE returns 204 No Content
 
 - **Severity**: LOW
-- **Detects**: A DELETE handler returning void but defaulting to 200 OK sends an empty 200 instead of the more precise 204 No Content.
+- **Detects**: A DELETE handler returning void but defaulting to 200 OK sends an empty 200 instead of the more precise 204 No Content. On JAX-RS/Quarkus this never fires: a void resource method already defaults to 204 per the Jakarta REST spec, unlike Spring MVC.
 - **Recommendation**: Annotate void DELETE handlers with @ResponseStatus(HttpStatus.NO_CONTENT) or return ResponseEntity.noContent().
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
@@ -196,7 +198,7 @@ reported as `SKIPPED`.
 ### RAPI-RESP-005 - GET endpoints return content
 
 - **Severity**: LOW
-- **Detects**: A GET handler that returns void responds with an empty 200 OK and no representation, which is rarely the intent for a read endpoint.
+- **Detects**: A GET handler that returns void responds with an empty 200 OK and no representation, which is rarely the intent for a read endpoint. On JAX-RS/Quarkus this never fires: a void resource method already answers 204 No Content per the Jakarta REST spec, so there is no "silent 200 OK" to flag there.
 - **Recommendation**: Return the resource representation from GET handlers (or use a more precise status when no body is expected).
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9110.html>
 
@@ -360,7 +362,7 @@ reported as `SKIPPED`.
 ### RAPI-ERR-003 - Prefer RFC 9457 ProblemDetail
 
 - **Severity**: INFO
-- **Detects**: @ExceptionHandler methods that model errors as ad-hoc maps/strings instead of ProblemDetail produce non-standard error payloads.
+- **Detects**: @ExceptionHandler methods that model errors as ad-hoc maps/strings instead of ProblemDetail produce non-standard error payloads. Not applicable on JAX-RS/Quarkus: Spring's `ProblemDetail` type has no equivalent there, so the rule reports `SKIPPED`.
 - **Recommendation**: Return ProblemDetail (or ErrorResponse) from @ExceptionHandler methods for RFC 9457 compliant errors.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 
@@ -381,7 +383,7 @@ reported as `SKIPPED`.
 ### RAPI-ERR-006 - Prefer ErrorResponseException over @ResponseStatus on exceptions
 
 - **Severity**: INFO
-- **Detects**: The project uses ProblemDetail (RFC 9457) for error responses but some application exception classes are annotated with @ResponseStatus instead, mixing error-handling approaches.
+- **Detects**: The project uses ProblemDetail (RFC 9457) for error responses but some application exception classes are annotated with @ResponseStatus instead, mixing error-handling approaches. Not applicable on JAX-RS/Quarkus: Spring's `ProblemDetail` type has no equivalent there, so the rule reports `SKIPPED`.
 - **Recommendation**: Replace @ResponseStatus on exception classes with ErrorResponseException (or a subclass) so all errors consistently produce RFC 9457 ProblemDetail responses.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc9457.html>
 
