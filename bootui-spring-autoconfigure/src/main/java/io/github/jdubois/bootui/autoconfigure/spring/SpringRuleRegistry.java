@@ -18,6 +18,7 @@ final class SpringRuleRegistry {
             new AmbiguousTransactionManagerRule(),
             new RestTemplateInUseRule(),
             new DefaultPackageComponentsRule(),
+            new MutableSingletonFieldRule(),
             // Configuration
             new LazyInitializationDisabledRule(),
             new DebugOrTraceLoggingRule(),
@@ -46,6 +47,7 @@ final class SpringRuleRegistry {
             new RedundantTomcatThreadsRule(),
             // Data and persistence
             new OpenSessionInViewEnabledRule(),
+            new InMemoryDatasourceInProductionRule(),
             // Actuator and management
             new ActuatorExposeAllRule(),
             new SensitiveActuatorEndpointsExposedRule(),

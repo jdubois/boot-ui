@@ -78,6 +78,13 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: Move these classes into a named package (for example com.example.app) so component scanning is bounded to your application's packages.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html>
 
+### SPRING-WIRING-009 - Avoid mutable public fields on singleton beans
+
+- **Severity**: MEDIUM
+- **Detects**: Detects a public, non-final, non-static field on a singleton-scoped application bean that is not an injection point (not annotated @Autowired, @Value, @Qualifier, @Inject, @Resource, @PersistenceContext, or @PersistenceUnit). Because the default bean scope is a shared singleton, such a field is effectively unsynchronized mutable global state: any caller can reassign it, and concurrent requests reading and writing it race without a memory barrier.
+- **Recommendation**: Make the field private and expose an accessor if needed, mark it final and set it only from the constructor, or move truly per-request/per-call state out of the singleton (a method-local variable, a request-scoped bean, or immutable value types).
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html#beans-factory-scopes-singleton>
+
 ## Configuration
 
 ### SPRING-CONFIG-001 - Consider lazy initialization for large contexts
@@ -89,7 +96,7 @@ The panel is always available (a Spring application context always exists). Bean
 
 ### SPRING-CONFIG-002 - Disable global debug or trace logging
 
-- **Severity**: LOW
+- **Severity**: LOW (MEDIUM when a production-like profile is active)
 - **Detects**: Detects debug=true or trace=true, or broad root/web/sql/org.springframework/org.hibernate loggers set to DEBUG or TRACE, which enable verbose framework logging that can leak internal details or slow down the application.
 - **Recommendation**: Remove the debug/trace flags and configure logging levels only for narrow packages that need them.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html>
@@ -201,8 +208,8 @@ The panel is always available (a Spring application context always exists). Bean
 ### SPRING-WEB-002 - Keep graceful shutdown enabled
 
 - **Severity**: MEDIUM
-- **Detects**: Detects server.shutdown=immediate, which overrides the Spring Boot 4 default of graceful shutdown, so in-flight requests can be dropped when the application stops.
-- **Recommendation**: Remove server.shutdown=immediate (Spring Boot 4 defaults to graceful) and tune spring.lifecycle.timeout-per-shutdown-phase so active requests can complete during rollouts.
+- **Detects**: Detects server.shutdown=immediate, which overrides the Spring Boot 4 default of graceful shutdown, so in-flight requests can be dropped when the application stops. Also detects graceful shutdown left nominally enabled but with spring.lifecycle.timeout-per-shutdown-phase set to a zero duration (0, 0s, 0ms, PT0S, ...), which grants no grace period and so drops in-flight requests just like the immediate mode.
+- **Recommendation**: Remove server.shutdown=immediate (Spring Boot 4 defaults to graceful) and set spring.lifecycle.timeout-per-shutdown-phase to a positive duration (the default is 30s) so active requests can complete during rollouts.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/graceful-shutdown.html>
 
 ### SPRING-WEB-003 - Consider enabling HTTP/2
@@ -249,6 +256,13 @@ The panel is always available (a Spring application context always exists). Bean
 - **Recommendation**: Set spring.jpa.open-in-view=false and load the associations each request needs explicitly (fetch joins, entity graphs, or DTO projections).
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view>
 
+### SPRING-DATA-001 - Do not run production on an in-memory database
+
+- **Severity**: MEDIUM
+- **Detects**: A production-like profile is active while spring.datasource.url points at an in-process, in-memory database (an H2 jdbc:h2:mem: or HSQLDB jdbc:hsqldb:mem: URL, or a Derby jdbc:derby:memory: URL). These engines keep their data only in the JVM heap of a single instance: a restart, redeploy, or crash silently discards everything, and the data is invisible to any other instance in a multi-instance deployment. A file-backed embedded URL (for example jdbc:h2:file:) is not flagged.
+- **Recommendation**: Point spring.datasource.url at a durable, shared database server (PostgreSQL, MySQL, SQL Server, ...) for any production-like profile. Reserve the in-memory engines for tests and local development.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.embedded>
+
 ## Actuator and management
 
 ### SPRING-MGMT-001 - Avoid exposing all Actuator endpoints
@@ -283,14 +297,14 @@ The panel is always available (a Spring application context always exists). Bean
 
 ## Rule summary
 
-The Spring Advisor ships **35 curated rules** across seven categories. By declared default severity: **0 CRITICAL**, **1 HIGH**, **17 MEDIUM**, **9 LOW**, **8 INFO**. Context-aware rules can raise SPRING-JPA-001, SPRING-MGMT-001, and SPRING-MGMT-002 to HIGH, and SPRING-MGMT-004 to CRITICAL.
+The Spring Advisor ships **37 curated rules** across seven categories. By declared default severity: **0 CRITICAL**, **1 HIGH**, **19 MEDIUM**, **9 LOW**, **8 INFO**. Context-aware rules can raise SPRING-JPA-001, SPRING-MGMT-001, and SPRING-MGMT-002 to HIGH, and SPRING-MGMT-004 to CRITICAL; SPRING-CONFIG-002 can raise from LOW to MEDIUM.
 
 | Category | Rules |
 | --- | --- |
-| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-008 |
+| Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-009 |
 | Configuration | SPRING-CONFIG-001 ... SPRING-CONFIG-005 |
 | Profiles and environment | SPRING-PROFILE-001 ... SPRING-PROFILE-003 |
 | Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-006, SPRING-CACHE-001 |
 | Web and HTTP | SPRING-WEB-001 ... SPRING-WEB-007 |
-| Data and persistence | SPRING-JPA-001 |
+| Data and persistence | SPRING-JPA-001, SPRING-DATA-001 |
 | Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |
