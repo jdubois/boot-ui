@@ -259,7 +259,8 @@ each one inspects.
 The Spring panel runs an explicit, read-only scan of the host application's running Spring application context and
 `Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
 `DataSource`s) and feature flags, then evaluates a curated ruleset across bean wiring, configuration hygiene, profiles and
-environment, performance and concurrency (including virtual threads), web/HTTP settings, and Actuator/management exposure.
+environment, performance and concurrency (including virtual threads), web/HTTP settings, data and persistence, and
+Actuator/management exposure.
 Because it runs inside the
 already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
 complements the Architecture panel, which statically analyzes compiled bytecode with ArchUnit, by inspecting the live,

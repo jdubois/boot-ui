@@ -2,8 +2,11 @@ package io.github.jdubois.bootui.autoconfigure.spring;
 
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.Environment;
 
 /**
@@ -31,7 +34,8 @@ record SpringContext(
         boolean schedulingEnabled,
         boolean entityManagerFactoryPresent,
         boolean dispatcherServletPresent,
-        List<String> defaultPackageBeans) {
+        List<String> defaultPackageBeans,
+        List<String> mutableSingletonFields) {
 
     SpringContext {
         objectMappers = List.copyOf(objectMappers);
@@ -41,6 +45,7 @@ record SpringContext(
         restTemplates = List.copyOf(restTemplates);
         cacheManagers = List.copyOf(cacheManagers);
         defaultPackageBeans = List.copyOf(defaultPackageBeans);
+        mutableSingletonFields = List.copyOf(mutableSingletonFields);
     }
 
     String firstProperty(String... keys) {
@@ -70,6 +75,28 @@ record SpringContext(
     boolean isPropertyTrue(String... keys) {
         String value = firstProperty(keys);
         return value != null && "true".equalsIgnoreCase(value);
+    }
+
+    /**
+     * Returns the millisecond value of a {@link Duration} property, or {@code null} if unset or
+     * unparsable. Uses the relaxed {@link Binder} (rather than {@code Environment.getProperty}) because
+     * a plain {@code Environment} has no {@code String -> Duration} converter registered; only Boot's
+     * configuration property binding infrastructure does.
+     */
+    Long firstDurationMillisProperty(String... keys) {
+        for (String key : keys) {
+            try {
+                Duration value = Binder.get(environment)
+                        .bind(key, Bindable.of(Duration.class))
+                        .orElse(null);
+                if (value != null) {
+                    return value.toMillis();
+                }
+            } catch (RuntimeException ex) {
+                // Ignore unparsable values and try the next key.
+            }
+        }
+        return null;
     }
 
     boolean hasProperty(String key) {
@@ -165,6 +192,7 @@ record SpringContext(
         private boolean entityManagerFactoryPresent;
         private boolean dispatcherServletPresent;
         private List<String> defaultPackageBeans = List.of();
+        private List<String> mutableSingletonFields = List.of();
 
         private Builder(Environment environment) {
             this.environment = environment;
@@ -270,6 +298,11 @@ record SpringContext(
             return this;
         }
 
+        Builder mutableSingletonFields(List<String> value) {
+            this.mutableSingletonFields = value;
+            return this;
+        }
+
         SpringContext build() {
             return new SpringContext(
                     environment,
@@ -292,7 +325,8 @@ record SpringContext(
                     schedulingEnabled,
                     entityManagerFactoryPresent,
                     dispatcherServletPresent,
-                    defaultPackageBeans);
+                    defaultPackageBeans,
+                    mutableSingletonFields);
         }
     }
 }

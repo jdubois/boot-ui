@@ -6,6 +6,9 @@ import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -60,6 +63,25 @@ final class SpringScanner {
 
     /** Hard cap on the number of default-package bean names collected, to keep the scan bounded. */
     private static final int MAX_DEFAULT_PACKAGE_BEANS = 50;
+
+    /** Hard cap on the number of mutable-singleton-field findings collected, to keep the scan bounded. */
+    private static final int MAX_MUTABLE_SINGLETON_FIELDS = 50;
+
+    /**
+     * Field-level annotations that mark a legitimate injection point rather than loose shared state.
+     * Matched by annotation type name (not the annotation {@code Class} literal) so this works even
+     * when {@code jakarta.inject}/{@code jakarta.persistence} are not on the advisor's own classpath;
+     * the annotated field's own class can only carry these annotations if its classloader already
+     * resolves them.
+     */
+    private static final Set<String> INJECTION_ANNOTATIONS = Set.of(
+            "org.springframework.beans.factory.annotation.Autowired",
+            "org.springframework.beans.factory.annotation.Value",
+            "org.springframework.beans.factory.annotation.Qualifier",
+            "jakarta.inject.Inject",
+            "jakarta.annotation.Resource",
+            "jakarta.persistence.PersistenceContext",
+            "jakarta.persistence.PersistenceUnit");
 
     private static final Comparator<SpringRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (SpringRuleResultDto result) -> severityRank(result.severity()))
@@ -269,6 +291,7 @@ final class SpringScanner {
         boolean dispatcherServletPresent =
                 !beansOfType(beanFactory, DISPATCHER_SERVLET_TYPE, classLoader).isEmpty();
         List<String> defaultPackageBeans = defaultPackageBeans(beanFactory);
+        List<String> mutableSingletonFields = mutableSingletonFields(beanFactory);
 
         return SpringContext.builder(environment)
                 .virtualThreadsSupported(virtualThreadsSupported())
@@ -291,6 +314,7 @@ final class SpringScanner {
                 .entityManagerFactoryPresent(entityManagerFactoryPresent)
                 .dispatcherServletPresent(dispatcherServletPresent)
                 .defaultPackageBeans(defaultPackageBeans)
+                .mutableSingletonFields(mutableSingletonFields)
                 .build();
     }
 
@@ -369,6 +393,75 @@ final class SpringScanner {
             }
         }
         return List.copyOf(defaultPackage);
+    }
+
+    /**
+     * Collects public, non-final, non-static fields declared on singleton-scoped application beans.
+     * A singleton is a single instance shared across every concurrent request and thread, so a public
+     * mutable field is unsynchronised shared state that any caller can read or overwrite outside the
+     * bean's own control. Injection-point fields (recognised by annotation) are excluded: intentional
+     * field injection is a separate, narrower concern than accidental shared mutable state.
+     */
+    private static List<String> mutableSingletonFields(ConfigurableListableBeanFactory beanFactory) {
+        if (beanFactory == null) {
+            return List.of();
+        }
+        String[] names;
+        try {
+            names = beanFactory.getBeanDefinitionNames();
+        } catch (RuntimeException | LinkageError ex) {
+            return List.of();
+        }
+        List<String> findings = new ArrayList<>();
+        for (String name : names) {
+            if (findings.size() >= MAX_MUTABLE_SINGLETON_FIELDS) {
+                break;
+            }
+            try {
+                BeanDefinition definition = beanFactory.getBeanDefinition(name);
+                if (definition.getRole() != BeanDefinition.ROLE_APPLICATION || !definition.isSingleton()) {
+                    continue;
+                }
+                Class<?> type = beanFactory.getType(name, false);
+                if (type == null || type.isInterface()) {
+                    continue;
+                }
+                collectMutableFields(type, findings);
+            } catch (RuntimeException | LinkageError ex) {
+                // Ignore beans whose type/fields cannot be inspected.
+            }
+        }
+        return List.copyOf(findings);
+    }
+
+    private static void collectMutableFields(Class<?> type, List<String> findings) {
+        for (Field field : type.getDeclaredFields()) {
+            if (findings.size() >= MAX_MUTABLE_SINGLETON_FIELDS) {
+                return;
+            }
+            int modifiers = field.getModifiers();
+            if (!Modifier.isPublic(modifiers) || Modifier.isFinal(modifiers) || Modifier.isStatic(modifiers)) {
+                continue;
+            }
+            if (isInjectionPoint(field)) {
+                continue;
+            }
+            findings.add(type.getName() + "#" + field.getName());
+        }
+    }
+
+    private static boolean isInjectionPoint(Field field) {
+        try {
+            for (Annotation annotation : field.getAnnotations()) {
+                if (INJECTION_ANNOTATIONS.contains(annotation.annotationType().getName())) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // If the field's annotations cannot be inspected, fail safe and don't flag it.
+            return true;
+        }
+        return false;
     }
 
     private static List<BeanRef> beansOfType(
