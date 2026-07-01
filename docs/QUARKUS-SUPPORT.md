@@ -199,13 +199,13 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | Panel                 | Quarkus source / limitation                                                                                                                    |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `REST API` advisor    | **Implemented** — conventions (status codes, versioning, pagination) shared; the engine models JAX-RS `@Path` resources alongside Spring MVC, and irreducibly-Spring rules (ProblemDetail, ResponseEntity codes) SKIP honestly on JAX-RS |
-| `DB Connection Pools` | Read **Agroal** metrics instead of HikariCP MXBeans                                                                                            |
+| `DB Connection Pools` | **Implemented** — reads **Agroal** metrics instead of HikariCP MXBeans via `QuarkusAgroalConnectionPoolProvider` (the sole importer of `io.agroal.*`, gated on the `AGROAL` capability). Agroal→Hikari mapping: active←activeCount, idle←availableCount, total←active+idle, pending←awaitingCount; acquisition/idle/max-lifetime timeouts map across; `validationTimeoutMs`/`keepaliveTimeMs` report `-1` (rendered "—") and `readOnly` reports `false` (no Agroal accessor). Requires `quarkus.datasource.jdbc.metrics.enabled=true` for live counts — configuration still renders without metrics, but the snapshot is null and the pool is marked unavailable with a specific reason. Read-only: no write gate |
 | `SQL Trace`           | **Implemented** — two complementary feeders into the shared `SqlTraceRecorder`: an `@Alternative` Agroal `DataSource` wrap (manual JDBC, gated on Agroal) **and** a `@PersistenceUnitExtension` Hibernate `StatementInspector` (ORM SQL, which bypasses the wrapped DataSource; gated on Hibernate). Statement text/type/category/N+1 full-fidelity; per-statement duration/rows/params are best-effort for ORM SQL (the StatementInspector SPI has no execution-end hook). `clear`/`recording` behind the `LocalhostGuard` write floor |
 | `Live Activity`       | **Implemented** — merges the three captured signals (HTTP requests via the Vert.x ring buffer + SQL trace + exceptions) into the shared activity feed; SQL contributes only when a datasource is configured (a clean warning otherwise). **Signal-to-request correlation is trace-id-based, gated on `quarkus-opentelemetry`:** Spring's thread-per-request anchor is unportable on the Vert.x event loop, so instead the adapter stamps the active server span's trace id at each capture point (HTTP filter, SQL recorder, exception store) via a capability-gated `QuarkusOtelTraceIdProvider`, and the engine `LiveActivityAssembler` nests SQL/exception entries under the request sharing that trace id (OTel `Context` propagates across the event-loop→worker hop). With OpenTelemetry absent, trace ids stay null and the feed renders flat (status quo). The per-request **profile** drill-down (`profileable`) stays Spring-only. **Follow-up:** HTTP→security-event correlation is not yet implemented — Quarkus Live Activity has no security signal source today (no Quarkus equivalent of Spring's security audit feed into the activity stream), so there is nothing to correlate yet; once a security signal lands it can join the same trace-id grouping |
 | `HTTP Exchanges`      | **Implemented** — buffer exchanges via a Vert.x filter instead of Actuator's repository                                                       |
 | `Exceptions`          | **Implemented** — captured into the shared `ExceptionStore` by a `java.util.logging` handler (logged throwables) + a Vert.x failure handler (unhandled web failures), deduped across feeders across the whole cause chain; BootUI's own frames self-filtered |
-| `Security Logs`       | Source events from CDI security events instead of Actuator `AuditEventRepository`                                                              |
-| `Log Tail`            | Tail via a JBoss LogManager handler instead of a logback appender                                                                              |
+| `Security Logs`       | **Implemented** — captures Quarkus CDI security events into the shared `SecurityEventBuffer` via `QuarkusSecurityEventCapture` (a `@Observes SecurityEvent` observer), which replaces Spring's `AuditEventRepository`. Gated on `quarkus-security` (the observer is excluded by the deployment processor when no security extension is present, R2) and `quarkus.security.events.enabled=true` (panel reports unavailable with a clear message when events are disabled). Honest partial: Quarkus fires events only for authentication success/failure and authorization failure — no logout or session events (no Quarkus equivalent). SSE `/stream` ticks on each capture. Read-only (no write endpoints) |
+| `Log Tail`            | **Implemented** — captured via a `java.util.logging` `Handler` (`QuarkusLogTailHandler`) attached to the root JBoss LogManager logger at `StartupEvent` (detached at `ShutdownEvent` so dev-mode restarts never leak handlers). The handler feeds the shared `LogTailBuffer`; both `/recent` (snapshot) and the SSE `/stream` (live fan-out with atomic snapshot-then-subscribe to avoid gaps) are full-fidelity. BootUI's own loggers are self-filtered. Identical wire to Spring's Logback appender path |
 
 ### 5.4 Replaced with a Quarkus-native panel (2)
 
@@ -377,22 +377,22 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Liquibase           | equiv       | Adapt   | Liquibase mapper                 | `MigrationProvider` → quarkus-liquibase     |
 | Scheduled Tasks     | equiv       | Adapt   | Scheduled mapper                 | `ScheduledTaskProvider` → quarkus-scheduler |
 | Architecture        | equiv       | Adapt   | ArchUnit engine                  | `BasePackageProvider` + CDI/JAX-RS rules    |
-| REST API            | partial     | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
-| DB Connection Pools | partial     | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
-| SQL Trace           | partial     | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |
-| Live Activity       | partial     | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; OTel trace-id correlation |
-| HTTP Exchanges      | partial     | Rebuild | Exchange model                   | `HttpExchangeProvider` → Vert.x             |
-| Exceptions          | partial     | Rebuild | Exception model                  | Vert.x failure handler                      |
-| Security Logs       | partial     | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |
-| Log Tail            | partial     | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
-| Spring              | spring-only | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
-| Cache               | spring-only | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
-| Beans               | equiv       | Adapt   | Beans service                    | `BeanProvider` → Arc (build-time; low fidelity) |
-| Profile Diff        | equiv       | Adapt   | Config service                   | `ConfigProvider` → SmallRye profiles        |
-| Security (advisor)  | partial     | Replace | Quarkus security ruleset         | Quarkus-native checks (OIDC/auth/TLS/CORS/annotations); see QUARKUS-CHECKS.md |
-| GraalVM             | partial     | Drop    | —                                | Quarkus native-first; moot                  |
-| CRaC                | partial     | Drop    | —                                | native focus; niche                         |
-| DevTools            | partial     | Drop    | —                                | Quarkus live reload built in                |
+| REST API            | **done**    | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
+| DB Connection Pools | **done**    | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
+| SQL Trace           | **done**    | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |
+| Live Activity       | **done**    | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; OTel trace-id correlation |
+| HTTP Exchanges      | **done**    | Rebuild | Exchange model                   | `HttpExchangeProvider` → Vert.x             |
+| Exceptions          | **done**    | Rebuild | Exception model                  | Vert.x failure handler                      |
+| Security Logs       | **done**    | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |
+| Log Tail            | **done**    | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
+| Spring              | **done**    | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
+| Cache               | **done**    | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
+| Beans               | **done**    | Adapt   | Beans service                    | `BeanProvider` → Arc (build-time; low fidelity) |
+| Profile Diff        | **done**    | Adapt   | Config service                   | `ConfigProvider` → SmallRye profiles        |
+| Security (advisor)  | **done**    | Replace | Quarkus security ruleset         | Quarkus-native checks (OIDC/auth/TLS/CORS/annotations); see QUARKUS-CHECKS.md |
+| GraalVM             | **done**    | Drop    | —                                | Quarkus native-first; `NOT_APPLICABLE`      |
+| CRaC                | **done**    | Drop    | —                                | native focus; `NOT_APPLICABLE`              |
+| DevTools            | **done**    | Drop    | —                                | Quarkus live reload built in; `NOT_APPLICABLE` |
 | Conditions          | spring-only | Drop    | —                                | no runtime conditions report                |
 | Startup Timeline    | spring-only | Drop    | —                                | not applicable: build-time augmentation, no runtime per-step buffer |
 | Spring Security     | spring-only | Drop    | —                                | Elytron/OIDC, different model               |
