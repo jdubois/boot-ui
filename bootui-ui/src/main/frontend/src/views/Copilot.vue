@@ -1081,8 +1081,7 @@ watch(
                         <pre
                           v-if="rawById[event.id] !== undefined"
                           class="mt-2 mb-0 small bg-light border rounded p-2"
-                          >{{ rawById[event.id] }}</pre
-                        >
+                          >{{ rawById[event.id] }}</pre>
                       </li>
                     </ul>
                   </div>
