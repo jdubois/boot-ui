@@ -277,9 +277,17 @@ final class SecurityScanner {
         String matcher = matcherDescription(chain);
         Boolean permitsAllAnonymous = simulateAnonymous(filters);
         Boolean sessionFixationDisabled = detectSessionFixationDisabled(filters);
-        List<String> headerWriters = detectHeaderWriters(filters);
+        HeaderWriterInfo headerWriters = detectHeaderWriters(filters);
         return new FilterChainModel(
-                index, matcher, filterNames, permitsAllAnonymous, sessionFixationDisabled, headerWriters);
+                index,
+                matcher,
+                filterNames,
+                permitsAllAnonymous,
+                sessionFixationDisabled,
+                headerWriters.names(),
+                headerWriters.hstsMaxAgeSeconds(),
+                headerWriters.hstsIncludeSubdomains(),
+                headerWriters.cspPolicyDirectives());
     }
 
     private static String matcherDescription(SecurityFilterChain chain) {
@@ -362,23 +370,49 @@ final class SecurityScanner {
         }
     }
 
-    private static List<String> detectHeaderWriters(List<Filter> filters) {
+    /**
+     * Simple class names of the installed {@code HeaderWriter}s, plus the HSTS max-age/
+     * includeSubDomains and CSP policyDirectives fields when those specific writers are present (read
+     * via the same reflection helper used for {@link #bcryptStrength(Object)}).
+     */
+    private record HeaderWriterInfo(
+            List<String> names, Long hstsMaxAgeSeconds, Boolean hstsIncludeSubdomains, String cspPolicyDirectives) {}
+
+    private static final HeaderWriterInfo NO_HEADER_WRITERS = new HeaderWriterInfo(List.of(), null, null, null);
+
+    private static HeaderWriterInfo detectHeaderWriters(List<Filter> filters) {
         for (Filter filter : filters) {
             if (!"HeaderWriterFilter".equals(filter.getClass().getSimpleName())) {
                 continue;
             }
             Object writers = readField(filter, "headerWriters");
             List<String> names = new ArrayList<>();
+            Long hstsMaxAgeSeconds = null;
+            Boolean hstsIncludeSubdomains = null;
+            String cspPolicyDirectives = null;
             if (writers instanceof Iterable<?> iterable) {
                 for (Object writer : iterable) {
-                    if (writer != null) {
-                        names.add(writer.getClass().getSimpleName());
+                    if (writer == null) {
+                        continue;
+                    }
+                    String simpleName = writer.getClass().getSimpleName();
+                    names.add(simpleName);
+                    if (simpleName.contains("Hsts")) {
+                        if (readField(writer, "maxAgeInSeconds") instanceof Long maxAge) {
+                            hstsMaxAgeSeconds = maxAge;
+                        }
+                        if (readField(writer, "includeSubDomains") instanceof Boolean includeSubDomains) {
+                            hstsIncludeSubdomains = includeSubDomains;
+                        }
+                    } else if (simpleName.contains("ContentSecurityPolicy")
+                            && readField(writer, "policyDirectives") instanceof String directives) {
+                        cspPolicyDirectives = directives;
                     }
                 }
             }
-            return names;
+            return new HeaderWriterInfo(names, hstsMaxAgeSeconds, hstsIncludeSubdomains, cspPolicyDirectives);
         }
-        return List.of();
+        return NO_HEADER_WRITERS;
     }
 
     private static boolean discoverCors(

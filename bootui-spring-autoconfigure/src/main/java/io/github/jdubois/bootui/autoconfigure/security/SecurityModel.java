@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.security;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Bounded, read-only snapshot of the host application's Spring Security configuration. Built by the
@@ -22,6 +23,14 @@ final class SecurityModel {
      *     to skip session-fixation protection, {@code null} when it could not be determined
      * @param headerWriterNames simple class names of the {@code HeaderWriter}s installed by the
      *     chain's {@code HeaderWriterFilter}, when one is present
+     * @param hstsMaxAgeSeconds the {@code HstsHeaderWriter}'s configured {@code maxAgeInSeconds},
+     *     when an HSTS writer is present and the field could be read, {@code null} otherwise
+     * @param hstsIncludeSubdomains the {@code HstsHeaderWriter}'s configured
+     *     {@code includeSubDomains}, when an HSTS writer is present and the field could be read,
+     *     {@code null} otherwise
+     * @param cspPolicyDirectives the {@code ContentSecurityPolicyHeaderWriter}'s configured
+     *     {@code policyDirectives}, when a CSP writer is present and the field could be read,
+     *     {@code null} otherwise
      */
     record FilterChainModel(
             int index,
@@ -29,11 +38,41 @@ final class SecurityModel {
             List<String> filterNames,
             Boolean permitsAllAnonymous,
             Boolean sessionFixationDisabled,
-            List<String> headerWriterNames) {
+            List<String> headerWriterNames,
+            Long hstsMaxAgeSeconds,
+            Boolean hstsIncludeSubdomains,
+            String cspPolicyDirectives) {
+
+        private static final long HSTS_MIN_MAX_AGE_SECONDS = 31536000L; // HstsHeaderWriter's own 1-year default
+
+        private static final Pattern CSP_WILDCARD_SOURCE = Pattern.compile(".*(default-src|script-src)\\s+[^;]*\\*.*");
 
         FilterChainModel {
             filterNames = List.copyOf(filterNames);
             headerWriterNames = headerWriterNames == null ? List.of() : List.copyOf(headerWriterNames);
+        }
+
+        /**
+         * Convenience constructor for callers that do not need the HSTS/CSP policy details (e.g.
+         * chains with no HSTS or CSP writer, or existing tests built before those fields existed).
+         */
+        FilterChainModel(
+                int index,
+                String matcher,
+                List<String> filterNames,
+                Boolean permitsAllAnonymous,
+                Boolean sessionFixationDisabled,
+                List<String> headerWriterNames) {
+            this(
+                    index,
+                    matcher,
+                    filterNames,
+                    permitsAllAnonymous,
+                    sessionFixationDisabled,
+                    headerWriterNames,
+                    null,
+                    null,
+                    null);
         }
 
         boolean hasFilter(String simpleClassName) {
@@ -50,6 +89,36 @@ final class SecurityModel {
 
         boolean hasHeaderWriterContaining(String fragment) {
             return headerWriterNames.stream().anyMatch(name -> name.contains(fragment));
+        }
+
+        /**
+         * {@code true} when an {@code HstsHeaderWriter} is present but configured with a max-age
+         * under one year or without {@code includeSubDomains}, weakening the protocol-downgrade and
+         * cookie-hijacking protection HSTS is meant to provide. {@code false} when no HSTS writer was
+         * detected or its fields could not be read.
+         */
+        boolean hasWeakHsts() {
+            if (hstsMaxAgeSeconds == null) {
+                return false;
+            }
+            return hstsMaxAgeSeconds < HSTS_MIN_MAX_AGE_SECONDS || Boolean.FALSE.equals(hstsIncludeSubdomains);
+        }
+
+        /**
+         * {@code true} when a {@code ContentSecurityPolicyHeaderWriter} policy allows
+         * {@code 'unsafe-inline'} / {@code 'unsafe-eval'} or a wildcard {@code default-src}/
+         * {@code script-src}, which largely defeats the XSS mitigation a CSP is meant to provide.
+         * {@code false} when no CSP writer was detected or its policy could not be read.
+         */
+        boolean hasWeakCsp() {
+            if (cspPolicyDirectives == null) {
+                return false;
+            }
+            String normalized = cspPolicyDirectives.toLowerCase(Locale.ROOT);
+            if (normalized.contains("'unsafe-inline'") || normalized.contains("'unsafe-eval'")) {
+                return true;
+            }
+            return CSP_WILDCARD_SOURCE.matcher(normalized).matches();
         }
 
         /**

@@ -7,11 +7,17 @@ import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChain
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import java.util.List;
+import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.PropertiesPropertySource;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
 
-/** Focused per-rule coverage for the Phase 6 Security advisor hardening. */
+/**
+ * Focused per-rule coverage for the Phase 6 Security advisor hardening, plus the follow-up audit
+ * that added SEC-AUTH-007, SEC-HEAD-008/009, and SEC-CONFIG-007.
+ */
 class SecurityRulesTests {
 
     // --- SEC-AUTH-001: plaintext encoder is CRITICAL ----------------------------------------
@@ -290,6 +296,236 @@ class SecurityRulesTests {
                         "AuthorizationFilter"));
 
         SecurityRuleResultDto result = new CsrfDisabledStatefulRule().evaluate(singleChain(tokenLogin));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-AUTH-007: HTTP Basic requires TLS in production -------------------------------
+
+    @Test
+    void basicAuthWithoutTlsFiresInProduction() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        FilterChainModel chain = chain("any request", List.of("BasicAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new BasicAuthWithoutTlsRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void basicAuthWithoutTlsIsIgnoredOutsideProduction() {
+        FilterChainModel chain = chain("any request", List.of("BasicAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new BasicAuthWithoutTlsRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void basicAuthWithTlsConfiguredPasses() {
+        MockEnvironment environment = new MockEnvironment().withProperty("server.ssl.enabled", "true");
+        environment.setActiveProfiles("prod");
+        FilterChainModel chain = chain("any request", List.of("BasicAuthenticationFilter", "AuthorizationFilter"));
+
+        SecurityRuleResultDto result = new BasicAuthWithoutTlsRule().evaluate(context(List.of(chain), environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-HEAD-008: weak HSTS policy ------------------------------------------------------
+
+    @Test
+    void weakHstsMaxAgeFiresViolation() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("HstsHeaderWriter"),
+                3600L,
+                Boolean.TRUE,
+                null);
+
+        SecurityRuleResultDto result = new WeakHstsPolicyRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("LOW");
+    }
+
+    @Test
+    void hstsWithoutIncludeSubdomainsFiresViolation() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("HstsHeaderWriter"),
+                31536000L,
+                Boolean.FALSE,
+                null);
+
+        SecurityRuleResultDto result = new WeakHstsPolicyRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void strongHstsPolicyPasses() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("HstsHeaderWriter"),
+                31536000L,
+                Boolean.TRUE,
+                null);
+
+        SecurityRuleResultDto result = new WeakHstsPolicyRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void weakHstsPolicyPassesWhenHstsWriterNotDetected() {
+        FilterChainModel chain = chain("any request", List.of("HeaderWriterFilter"));
+
+        SecurityRuleResultDto result = new WeakHstsPolicyRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-HEAD-009: weak Content-Security-Policy -----------------------------------------
+
+    @Test
+    void weakCspWithUnsafeInlineFiresViolation() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("ContentSecurityPolicyHeaderWriter"),
+                null,
+                null,
+                "default-src 'self'; script-src 'unsafe-inline'");
+
+        SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void weakCspWithWildcardScriptSrcFiresViolation() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("ContentSecurityPolicyHeaderWriter"),
+                null,
+                null,
+                "default-src 'self'; script-src *");
+
+        SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void strictCspPasses() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("HeaderWriterFilter"),
+                null,
+                null,
+                List.of("ContentSecurityPolicyHeaderWriter"),
+                null,
+                null,
+                "default-src 'self'; script-src 'self'");
+
+        SecurityRuleResultDto result = new WeakContentSecurityPolicyRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-CONFIG-007: hardcoded secret in configuration ----------------------------------
+
+    @Test
+    void hardcodedSecretPropertyFiresCriticalViolationWithoutLeakingTheValue() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("spring.datasource.password", "supersecret123");
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("CRITICAL");
+        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("spring.datasource.password"));
+        assertThat(result.sampleViolations()).noneMatch(detail -> detail.contains("supersecret123"));
+    }
+
+    @Test
+    void hardcodedSecretPropertyIgnoresPlaceholderReferences() {
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("spring.datasource.password", "${DB_PASSWORD}");
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void hardcodedSecretPropertyIgnoresSystemPropertiesSource() {
+        Properties systemProps = new Properties();
+        systemProps.setProperty("some.api-key", "abc123");
+        MockEnvironment environment = new MockEnvironment();
+        environment
+                .getPropertySources()
+                .addLast(new PropertiesPropertySource(
+                        StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, systemProps));
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void hardcodedSecretPropertyIgnoresSystemEnvironmentSource() {
+        Properties systemEnv = new Properties();
+        systemEnv.setProperty("GITHUB_TOKEN", "ghp_abc123");
+        MockEnvironment environment = new MockEnvironment();
+        environment
+                .getPropertySources()
+                .addLast(new PropertiesPropertySource(
+                        StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, systemEnv));
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void hardcodedSecretPropertyIgnoresBootUiOwnProperties() {
+        MockEnvironment environment = new MockEnvironment().withProperty("bootui.github.token", "internal-value");
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void hardcodedSecretPropertyPassesWhenNoSecretLikeKeysPresent() {
+        MockEnvironment environment = new MockEnvironment().withProperty("spring.application.name", "bootui-sample");
+
+        SecurityRuleResultDto result = new HardcodedSecretPropertyRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
