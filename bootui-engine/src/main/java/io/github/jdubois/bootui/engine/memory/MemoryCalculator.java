@@ -354,15 +354,27 @@ final class MemoryCalculator {
     }
 
     private void appendCommonOptions(StringBuilder sb, long heapBytes) {
-        if (heapBytes >= GC_FLIP_HEAP_BYTES) {
+        boolean usesZgc = heapBytes >= GC_FLIP_HEAP_BYTES;
+        if (usesZgc) {
             sb.append(" -XX:+UseZGC");
-            if (jdkVersion.feature() >= 21 && jdkVersion.feature() < 24) {
+            // JEP 439 (JDK 21) added generational ZGC as an experimental opt-in; JEP 474 (JDK 23)
+            // made it the default and deprecated the flag (a warning is printed if it is set
+            // explicitly); JEP 490 (JDK 24) obsoletes it further, and later releases stop
+            // recognizing it altogether, causing the JVM to refuse to start. So the flag is only
+            // useful on 21/22.
+            if (jdkVersion.feature() >= 21 && jdkVersion.feature() < 23) {
                 sb.append(" -XX:+ZGenerational");
             }
         } else {
             sb.append(" -XX:+UseG1GC");
         }
-        sb.append(" -XX:+UseStringDeduplication");
+        // G1 has supported string deduplication since JDK 8u20 (JEP 192); ZGC only gained support
+        // in JDK 18. Setting it with ZGC on an older JDK is not fatal, but the JVM disables it with
+        // a startup warning ("String Deduplication disabled: not supported by selected GC"), so skip
+        // it there rather than emit a flag that silently does nothing.
+        if (!usesZgc || jdkVersion.feature() >= 18) {
+            sb.append(" -XX:+UseStringDeduplication");
+        }
         if (jdkVersion.feature() >= 25) {
             sb.append(" -XX:+UseCompactObjectHeaders");
         }
