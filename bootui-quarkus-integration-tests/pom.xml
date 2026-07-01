@@ -19,6 +19,10 @@
         (otel, health, micrometer, scheduler, cache, flyway, liquibase, datasource). The Hibernate module also
         lives here but is wired into the reactor only on a Hibernate-capable JDK (see the root pom profile).</description>
 
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
     <modules>
         <module>base</module>
         <module>otel</module>

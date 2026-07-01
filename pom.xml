@@ -75,6 +75,14 @@
         <native-build-tools-plugin.version>1.1.3</native-build-tools-plugin.version>
         <archunit.version>1.4.2</archunit.version>
         <central.autoPublish>true</central.autoPublish>
+        <!--
+            central-publishing-maven-plugin does NOT honor maven.deploy.skip (it implements its own
+            skip mechanism). Default it here so every module inherits it, then tie the plugin's own
+            <skip> to it below - modules that already set <maven.deploy.skip>true</maven.deploy.skip>
+            (sample apps, integration tests, conformance) now also skip Central publishing instead of
+            silently uploading multi-hundred-MB fat jars on every release.
+        -->
+        <maven.deploy.skip>false</maven.deploy.skip>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
@@ -228,6 +236,7 @@
                     <configuration>
                         <publishingServerId>central</publishingServerId>
                         <autoPublish>${central.autoPublish}</autoPublish>
+                        <skip>${maven.deploy.skip}</skip>
                     </configuration>
                 </plugin>
             </plugins>
