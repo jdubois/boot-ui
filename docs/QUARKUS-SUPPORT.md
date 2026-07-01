@@ -359,7 +359,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Metrics             | as-is       | Port    | Micrometer reader                | `MeterRegistrySupplier`                     |
 | Hibernate           | as-is       | Port    | Hibernate advisor engine         | `EntityManagerFactoryProvider`              |
 | Vulnerabilities     | as-is       | Port    | OSV scanner + dependency catalog | —                                           |
-| Pentesting          | as-is       | Port    | Pentesting engine                | endpoint inventory via `MappingProvider`    |
+| Pentesting          | as-is       | Port    | Pentesting engine                | deliberately empty endpoint inventory (avoids a false-positive `spring-security-web` finding) |
 | HTTP Probe          | as-is       | Port    | HTTP probe service               | —                                           |
 | AI Usage            | as-is       | Port    | TelemetryStore (OTLP)            | —                                           |
 | Traces              | as-is       | Port    | OTLP receiver + TelemetryStore   | —                                           |
