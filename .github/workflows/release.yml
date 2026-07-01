@@ -108,6 +108,8 @@ jobs:
           export VERSION
           perl -0pi -e 's{(<artifactId>bootui-spring-boot-starter</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
           perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-spring-boot-starter:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md
+          perl -0pi -e 's{(<artifactId>bootui-quarkus</artifactId>\s*<version>)[^<]*(</version>)}{$1$ENV{VERSION}$2}g' README.md docs/SETUP.md
+          perl -0pi -e 's{(com\.julien-dubois\.bootui:bootui-quarkus:)[0-9][0-9A-Za-z.\-]*}{$1$ENV{VERSION}}g' docs/SETUP.md
 
           if ! grep -q "<version>$VERSION</version>" docs/SETUP.md; then
             echo "::error::Failed to update the bootui-spring-boot-starter version in docs/SETUP.md to $VERSION"
@@ -116,6 +118,19 @@ jobs:
 
           if ! grep -q "com.julien-dubois.bootui:bootui-spring-boot-starter:$VERSION" docs/SETUP.md; then
             echo "::error::Failed to update the Gradle bootui-spring-boot-starter version in docs/SETUP.md to $VERSION"
+            exit 1
+          fi
+
+          if ! grep -q "com.julien-dubois.bootui:bootui-quarkus:$VERSION" docs/SETUP.md; then
+            echo "::error::Failed to update the Gradle bootui-quarkus version in docs/SETUP.md to $VERSION"
+            exit 1
+          fi
+
+          # Belt-and-braces: fail the release if any other declared dependency/plugin
+          # version string still points at the previous release version anywhere in the
+          # docs site or README, so a missed replacement can't silently ship stale docs.
+          if grep -RnE "com\.julien-dubois\.bootui:[A-Za-z0-9_-]+:$CURRENT_VERSION" README.md docs/; then
+            echo "::error::Found leftover references to the previous version ($CURRENT_VERSION) in docs/README after bumping to $VERSION"
             exit 1
           fi
 
@@ -299,13 +314,24 @@ jobs:
           set -euo pipefail
 
           TAG="${PREPARED_TAG:?PREPARED_TAG was not set by the prepare step}"
+          VERSION="${TAG#v}"
+
+          # Fail fast if versions:set (run with -DprocessAllModules=true, so it walks every
+          # pom.xml in the tree regardless of nesting depth) missed a module: a stale nested
+          # pom (e.g. under bootui-quarkus-integration-tests/*/pom.xml) would otherwise slip
+          # through a shallow */pom.xml glob undetected.
+          stale_poms="$(git ls-files '*pom.xml' | xargs -I{} sh -c "grep -q '<version>$VERSION</version>' '{}' || echo '{}'")"
+          if [[ -n "$stale_poms" ]]; then
+            echo "::error::The following poms were not bumped to $VERSION:"
+            echo "$stale_poms"
+            exit 1
+          fi
 
           if [[ -n "$(git status --porcelain)" ]]; then
-            git add pom.xml */pom.xml README.md docs/SETUP.md \
-              package.json package-lock.json \
-              bootui-ui/src/main/frontend/package.json bootui-ui/src/main/frontend/package-lock.json \
-              bootui-spring-sample-app/e2e/package.json bootui-spring-sample-app/e2e/package-lock.json \
-              bootui-quarkus-sample-app/e2e/package.json bootui-quarkus-sample-app/e2e/package-lock.json
+            # Stage every tracked file the version bump touched, at any depth, instead of an
+            # explicit path list: an explicit shallow glob (e.g. */pom.xml) silently misses
+            # nested poms that versions:set still updates in the working tree.
+            git add -u
             git commit -m "Release $TAG"
           else
             echo "Project files already declare the released version; tagging current HEAD."
