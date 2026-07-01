@@ -9,8 +9,9 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit tests for the Paketo {@code libjvm}-style {@link MemoryCalculator}.
  *
- * <p>Verifies the partition formula, libjvm-equivalent constants, and the JDK
- * version gating that controls {@code -XX:+UseCompactObjectHeaders}.
+ * <p>Verifies the partition formula, libjvm-equivalent constants, and the JDK version gating that
+ * controls {@code -XX:+UseCompactObjectHeaders}, {@code -XX:+ZGenerational}, and
+ * {@code -XX:+UseStringDeduplication}.
  */
 class MemoryCalculatorTests {
 
@@ -18,6 +19,11 @@ class MemoryCalculatorTests {
 
     private static final JdkVersion JDK_25 = () -> 25;
     private static final JdkVersion JDK_24 = () -> 24;
+    private static final JdkVersion JDK_23 = () -> 23;
+    private static final JdkVersion JDK_22 = () -> 22;
+    private static final JdkVersion JDK_21 = () -> 21;
+    private static final JdkVersion JDK_18 = () -> 18;
+    private static final JdkVersion JDK_17 = () -> 17;
 
     @Test
     void heapIsTotalMinusFixedRegionsAndHeadroom() {
@@ -134,6 +140,54 @@ class MemoryCalculatorTests {
 
         assertThat(result25.jvmOptions()).contains("-XX:+UseCompactObjectHeaders");
         assertThat(result24.jvmOptions()).doesNotContain("-XX:+UseCompactObjectHeaders");
+    }
+
+    @Test
+    void zGenerationalFlagOnlyAppliedOnJdk21And22() {
+        long largeHeap = 8L * 1024 * MB; // flips GC selection to ZGC
+
+        MemoryCalculationDto on21 = new MemoryCalculator(JDK_21).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        MemoryCalculationDto on22 = new MemoryCalculator(JDK_22).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        MemoryCalculationDto on23 = new MemoryCalculator(JDK_23).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        MemoryCalculationDto on24 = new MemoryCalculator(JDK_24).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        MemoryCalculationDto on25 = new MemoryCalculator(JDK_25).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+
+        // JEP 439 (JDK 21) shipped generational ZGC as an experimental opt-in flag.
+        assertThat(on21.jvmOptions()).contains("-XX:+ZGenerational");
+        assertThat(on22.jvmOptions()).contains("-XX:+ZGenerational");
+        // JEP 474 (JDK 23) makes generational ZGC the default and deprecates the explicit flag
+        // (printing a warning if set); JEP 490 (JDK 24) obsoletes it further, and later releases
+        // stop recognizing it altogether, causing the JVM to refuse to start. It must never be
+        // emitted from JDK 23 onward.
+        assertThat(on23.jvmOptions()).doesNotContain("-XX:+ZGenerational");
+        assertThat(on24.jvmOptions()).doesNotContain("-XX:+ZGenerational");
+        assertThat(on25.jvmOptions()).doesNotContain("-XX:+ZGenerational");
+    }
+
+    @Test
+    void stringDeduplicationSkippedForZgcBeforeJdk18() {
+        long largeHeap = 8L * 1024 * MB; // flips GC selection to ZGC
+
+        MemoryCalculationDto on17 = new MemoryCalculator(JDK_17).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        MemoryCalculationDto on18 = new MemoryCalculator(JDK_18).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+        MemoryCalculationDto on21 = new MemoryCalculator(JDK_21).calculate(largeHeap, 250, 1_000, 0, 1, 1_000);
+
+        // ZGC did not support string deduplication until JDK 18. On JDK 17 the JVM would print a
+        // startup warning ("String Deduplication disabled: not supported by selected GC") and
+        // silently disable it anyway, so the flag must be omitted rather than emitted uselessly.
+        assertThat(on17.jvmOptions()).contains("-XX:+UseZGC").doesNotContain("-XX:+UseStringDeduplication");
+        assertThat(on18.jvmOptions()).contains("-XX:+UseZGC").contains("-XX:+UseStringDeduplication");
+        assertThat(on21.jvmOptions()).contains("-XX:+UseZGC").contains("-XX:+UseStringDeduplication");
+    }
+
+    @Test
+    void stringDeduplicationAlwaysPresentForG1RegardlessOfJdkVersion() {
+        long smallHeap = 1024 * MB; // stays under the ZGC flip threshold, selects G1
+
+        MemoryCalculationDto on17 = new MemoryCalculator(JDK_17).calculate(smallHeap, 250, 1_000, 0, 1, 1_000);
+
+        // G1 has supported string deduplication since JDK 8u20 (JEP 192), so it is always present.
+        assertThat(on17.jvmOptions()).contains("-XX:+UseG1GC").contains("-XX:+UseStringDeduplication");
     }
 
     @Test
