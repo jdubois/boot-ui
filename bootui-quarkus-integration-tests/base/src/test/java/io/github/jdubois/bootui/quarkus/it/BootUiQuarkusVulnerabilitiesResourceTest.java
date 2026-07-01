@@ -12,6 +12,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.MethodOrderer.OrderAnnotation;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -133,9 +134,74 @@ class BootUiQuarkusVulnerabilitiesResourceTest {
         assertThat(body.path("scan").path("vulnerabilitiesFound").asInt()).isGreaterThanOrEqualTo(1);
     }
 
+    @Test
+    @Order(4)
+    void dismissingAVulnerabilityHidesItFromActiveCountsAndRestoringBringsItBack() {
+        Map<String, String> jsonHeaders = Map.of("Content-Type", "application/json");
+        JsonNode before = probe().get("/bootui/api/vulnerabilities").json();
+        JsonNode vulnerableDependency = findFirstVulnerableDependency(before);
+        assertThat(vulnerableDependency)
+                .as("a prior scan (Order 2) must have already found the stubbed advisory")
+                .isNotNull();
+        String packageName = vulnerableDependency.path("packageName").asText();
+        String dismissalKey = OsvStubTestResource.ADVISORY_ID + "::" + packageName;
+
+        // Vulnerabilities has no dedicated dismiss endpoint -- it reuses the same shared
+        // /bootui/api/dismissed-rules/{ruleId} resource every other advisor writes to.
+        Response dismiss = probe().post("/bootui/api/dismissed-rules/" + dismissalKey, jsonHeaders);
+        assertThat(dismiss.status()).as("POST dismiss status").isEqualTo(200);
+
+        JsonNode afterDismiss = probe().get("/bootui/api/vulnerabilities").json();
+        JsonNode dependencyAfterDismiss = findDependencyByPackageName(afterDismiss, packageName);
+        assertThat(dependencyAfterDismiss)
+                .as("the dismissed dependency stays in the inventory")
+                .isNotNull();
+        assertThat(dependencyAfterDismiss.path("vulnerabilityCount").asInt())
+                .as("a dismissed vulnerability no longer counts toward the active count")
+                .isZero();
+        assertThat(dependencyAfterDismiss.path("highestSeverity").asText())
+                .as("with its only vulnerability dismissed, the dependency reports no active severity")
+                .isEqualTo("NONE");
+        assertThat(dependencyAfterDismiss
+                        .path("vulnerabilities")
+                        .get(0)
+                        .path("dismissed")
+                        .asBoolean())
+                .as("the vulnerability itself is still present, marked dismissed, so it can be restored")
+                .isTrue();
+        assertThat(afterDismiss.path("vulnerable").asInt())
+                .as("the report-level vulnerable count excludes dismissed findings")
+                .isZero();
+
+        Response restore = probe().request("DELETE", "/bootui/api/dismissed-rules/" + dismissalKey, jsonHeaders, null);
+        assertThat(restore.status()).as("DELETE restore status").isEqualTo(200);
+
+        JsonNode afterRestore = probe().get("/bootui/api/vulnerabilities").json();
+        JsonNode dependencyAfterRestore = findDependencyByPackageName(afterRestore, packageName);
+        assertThat(dependencyAfterRestore.path("vulnerabilityCount").asInt())
+                .as("restoring the vulnerability brings it back into the active count")
+                .isEqualTo(1);
+        assertThat(dependencyAfterRestore
+                        .path("vulnerabilities")
+                        .get(0)
+                        .path("dismissed")
+                        .asBoolean())
+                .isFalse();
+        assertThat(afterRestore.path("vulnerable").asInt()).isGreaterThanOrEqualTo(1);
+    }
+
     private static JsonNode findFirstVulnerableDependency(JsonNode body) {
         for (JsonNode dependency : body.path("dependencies")) {
             if (dependency.path("vulnerabilities").size() > 0) {
+                return dependency;
+            }
+        }
+        return null;
+    }
+
+    private static JsonNode findDependencyByPackageName(JsonNode body, String packageName) {
+        for (JsonNode dependency : body.path("dependencies")) {
+            if (packageName.equals(dependency.path("packageName").asText())) {
                 return dependency;
             }
         }

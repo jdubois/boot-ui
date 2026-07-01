@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
 import io.github.jdubois.bootui.quarkus.OsvVulnerabilityScanner;
 import io.github.jdubois.bootui.quarkus.QuarkusDependencyProvider;
@@ -25,7 +26,9 @@ import org.eclipse.microprofile.config.Config;
  * {@link OsvVulnerabilityScanner}. The engine {@link DependencyReports} owns all aggregation/ordering. Both
  * collaborators are injected as their concrete adapter types (not the {@code DependencyProvider} /
  * {@code VulnerabilityScanner} SPI interfaces) so adding further SPI impls later can never make this wiring
- * ambiguous.</p>
+ * ambiguous. Per-vulnerability dismissals from the shared {@link DismissedRulesStore} (keyed by
+ * {@link DependencyReports#dismissalKey(String, String)}) are applied on every response, exactly as on
+ * Spring.</p>
  *
  * <p><strong>Never scans on render.</strong> {@code GET} returns the cached last scan report if present,
  * otherwise a {@code NOT_SCANNED} inventory — it makes no network call. {@code POST /scan} honors
@@ -47,14 +50,20 @@ public class VulnerabilitiesResource {
 
     private final Config config;
 
+    private final DismissedRulesStore dismissedRules;
+
     private volatile DependenciesReport lastScanReport;
 
     @Inject
     public VulnerabilitiesResource(
-            QuarkusDependencyProvider dependencyProvider, OsvVulnerabilityScanner vulnerabilityScanner, Config config) {
+            QuarkusDependencyProvider dependencyProvider,
+            OsvVulnerabilityScanner vulnerabilityScanner,
+            Config config,
+            DismissedRulesStore dismissedRules) {
         this.dependencyProvider = dependencyProvider;
         this.vulnerabilityScanner = vulnerabilityScanner;
         this.config = config;
+        this.dismissedRules = dismissedRules;
     }
 
     @GET
@@ -62,16 +71,17 @@ public class VulnerabilitiesResource {
     public DependenciesReport dependencies() {
         DependenciesReport cached = this.lastScanReport;
         if (cached != null) {
-            return cached;
+            return DependencyReports.applyDismissals(cached, dismissedRules.load());
         }
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
-        return DependencyReports.report(
+        DependenciesReport report = DependencyReports.report(
                 osvEnabled(),
                 "NOT_SCANNED",
                 "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
                 null,
                 0,
                 dependencies);
+        return DependencyReports.applyDismissals(report, dismissedRules.load());
     }
 
     @POST
@@ -94,7 +104,7 @@ public class VulnerabilitiesResource {
         if (!"DISABLED".equals(report.status())) {
             this.lastScanReport = report;
         }
-        return report;
+        return DependencyReports.applyDismissals(report, dismissedRules.load());
     }
 
     private boolean osvEnabled() {
