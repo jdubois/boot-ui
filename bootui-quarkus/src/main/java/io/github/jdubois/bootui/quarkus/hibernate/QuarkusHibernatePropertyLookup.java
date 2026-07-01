@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.hibernate;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import org.eclipse.microprofile.config.Config;
 
@@ -24,6 +25,12 @@ import org.eclipse.microprofile.config.Config;
  *       {@code spring.jpa.open-in-view} resolves to {@code "false"} (its effective state). Without this the
  *       {@code HIB-CONFIG-001} rule — which treats an <em>absent</em> value as Spring Boot's web default of
  *       {@code true} — would render a hard false-positive on every Quarkus scan.</li>
+ *   <li><strong>Reports Hibernate bytecode enhancement as always enabled</strong>: Quarkus enhances every entity
+ *       at build time unconditionally (see {@code HibernateOrmProcessor.enhancerDomainObjects()}, an ungated
+ *       build step) — there is no {@code quarkus.hibernate-orm.enhancement.*} switch to turn it off. The engine's
+ *       {@code HIB-MAP-017}/{@code HIB-MAP-018} rules read the enable-lazy-initialization keys above to decide
+ *       whether the enhancer is active; without this mapping they would read {@code null} (falsy) and flag every
+ *       lazy/non-owning {@code @OneToOne} as a false positive on every Quarkus scan.</li>
  * </ul>
  *
  * <p>Every other engine key falls through to a raw MicroProfile Config read, which returns {@code null} for
@@ -43,6 +50,16 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
     static final String LEGACY_GENERATION_KEY = "quarkus.hibernate-orm.database.generation";
 
     private static final String OPEN_IN_VIEW_KEY = "spring.jpa.open-in-view";
+
+    // The engine's HibernateContext.isHibernateEnhancementEnabled() ORs these four keys together to decide
+    // whether Hibernate bytecode enhancement is active. Quarkus enhances every entity unconditionally at build
+    // time (HibernateOrmProcessor.enhancerDomainObjects() is an ungated @BuildStep) and exposes no config
+    // property to disable it, so all four report "true" regardless of what (if anything) is actually set.
+    private static final Set<String> ENHANCEMENT_ENABLED_KEYS = Set.of(
+            "spring.jpa.properties.hibernate.enhancer.enableLazyInitialization",
+            "hibernate.enhancer.enableLazyInitialization",
+            "spring.jpa.properties.hibernate.bytecode.enhancer.enableLazyInitialization",
+            "hibernate.bytecode.enhancer.enableLazyInitialization");
 
     // Engine key -> quarkus.hibernate-orm.* equivalent. Verified against the Quarkus 3.33 Hibernate ORM
     // configuration reference; the first two are exercised by the Quarkus sample app.
@@ -69,6 +86,9 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
             // Quarkus has no Open-Session-in-View; report its effective state so HIB-CONFIG-001 passes
             // rather than assuming Spring Boot's enabled-by-default.
             return "false";
+        }
+        if (ENHANCEMENT_ENABLED_KEYS.contains(key)) {
+            return "true";
         }
         String quarkusKey = KEY_ALIASES.get(key);
         if (SCHEMA_STRATEGY_KEY.equals(quarkusKey)) {

@@ -129,6 +129,11 @@ record HibernateContext(
         return false;
     }
 
+    /**
+     * True from Hibernate ORM 7.4 onward, where the "Limits and fetch joins" migration-guide entry documents that a
+     * pagination limit on a query with a collection {@code JOIN FETCH} is now applied in the generated SQL itself;
+     * the {@code org.hibernate.limitInMemory} query hint opts back into the pre-7.4 in-memory pagination.
+     */
     boolean hasHibernateCollectionFetchPaginationFix() {
         return hibernateVersion.isAtLeastMajorMinor(7, 4);
     }
