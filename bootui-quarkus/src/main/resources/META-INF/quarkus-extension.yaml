@@ -1,15 +1,20 @@
 name: BootUI
 description: Local-only developer console for Quarkus, served at /bootui (the Quarkus adapter over bootui-engine).
-# group-id/artifact-id make this hand-authored template a self-sufficient extension descriptor so the Dev UI's
-# DevUIProcessor.getExtensionNamespace (which needs `artifact` OR `group-id`+`artifact-id`) works even when the
-# quarkus-extension-maven-plugin's extension-descriptor goal did NOT run. A full Maven build runs that goal and
-# overwrites this file in target/classes with the resolved `artifact` GAV — but IntelliJ's native (JPS) builder
-# never runs Maven plugin goals (in any phase); it just copies src/main/resources verbatim into target/classes,
-# so without these keys the copied descriptor is GAV-less and quarkus:dev fails. Kept version-free (group-id +
-# artifact-id only, the published coordinates) so it can never go stale across releases; the build-time goal
-# still injects the full versioned `artifact` for real builds.
+# group-id/artifact-id/artifact make this hand-authored template a self-sufficient extension descriptor so it keeps
+# working even when the quarkus-extension-maven-plugin's extension-descriptor goal did NOT (re)run against this exact
+# file. A full Maven build (process-resources phase) runs that goal and overwrites this file in target/classes with
+# the resolved, correctly-versioned `artifact` GAV — but two other paths only ever copy src/main/resources verbatim
+# into target/classes, never invoking the plugin: IntelliJ's native (JPS) builder (any phase), and, more commonly,
+# Quarkus dev mode's own workspace-module reload for reactor dependencies (`quarkus:dev` recompiles/copies bootui-
+# quarkus's changed sources/resources directly, without re-running the Maven plugin goal, even with `-am`). Without
+# `artifact`, Quarkus DevUI's WelcomeProcessor NPEs on `extension.getArtifact().split(":")` (it has no null-safe
+# fallback to group-id/artifact-id, unlike DevUIProcessor.getExtensionNamespace) — so every `quarkus:dev` session
+# needs this field present, not just IDE builds. `artifact` below is a deliberately fake, version-free placeholder
+# (real Maven builds always regenerate it with the accurate versioned GAV); its only consumer here is the
+# groupId:artifactId key WelcomeProcessor derives from it, so the placeholder version can never go stale or mislead.
 group-id: com.julien-dubois.bootui
 artifact-id: bootui-quarkus
+artifact: "com.julien-dubois.bootui:bootui-quarkus::jar:0"
 metadata:
   keywords:
     - bootui
