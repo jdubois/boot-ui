@@ -328,6 +328,11 @@ final class RestApiHandlerModelBuilder {
         boolean returnsResponseEntity =
                 Types.JAXRS_RESPONSE.equals(returnTypeName) || Types.QUARKUS_REST_RESPONSE.equals(returnTypeName);
         boolean returnsVoid = "void".equals(returnTypeName) || "java.lang.Void".equals(returnTypeName);
+        // Per the Jakarta REST spec, a void-returning resource method always answers 204 No Content —
+        // unlike Spring MVC, which defaults an unannotated void handler to 200 OK. Modelling that as a
+        // known response status keeps RAPI-RESP-002/RAPI-RESP-005 from flagging a JAX-RS void handler
+        // for a "silently defaults to 200 OK" footgun that cannot actually happen on this framework.
+        boolean hasImplicitNoContentStatus = returnsVoid;
 
         JavaType bodyType = unwrapWrappers(returnType);
         JavaClass bodyErasure = bodyType.toErasure();
@@ -393,6 +398,9 @@ final class RestApiHandlerModelBuilder {
                 || lowerName.startsWith("fetchall")
                 || lowerName.startsWith("readall");
         boolean hidden = classHidden || method.isAnnotatedWith(Types.HIDDEN) || operationHidden(method);
+        // A broad "throws Exception/Throwable" is a plain JVM method-signature fact, not a Spring-specific
+        // one, so it applies to JAX-RS resource methods exactly the same way (RAPI-ERR-002).
+        boolean declaresBroadThrows = declaresBroadThrows(method);
 
         return new HandlerMethodModel(
                 type.getName(),
@@ -427,10 +435,10 @@ final class RestApiHandlerModelBuilder {
                 false,
                 false,
                 hasExplicitPageParam,
+                hasImplicitNoContentStatus,
                 false,
-                false,
-                "",
-                false,
+                hasImplicitNoContentStatus ? "NO_CONTENT" : "",
+                declaresBroadThrows,
                 method.isAnnotatedWith(Types.OPERATION),
                 stateChanging,
                 findAll,
