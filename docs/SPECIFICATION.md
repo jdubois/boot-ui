@@ -542,13 +542,22 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
+- Derive severity from a real CVSS v3.0/v3.1 Base Score computed from the advisory's CVSS vector (per the FIRST.org
+  specification) when present, falling back to the advisory's `database_specific` severity label otherwise; render
+  `UNKNOWN` only when neither is available, never silently drop the finding.
+- Exclude advisories marked `withdrawn` by OSV from results and counts.
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
+- Allow dismissing/restoring an individual vulnerability finding for a specific dependency, excluding it from the
+  vulnerable count and severity rollups until restored, consistent with the dismiss/restore workflow shared by every
+  other advisor.
 
 Acceptance criteria:
 
 - Dependency and advisory data serialize through stable BootUI DTOs.
 - External scanning is user-initiated and clearly labeled in the UI.
-- OSV failures return a clear error status while preserving the local dependency inventory.
+- A failure fetching the initial OSV batch query returns a clear error status while preserving the local dependency
+  inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
+  successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
 
 ### 5.12 Scheduled Tasks Inspector

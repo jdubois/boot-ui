@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
 import io.github.jdubois.bootui.engine.vulnerabilities.VulnerabilityScanner;
@@ -13,6 +14,15 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Serves the Vulnerabilities panel.
+ *
+ * <p>{@code GET} returns the last scan (initially the local dependency inventory, unscanned);
+ * {@code POST /scan} queries OSV.dev. Per-vulnerability dismissals (a developer acknowledging a finding they
+ * can't immediately fix) are stored in the shared {@link DismissedRulesStore} keyed by
+ * {@link DependencyReports#dismissalKey(String, String)} and applied to whichever report is returned,
+ * mirroring every other advisor's dismiss/restore wiring.</p>
+ */
 @RestController
 @RequestMapping("/bootui/api/vulnerabilities")
 public class VulnerabilitiesController {
@@ -23,36 +33,45 @@ public class VulnerabilitiesController {
 
     private final VulnerabilityScanner vulnerabilityScanner;
 
+    private final DismissedRulesStore dismissedRules;
+
     private volatile DependenciesReport lastScanReport;
 
     @Autowired
-    public VulnerabilitiesController(BootUiProperties properties) {
-        this(properties, new DependencyCatalog(), new OsvVulnerabilityScanner(properties.getVulnerabilities()));
+    public VulnerabilitiesController(BootUiProperties properties, DismissedRulesStore dismissedRules) {
+        this(
+                properties,
+                new DependencyCatalog(),
+                new OsvVulnerabilityScanner(properties.getVulnerabilities()),
+                dismissedRules);
     }
 
     VulnerabilitiesController(
             BootUiProperties properties,
             DependencyProvider dependencyProvider,
-            VulnerabilityScanner vulnerabilityScanner) {
+            VulnerabilityScanner vulnerabilityScanner,
+            DismissedRulesStore dismissedRules) {
         this.properties = properties;
         this.dependencyProvider = dependencyProvider;
         this.vulnerabilityScanner = vulnerabilityScanner;
+        this.dismissedRules = dismissedRules;
     }
 
     @GetMapping
     public DependenciesReport dependencies() {
         DependenciesReport cached = this.lastScanReport;
         if (cached != null) {
-            return cached;
+            return DependencyReports.applyDismissals(cached, dismissedRules.load());
         }
         List<DependencyDto> dependencies = dependencyProvider.dependencies();
-        return DependencyReports.report(
+        DependenciesReport report = DependencyReports.report(
                 properties.getVulnerabilities().isOsvEnabled(),
                 "NOT_SCANNED",
                 "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
                 null,
                 0,
                 dependencies);
+        return DependencyReports.applyDismissals(report, dismissedRules.load());
     }
 
     @PostMapping("/scan")
@@ -73,6 +92,6 @@ public class VulnerabilitiesController {
         if (!"DISABLED".equals(report.status())) {
             this.lastScanReport = report;
         }
-        return report;
+        return DependencyReports.applyDismissals(report, dismissedRules.load());
     }
 }
