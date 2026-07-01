@@ -188,8 +188,9 @@ Diff` (**Implemented** — → SmallRye Config; groups active `%profile.`-prefix
 read, BootUI's own routes filtered out at build time) · `Flyway` (→ `quarkus-flyway`) · `Liquibase` (**Implemented** — → `quarkus-liquibase`;
 discovered via `LiquibaseFactoryUtil.getActiveLiquibaseFactories()`, the shared `RanChangeSet` history read + `update`
 action behind the same DTO contract) · `Scheduled Tasks`
-(→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine shared; Spring-stereotype rules get CDI/JAX-RS
-variants) · `Overview` (panel available; the scoring dashboard aggregates the advisor endpoints client-side, and
+(→ `quarkus-scheduler`) · `Architecture` advisor (ArchUnit engine + rules run unmodified; Spring-stereotype rules
+simply match no classes and degrade to a no-op pass, while a few rules are already dual-framework via the shared
+`jakarta.*` annotations) · `Overview` (panel available; the scoring dashboard aggregates the advisor endpoints client-side, and
 `GET /bootui/api/overview` reports the Quarkus version + shell chrome).
 
 ### 5.3 Kept, with a rebuilt capture layer or reduced fidelity (8)
@@ -376,7 +377,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Flyway              | equiv       | Adapt   | Flyway mapper                    | `MigrationProvider` → quarkus-flyway        |
 | Liquibase           | equiv       | Adapt   | Liquibase mapper                 | `MigrationProvider` → quarkus-liquibase     |
 | Scheduled Tasks     | equiv       | Adapt   | Scheduled mapper                 | `ScheduledTaskProvider` → quarkus-scheduler |
-| Architecture        | equiv       | Adapt   | ArchUnit engine                  | `BasePackageProvider` + CDI/JAX-RS rules    |
+| Architecture        | equiv       | Adapt   | ArchUnit engine                  | `BasePackageProvider` (rules run unmodified) |
 | REST API            | partial     | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
 | DB Connection Pools | partial     | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
 | SQL Trace           | partial     | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |

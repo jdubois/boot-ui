@@ -198,7 +198,8 @@ configuration, imports the compiled classes from that package, and evaluates a f
 architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
 exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
 deprecated APIs, poorly named exceptions/interfaces, mutable/visible loggers, production dependencies on test
-frameworks, public mutable static fields, or non-final utility classes), and Spring stereotype/proxy heuristics (no field
+frameworks, public mutable static fields, non-final utility classes, or standard-annotation (`jakarta.inject.Inject` /
+`@Resource`) field injection), and Spring stereotype/proxy heuristics (no `@Autowired`/`@Value` field
 injection, controllers should not depend on repositories, repositories should not depend on controllers or services,
 services should not depend on controllers, services and repositories should stay servlet-agnostic, no self-invocation or
 unproxyable proxy annotations, async/scheduled method signatures should be supported, async should stay out of
@@ -220,7 +221,13 @@ violating rules, sorted by severity and violation count. See
 
 On Quarkus the panel is identical, running the same shared ArchUnit ruleset and on-demand scan over the same report
 contract — the framework-agnostic hygiene rules apply unchanged, while the Spring-stereotype rules simply find no
-matching classes on a Quarkus application. The one platform difference is base-package discovery: Quarkus has no
+matching classes on a Quarkus application. A handful of these rules are deliberately dual-framework instead of
+Spring-only, because they also key on the portable `jakarta.*` annotations a CDI container recognizes: self-invocation
+and proxy-visibility checks also fire on `jakarta.transaction.Transactional`, held to the CDI-accurate, more permissive
+visibility bar (a CDI client proxy can intercept protected and package-private methods, unlike Spring's stricter
+public-only proxies) so they degrade gracefully rather than false-positive — see
+[ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the per-rule detail. The one platform
+difference is base-package discovery: Quarkus has no
 `@SpringBootApplication` to read and no reliable runtime package scan under its classloader, so the application's base
 packages are discovered at **build time** from the Jandex application index and supplied to the scanner. Discovery is
 single-module today (sibling modules in a multi-module build are not auto-discovered; the `bootui.internal.base-packages`

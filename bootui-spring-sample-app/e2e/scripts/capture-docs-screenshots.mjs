@@ -1599,7 +1599,7 @@ const architecture = {
     'These checks complement, but do not replace, a project-specific ArchUnit test suite or an architecture review.',
   basePackages: ['io.github.jdubois.bootui.sample'],
   classesAnalyzed: 42,
-  rulesEvaluated: 32,
+  rulesEvaluated: 37,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -1612,7 +1612,7 @@ const architecture = {
     status: 'SCANNED',
     message: 'Architecture rules completed against 42 application class(es) under the detected base package(s).',
     scannedAt: nowMillis - 35_000,
-    rulesEvaluated: 32,
+    rulesEvaluated: 37,
     classesAnalyzed: 42,
     violationsFound: 4
   },
@@ -1633,7 +1633,7 @@ const architecture = {
       'Classes should not use field injection',
       'Spring stereotypes',
       'MEDIUM',
-      'Detects @Autowired, @Inject, @Value, or @Resource on fields instead of constructor injection.',
+      'Detects @Autowired or @Value on fields instead of constructor injection.',
       'VIOLATION',
       3,
       [
