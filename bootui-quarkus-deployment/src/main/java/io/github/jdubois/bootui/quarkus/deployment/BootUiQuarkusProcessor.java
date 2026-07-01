@@ -94,7 +94,11 @@ import org.jboss.jandex.Type;
  *
  * <p>The shared Vue bundle under {@code META-INF/resources/bootui/} is served by Quarkus' static-resource
  * handler regardless of launch mode; suppressing even the static shell in production is a follow-up to
- * this tracer bullet (the data-bearing {@code /bootui/api/**} endpoints are already prod-gated here).</p>
+ * this tracer bullet (the data-bearing {@code /bootui/api/**} endpoints are already prod-gated here). The
+ * static handler only answers the directory index {@code /bootui/} (trailing slash); {@code /bootui}
+ * without the trailing slash previously 404'd, so {@code QuarkusIndexResource} — a {@code @Path("/bootui")}
+ * JAX-RS resource discovered from the same indexed jar and therefore gated identically to the rest of the
+ * console — answers it directly instead of redirecting (see its Javadoc).</p>
  */
 class BootUiQuarkusProcessor {
 

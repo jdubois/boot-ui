@@ -38,6 +38,22 @@ class BootUiQuarkusTracerBulletSmokeTest {
     }
 
     @Test
+    void sharedUiBundleIsAlsoServedWithoutTrailingSlash() {
+        // Quarkus' static-resource handler only answers /bootui/ (the directory index); without
+        // QuarkusIndexResource, GET /bootui (no trailing slash) 404'd. See the class Javadoc.
+        Response response = probe().get("/bootui");
+        assertThat(response.status())
+                .as("GET /bootui (no trailing slash) should serve the shared Vue bundle's index.html")
+                .isEqualTo(200);
+        assertThat(response.contentType().toLowerCase())
+                .as("GET /bootui content-type (%s)", response.contentType())
+                .contains("text/html");
+        assertThat(response.body())
+                .as("GET /bootui body should carry a <base href> so relative assets/API resolve")
+                .contains("<base href=\"/bootui/\" />");
+    }
+
+    @Test
     void heapDumpPanelAnswersItsPrimaryGet() {
         Response response = probe().get("/bootui/api/heap-dump");
         assertThat(response.status()).as("GET /bootui/api/heap-dump status").isEqualTo(200);
