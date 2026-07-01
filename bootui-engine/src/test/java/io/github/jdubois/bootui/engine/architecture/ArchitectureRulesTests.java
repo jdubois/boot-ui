@@ -6,6 +6,8 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.Resource;
+import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -14,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -502,6 +506,152 @@ class ArchitectureRulesTests {
                 .noneSatisfy(sample -> assertThat(sample).contains("ModuleOnePublic"));
     }
 
+    @Test
+    void noFieldInjectionRuleFlagsAutowiredAndValueFields() {
+        ArchitectureRuleResultDto result = evaluate(new NoFieldInjectionRule(), AutowiredFieldBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-001");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("service"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("name"));
+    }
+
+    @Test
+    void noFieldInjectionRulePassesForConstructorInjection() {
+        ArchitectureRuleResultDto result = evaluate(new NoFieldInjectionRule(), ConstructorInjectedBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void noFieldInjectionRuleDoesNotFlagStandardJakartaInjectionAnnotations() {
+        // Regression guard for the ARCH-SPRING-001 narrowing: plain jakarta.inject.Inject / @Resource
+        // field injection (the idiomatic CDI/Quarkus style) must never trip Spring's own field-injection
+        // rule. See FieldsShouldNotUseStandardInjectionAnnotationsRule (ARCH-CODE-016) for the
+        // framework-neutral counterpart, and ArchitectureCdiNeutralityTests for the exhaustive
+        // cross-rule check against a full pure-CDI fixture set.
+        ArchitectureRuleResultDto result = evaluate(new NoFieldInjectionRule(), JakartaInjectFieldBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void fieldsShouldNotUseStandardInjectionAnnotationsFlagsJakartaInjectAndResourceFields() {
+        ArchitectureRuleResultDto result =
+                evaluate(new FieldsShouldNotUseStandardInjectionAnnotationsRule(), JakartaInjectFieldBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-CODE-016");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("service"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("name"));
+    }
+
+    @Test
+    void fieldsShouldNotUseStandardInjectionAnnotationsPassesForConstructorInjection() {
+        ArchitectureRuleResultDto result =
+                evaluate(new FieldsShouldNotUseStandardInjectionAnnotationsRule(), ConstructorInjectedBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void fieldsShouldNotUseStandardInjectionAnnotationsDoesNotFlagSpringFieldInjection() {
+        // The two field-injection rules are deliberately disjoint: Spring's own @Autowired/@Value must
+        // never also trip the standard-annotation rule.
+        ArchitectureRuleResultDto result =
+                evaluate(new FieldsShouldNotUseStandardInjectionAnnotationsRule(), AutowiredFieldBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void proxiedMethodsShouldNotBePrivateOrStaticFlagsFinalSpringTransactionalMethod() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ProxiedMethodsShouldNotBePrivateOrStaticRule(), FinalProxyAnnotationComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-010");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("final"));
+    }
+
+    @Test
+    void proxiedMethodsShouldNotBePrivateOrStaticPassesForProtectedOrPackagePrivateJakartaTransactional() {
+        // The key CDI-neutrality finding: a CDI client proxy can intercept public, protected, AND
+        // package-private methods alike (Jakarta CDI spec, "Unproxyable bean types"); only private,
+        // static, or final methods are excluded. Spring's stricter "public only" bar must not apply to
+        // the portable jakarta.transaction.Transactional annotation, or this rule would false-positive
+        // on a perfectly valid Quarkus/CDI transactional service method.
+        ArchitectureRuleResultDto result = evaluate(
+                new ProxiedMethodsShouldNotBePrivateOrStaticRule(), GoodJakartaTransactionalVisibilityComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void proxiedMethodsShouldNotBePrivateOrStaticFlagsPrivateOrFinalJakartaTransactional() {
+        // Even under the CDI-permissive bar, private and final methods are still unproxyable (Jakarta
+        // CDI's "Unproxyable bean types" excludes both), so these remain genuine violations.
+        ArchitectureRuleResultDto result = evaluate(
+                new ProxiedMethodsShouldNotBePrivateOrStaticRule(), BadJakartaTransactionalVisibilityComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-010");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("private"));
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("final"));
+        assertThat(result.sampleViolations())
+                .noneSatisfy(sample -> assertThat(sample).contains("protected"));
+        assertThat(result.sampleViolations())
+                .noneSatisfy(sample -> assertThat(sample).contains("package-private"));
+    }
+
+    @Test
+    void scheduledMethodsShouldHaveSupportedSignaturesFlagsRxJava2ReturnType() {
+        // The false-negative fix: Spring's ScheduledAnnotationReactiveSupport only recognizes RxJava
+        // 3's io.reactivex.rxjava3.* namespace, never the older io.reactivex.* (RxJava 2) one, so a
+        // scheduled method returning a bare RxJava 2 type has its return value silently discarded.
+        ArchitectureRuleResultDto result =
+                evaluate(new ScheduledMethodsShouldHaveSupportedSignaturesRule(), RxJava2ScheduledComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-SPRING-012");
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("io.reactivex.Flowable"));
+    }
+
+    @Test
+    void scheduledMethodsShouldHaveSupportedSignaturesPassesForRxJava3ReturnType() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ScheduledMethodsShouldHaveSupportedSignaturesRule(), RxJava3ScheduledComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void scheduledMethodsShouldHaveSupportedSignaturesPassesForJdkFlowPublisherReturnType() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ScheduledMethodsShouldHaveSupportedSignaturesRule(), JdkFlowScheduledComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void scheduledMethodsShouldHaveSupportedSignaturesPassesForMutinyUniAndMultiReturnTypes() {
+        ArchitectureRuleResultDto result =
+                evaluate(new ScheduledMethodsShouldHaveSupportedSignaturesRule(), MutinyScheduledComponent.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
         return rule.evaluate(
@@ -778,6 +928,12 @@ class ArchitectureRulesTests {
         protected void protectedTransactional() {}
     }
 
+    private static class FinalProxyAnnotationComponent {
+
+        @Transactional
+        final void finalTransactional() {}
+    }
+
     @Async
     private static class ClassLevelAsyncBean {
 
@@ -881,4 +1037,86 @@ class ArchitectureRulesTests {
     }
 
     private static class SampleBeanPostProcessor implements BeanPostProcessor {}
+
+    private static class AutowiredFieldBean {
+
+        @Autowired
+        private ExampleService service;
+
+        @Value("${some.name}")
+        private String name;
+    }
+
+    private static class JakartaInjectFieldBean {
+
+        @Inject
+        private ExampleService service;
+
+        @Resource
+        private String name;
+    }
+
+    private static class ConstructorInjectedBean {
+
+        private final ExampleService service;
+
+        ConstructorInjectedBean(ExampleService service) {
+            this.service = service;
+        }
+    }
+
+    private static class GoodJakartaTransactionalVisibilityComponent {
+
+        @jakarta.transaction.Transactional
+        protected void protectedTransactional() {}
+
+        @jakarta.transaction.Transactional
+        void packagePrivateTransactional() {}
+    }
+
+    private static class BadJakartaTransactionalVisibilityComponent {
+
+        @jakarta.transaction.Transactional
+        private void privateTransactional() {}
+
+        @jakarta.transaction.Transactional
+        final void finalTransactional() {}
+    }
+
+    private static class RxJava2ScheduledComponent {
+
+        @Scheduled(fixedDelay = 1000)
+        io.reactivex.Flowable<String> run() {
+            return null;
+        }
+    }
+
+    private static class RxJava3ScheduledComponent {
+
+        @Scheduled(fixedDelay = 1000)
+        io.reactivex.rxjava3.core.Single<String> run() {
+            return null;
+        }
+    }
+
+    private static class JdkFlowScheduledComponent {
+
+        @Scheduled(fixedDelay = 1000)
+        java.util.concurrent.Flow.Publisher<String> run() {
+            return null;
+        }
+    }
+
+    private static class MutinyScheduledComponent {
+
+        @Scheduled(fixedDelay = 1000)
+        io.smallrye.mutiny.Uni<String> uni() {
+            return null;
+        }
+
+        @Scheduled(fixedDelay = 1000)
+        io.smallrye.mutiny.Multi<String> multi() {
+            return null;
+        }
+    }
 }

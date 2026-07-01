@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.architecture;
 
 import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predicates.annotatedWith;
+import static com.tngtech.archunit.lang.conditions.ArchConditions.beAnnotatedWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -24,6 +25,7 @@ import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.EvaluationResult;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import com.tngtech.archunit.lang.conditions.ArchConditions;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.ProxyRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
@@ -86,6 +88,8 @@ final class SpringStereotypes {
     static final String COMPONENT = "org.springframework.stereotype.Component";
     static final String SERVICE = "org.springframework.stereotype.Service";
     static final String CONFIGURATION = "org.springframework.context.annotation.Configuration";
+    static final String AUTOWIRED = "org.springframework.beans.factory.annotation.Autowired";
+    static final String VALUE = "org.springframework.beans.factory.annotation.Value";
 
     static final String TRANSACTIONAL = "org.springframework.transaction.annotation.Transactional";
     static final String JAKARTA_TRANSACTIONAL = "jakarta.transaction.Transactional";
@@ -447,10 +451,23 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
 }
 
 /**
- * Flags field injection ({@code @Autowired} / {@code @Inject} / {@code @Value} / {@code @Resource}
- * on fields), which hampers testability and hides required dependencies.
+ * Flags Spring field injection ({@code @Autowired} / {@code @Value} on fields), which hampers
+ * testability and hides required dependencies.
+ *
+ * <p>Deliberately scoped to Spring's own annotations only. ArchUnit's built-in {@code
+ * NO_CLASSES_SHOULD_USE_FIELD_INJECTION} also matches the standard {@code jakarta.inject.Inject} /
+ * {@code javax.inject.Inject} / {@code jakarta.annotation.Resource} annotations, which are the
+ * idiomatic way to do field injection in a CDI/Quarkus application — reusing it here would make a
+ * rule filed under "Spring stereotypes" fire on ordinary CDI code with no Spring on the classpath at
+ * all. {@link FieldsShouldNotUseStandardInjectionAnnotationsRule} covers those standard annotations
+ * as a separate, framework-neutral coding-practice rule instead.</p>
  */
 final class NoFieldInjectionRule extends AbstractArchitectureRule {
+
+    private static final ArchCondition<JavaField> BE_ANNOTATED_WITH_SPRING_INJECTION_ANNOTATION =
+            ArchConditions.<JavaField>beAnnotatedWith(SpringStereotypes.AUTOWIRED)
+                    .or(beAnnotatedWith(SpringStereotypes.VALUE))
+                    .as("be annotated with @Autowired or @Value");
 
     NoFieldInjectionRule() {
         super(new ArchitectureRuleDefinition(
@@ -458,14 +475,55 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
                 "Classes should not use field injection",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects @Autowired, @Inject, @Value, or @Resource on fields instead of constructor injection.",
+                "Detects @Autowired or @Value on fields instead of constructor injection.",
                 "Prefer constructor injection so dependencies are explicit, final, and easy to test.",
                 "https://docs.spring.io/spring-boot/reference/using/spring-beans-and-dependency-injection.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION;
+        return noFields()
+                .should(BE_ANNOTATED_WITH_SPRING_INJECTION_ANNOTATION)
+                .as("no classes should use Spring field injection");
+    }
+}
+
+/**
+ * Flags field injection through the standard JSR-330 / Jakarta / Guice injection annotations ({@code
+ * @Inject}, {@code @Resource}) that CDI containers such as Quarkus' Arc use, alongside plain Guice.
+ * Framework-neutral counterpart to {@link NoFieldInjectionRule}, which only covers Spring's own
+ * {@code @Autowired} / {@code @Value}.
+ */
+final class FieldsShouldNotUseStandardInjectionAnnotationsRule extends AbstractArchitectureRule {
+
+    private static final ArchCondition<JavaField> BE_ANNOTATED_WITH_STANDARD_INJECTION_ANNOTATION =
+            ArchConditions.<JavaField>beAnnotatedWith("jakarta.inject.Inject")
+                    .or(beAnnotatedWith("javax.inject.Inject"))
+                    .or(beAnnotatedWith("jakarta.annotation.Resource"))
+                    .or(beAnnotatedWith("javax.annotation.Resource"))
+                    .or(beAnnotatedWith("com.google.inject.Inject"))
+                    .as("be annotated with a standard injection annotation");
+
+    FieldsShouldNotUseStandardInjectionAnnotationsRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-016",
+                "Classes should not use standard-annotation field injection",
+                ArchitectureCategory.CODING_PRACTICES,
+                "MEDIUM",
+                "Detects jakarta.inject.Inject, javax.inject.Inject, jakarta.annotation.Resource, "
+                        + "javax.annotation.Resource, or com.google.inject.Inject on fields instead of constructor "
+                        + "injection. This is the CDI/Quarkus and Guice equivalent of Spring's @Autowired field "
+                        + "injection.",
+                "Prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers "
+                        + "such as Quarkus' Arc inject constructor parameters just as readily as fields.",
+                "https://quarkus.io/guides/cdi"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return noFields()
+                .should(BE_ANNOTATED_WITH_STANDARD_INJECTION_ANNOTATION)
+                .as("no classes should use standard-annotation field injection");
     }
 }
 
@@ -825,65 +883,111 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
 }
 
 /**
- * Flags non-public or static methods annotated with proxy-driven Spring annotations. Interface-based
- * proxies and the default transaction advisor only apply to public instance methods, so the proxy
- * behaviour can be silently skipped and the annotation is therefore misleading.
+ * Flags methods annotated with proxy-driven annotations that the runtime's proxy mechanism cannot
+ * actually intercept.
+ *
+ * <p>Spring's own proxy-driven annotations ({@code @Async}, {@code @Cacheable}, and Spring's own
+ * {@code @Transactional}) require a public, non-static, non-final method: interface-based JDK
+ * proxies and the default CGLIB subclass proxy only ever intercept public instance methods (Spring's
+ * transaction-management reference documents this restriction explicitly, and {@code CglibAopProxy}
+ * logs a warning and silently calls the original, un-intercepted method for a {@code final} method).
+ *
+ * <p>The portable {@code jakarta.transaction.Transactional} annotation is held to a different,
+ * CDI-accurate bar instead of Spring's stricter one: the Jakarta CDI specification's "Unproxyable
+ * bean types" section lists only classes "which have non-static, final methods with public,
+ * protected or default visibility" as breaking proxyability, and a private no-arg constructor
+ * separately &mdash; i.e. a CDI client proxy can intercept public, protected, <em>and</em>
+ * package-private methods alike; only {@code private}, {@code static}, or {@code final} methods are
+ * excluded. Applying Spring's stricter "must be public" bar to the shared annotation would false
+ * positive on a protected or package-private {@code jakarta.transaction.Transactional} method in a
+ * Quarkus/CDI application, where the container's own client-proxy mechanism intercepts it correctly.
+ * A {@code final} class-level self-invocation combined with a proxy annotation on a CDI-managed bean
+ * would instead fail Arc's bean deployment outright, so the final-class case never applies to a class
+ * that could exist in a running Quarkus application in the first place.</p>
  */
 final class ProxiedMethodsShouldNotBePrivateOrStaticRule extends AbstractArchitectureRule {
 
     ProxiedMethodsShouldNotBePrivateOrStaticRule() {
         super(new ArchitectureRuleDefinition(
                 "ARCH-SPRING-010",
-                "Proxy-driven methods should be public and non-static",
+                "Proxy-driven methods should be publicly overridable",
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
-                "Detects non-public or static methods annotated with @Transactional, @Async, or @Cacheable. Interface-based proxies and the default transaction advisor only apply to public instance methods, so the proxy behaviour can be silently skipped.",
-                "Make the annotated method public and non-static so it can be invoked through a Spring proxy, or move the annotation to a method that can be.",
+                "Detects @Async, @Cacheable, or Spring's own @Transactional on a non-public, static, or final method, and jakarta.transaction.Transactional on a private, static, or final method. Interface-based and CGLIB proxies can only intercept public, overridable instance methods, while a CDI client proxy can also intercept protected and package-private ones, so the proxy behaviour can be silently skipped.",
+                "Make the annotated method public, non-static, and non-final so it can be intercepted by a Spring proxy (or at least package-visible, non-static, and non-final for the portable jakarta.transaction.Transactional annotation, which a CDI client proxy can also intercept), or move the annotation to a method that can be.",
                 "https://docs.spring.io/spring-framework/reference/core/aop/proxying.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
         return classes()
-                .should(new ArchCondition<JavaClass>("not declare non-public or static proxy-driven methods") {
+                .should(new ArchCondition<JavaClass>("not declare unproxyable proxy-driven methods") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
                         for (JavaMethod method : javaClass.getMethods()) {
-                            if (SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(method)
-                                    && isNonPublicOrStatic(method)) {
-                                events.add(SimpleConditionEvent.violated(
-                                        method,
-                                        "Method " + method.getFullName()
-                                                + " is annotated with a proxy-driven Spring annotation but is "
-                                                + visibilityProblem(method)));
-                            }
+                            proxyabilityProblem(method)
+                                    .ifPresent(reason -> events.add(SimpleConditionEvent.violated(
+                                            method,
+                                            "Method " + method.getFullName()
+                                                    + " is annotated with a proxy-driven annotation but is "
+                                                    + reason)));
                         }
                     }
                 })
-                .as("Proxy-driven methods should be public and non-static");
+                .as("Proxy-driven methods should be publicly overridable");
     }
 
-    private static boolean isNonPublicOrStatic(JavaMethod method) {
-        Set<JavaModifier> modifiers = method.getModifiers();
-        return modifiers.contains(JavaModifier.STATIC) || !modifiers.contains(JavaModifier.PUBLIC);
+    /**
+     * Returns the visibility/modifier problem preventing this method's proxy annotation from being
+     * honoured, if any. Spring's own annotations are held to Spring's stricter "public only" bar;
+     * a method annotated only with the portable {@code jakarta.transaction.Transactional} is held to
+     * the more permissive bar a CDI client proxy actually supports.
+     */
+    private static Optional<String> proxyabilityProblem(JavaMethod method) {
+        boolean springAnnotated = method.isAnnotatedWith(SpringStereotypes.TRANSACTIONAL)
+                || method.isAnnotatedWith(SpringStereotypes.ASYNC)
+                || method.isAnnotatedWith(SpringStereotypes.CACHEABLE);
+        if (springAnnotated) {
+            return visibilityProblem(method, JavaModifier.PUBLIC);
+        }
+        if (method.isAnnotatedWith(SpringStereotypes.JAKARTA_TRANSACTIONAL)) {
+            return visibilityProblem(method, null);
+        }
+        return Optional.empty();
     }
 
-    private static String visibilityProblem(JavaMethod method) {
+    /**
+     * @param requiredVisibility the minimum {@link JavaModifier} visibility the proxy mechanism
+     *     requires, or {@code null} to only exclude {@code private} (the CDI-permissive bar, which
+     *     also accepts protected and package-private methods).
+     */
+    private static Optional<String> visibilityProblem(JavaMethod method, JavaModifier requiredVisibility) {
         Set<JavaModifier> modifiers = method.getModifiers();
         List<String> problems = new ArrayList<>();
-        if (!modifiers.contains(JavaModifier.PUBLIC)) {
-            if (modifiers.contains(JavaModifier.PRIVATE)) {
-                problems.add("private");
-            } else if (modifiers.contains(JavaModifier.PROTECTED)) {
-                problems.add("protected");
-            } else {
-                problems.add("package-private");
+        if (requiredVisibility == JavaModifier.PUBLIC) {
+            if (!modifiers.contains(JavaModifier.PUBLIC)) {
+                problems.add(visibilityLabel(modifiers));
             }
+        } else if (modifiers.contains(JavaModifier.PRIVATE)) {
+            problems.add("private");
         }
         if (modifiers.contains(JavaModifier.STATIC)) {
             problems.add("static");
         }
-        return String.join(" and ", problems);
+        if (modifiers.contains(JavaModifier.FINAL)) {
+            problems.add("final");
+        }
+        return problems.isEmpty() ? Optional.empty() : Optional.of(String.join(" and ", problems));
+    }
+
+    private static String visibilityLabel(Set<JavaModifier> modifiers) {
+        if (modifiers.contains(JavaModifier.PRIVATE)) {
+            return "private";
+        }
+        if (modifiers.contains(JavaModifier.PROTECTED)) {
+            return "protected";
+        }
+        return "package-private";
     }
 }
 
@@ -935,6 +1039,15 @@ final class AsyncMethodsShouldHaveSupportedSignaturesRule extends AbstractArchit
 
 /**
  * Flags scheduled methods with parameters or unsupported return types.
+ *
+ * <p>Spring's {@code ScheduledAnnotationReactiveSupport} recognizes a fixed, evolving set of
+ * deferred reactive return types via {@code ReactiveAdapterRegistry}: any {@code
+ * org.reactivestreams.Publisher} (Reactor's {@code Mono}/{@code Flux} included), the JDK's own
+ * {@code java.util.concurrent.Flow.Publisher}, Kotlin's {@code Flow}/{@code Deferred}, RxJava
+ * <strong>3</strong> types, and SmallRye Mutiny's {@code Uni}/{@code Multi} when on the classpath —
+ * but never RxJava 2 ({@code io.reactivex.*}, without the {@code rxjava3} segment) or {@code
+ * CompletionStage}/{@code CompletableFuture}, both of which Spring registers as non-deferred and so
+ * discards exactly like any other synchronous return value.</p>
  */
 final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractArchitectureRule {
 
@@ -945,7 +1058,7 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 ArchitectureCategory.SPRING_STEREOTYPES,
                 "MEDIUM",
                 "Detects @Scheduled methods that accept parameters or return non-void, non-reactive values that Spring ignores.",
-                "Declare scheduled methods without parameters and return void unless using a supported deferred reactive Publisher type.",
+                "Declare scheduled methods without parameters and return void unless using a supported deferred reactive type (a Reactor/Reactive Streams Publisher, java.util.concurrent.Flow.Publisher, RxJava 3, or SmallRye Mutiny Uni/Multi).",
                 "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
     }
 
@@ -990,11 +1103,13 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
     private static boolean isKnownReactiveReturnType(JavaClass returnType) {
         String name = returnType.getName();
         return returnType.isAssignableTo("org.reactivestreams.Publisher")
+                || returnType.isAssignableTo(java.util.concurrent.Flow.Publisher.class)
                 || name.startsWith("reactor.core.publisher.")
                 || name.equals("kotlinx.coroutines.flow.Flow")
                 || name.equals("kotlinx.coroutines.Deferred")
-                || name.startsWith("io.reactivex.")
-                || name.startsWith("io.reactivex.rxjava3.");
+                || name.startsWith("io.reactivex.rxjava3.")
+                || name.equals("io.smallrye.mutiny.Uni")
+                || name.equals("io.smallrye.mutiny.Multi");
     }
 }
 
