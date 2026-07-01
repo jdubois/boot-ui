@@ -608,7 +608,7 @@ Features:
 - Show a not-scanned report until the user runs the scan.
 - Run bounded local checks for common security headers, CORS behavior, cookie flags, verbose error exposure, Spring
   Security wiring, and actuator exposure against the host application rather than BootUI itself.
-- Cross-reference findings with OWASP Top 10 categories such as A01, A02, A05, A06, and A07.
+- Cross-reference findings with OWASP Top 10 categories such as A01, A02, A04, A07, and A10.
 - Hand off dependency vulnerability coverage to the Vulnerabilities panel.
 - Clearly mark injection payloads and endpoint access-control probing as skipped.
 
