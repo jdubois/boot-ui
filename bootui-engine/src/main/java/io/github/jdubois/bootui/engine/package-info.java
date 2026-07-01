@@ -8,6 +8,6 @@
  * Each adapter constructs and wires them explicitly (Spring through an {@code @Bean} factory, Quarkus
  * through {@code @Produces}), injecting already-resolved optional handles so the engine never
  * statically references an optional dependency. The boundary is enforced by
- * {@link io.github.jdubois.bootui.engine.EngineBoundaryArchitectureTests}.
+ * {@code io.github.jdubois.bootui.engine.EngineBoundaryArchitectureTests}.
  */
 package io.github.jdubois.bootui.engine;

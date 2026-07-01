@@ -7,6 +7,6 @@
  * must never reference a host-framework or transport API. Their method signatures may use only BootUI
  * core DTOs, neutral {@code jakarta.*} contracts that every framework shares (e.g.
  * {@code jakarta.persistence}, {@code jakarta.sql}) and Micrometer. The boundary is enforced by
- * {@link io.github.jdubois.bootui.spi.SpiBoundaryArchitectureTests}.
+ * {@code io.github.jdubois.bootui.spi.SpiBoundaryArchitectureTests}.
  */
 package io.github.jdubois.bootui.spi;

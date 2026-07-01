@@ -63,7 +63,7 @@ import org.slf4j.LoggerFactory;
  * configurable debounce, then notifies subscribers. When the directory does not
  * exist on startup the thread polls every five seconds until it appears.</p>
  *
- * <p>Subclasses ({@link CopilotSessionStore}, {@link ClaudeCodeSessionStore}) supply
+ * <p>Subclasses ({@code CopilotSessionStore}, {@code ClaudeCodeSessionStore} in the Spring adapter) supply
  * agent-specific {@link AgentSessionProperties} configuration; all parsing and
  * dashboard logic is shared.</p>
  */
