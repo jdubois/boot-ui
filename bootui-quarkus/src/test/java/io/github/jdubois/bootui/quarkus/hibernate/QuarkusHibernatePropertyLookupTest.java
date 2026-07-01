@@ -88,6 +88,22 @@ class QuarkusHibernatePropertyLookupTest {
     }
 
     @Test
+    void reportsHibernateBytecodeEnhancementAsAlwaysEnabledRegardlessOfConfig() {
+        // Quarkus enhances every entity unconditionally at build time (HibernateOrmProcessor's
+        // enhancerDomainObjects() build step is ungated) and has no config switch to disable it, so
+        // HIB-MAP-017/HIB-MAP-018 must see these keys as "true" even when nothing at all is configured.
+        QuarkusHibernatePropertyLookup lookup = lookup(Map.of());
+
+        assertThat(lookup.apply("spring.jpa.properties.hibernate.enhancer.enableLazyInitialization"))
+                .isEqualTo("true");
+        assertThat(lookup.apply("hibernate.enhancer.enableLazyInitialization")).isEqualTo("true");
+        assertThat(lookup.apply("spring.jpa.properties.hibernate.bytecode.enhancer.enableLazyInitialization"))
+                .isEqualTo("true");
+        assertThat(lookup.apply("hibernate.bytecode.enhancer.enableLazyInitialization"))
+                .isEqualTo("true");
+    }
+
+    @Test
     void returnsNullForUnmappedSpringOnlyKeys() {
         QuarkusHibernatePropertyLookup lookup = lookup(Map.of());
 

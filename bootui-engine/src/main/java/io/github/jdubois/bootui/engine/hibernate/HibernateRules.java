@@ -69,7 +69,51 @@ final class HibernateRuleModelSupport {
     private static final Pattern DISTINCT_PREFIX = Pattern.compile("(?i)^distinct\\s+");
     private static final Pattern OBJECT_WRAPPER = Pattern.compile("(?i)^object\\(\\s*([A-Za-z_]\\w*)\\s*\\)$");
 
+    // Panache base-class names are compared by string so bootui-engine never imports io.quarkus.* directly
+    // (EngineBoundaryArchitectureTests bans it); presence is probed reflectively instead.
+    private static final String PANACHE_ORM_ENTITY_BASE = "io.quarkus.hibernate.orm.panache.PanacheEntityBase";
+    private static final String PANACHE_REACTIVE_ENTITY_BASE =
+            "io.quarkus.hibernate.reactive.panache.PanacheEntityBase";
+    private static final String PANACHE_ORM_ENTITY = "io.quarkus.hibernate.orm.panache.PanacheEntity";
+    private static final String PANACHE_REACTIVE_ENTITY = "io.quarkus.hibernate.reactive.panache.PanacheEntity";
+    private static final String SPRING_DATA_PERSISTABLE = "org.springframework.data.domain.Persistable";
+
     private HibernateRuleModelSupport() {}
+
+    /**
+     * True when a Quarkus Panache extension (ORM or Reactive) is present on the classpath. Panache rewrites public
+     * field access application-wide on every JPA-managed class, not only on classes that extend
+     * {@code PanacheEntityBase}/{@code PanacheEntity} (see {@code PanacheHibernateCommonResourceProcessor} and
+     * {@code MetamodelInfo} in the Quarkus Panache deployment sources), so once either extension is present, a
+     * public persistent field is safe from bypassing Hibernate's instrumentation and no longer a real risk.
+     */
+    static boolean isPanacheFieldAccessRewriteActive() {
+        return isClassPresent(PANACHE_ORM_ENTITY_BASE) || isClassPresent(PANACHE_REACTIVE_ENTITY_BASE);
+    }
+
+    /**
+     * True when the attribute is the {@code id} field declared by Panache's own {@code PanacheEntity} (ORM or
+     * Reactive) base class ({@code @Id @GeneratedValue public Long id;}), which the application inherits as-is and
+     * cannot annotate or edit.
+     */
+    static boolean isFrameworkDeclaredPanacheIdentifier(HibernateAttributeModel attribute) {
+        return PANACHE_ORM_ENTITY.equals(attribute.entityName())
+                || PANACHE_REACTIVE_ENTITY.equals(attribute.entityName());
+    }
+
+    /** True when Spring Data Commons' {@code Persistable} marker interface is present on the classpath. */
+    static boolean isSpringDataPersistableAvailable() {
+        return isClassPresent(SPRING_DATA_PERSISTABLE);
+    }
+
+    private static boolean isClassPresent(String className) {
+        try {
+            Class.forName(className, false, HibernateRuleModelSupport.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return false;
+        }
+    }
 
     static Map<String, HibernateEntityModel> entitiesByJavaType(List<HibernateEntityModel> entities) {
         Map<String, HibernateEntityModel> byJavaType = new LinkedHashMap<>();
@@ -802,10 +846,10 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.hasHibernateCollectionFetchPaginationFix()) {
-            return skipped(
-                    "Hibernate "
-                            + context.hibernateVersionDisplay()
-                            + " is 7.4 or newer, where pagination over a collection JOIN FETCH is handled in memory with a warning instead of the legacy silent full-table fetch.");
+            return skipped("Hibernate "
+                    + context.hibernateVersionDisplay()
+                    + " applies a paged query's limit in the generated SQL even with a collection JOIN FETCH; the"
+                    + " legacy in-memory pagination is opt-in via the org.hibernate.limitInMemory query hint.");
         }
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
@@ -1305,9 +1349,9 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
                         "@GeneratedValue should declare an explicit strategy",
                         HibernateCategory.IDENTIFIERS,
                         "MEDIUM",
-                        "Detects @GeneratedValue without an explicit strategy, which defaults to AUTO and typically resolves to IDENTITY on databases like MySQL and PostgreSQL.",
-                        "Pick the strategy that fits the database (SEQUENCE with allocationSize on Postgres/Oracle, IDENTITY only when truly required) and set it explicitly so the choice is reviewable.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-generated-value"));
+                        "Detects @GeneratedValue without an explicit strategy, which defaults to AUTO. Hibernate's GeneratorBinder always resolves AUTO to its own SequenceStyleGenerator - a database SEQUENCE where the dialect supports one (PostgreSQL, Oracle, H2, SQL Server) or a slower table-based fallback otherwise (e.g. MySQL) - never the database's native IDENTITY/auto-increment column.",
+                        "Pick the strategy that fits the database (SEQUENCE with allocationSize on Postgres/Oracle, IDENTITY only when truly required) and set it explicitly instead of relying on AUTO's dialect-dependent sequence-or-table fallback.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-auto"));
     }
 
     @Override
@@ -1317,6 +1361,11 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 Annotation generated = attribute.generatedValueAnnotation();
                 if (generated == null) {
+                    continue;
+                }
+                // Panache's own PanacheEntity declares "@Id @GeneratedValue public Long id" with no explicit
+                // strategy; the application inherits it as-is and cannot annotate it, so it is not a real finding.
+                if (HibernateRuleModelSupport.isFrameworkDeclaredPanacheIdentifier(attribute)) {
                     continue;
                 }
                 String strategy = attribute.annotationValueName(generated, "strategy");
@@ -1704,10 +1753,13 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (HibernateRuleModelSupport.isPanacheFieldAccessRewriteActive()) {
+            return pass();
+        }
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
-                if (attribute.publicMember() && !attribute.name().endsWith("()")) {
+                if (attribute.publicMember() && !attribute.name().endsWith("()") && !attribute.isTransient()) {
                     details.add(attribute.description() + " is exposed as a public field.");
                 }
             }
@@ -2058,10 +2110,10 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.hasHibernateCollectionFetchPaginationFix()) {
-            return skipped(
-                    "Hibernate "
-                            + context.hibernateVersionDisplay()
-                            + " is 7.4 or newer, where pagination over a collection JOIN FETCH is handled in memory with a warning instead of the legacy silent full-table fetch.");
+            return skipped("Hibernate "
+                    + context.hibernateVersionDisplay()
+                    + " applies a paged query's limit in the generated SQL even with a collection JOIN FETCH; the"
+                    + " legacy in-memory pagination is opt-in via the org.hibernate.limitInMemory query hint.");
         }
         if (context.isPropertyTrue(
                 "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch",
@@ -2304,18 +2356,19 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
 final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
 
     PrimitiveIdentifierOrVersionRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-ENTITY-006",
-                "Avoid primitive @Id or @Version types",
-                HibernateCategory.ENTITY_DESIGN,
-                "HIGH",
-                "Detects primitive types (int, long) used for identifiers or versions. The default value is 0, which breaks Spring Data's isNew() detection.",
-                "Use wrapper classes (Long, Integer) so the default value is null, preventing unnecessary SELECT statements before inserts.",
-                "https://docs.spring.io/spring-data/jpa/reference/repositories/entity-state-detection.html"));
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-ENTITY-006",
+                        "Avoid primitive @Id or @Version types",
+                        HibernateCategory.ENTITY_DESIGN,
+                        "HIGH",
+                        "Detects primitive types (int, long) used for identifiers or versions. Their default value is 0, which makes every transient instance collide under identifier-based equals/hashCode and confuses Hibernate's own unsaved-value detection for @Version; it also breaks Spring Data's isNew() detection where that abstraction is used.",
+                        "Use wrapper classes (Long, Integer) so the default value is null, giving every transient instance a distinct identity and letting Hibernate (and Spring Data, where applicable) correctly detect new entities.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-pojo-identifier"));
     }
 
-    // Optional JPA/Spring Data types: compare by class name instead of hard-referencing classes that may be absent at
-    // runtime.
+    // Optional Jakarta Persistence type: compare by class name instead of hard-referencing a class that may be
+    // absent at runtime.
     @SuppressWarnings("java:S1872")
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
@@ -2327,7 +2380,8 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
                 if ((attribute.hasId() || hasEmbeddedId || attribute.hasVersion())
                         && attribute.rawType().isPrimitive()) {
                     details.add(attribute.description() + " uses primitive "
-                            + attribute.rawType().getName() + " which breaks Spring Data isNew() checks.");
+                            + attribute.rawType().getName()
+                            + ", so every transient instance defaults to the same identifier/version value.");
                 }
             }
         }
@@ -2338,18 +2392,26 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
 final class AssignedIdPersistableRule extends AbstractHibernateRule {
 
     AssignedIdPersistableRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-ENTITY-007",
-                "Assigned IDs should implement Persistable",
-                HibernateCategory.ENTITY_DESIGN,
-                "MEDIUM",
-                "Detects entities with assigned identifiers and no @Version that do not implement org.springframework.data.domain.Persistable.",
-                "Implement Persistable<ID> and manage the isNew() flag manually so Spring Data avoids a SELECT before every insert.",
-                "https://docs.spring.io/spring-data/jpa/reference/repositories/entity-state-detection.html"));
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-ENTITY-007",
+                        "Assigned IDs should implement Persistable",
+                        HibernateCategory.ENTITY_DESIGN,
+                        "MEDIUM",
+                        "Detects entities with assigned identifiers and no @Version that do not implement org.springframework.data.domain.Persistable.",
+                        "Implement Persistable<ID> and manage the isNew() flag manually so Spring Data avoids a SELECT before every insert.",
+                        "https://docs.spring.io/spring-data/jpa/reference/jpa/entity-persistence.html#jpa.entity-persistence.saving-entities.strategies"));
     }
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        // The concern is specific to Spring Data JPA's generic save(): it inspects the id/version to guess whether
+        // an entity is new. Quarkus/Panache calls entityManager.persist() directly and has no such ambiguity, so
+        // without Spring Data Commons on the classpath there is nothing to recommend implementing Persistable for.
+        if (!HibernateRuleModelSupport.isSpringDataPersistableAvailable()) {
+            return skipped(
+                    "Spring Data Commons was not detected; this check only applies to Spring Data JPA repositories.");
+        }
         List<String> details = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
             boolean hasGeneratedId = entity.attributes().stream().anyMatch(a -> a.generatedValueAnnotation() != null);

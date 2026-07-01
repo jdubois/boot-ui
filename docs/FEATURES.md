@@ -298,17 +298,26 @@ mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catal
 
 On Quarkus the panel is identical, running the same shared rule engine over the same report contract when
 `quarkus-hibernate-orm` is present: entities are discovered from the live JPA `EntityManagerFactory` metamodel (across
-all persistence units, de-duplicated by identity), and the mapping/identifier/fetch rules apply unchanged. Two platform
-differences are worth noting. First, persistence configuration is read through a key-mapping layer that translates the
-Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
+all persistence units, de-duplicated by identity), and most mapping/identifier/fetch rules apply unchanged. A few
+platform differences are worth noting. First, persistence configuration is read through a key-mapping layer that
+translates the Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
 `quarkus.hibernate-orm.schema-management.strategy` (or the deprecated `quarkus.hibernate-orm.database.generation`,
 including the `drop-and-create` ↔ `create-drop` value alias),
 `show-sql` → `quarkus.hibernate-orm.log.sql`, `format_sql` → `quarkus.hibernate-orm.log.format-sql`, and `batch_size` →
 `quarkus.hibernate-orm.jdbc.statement-batch-size`. Unmapped configuration rules find no value and stay silent, and
 their INFO advisories may still cite the Spring-flavored property name. Second, the Open-Session-in-View check is
 correctly **inert** on Quarkus: Quarkus has no OSIV concept, so the effective state is always disabled and the rule never
-fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour). Spring Data repository hints are
-specific to the Spring adapter and are not reported on Quarkus.
+fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour). Third, bytecode enhancement is
+always considered enabled on Quarkus — it enhances every entity unconditionally at build time with no config-based
+opt-out — so the two lazy-`@OneToOne` findings that depend on enhancement being disabled never fire there. Fourth, and
+specific to **Panache** active-record entities: once a Panache extension (`quarkus-hibernate-orm-panache` or
+`quarkus-hibernate-reactive-panache`) is on the classpath, its build-time bytecode rewrite makes public-field access on
+any Hibernate-managed class behave like a getter/setter call app-wide, so the public-persistent-field finding does not
+fire; and the `@GeneratedValue`-without-strategy finding ignores the `id` field Panache's own base entity declares
+(an application-declared identifier is still checked normally). Spring Data repository hints (missing-strategy-aware
+`isNew()` detection for assigned identifiers) are specific to Spring Data JPA's `save()` semantics: without Spring Data
+Commons on the classpath — the normal case for a Panache app, whose `persist()` has no such ambiguity — that whole
+check is skipped rather than reported.
 
 ![BootUI Hibernate panel](./images/bootui-hibernate.webp)
 
