@@ -19,6 +19,23 @@ const nowNanos = nowMillis * 1_000_000
 const traceId = '0123456789abcdef0123456789abcdef'
 const aiSpanId = '1111111111111111'
 
+// Optional Quarkus capture mode: BOOTUI_SCREENSHOT_PLATFORM=quarkus flips the mocked
+// /api/panels manifest to platform:'quarkus' (so the shared UI relabels the advisor menu
+// item / header to "Quarkus" and shows the Quarkus-flavoured copy), swaps the advisor and
+// security reports for their Quarkus rulesets, and captures only the two Quarkus docs images.
+// The default (spring-boot) path is byte-identical to before.
+const isQuarkusPlatform = process.env.BOOTUI_SCREENSHOT_PLATFORM === 'quarkus'
+// Panels with no Quarkus equivalent (rendered in the sidebar "Disabled / unavailable" group).
+const quarkusUnavailablePanels = new Set([
+  'graalvm',
+  'conditions',
+  'startup',
+  'http-sessions',
+  'data',
+  'spring-security',
+  'devtools'
+])
+
 const panelOrder = [
   ['overview', 'Overview'],
   ['github', 'GitHub'],
@@ -87,6 +104,29 @@ const overview = {
     warnings: []
   },
   openApiUrl: '/swagger-ui/index.html'
+}
+
+const quarkusOverview = {
+  bootUiVersion: '0.5.0',
+  applicationName: 'bootui-quarkus-sample',
+  frameworkName: 'Quarkus',
+  frameworkVersion: '3.33.2',
+  javaVersion: '21',
+  javaVendor: 'Eclipse Temurin',
+  activeProfiles: ['dev'],
+  defaultProfiles: [],
+  webApplicationType: null,
+  serverPort: 8080,
+  managementPort: null,
+  contextPath: '',
+  startupTimeMillis: 940,
+  activation: {
+    enabled: true,
+    localhostOnly: false,
+    reason: 'Dev mode (quarkus:dev) — BootUI is wired for LaunchMode.DEVELOPMENT',
+    warnings: []
+  },
+  openApiUrl: '/q/swagger-ui'
 }
 
 const github = {
@@ -1961,6 +2001,171 @@ const spring = {
   ]
 }
 
+const quarkusAdvisor = {
+  localOnly: true,
+  disclaimer:
+    'Heuristic, project-agnostic Quarkus rules run against the running application and its MicroProfile Config only. ' +
+    'These checks are review prompts, not verdicts, and should be validated against the application design and tests.',
+  rulesEvaluated: 10,
+  violationsFound: 4,
+  componentsAnalyzed: 54,
+  inspected: [
+    'Active profiles: dev',
+    'CDI beans: 54 (@ApplicationScoped, @RequestScoped, @Singleton)',
+    'Config injection: @ConfigProperty ×6, @ConfigMapping ×0',
+    'JAX-RS resources: 7',
+    'Hibernate %prod schema strategy: drop-and-create',
+    'Hibernate %prod SQL logging: enabled'
+  ],
+  severityCounts: [
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 2},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 0}
+  ],
+  scan: {
+    analyzer: 'BootUI Quarkus Advisor',
+    status: 'SCANNED',
+    message: 'Quarkus Advisor evaluated 10 rules against the running application.',
+    scannedAt: nowMillis - 28_000,
+    rulesEvaluated: 10,
+    componentsAnalyzed: 54,
+    violationsFound: 4
+  },
+  results: [
+    restApiResult(
+      'QA-PROD-002',
+      'Destructive Hibernate schema strategy in the prod profile',
+      'Production readiness',
+      'HIGH',
+      'The prod profile sets quarkus.hibernate-orm.schema-management.strategy to drop-and-create, which drops and recreates the database schema on every startup. In production this destroys data.',
+      'VIOLATION',
+      1,
+      ['%prod quarkus.hibernate-orm.schema-management.strategy = drop-and-create'],
+      'Use validate (or none) in the prod profile and manage schema changes with Flyway or Liquibase.',
+      'https://quarkus.io/guides/hibernate-orm#schema-generation'
+    ),
+    restApiResult(
+      'QA-CDI-001',
+      'Shared mutable state on an @ApplicationScoped bean',
+      'CDI and concurrency',
+      'MEDIUM',
+      'An @ApplicationScoped bean exposes a mutable instance field. Application-scoped beans are shared singletons accessed concurrently, so unsynchronized mutable state risks race conditions.',
+      'VIOLATION',
+      1,
+      ['CatalogService.requestCount (int) is a mutable field on an @ApplicationScoped bean.'],
+      'Make the field immutable, move request state to a @RequestScoped bean or method parameters, or guard it (e.g. AtomicInteger).',
+      'https://quarkus.io/guides/cdi-reference'
+    ),
+    restApiResult(
+      'QA-CFG-002',
+      'Hibernate SQL logging enabled in the prod profile',
+      'Configuration',
+      'MEDIUM',
+      'The prod profile enables quarkus.hibernate-orm.log.sql, which logs every SQL statement. In production this floods logs and can leak sensitive data.',
+      'VIOLATION',
+      1,
+      ['%prod quarkus.hibernate-orm.log.sql = true'],
+      'Disable SQL logging in the prod profile; keep it in %dev only.',
+      'https://quarkus.io/guides/hibernate-orm#logging-sql'
+    ),
+    restApiResult(
+      'QA-CFG-001',
+      'No type-safe configuration mapping',
+      'Configuration',
+      'LOW',
+      'Configuration is read through individual @ConfigProperty injections with no @ConfigMapping interface. Type-safe @ConfigMapping groups related keys, validates them at startup, and documents the configuration surface.',
+      'VIOLATION',
+      1,
+      ['No @ConfigMapping interface found; 6 @ConfigProperty injection points detected.'],
+      'Group related configuration keys into a @ConfigMapping interface for type-safe, validated access.',
+      'https://quarkus.io/guides/config-mappings'
+    )
+  ]
+}
+
+const quarkusSecurity = {
+  localOnly: true,
+  disclaimer:
+    "Heuristic Quarkus Security rules run against the host application's HTTP permission policies, MicroProfile Config, and " +
+    "role-annotated endpoints only. These checks are review prompts, not verdicts, and should be validated against the application's threat model.",
+  filterChains: [
+    'quarkus.http.auth.permission.public → paths=/*, policy=permit',
+    'quarkus.http.auth.permission.admin → paths=/admin/*, policy=roles [ADMIN]',
+    '@RolesAllowed → SecureResource#secured [USER]'
+  ],
+  filterChainsAnalyzed: 3,
+  rulesEvaluated: 25,
+  violationsFound: 5,
+  severityCounts: [
+    {severity: 'CRITICAL', count: 1},
+    {severity: 'HIGH', count: 2},
+    {severity: 'MEDIUM', count: 1},
+    {severity: 'LOW', count: 1}
+  ],
+  scan: {
+    analyzer: 'BootUI Quarkus Security Advisor',
+    status: 'SCANNED',
+    message: 'Security Advisor completed against 3 permission policies.',
+    scannedAt: nowMillis - 36_000,
+    rulesEvaluated: 25,
+    filterChainsAnalyzed: 3,
+    violationsFound: 5
+  },
+  results: [
+    quarkusSecurityResult(
+      'QS-CORS-002',
+      'CORS wildcard origin combined with credentials',
+      'CORS',
+      'CRITICAL',
+      'CORS is configured with a wildcard origin while quarkus.http.cors.access-control-allow-credentials=true. Browsers will send credentials (cookies, Authorization headers) to any origin, enabling cross-site credential theft.',
+      1,
+      ['quarkus.http.cors.origins = * with access-control-allow-credentials = true'],
+      'Never combine a wildcard origin with credentials. List explicit trusted origins in quarkus.http.cors.origins.'
+    ),
+    quarkusSecurityResult(
+      'QS-AUTH-002',
+      'Basic authentication without enforced TLS',
+      'Authentication',
+      'HIGH',
+      'HTTP Basic authentication is enabled without an enforced TLS policy. Basic credentials are Base64-encoded, not encrypted, so they are exposed on plaintext connections.',
+      1,
+      ['quarkus.http.auth.basic = true with no quarkus.http.insecure-requests policy.'],
+      'Require TLS (quarkus.http.insecure-requests=redirect or disabled) or switch to a token-based mechanism such as OIDC.'
+    ),
+    quarkusSecurityResult(
+      'QS-AUTHZ-002',
+      'Permission policy permits all paths',
+      'Authorization',
+      'HIGH',
+      'An HTTP permission policy permits all paths (paths=/*, policy=permit), granting anonymous access to every endpoint including any intended to be protected.',
+      1,
+      ['quarkus.http.auth.permission.public: paths=/*, policy=permit'],
+      'Scope permit policies to genuinely public paths and protect the rest with a roles-based or authenticated policy.'
+    ),
+    quarkusSecurityResult(
+      'QS-CORS-001',
+      'CORS allows any origin',
+      'CORS',
+      'MEDIUM',
+      'CORS is configured to allow any origin, so any website can call the API from a browser.',
+      1,
+      ['quarkus.http.cors.origins = *'],
+      'Restrict quarkus.http.cors.origins to the explicit set of trusted front-end origins.'
+    ),
+    quarkusSecurityResult(
+      'QS-HDR-001',
+      'No security response headers configured',
+      'Security headers',
+      'LOW',
+      'No security response headers (Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security) are configured via quarkus.http.header.* or a response filter.',
+      1,
+      ['No quarkus.http.header.* entries and no @ServerResponseFilter adding security headers.'],
+      'Add baseline security headers (X-Content-Type-Options=nosniff, X-Frame-Options=DENY, a Content-Security-Policy, and HSTS on TLS).'
+    )
+  ]
+}
+
 const memoryAdvisor = {
   localOnly: true,
   disclaimer:
@@ -3134,14 +3339,28 @@ const screenshots = [
   ]
 ]
 
+// In Quarkus capture mode we only produce the two docs images that differ from Spring:
+// the framework advisor (relabelled "Quarkus") and the Quarkus-native Security advisor.
+const quarkusScreenshots = [
+  [
+    'spring',
+    'Quarkus',
+    'bootui-quarkus.webp',
+    waitForText('Destructive Hibernate schema strategy in the prod profile')
+  ],
+  ['security', 'Security', 'bootui-quarkus-security.webp', waitForText('QS-CORS-002')]
+]
+
+const baseScreenshots = isQuarkusPlatform ? quarkusScreenshots : screenshots
+
 const screenshotFilter = (process.env.BOOTUI_SCREENSHOT_ONLY || '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean)
 const selectedScreenshots =
   screenshotFilter.length === 0
-    ? screenshots
-    : screenshots.filter(
+    ? baseScreenshots
+    : baseScreenshots.filter(
         ([route, title, fileName]) =>
           screenshotFilter.includes(route) || screenshotFilter.includes(title) || screenshotFilter.includes(fileName)
       )
@@ -3529,11 +3748,17 @@ async function handleApiRoute(route) {
   const url = new URL(request.url())
   const endpoint = decodeURIComponent(url.pathname.replace(/^\/bootui\/api\/?/, ''))
 
-  if (endpoint === 'overview') return fulfillJson(route, overview)
+  if (endpoint === 'overview') return fulfillJson(route, isQuarkusPlatform ? quarkusOverview : overview)
   if (endpoint === 'github' || endpoint === 'github/refresh') return fulfillJson(route, github)
   if (endpoint === 'panels')
     return fulfillJson(route, {
-      panels: panelOrder.map(([id, title]) => ({id, title, available: true, unavailableReason: null}))
+      ...(isQuarkusPlatform ? {platform: 'quarkus'} : {}),
+      panels: panelOrder.map(([id, title]) => ({
+        id,
+        title,
+        available: isQuarkusPlatform ? !quarkusUnavailablePanels.has(id) : true,
+        unavailableReason: isQuarkusPlatform && quarkusUnavailablePanels.has(id) ? 'Not applicable on Quarkus' : null
+      }))
     })
   if (endpoint === 'startup') return fulfillJson(route, startup)
   if (endpoint.startsWith('live-memory') || endpoint.startsWith('jvm-tuning')) return fulfillJson(route, memory)
@@ -3667,7 +3892,7 @@ async function handleApiRoute(route) {
       filters: springSecurity.chains[1].filters
     })
   if (endpoint === 'security-logs') return fulfillJson(route, securityLogs)
-  if (endpoint === 'security') return fulfillJson(route, security)
+  if (endpoint === 'security') return fulfillJson(route, isQuarkusPlatform ? quarkusSecurity : security)
   if (endpoint === 'security/scan') return fulfillJson(route, security)
   if (endpoint === 'http-exchanges')
     return fulfillJson(
@@ -3685,7 +3910,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'architecture/scan') return fulfillJson(route, architecture)
   if (endpoint === 'rest-api') return fulfillJson(route, restApi)
   if (endpoint === 'rest-api/scan') return fulfillJson(route, restApi)
-  if (endpoint === 'spring') return fulfillJson(route, spring)
+  if (endpoint === 'spring') return fulfillJson(route, isQuarkusPlatform ? quarkusAdvisor : spring)
   if (endpoint === 'spring/scan') return fulfillJson(route, spring)
   if (endpoint === 'memory') return fulfillJson(route, memoryAdvisor)
   if (endpoint === 'memory/scan') return fulfillJson(route, memoryAdvisor)
@@ -3891,6 +4116,31 @@ function securityResult(id, name, category, severity, description, violationCoun
     sampleViolations,
     recommendation,
     learnMoreUrl: 'https://docs.spring.io/spring-security/reference/index.html'
+  }
+}
+
+function quarkusSecurityResult(
+  id,
+  name,
+  category,
+  severity,
+  description,
+  violationCount,
+  sampleViolations,
+  recommendation,
+  learnMoreUrl = 'https://quarkus.io/guides/security-overview'
+) {
+  return {
+    id,
+    name,
+    category,
+    severity,
+    description,
+    status: 'VIOLATION',
+    violationCount,
+    sampleViolations,
+    recommendation,
+    learnMoreUrl
   }
 }
 

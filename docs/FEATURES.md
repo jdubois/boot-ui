@@ -265,11 +265,27 @@ already-started application, it focuses on "started but suboptimal" states rathe
 complements the Architecture panel, which statically analyzes compiled bytecode with ArchUnit, by inspecting the live,
 wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the context,
 intercepts live traffic, or surfaces secrets. See [SPRING-CHECKS.md](SPRING-CHECKS.md) for the full rule
-catalogue and remediation links. On Quarkus this panel runs a framework-native idiom ruleset instead (CDI/Arc
-scopes, build-time `@ConfigProperty`, reactive vs blocking, profiles) and is relabelled "Quarkus"; see
-[QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md).
+catalogue and remediation links.
+
+This is a single framework-application advisor that is **relabelled per framework**: it appears as **Spring** on the
+Spring Boot adapter and as **Quarkus** on the Quarkus adapter — the same menu slot, the same `/bootui/api/spring`
+contract, and the same report shape. The [Quarkus](#quarkus) section below covers the Quarkus flavour.
 
 ![BootUI Spring panel](./images/bootui-spring.webp)
+
+### Quarkus
+
+On the Quarkus adapter the framework-application advisor above is relabelled **Quarkus** and runs a Quarkus-native idiom
+ruleset in place of the Spring rules. It takes the same explicit, read-only approach — evaluating a curated set of checks
+against the running application and its MicroProfile `Config` — but the rules target Quarkus idioms: CDI/Arc scopes and
+shared mutable state on `@ApplicationScoped` beans, build-time type-safe configuration (`@ConfigProperty` vs
+`@ConfigMapping`), reactive-versus-blocking endpoints, `@Scheduled` clustering, and production-profile hygiene
+(destructive Hibernate schema strategies, SQL logging). It is the **same panel and menu slot** as the Spring advisor —
+the same `/spring` route, `/bootui/api/spring` endpoint, and report contract — so the shared UI simply renders the
+"Quarkus" label and Quarkus-flavoured copy. The report is a heuristic review prompt, not a verdict. See
+[QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) for the full rule catalogue and remediation links.
+
+![BootUI Quarkus panel](./images/bootui-quarkus.webp)
 
 ### Hibernate
 
@@ -316,11 +332,22 @@ lists, simulates an anonymous authorization decision, and inspects security-rele
 authorization, CSRF, session management, transport/security headers, CORS, method security, actuator exposure, OAuth2
 resource-server validation, and configuration hygiene. The report is framed as a review prompt, not a verdict: it never
 intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the security configuration. See
-[SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links. On Quarkus the panel
-runs a Quarkus-native ruleset instead (Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, headers,
-`@RolesAllowed`); see [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md).
+[SECURITY-CHECKS.md](SECURITY-CHECKS.md) for the full rule catalogue and remediation links.
 
-![BootUI Security panel](./images/bootui-security.webp)
+The Security advisor supports **both** framework security stacks from the same panel, menu slot, and
+`/bootui/api/security` report contract. On **Spring Boot** it analyses Spring Security — the `SecurityFilterChain` beans
+and security beans described above.
+
+![BootUI Security panel — Spring Security](./images/bootui-security.webp)
+
+On **Quarkus** it runs a Quarkus-native ruleset instead, reading the application's HTTP permission policies, MicroProfile
+`Config`, and role-annotated endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS
+and transport policy, CORS (including the wildcard-origin-with-credentials trap), security response headers, and
+`@RolesAllowed`/`@PermitAll`/`@DenyAll` usage. It surfaces the same severity-ranked review prompts, so the shared UI only
+relabels the metrics ("Permission policies" in place of "Filter chains") — the panel is otherwise identical. See
+[QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) for the full Quarkus rule catalogue and remediation links.
+
+![BootUI Security panel — Quarkus Security](./images/bootui-quarkus-security.webp)
 
 ### Pentesting
 
@@ -812,10 +839,12 @@ programmatic `Scheduler.newJob()` jobs are not captured (annotation-discovered t
 
 ### Cache
 
-The Cache panel inspects the application's cache infrastructure. It lists cache manager beans, known caches, native
-implementations, safe local sizes, Micrometer cache metrics when registered, and discovered `@Cacheable`, `@CachePut`,
-and `@CacheEvict` operations. Cache clear actions are enabled by default for local development, require explicit browser
-confirmation, and can be disabled with `bootui.cache.clear-enabled=false`.
+The Cache panel inspects the application's cache infrastructure on **both** frameworks from one shared panel and report
+contract: Spring's cache abstraction on Spring Boot, and `quarkus-cache` on Quarkus (covered below). On Spring Boot it
+lists cache manager beans, known caches, native implementations, safe local sizes, Micrometer cache metrics when
+registered, and discovered `@Cacheable`, `@CachePut`, and `@CacheEvict` operations. Cache clear actions are enabled by
+default for local development, require explicit browser confirmation, and can be disabled with
+`bootui.cache.clear-enabled=false`.
 
 ![BootUI Cache panel](./images/bootui-cache.webp)
 
