@@ -51,6 +51,30 @@ import java.util.List;
  * @param denyUnannotatedEndpoints whether {@code quarkus.security.jaxrs.deny-unannotated-endpoints=true}
  * @param managementEnabled whether the separate management interface is enabled
  * @param managementHostNonLoopback whether the management interface binds a non-loopback host
+ * @param jwtAllowUnsignedTokens whether {@code quarkus.smallrye-jwt.allow-unsigned-tokens=true}
+ * @param jdbcClearPasswordMapperEnabled whether a JDBC principal-query uses the clear-password mapper
+ * @param jdbcBcryptWorkFactorLow whether a JDBC principal-query's bcrypt work-factor is set below the default (10)
+ * @param embeddedUsersEnabled whether {@code quarkus.security.users.embedded.enabled=true}
+ * @param jwtAudiencesConfigured whether {@code mp.jwt.verify.audiences} is configured
+ * @param jwtInlinePublicKey whether {@code mp.jwt.verify.publickey} holds a static inline key (never rotates)
+ * @param referrerPolicyHeader whether a Referrer-Policy response header is configured
+ * @param permissionsPolicyHeader whether a Permissions-Policy response header is configured
+ * @param nonApplicationRootPath the effective {@code quarkus.http.non-application-root-path} (health/metrics/
+ *     openapi endpoints), default {@code /q}; used both to check permission coverage and to detect the
+ *     Quarkus-specific footgun of collapsing it into the main application path (no Spring equivalent)
+ * @param grpcReflectionEnabledInProd whether the gRPC server reflection service is enabled for the prod profile
+ *     (Quarkus-specific; Spring has no first-party gRPC equivalent)
+ * @param graphqlPresent whether the SmallRye GraphQL capability is present
+ * @param graphqlIntrospectionEnabled whether GraphQL schema introspection is enabled (Quarkus-specific;
+ *     Spring has no first-party GraphQL equivalent)
+ * @param graphqlUiAlwaysInclude whether the GraphQL UI is always included, even outside dev/test
+ * @param messagingCredentialsWithoutTls whether a Kafka/Reactive-Messaging channel configures SASL
+ *     credentials without an encrypted (SASL_SSL/SSL) security protocol (Quarkus-specific; Spring has no
+ *     first-party reactive-messaging equivalent)
+ * @param formCookieHttpOnly whether the form-auth cookie has {@code http-only-cookie} set (Quarkus defaults
+ *     this to {@code false}, unlike most frameworks)
+ * @param formCookieSameSiteNone whether the form-auth cookie's {@code cookie-same-site} was weakened to {@code none}
+ * @param formSessionTimeoutExcessive whether the form-auth session {@code timeout} exceeds a sane bound (8h)
  */
 public record QuarkusSecuritySnapshot(
         boolean oidcConfigured,
@@ -92,12 +116,31 @@ public record QuarkusSecuritySnapshot(
         boolean xContentTypeOptionsHeader,
         boolean denyUnannotatedEndpoints,
         boolean managementEnabled,
-        boolean managementHostNonLoopback) {
+        boolean managementHostNonLoopback,
+        boolean jwtAllowUnsignedTokens,
+        boolean jdbcClearPasswordMapperEnabled,
+        boolean jdbcBcryptWorkFactorLow,
+        boolean embeddedUsersEnabled,
+        boolean jwtAudiencesConfigured,
+        boolean jwtInlinePublicKey,
+        boolean referrerPolicyHeader,
+        boolean permissionsPolicyHeader,
+        String nonApplicationRootPath,
+        boolean grpcReflectionEnabledInProd,
+        boolean graphqlPresent,
+        boolean graphqlIntrospectionEnabled,
+        boolean graphqlUiAlwaysInclude,
+        boolean messagingCredentialsWithoutTls,
+        boolean formCookieHttpOnly,
+        boolean formCookieSameSiteNone,
+        boolean formSessionTimeoutExcessive) {
 
     public QuarkusSecuritySnapshot {
         permissions = permissions == null ? List.of() : List.copyOf(permissions);
         suspectedSecretKeys = suspectedSecretKeys == null ? List.of() : List.copyOf(suspectedSecretKeys);
         oidcApplicationType = oidcApplicationType == null ? "" : oidcApplicationType;
+        nonApplicationRootPath =
+                nonApplicationRootPath == null || nonApplicationRootPath.isBlank() ? "/q" : nonApplicationRootPath;
     }
 
     public boolean anyAuthMechanism() {

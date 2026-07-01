@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.quarkusapp;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshotProvider;
 import io.smallrye.config.SmallRyeConfig;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.eclipse.microprofile.config.Config;
@@ -25,10 +26,16 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     static final String ENDPOINTS_KEY = "bootui.internal.app.endpoints";
     static final String DEFAULT_SCOPE_RESOURCES_KEY = "bootui.internal.app.default-scope-resources";
     static final String REACTIVE_ENDPOINTS_KEY = "bootui.internal.app.reactive-endpoints";
+    static final String REACTIVE_ENDPOINTS_WITHOUT_BLOCKING_KEY =
+            "bootui.internal.app.reactive-endpoints-without-blocking";
     static final String BLOCKING_KEY = "bootui.internal.app.blocking";
     static final String SCHEDULED_KEY = "bootui.internal.app.scheduled";
     static final String CONFIG_MAPPING_KEY = "bootui.internal.app.config-mapping";
     static final String PUBLIC_RESOURCE_FIELDS_KEY = "bootui.internal.app.public-resource-fields";
+    static final String REST_CLIENTS_KEY = "bootui.internal.app.rest-clients";
+    static final String VIRTUAL_THREAD_ENDPOINTS_KEY = "bootui.internal.app.virtual-thread-endpoints";
+    static final String VIRTUAL_THREAD_SYNCHRONIZED_KEY = "bootui.internal.app.virtual-thread-synchronized";
+    static final String JDK_MAJOR_VERSION_KEY = "bootui.internal.app.jdk-major-version";
 
     private final Config config;
 
@@ -58,6 +65,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 count(ENDPOINTS_KEY),
                 count(DEFAULT_SCOPE_RESOURCES_KEY),
                 count(REACTIVE_ENDPOINTS_KEY),
+                count(REACTIVE_ENDPOINTS_WITHOUT_BLOCKING_KEY),
                 count(BLOCKING_KEY),
                 count(SCHEDULED_KEY),
                 activeProfiles(),
@@ -71,7 +79,38 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 prodJdbcUrlInMemory(),
                 bool("%prod.quarkus.hibernate-orm.log.sql"),
                 bool("quarkus.quartz.clustered"),
-                strList(PUBLIC_RESOURCE_FIELDS_KEY));
+                strList(PUBLIC_RESOURCE_FIELDS_KEY),
+                prodLogLevelVerbose(),
+                bool("quarkus.http.enable-compression"),
+                shutdownTimeoutZeroed(),
+                count(REST_CLIENTS_KEY) > 0,
+                restClientTimeoutConfigured(),
+                count(VIRTUAL_THREAD_ENDPOINTS_KEY),
+                count(VIRTUAL_THREAD_SYNCHRONIZED_KEY),
+                count(JDK_MAJOR_VERSION_KEY));
+    }
+
+    private boolean prodLogLevelVerbose() {
+        String level = str("%prod.quarkus.log.level", "").trim().toUpperCase();
+        return level.equals("DEBUG") || level.equals("TRACE") || level.equals("ALL");
+    }
+
+    private boolean shutdownTimeoutZeroed() {
+        return isZero("quarkus.shutdown.timeout") || isZero("quarkus.http.shutdown.timeout");
+    }
+
+    private boolean isZero(String key) {
+        return config.getOptionalValue(key, Duration.class).map(d -> d.isZero()).orElse(false);
+    }
+
+    private boolean restClientTimeoutConfigured() {
+        for (String name : config.getPropertyNames()) {
+            if (name.startsWith("quarkus.rest-client")
+                    && (name.endsWith("connect-timeout") || name.endsWith("read-timeout"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean jdbcDatasourcePresent() {

@@ -19,7 +19,7 @@ class QuarkusSecurityScannerTest {
 
     /**
      * Mutable builder whose defaults describe a hardened Quarkus app that fires zero rules, so each test can
-     * flip exactly the fields under test. Mirrors the 40-field {@link QuarkusSecuritySnapshot} positional record.
+     * flip exactly the fields under test. Mirrors the 58-field {@link QuarkusSecuritySnapshot} positional record.
      */
     private static final class Snap {
         // Auth mechanisms — basic auth on, over redirected HTTP, is a clean baseline.
@@ -71,6 +71,27 @@ class QuarkusSecurityScannerTest {
         boolean mgmtNonLoopback = false;
         // Config hygiene
         List<String> secrets = List.of();
+        // Auth hardening
+        boolean jwtAllowUnsigned = false;
+        boolean jdbcClearPasswordMapper = false;
+        boolean jdbcBcryptWorkFactorLow = false;
+        boolean embeddedUsers = false;
+        boolean jwtAudiences = true;
+        boolean jwtInlineKey = false;
+        // Headers (nice-to-have)
+        boolean referrerPolicy = true;
+        boolean permissionsPolicy = true;
+        // Quarkus-specific
+        String nonAppRootPath = "/q";
+        boolean grpcReflectionProd = false;
+        boolean graphqlPresent = false;
+        boolean graphqlIntrospection = true;
+        boolean graphqlUi = false;
+        boolean messagingCredsNoTls = false;
+        // Session (form-auth cookies)
+        boolean formHttpOnly = true;
+        boolean formSameSiteNone = false;
+        boolean formTimeoutExcessive = false;
 
         QuarkusSecuritySnapshot build() {
             return new QuarkusSecuritySnapshot(
@@ -113,7 +134,24 @@ class QuarkusSecurityScannerTest {
                     xContentType,
                     denyUnannotated,
                     mgmtEnabled,
-                    mgmtNonLoopback);
+                    mgmtNonLoopback,
+                    jwtAllowUnsigned,
+                    jdbcClearPasswordMapper,
+                    jdbcBcryptWorkFactorLow,
+                    embeddedUsers,
+                    jwtAudiences,
+                    jwtInlineKey,
+                    referrerPolicy,
+                    permissionsPolicy,
+                    nonAppRootPath,
+                    grpcReflectionProd,
+                    graphqlPresent,
+                    graphqlIntrospection,
+                    graphqlUi,
+                    messagingCredsNoTls,
+                    formHttpOnly,
+                    formSameSiteNone,
+                    formTimeoutExcessive);
         }
     }
 
@@ -352,66 +390,67 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
-    void noSecurityHeadersFlagsHdr001() {
+    void noSecurityHeadersFlagsHdr003AndHdr004() {
         Snap s = new Snap();
         s.hsts = false;
         s.csp = false;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-HDR-003").severity()).isEqualTo("LOW");
+        assertThat(find(r, "QS-HDR-004").severity()).isEqualTo("LOW");
+    }
+
+    @Test
+    void weakHstsFlagsHdr001() {
+        Snap s = new Snap();
+        s.hsts = true;
+        s.hstsValue = "max-age=3600";
         SecurityReport r = scan(s);
         assertThat(find(r, "QS-HDR-001").severity()).isEqualTo("LOW");
     }
 
     @Test
-    void weakHstsFlagsHdr002() {
-        Snap s = new Snap();
-        s.hsts = true;
-        s.hstsValue = "max-age=3600";
-        SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-002").severity()).isEqualTo("LOW");
-    }
-
-    @Test
-    void strongHstsDoesNotFlagHdr002() {
+    void strongHstsDoesNotFlagHdr001() {
         Snap s = new Snap();
         s.hsts = true;
         s.hstsValue = "max-age=31536000; includeSubDomains";
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-002")).isNull();
+        assertThat(find(r, "QS-HDR-001")).isNull();
     }
 
     @Test
-    void missingFramingHeadersFlagsHdr003() {
+    void missingFramingHeadersFlagsHdr005() {
         Snap s = new Snap();
         s.xFrame = false;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-003").severity()).isEqualTo("LOW");
+        assertThat(find(r, "QS-HDR-005").severity()).isEqualTo("LOW");
     }
 
     @Test
-    void cspFrameAncestorsSatisfiesHdr003() {
+    void cspFrameAncestorsSatisfiesHdr005() {
         Snap s = new Snap();
         s.xFrame = false;
         s.cspValue = "default-src 'self'; frame-ancestors 'none'";
         s.xContentType = true;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-003")).isNull();
+        assertThat(find(r, "QS-HDR-005")).isNull();
     }
 
     @Test
-    void weakCspFlagsHdr004() {
+    void weakCspFlagsHdr002() {
         Snap s = new Snap();
         s.csp = true;
         s.cspValue = "default-src 'self'; script-src 'unsafe-inline'";
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-004").severity()).isEqualTo("MEDIUM");
+        assertThat(find(r, "QS-HDR-002").severity()).isEqualTo("MEDIUM");
     }
 
     @Test
-    void wildcardScriptCspFlagsHdr004() {
+    void wildcardScriptCspFlagsHdr002() {
         Snap s = new Snap();
         s.csp = true;
         s.cspValue = "default-src *";
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-HDR-004")).isNotNull();
+        assertThat(find(r, "QS-HDR-002")).isNotNull();
     }
 
     @Test
@@ -482,6 +521,228 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
+    void unsignedJwtTokensAllowedFlagsAuth006() {
+        Snap s = new Snap();
+        s.jwtAllowUnsigned = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-006").severity()).isEqualTo("CRITICAL");
+    }
+
+    @Test
+    void embeddedUsersEnabledFlagsAuth007() {
+        Snap s = new Snap();
+        s.embeddedUsers = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-007").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void jwtWithoutAudienceFlagsAuth008() {
+        Snap s = new Snap();
+        s.jwt = true;
+        s.jwtAudiences = false;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-008").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void jwtWithAudienceDoesNotFlagAuth008() {
+        Snap s = new Snap();
+        s.jwt = true;
+        s.jwtAudiences = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-008")).isNull();
+    }
+
+    @Test
+    void jwtInlinePublicKeyFlagsAuth009() {
+        Snap s = new Snap();
+        s.jwt = true;
+        s.jwtInlineKey = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-009").severity()).isEqualTo("LOW");
+    }
+
+    @Test
+    void jwtJwksLocationDoesNotFlagAuth009() {
+        Snap s = new Snap();
+        s.jwt = true;
+        s.jwtInlineKey = false;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-009")).isNull();
+    }
+
+    @Test
+    void jdbcClearPasswordMapperFlagsAuth010() {
+        Snap s = new Snap();
+        s.jdbcClearPasswordMapper = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-010").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void jdbcLowBcryptWorkFactorFlagsAuth011() {
+        Snap s = new Snap();
+        s.jdbcBcryptWorkFactorLow = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-AUTH-011").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void unanchoredCorsRegexOriginFlagsCors004() {
+        Snap s = new Snap();
+        s.cors = true;
+        s.corsOrigins = "/example\\.com/";
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-CORS-004").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void anchoredCorsRegexOriginDoesNotFlagCors004() {
+        Snap s = new Snap();
+        s.cors = true;
+        s.corsOrigins = "/^https:\\/\\/example\\.com$/";
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-CORS-004")).isNull();
+    }
+
+    @Test
+    void plainStringCorsOriginDoesNotFlagCors004() {
+        Snap s = new Snap();
+        s.cors = true;
+        s.corsOrigins = "https://app.example";
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-CORS-004")).isNull();
+    }
+
+    @Test
+    void missingReferrerPolicyFlagsHdr007() {
+        Snap s = new Snap();
+        s.referrerPolicy = false;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-HDR-007").severity()).isEqualTo("INFO");
+    }
+
+    @Test
+    void missingPermissionsPolicyFlagsHdr008() {
+        Snap s = new Snap();
+        s.permissionsPolicy = false;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-HDR-008").severity()).isEqualTo("INFO");
+    }
+
+    @Test
+    void graphqlUiAlwaysIncludeFlagsDev002() {
+        Snap s = new Snap();
+        s.graphqlUi = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-DEV-002").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void nonApplicationRootPathCollapsedFlagsMgmt002() {
+        Snap s = new Snap();
+        s.nonAppRootPath = "/";
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-MGMT-002").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void defaultNonApplicationRootPathDoesNotFlagMgmt002() {
+        Snap s = new Snap();
+        s.nonAppRootPath = "/q";
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-MGMT-002")).isNull();
+    }
+
+    @Test
+    void formAuthCookieNotHttpOnlyFlagsSession001() {
+        Snap s = new Snap();
+        s.form = true;
+        s.csrf = true; // isolate from QS-AUTH-003
+        s.formHttpOnly = false;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-SESSION-001").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void formAuthCookieHttpOnlyDoesNotFlagSession001() {
+        Snap s = new Snap();
+        s.form = true;
+        s.csrf = true;
+        s.formHttpOnly = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-SESSION-001")).isNull();
+    }
+
+    @Test
+    void formAuthCookieSameSiteNoneFlagsSession002() {
+        Snap s = new Snap();
+        s.form = true;
+        s.csrf = true;
+        s.formSameSiteNone = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-SESSION-002").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void formAuthExcessiveSessionTimeoutFlagsSession003() {
+        Snap s = new Snap();
+        s.form = true;
+        s.csrf = true;
+        s.formTimeoutExcessive = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-SESSION-003").severity()).isEqualTo("LOW");
+    }
+
+    @Test
+    void noFormAuthDoesNotFlagSessionRules() {
+        Snap s = new Snap();
+        s.form = false;
+        s.formHttpOnly = false;
+        s.formSameSiteNone = true;
+        s.formTimeoutExcessive = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-SESSION-001")).isNull();
+        assertThat(find(r, "QS-SESSION-002")).isNull();
+        assertThat(find(r, "QS-SESSION-003")).isNull();
+    }
+
+    @Test
+    void grpcReflectionEnabledInProdFlagsGrpc001() {
+        Snap s = new Snap();
+        s.grpcReflectionProd = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-GRPC-001").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void graphqlIntrospectionEnabledFlagsGraphql001() {
+        Snap s = new Snap();
+        s.graphqlPresent = true;
+        s.graphqlIntrospection = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-GRAPHQL-001").severity()).isEqualTo("LOW");
+    }
+
+    @Test
+    void graphqlAbsentDoesNotFlagGraphql001() {
+        Snap s = new Snap();
+        s.graphqlPresent = false;
+        s.graphqlIntrospection = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-GRAPHQL-001")).isNull();
+    }
+
+    @Test
+    void messagingCredentialsWithoutTlsFlagsMsg001() {
+        Snap s = new Snap();
+        s.messagingCredsNoTls = true;
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-MSG-001").severity()).isEqualTo("HIGH");
+    }
+
+    @Test
     void dismissalsHideMatchingFindings() {
         Snap s = new Snap();
         s.basic = false;
@@ -514,6 +775,6 @@ class QuarkusSecurityScannerTest {
         s.secured = 0;
         SecurityReport r = scan(s);
         assertThat(r.results()).allSatisfy(x -> assertThat(x.id()).startsWith("QS-"));
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(25);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(43);
     }
 }

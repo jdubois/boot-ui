@@ -15,7 +15,7 @@ import java.util.List;
 final class QuarkusAppChecks {
 
     private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 10;
+    private static final int RULE_COUNT = 16;
     private static final String GUIDE = "https://quarkus.io/guides/cdi-reference";
     private static final String CONFIG_GUIDE = "https://quarkus.io/guides/config-reference";
     private static final String REACTIVE_GUIDE = "https://quarkus.io/guides/getting-started-reactive";
@@ -23,6 +23,10 @@ final class QuarkusAppChecks {
     private static final String HIBERNATE_GUIDE = "https://quarkus.io/guides/hibernate-orm";
     private static final String DATASOURCE_GUIDE = "https://quarkus.io/guides/datasource";
     private static final String SCHEDULER_GUIDE = "https://quarkus.io/guides/scheduler-reference";
+    private static final String LOGGING_GUIDE = "https://quarkus.io/guides/logging";
+    private static final String HTTP_GUIDE = "https://quarkus.io/guides/http-reference";
+    private static final String REST_CLIENT_GUIDE = "https://quarkus.io/guides/rest-client";
+    private static final String VIRTUAL_THREADS_GUIDE = "https://quarkus.io/guides/virtual-threads";
 
     private QuarkusAppChecks() {}
 
@@ -72,16 +76,18 @@ final class QuarkusAppChecks {
                     "Inject configuration with @ConfigProperty or a @ConfigMapping interface.",
                     CONFIG_GUIDE));
         }
-        if (s.reactiveEndpointCount() > 0 && s.blockingAnnotationCount() == 0 && s.jdbcDatasourcePresent()) {
+        if (s.reactiveEndpointsWithoutBlockingCount() > 0 && s.jdbcDatasourcePresent()) {
             v.add(rule(
                     "QA-RX-001",
                     "Reactive endpoints with a blocking JDBC datasource",
                     "Reactive",
                     "INFO",
-                    "Endpoints return Uni/Multi (run on the I/O event loop) and a blocking JDBC datasource is"
-                            + " configured, yet no @Blocking guard was found; a JDBC call on the event loop stalls it.",
-                    s.reactiveEndpointCount(),
-                    List.of(s.reactiveEndpointCount() + " reactive endpoint(s), 0 @Blocking, JDBC datasource present"),
+                    "Endpoint(s) return Uni/Multi (run on the I/O event loop), lack a @Blocking guard on the"
+                            + " method or resource class, and a blocking JDBC datasource is configured; a JDBC call"
+                            + " on the event loop stalls it.",
+                    s.reactiveEndpointsWithoutBlockingCount(),
+                    List.of(s.reactiveEndpointsWithoutBlockingCount()
+                            + " reactive endpoint(s) without @Blocking, JDBC datasource present"),
                     "Annotate blocking work with @Blocking, or use a reactive datasource client.",
                     REACTIVE_GUIDE));
         }
@@ -137,6 +143,19 @@ final class QuarkusAppChecks {
                     "Disable SQL logging in %prod; enable it only in %dev when debugging.",
                     HIBERNATE_GUIDE));
         }
+        if (s.prodLogLevelVerbose()) {
+            v.add(rule(
+                    "QA-CFG-003",
+                    "Verbose log level in the prod profile",
+                    "Config",
+                    "MEDIUM",
+                    "%prod.quarkus.log.level resolves to DEBUG/TRACE/ALL, far more verbose than production"
+                            + " needs; it hurts performance and risks leaking sensitive data into logs.",
+                    1,
+                    List.of("%prod quarkus.log.level=DEBUG/TRACE/ALL"),
+                    "Set %prod.quarkus.log.level to INFO or WARN; use DEBUG/TRACE only in %dev.",
+                    LOGGING_GUIDE));
+        }
         if (s.scheduledCount() > 0 && !s.clusteredScheduler()) {
             v.add(rule(
                     "QA-SCH-001",
@@ -163,6 +182,80 @@ final class QuarkusAppChecks {
                     List.of("no %prod./%dev. keys, no active profile"),
                     "Add %prod. overrides (or externalise config) so production differs from dev defaults.",
                     PROFILE_GUIDE));
+        }
+        if (!s.compressionEnabled()) {
+            v.add(rule(
+                    "QA-WEB-001",
+                    "HTTP response compression disabled",
+                    "Web",
+                    "INFO",
+                    "quarkus.http.enable-compression is not set (Quarkus's own default), so responses are not"
+                            + " gzip/brotli-compressed, increasing bandwidth and latency for text-heavy payloads.",
+                    1,
+                    List.of("quarkus.http.enable-compression not set"),
+                    "Set quarkus.http.enable-compression=true (tune quarkus.http.compress-media-types if needed).",
+                    HTTP_GUIDE));
+        }
+        if (s.shutdownTimeoutZeroed()) {
+            v.add(rule(
+                    "QA-WEB-002",
+                    "Graceful shutdown grace period zeroed",
+                    "Web",
+                    "MEDIUM",
+                    "quarkus.shutdown.timeout or quarkus.http.shutdown.timeout is explicitly set to 0, disabling"
+                            + " the graceful-shutdown grace period; in-flight requests are dropped instead of"
+                            + " being allowed to complete on SIGTERM.",
+                    1,
+                    List.of("shutdown timeout=0"),
+                    "Remove the override (or set a positive duration) so in-flight requests can drain before"
+                            + " shutdown.",
+                    HTTP_GUIDE));
+        }
+        if (s.restClientsRegistered() && !s.restClientTimeoutConfigured()) {
+            v.add(rule(
+                    "QA-WEB-003",
+                    "REST client without a connect/read timeout",
+                    "Web",
+                    "MEDIUM",
+                    "A @RegisterRestClient interface is declared, but no connect-timeout/read-timeout is"
+                            + " configured anywhere. Quarkus REST clients have no default timeout, so a"
+                            + " slow/hanging remote service can block a caller indefinitely.",
+                    1,
+                    List.of("@RegisterRestClient present, no connect-timeout/read-timeout configured"),
+                    "Set quarkus.rest-client.\"<client-key>\".connect-timeout / read-timeout, or the global"
+                            + " quarkus.rest-client.connect-timeout / read-timeout.",
+                    REST_CLIENT_GUIDE));
+        }
+        if (s.endpointCount() > 0 && s.virtualThreadEndpointCount() == 0 && s.jdkMajorVersion() >= 21) {
+            v.add(rule(
+                    "QA-PERF-001",
+                    "No virtual-thread adoption",
+                    "Performance",
+                    "INFO",
+                    "The app declares " + s.endpointCount() + " JAX-RS endpoint(s) but none use"
+                            + " @RunOnVirtualThread. If any perform blocking I/O (JDBC, file access, blocking"
+                            + " REST calls), running them on virtual threads can improve throughput without"
+                            + " sizing a worker thread pool.",
+                    s.endpointCount(),
+                    List.of(s.endpointCount() + " JAX-RS endpoint(s), 0 @RunOnVirtualThread"),
+                    "Annotate blocking I/O-bound endpoint methods (or the resource class) with @RunOnVirtualThread.",
+                    VIRTUAL_THREADS_GUIDE));
+        }
+        if (s.virtualThreadSynchronizedCount() > 0 && s.jdkMajorVersion() >= 21 && s.jdkMajorVersion() < 24) {
+            v.add(rule(
+                    "QA-PERF-002",
+                    "Virtual-thread pinning via synchronized (JEP 491)",
+                    "Performance",
+                    "HIGH",
+                    s.virtualThreadSynchronizedCount() + " @RunOnVirtualThread method(s) are also declared"
+                            + " synchronized. On JDK " + s.jdkMajorVersion() + " (21-23), entering a synchronized"
+                            + " method pins the carrier thread instead of yielding it, defeating the scalability"
+                            + " benefit of virtual threads; JEP 491 removes this pinning starting in JDK 24.",
+                    s.virtualThreadSynchronizedCount(),
+                    List.of(s.virtualThreadSynchronizedCount() + " @RunOnVirtualThread synchronized method(s), JDK "
+                            + s.jdkMajorVersion()),
+                    "Replace synchronized with a java.util.concurrent.locks.ReentrantLock, or upgrade to JDK 24+.",
+                    VIRTUAL_THREADS_GUIDE));
         }
         return v;
     }
