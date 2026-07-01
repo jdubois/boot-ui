@@ -35,7 +35,7 @@ import javax.sql.DataSource;
  * <p><b>GraalVM:</b> each proxy is created over a fixed set of standard JDBC API
  * interfaces (rather than every interface of the concrete driver/pool class) so
  * the proxy classes are known at build time and can be registered as native-image
- * proxy metadata by {@link SqlTraceRuntimeHints}. The trade-off is that callers who
+ * proxy metadata by {@code SqlTraceRuntimeHints} (Spring adapter). The trade-off is that callers who
  * cast a connection/statement directly to a driver-specific type must instead go
  * through {@code unwrap(...)}, which the proxy delegates to the real object.</p>
  */

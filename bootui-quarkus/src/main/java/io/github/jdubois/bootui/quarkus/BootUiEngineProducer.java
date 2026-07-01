@@ -651,7 +651,8 @@ public class BootUiEngineProducer {
 
     /**
      * The Dev Services panel report assembler. The engine {@link DevServicesReportService} owns only the
-     * framework-neutral sort + count + wrap; {@link QuarkusDevServicesProvider} supplies the build-time-captured
+     * framework-neutral sort + count + wrap; {@link io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider}
+     * supplies the build-time-captured
      * services (masked) and presence flags. The concrete provider is injected (not the SPI) so resolution can
      * never become ambiguous, mirroring the other producers.
      */
