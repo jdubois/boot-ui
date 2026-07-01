@@ -1,8 +1,11 @@
 # BootUI on Quarkus — design & strategy
 
-> **Status:** Design proposal. This document describes _how_ BootUI could add Quarkus support and which panels it would
-> carry. It does **not** change the shipped product: the current `1.x` line remains a Spring Boot 4 starter (see
-> [SPECIFICATION.md](SPECIFICATION.md) §1.1). Adopting this plan is a deliberate product-direction decision.
+> **Status:** Implemented and shipping. What began as a design proposal is now the `bootui-quarkus` /
+> `bootui-quarkus-deployment` extension described throughout this document — the large majority of the panel set is live
+> on Quarkus today (see §5 for the authoritative per-panel status and [SPECIFICATION.md](SPECIFICATION.md) §1.1 for the
+> honest maturity statement: the Spring Boot adapter is complete, the Quarkus adapter is still being built out). The rest
+> of this document is kept as the design record the implementation follows; treat the phased plan in §9 as historical —
+> Phases 0–2 have shipped and Phase 3's capture panels are also live (§5.3).
 
 ## 1. Goal
 
