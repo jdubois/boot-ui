@@ -26,7 +26,9 @@ const checkDocs = [
   'MEMORY-CHECKS.md',
   'PENTEST-CHECKS.md',
   'GRAALVM-READINESS-CHECKS.md',
-  'CRAC-READINESS-CHECKS.md'
+  'CRAC-READINESS-CHECKS.md',
+  'QUARKUS-ADVISOR-CHECKS.md',
+  'QUARKUS-CHECKS.md'
 ]
 
 export function createDocsSidebar() {

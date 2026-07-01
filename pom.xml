@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>BootUI Parent</name>
-    <description>BootUI: local developer console starter for Spring Boot 4 applications</description>
+    <description>BootUI: local-only developer console for Spring Boot 4 and Quarkus applications</description>
     <url>https://github.com/jdubois/boot-ui</url>
 
     <licenses>

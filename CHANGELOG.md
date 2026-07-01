@@ -7,8 +7,59 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-01
+
+Feature release headlined by **Quarkus support** — BootUI is now a dual-framework developer console that runs the same
+Vue UI and `/bootui/api/**` contract on Spring Boot 4 or Quarkus — alongside a hardening pass on the two new Quarkus
+advisors and the breaking renames that came with the Quarkus port (the `cache` panel id, the `bootui-spring-*` module
+names, and the `bootui-engine`/`bootui-spi` merge).
+
+### Added
+
+- **Quarkus support: BootUI is now a dual-framework developer console.** A new `bootui-quarkus` /
+  `bootui-quarkus-deployment` extension serves the same Vue UI, the same `/bootui/api/**` DTO contract, and the same
+  framework-neutral engine the Spring Boot adapter has always used — add the extension to a Quarkus 3.33 LTS application
+  and the console activates automatically in `quarkus:dev` / `@QuarkusTest`, staying dark (no wired endpoints or beans) in
+  `LaunchMode.NORMAL`. The large majority of the panel surface is live at launch: **always available** — Overview,
+  Architecture, the framework-application advisor (labelled "Quarkus"), Pentesting, Vulnerabilities, Memory, Threads, Heap
+  Dump, Live Memory, JVM Tuning, Metrics, Loggers, Log Tail, Health, HTTP Probe, Beans, Mappings, Configuration
+  (read-only), Traces, AI Usage, HTTP Exchanges, Live Activity, Exceptions, MCP Server, and GitHub; **available when their
+  capability is detected** — Hibernate, Scheduled Tasks, Cache, Flyway, Liquibase, Database Connection Pools, Dev
+  Services, Security Logs, SQL Trace, REST API, and Profile Diff. Every action-capable panel (advisor scans, Heap Dump,
+  Threads download, Loggers, HTTP Probe, Cache clear, Flyway migrate/clean, Liquibase update, Traces clear, MCP Server
+  toggle) is guarded by the same shared engine `LocalhostGuard` write floor Spring uses, so both adapters reject
+  non-local/cross-site requests identically. Only GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data,
+  Spring Security, and DevTools stay unavailable on Quarkus, each with a panel-specific "not applicable" reason. See
+  [docs/QUARKUS-SUPPORT.md](docs/QUARKUS-SUPPORT.md) and [docs/FEATURES.md](docs/FEATURES.md) for the full per-panel
+  breakdown (#467).
+- **A new Quarkus-native Security advisor** (kept under the shared panel id `spring`, labelled "Quarkus Security" on the
+  Quarkus adapter) reviews Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS, CORS, and
+  `@RolesAllowed` usage in place of the Spring-Security-coupled advisor, which has no Quarkus equivalent. See
+  [docs/QUARKUS-CHECKS.md](docs/QUARKUS-CHECKS.md) for the full rule catalogue (#467, #472).
+- **A framework-neutral HTTP conformance harness (`bootui-conformance`)** pins the shared `/bootui/api/**` contract with
+  one abstract test suite that both adapters run against a booted sample app: the panels manifest must match a golden
+  fixture, every panel reported `available:true` must answer its primary `GET` with JSON, and a cross-site state-changing
+  request must be rejected with 403 — so lighting up a panel on either backend automatically gets black-box coverage
+  (#467).
+- **A reference `bootui-quarkus-sample-app`** and Docker-free `@QuarkusTest` integration/conformance suites
+  (`bootui-quarkus-integration-tests`) demonstrate and gate the Quarkus adapter, mirroring the existing Spring sample app
+  and Playwright e2e coverage (#467).
+
 ### Changed
 
+- **Hardened the Quarkus application and Quarkus Security advisors toward Spring parity**, following a first advisor
+  audit. Fixed three bugs: dead CSRF detection in `QS-AUTH-003`, `@DenyAll`-secured endpoints not counted as secured in
+  `QS-AUTHZ-003`/`QS-AUTHZ-004`, and a blocking-JDBC check (`QA-RX-001`) comparing against the global endpoint count
+  instead of the per-endpoint reactive/blocking split. Grew the Quarkus application advisor from 10 to 16 rules (verbose
+  log level in prod, compression/graceful-shutdown/REST-client-timeout hygiene, virtual-thread adoption/pinning) and the
+  Quarkus Security advisor from 25 to 43 rules (JWT hardening, JDBC identity-store checks, CORS regex anchoring,
+  fine-grained security headers, form-auth session hardening, a management-endpoint merge-risk check), including five
+  rules with no Spring equivalent: virtual-thread pinning (JEP 491), `quarkus.http.non-application-root-path` merging
+  health/metrics into the app namespace, gRPC server reflection left on in production, GraphQL schema introspection, and
+  messaging SASL credentials configured without TLS. Since the whole Quarkus advisor surface was still unreleased, rule
+  IDs were renumbered rather than leaving permanent gaps (#472).
+- **Bumped dependencies:** the Vue dependency group (#469), Spotless Maven plugin to latest (#468), the PostgreSQL JDBC
+  driver to 42.7.12 (#470), and Prettier to 3.9.3 in the frontend (#471).
 - **Renamed the "Spring Cache" panel to "Cache".** The panel, route, and API are now framework-neutral so
   the same UI covers Spring Cache and `quarkus-cache`: route `/cache`, API `GET`/`POST /bootui/api/cache[/clear]`,
   and panel id `cache` (config keys `bootui.panels.cache.enabled` / `.read-only`). The advisor sidebar label now
@@ -831,6 +882,7 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
+[1.8.0]: https://github.com/jdubois/boot-ui/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/jdubois/boot-ui/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/jdubois/boot-ui/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/jdubois/boot-ui/compare/v1.5.1...v1.5.2
