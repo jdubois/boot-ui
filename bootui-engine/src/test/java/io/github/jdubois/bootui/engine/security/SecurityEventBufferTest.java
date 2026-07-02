@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 class SecurityEventBufferTest {
 
     private static CapturedSecurityEvent event() {
-        return new CapturedSecurityEvent(Instant.now(), "alice", "AUTHENTICATION_SUCCESS", Map.of());
+        return new CapturedSecurityEvent(Instant.now(), "alice", "AUTHENTICATION_SUCCESS", Map.of(), null);
     }
 
     @Test

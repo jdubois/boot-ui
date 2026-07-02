@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import java.time.Instant;
 import java.util.List;
@@ -15,9 +16,11 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Verifies the trace-id correlation the Quarkus adapter relies on: when the captured signals share a
- * distributed-trace id, the assembler nests the SQL/exception entries under the owning REQUEST entry by
- * setting their {@code parentId}; when no shared trace id is present (OpenTelemetry absent) the feed stays
- * flat; and an ambiguous trace id shared by more than one request never nests a child under the wrong one.
+ * distributed-trace id, the assembler nests the SQL/exception/security entries under the owning REQUEST
+ * entry by setting their {@code parentId} (a uniquely-matched security event additionally stamps
+ * {@code securedPrincipal} on that request); when no shared trace id is present (OpenTelemetry absent) the
+ * feed stays flat; and an ambiguous trace id shared by more than one request never nests a child under the
+ * wrong one nor stamps a principal.
  */
 class LiveActivityAssemblerTests {
 
@@ -29,7 +32,7 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-a", 1_010L));
         List<ExceptionGroupDto> exceptions = List.of(exception("g-1", "trace-a", 1_020L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, "UP", 0);
+        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, List.of(), false, "UP", 0);
 
         ActivityEntryDto request = entry(report, "req-1");
         ActivityEntryDto sqlEntry = entry(report, "sql-10");
@@ -49,7 +52,7 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", null, 1_010L));
         List<ExceptionGroupDto> exceptions = List.of(exception("g-1", null, 1_020L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, "UP", 0);
+        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, List.of(), false, "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
         assertThat(entry(report, "exc-g-1").parentId()).isNull();
@@ -61,7 +64,7 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-orphan", 1_010L));
         List<ExceptionGroupDto> exceptions = List.of(exception("g-1", "trace-orphan", 1_020L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, "UP", 0);
+        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions, List.of(), false, "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
         assertThat(entry(report, "exc-g-1").parentId()).isNull();
@@ -73,7 +76,8 @@ class LiveActivityAssemblerTests {
                 request("req-1", "/orders", "trace-a", 1_000L), request("req-2", "/orders", "trace-a", 2_000L));
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", "trace-a", 1_010L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions(), "UP", 0);
+        LiveActivityReport report =
+                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isNull();
     }
@@ -85,10 +89,89 @@ class LiveActivityAssemblerTests {
         List<SqlTraceEntryDto> sql =
                 List.of(sql(10, "select 1", "trace-a", 1_010L), sql(11, "select 2", "trace-b", 2_010L));
 
-        LiveActivityReport report = assembler.report(requests, sql, true, null, exceptions(), "UP", 0);
+        LiveActivityReport report =
+                assembler.report(requests, sql, true, null, exceptions(), List.of(), false, "UP", 0);
 
         assertThat(entry(report, "sql-10").parentId()).isEqualTo("req-1");
         assertThat(entry(report, "sql-11").parentId()).isEqualTo("req-2");
+    }
+
+    @Test
+    void nestsSecurityEntryUnderRequestSharingTraceIdAndSetsSecuredPrincipal() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", "trace-a", 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+
+        ActivityEntryDto securityEntry = entry(report, "sec-0");
+        assertThat(securityEntry.type()).isEqualTo("SECURITY");
+        assertThat(securityEntry.severity()).isEqualTo("OK");
+        assertThat(securityEntry.summary()).isEqualTo("AUTHENTICATION_SUCCESS · alice");
+        assertThat(securityEntry.correlationId()).isEqualTo("trace-a");
+        assertThat(securityEntry.parentId()).isEqualTo("req-1");
+        assertThat(entry(report, "req-1").securedPrincipal()).isEqualTo("alice");
+        assertThat(report.sources()).contains("security");
+    }
+
+    @Test
+    void mapsFailureSecurityEventTypeToWarnSeverity() {
+        HttpExchangesReport requests = requests(request("req-1", "/login", "trace-a", 1_000L));
+        List<SecurityLogEventDto> security = List.of(security("bob", "AUTHENTICATION_FAILURE", "trace-a", 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+
+        assertThat(entry(report, "sec-0").severity()).isEqualTo("WARN");
+    }
+
+    @Test
+    void doesNotNestAmbiguousSecurityEventAndDoesNotStampSecuredPrincipal() {
+        HttpExchangesReport requests =
+                requests(request("req-1", "/orders", "trace-a", 1_000L), request("req-2", "/items", "trace-a", 2_000L));
+        List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", "trace-a", 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+
+        assertThat(entry(report, "sec-0").parentId()).isNull();
+        assertThat(entry(report, "req-1").securedPrincipal()).isNull();
+        assertThat(entry(report, "req-2").securedPrincipal()).isNull();
+    }
+
+    @Test
+    void leavesSecurityEntryFlatWhenNoTraceIdIsStamped() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", null, 1_000L));
+        List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", null, 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+
+        ActivityEntryDto securityEntry = entry(report, "sec-0");
+        assertThat(securityEntry.parentId()).isNull();
+        assertThat(securityEntry.correlationId()).isNull();
+        assertThat(entry(report, "req-1").securedPrincipal()).isNull();
+    }
+
+    @Test
+    void prefersTheRequestsOwnPrincipalOverACorrelatedSecurityEvent() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", "bob", 1_000L));
+        List<SecurityLogEventDto> security = List.of(security("alice", "AUTHENTICATION_SUCCESS", "trace-a", 1_010L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), security, true, "UP", 0);
+
+        assertThat(entry(report, "req-1").securedPrincipal()).isEqualTo("bob");
+    }
+
+    @Test
+    void omitsSecuritySourceWhenUnavailable() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+
+        LiveActivityReport report =
+                assembler.report(requests, List.of(), false, null, exceptions(), List.of(), false, "UP", 0);
+
+        assertThat(report.sources()).doesNotContain("security");
     }
 
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {
@@ -105,6 +188,10 @@ class LiveActivityAssemblerTests {
     }
 
     private static HttpExchangeDto request(String id, String path, String traceId, long epochMillis) {
+        return request(id, path, traceId, null, epochMillis);
+    }
+
+    private static HttpExchangeDto request(String id, String path, String traceId, String principal, long epochMillis) {
         return new HttpExchangeDto(
                 id,
                 Instant.ofEpochMilli(epochMillis),
@@ -117,11 +204,16 @@ class LiveActivityAssemblerTests {
                 12L,
                 34L,
                 "127.0.0.1",
-                null,
+                principal,
                 null,
                 traceId,
                 List.of(),
                 List.of());
+    }
+
+    private static SecurityLogEventDto security(String principal, String type, String traceId, long epochMillis) {
+        return new SecurityLogEventDto(
+                Instant.ofEpochMilli(epochMillis).toString(), principal, type, List.of(), traceId);
     }
 
     private static SqlTraceEntryDto sql(long id, String sql, String traceId, long epochMillis) {

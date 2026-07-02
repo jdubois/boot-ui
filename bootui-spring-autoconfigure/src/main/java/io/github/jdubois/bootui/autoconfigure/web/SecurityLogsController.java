@@ -89,7 +89,10 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
     }
 
     private static CapturedSecurityEvent toCaptured(AuditEvent event) {
-        return new CapturedSecurityEvent(event.getTimestamp(), event.getPrincipal(), event.getType(), event.getData());
+        // Spring's Live Activity correlation is thread-based (see LiveActivityService), not trace-id-based,
+        // so there is no trace id to stamp here; only the Quarkus adapter populates it.
+        return new CapturedSecurityEvent(
+                event.getTimestamp(), event.getPrincipal(), event.getType(), event.getData(), null);
     }
 
     /**

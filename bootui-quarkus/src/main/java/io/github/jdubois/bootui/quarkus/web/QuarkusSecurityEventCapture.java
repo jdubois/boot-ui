@@ -2,11 +2,13 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.spi.runtime.AuthorizationSuccessEvent;
 import io.quarkus.security.spi.runtime.SecurityEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -24,15 +26,25 @@ import java.util.Map;
  * credential-shaped at the edge. Bounding, masking and DTO assembly happen later on the read path in the
  * engine {@code SecurityLogsService}. {@code AuthorizationSuccessEvent} is dropped — it fires per check and
  * would evict the failures worth reviewing.</p>
+ *
+ * <p>When an OpenTelemetry {@link TraceIdProvider} is present (capability-gated), the active span's trace
+ * id is resolved here too and stamped on the captured event so the Live Activity panel can nest it under
+ * the request that produced it — the same correlation mechanism already used for SQL trace and exceptions.
+ * {@code Span.current()} still resolves correctly on this observer's request thread because its context
+ * propagates via the request's own context storage, not thread identity. The provider is optional: when
+ * OpenTelemetry is absent the {@code Instance} is unresolvable and the trace id stays {@code null}, leaving
+ * the event uncorrelated (flat) in the feed.</p>
  */
 @ApplicationScoped
 public class QuarkusSecurityEventCapture {
 
     private final SecurityEventBuffer buffer;
+    private final TraceIdProvider traceIdProvider;
 
     @Inject
-    public QuarkusSecurityEventCapture(SecurityEventBuffer buffer) {
+    public QuarkusSecurityEventCapture(SecurityEventBuffer buffer, Instance<TraceIdProvider> traceIdProvider) {
         this.buffer = buffer;
+        this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
     }
 
     void onSecurityEvent(@Observes SecurityEvent event) {
@@ -43,7 +55,24 @@ public class QuarkusSecurityEventCapture {
                 Instant.now(),
                 principal(event.getSecurityIdentity()),
                 event.getClass().getSimpleName(),
-                data(event)));
+                data(event),
+                currentTraceId()));
+    }
+
+    /**
+     * The active span's trace id, or {@code null} when OpenTelemetry is absent (no provider) or no span is in
+     * context. Fully guarded so capture never disrupts the security check it observes, mirroring
+     * {@code QuarkusHttpExchangeCaptureFilter#currentTraceId()}.
+     */
+    private String currentTraceId() {
+        if (traceIdProvider == null) {
+            return null;
+        }
+        try {
+            return traceIdProvider.currentTraceId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private static String principal(SecurityIdentity identity) {

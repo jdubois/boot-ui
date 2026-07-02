@@ -3,9 +3,12 @@ package io.github.jdubois.bootui.quarkus.web;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
+import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.vertx.http.runtime.filters.Filters;
+import io.quarkus.vertx.http.runtime.security.QuarkusHttpUser;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
+import io.vertx.ext.auth.User;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -13,6 +16,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.security.Principal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -36,6 +40,14 @@ import java.util.Map;
  * on the captured exchange so the Live Activity timeline can nest this request's SQL and exceptions under it.
  * The provider is optional: when OpenTelemetry is absent the {@code Instance} is unresolvable and the trace
  * id stays {@code null}, leaving the feed flat.</p>
+ *
+ * <p>The authenticated principal is resolved <em>at {@code bodyEndHandler} time</em> instead — after
+ * routing/business logic has run, so Quarkus's auth mechanism (a core {@code quarkus-vertx-http} concern,
+ * independent of whether the {@code quarkus-security} extension is added) has had a chance to authenticate.
+ * {@link SecurityIdentity} and {@link QuarkusHttpUser} ship as non-optional transitive dependencies of
+ * {@code quarkus-vertx-http}, so this needs no capability gate, unlike the CDI security-event capture in
+ * {@code QuarkusSecurityEventCapture}. An unauthenticated or anonymous request stamps {@code null}, matching
+ * the Spring adapter's {@code HttpExchange.getPrincipal()} contract.</p>
  */
 @ApplicationScoped
 public class QuarkusHttpExchangeCaptureFilter {
@@ -79,7 +91,7 @@ public class QuarkusHttpExchangeCaptureFilter {
                     response.getStatusCode(),
                     durationMs,
                     remoteAddr(rc),
-                    null,
+                    principal(rc),
                     null,
                     requestHeaders,
                     headers(response.headers()),
@@ -98,6 +110,30 @@ public class QuarkusHttpExchangeCaptureFilter {
         }
         try {
             return traceIdProvider.currentTraceId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * The authenticated principal's name, or {@code null} when the request is unauthenticated, the resolved
+     * identity is anonymous, or no {@link QuarkusHttpUser} is set on the routing context. Mirrors Spring's
+     * {@code HttpExchange.getPrincipal()} contract (null, not the literal string {@code "anonymous"}), so the
+     * two adapters render this field identically. Fully guarded so capture never disrupts request handling,
+     * mirroring {@link #currentTraceId()}.
+     */
+    private static String principal(RoutingContext rc) {
+        try {
+            User user = rc.user();
+            if (!(user instanceof QuarkusHttpUser quarkusUser)) {
+                return null;
+            }
+            SecurityIdentity identity = quarkusUser.getSecurityIdentity();
+            if (identity == null || identity.isAnonymous()) {
+                return null;
+            }
+            Principal identityPrincipal = identity.getPrincipal();
+            return identityPrincipal == null ? null : identityPrincipal.getName();
         } catch (RuntimeException ex) {
             return null;
         }

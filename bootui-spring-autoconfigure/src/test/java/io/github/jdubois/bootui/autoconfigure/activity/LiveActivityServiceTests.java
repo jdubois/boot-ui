@@ -443,7 +443,8 @@ class LiveActivityServiceTests {
     }
 
     private static SecurityLogEventDto securityEvent(String type, String principal, long timestampMillis) {
-        return new SecurityLogEventDto(Instant.ofEpochMilli(timestampMillis).toString(), principal, type, List.of());
+        return new SecurityLogEventDto(
+                Instant.ofEpochMilli(timestampMillis).toString(), principal, type, List.of(), null);
     }
 
     private static ExceptionGroupDto group(String id, String className, long lastSeen) {

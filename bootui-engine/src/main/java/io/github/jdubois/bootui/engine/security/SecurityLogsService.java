@@ -104,7 +104,8 @@ public final class SecurityLogsService {
                 displayText("principal", event.principal(), maskSecrets, exposure)
                         .value(),
                 event.type(),
-                dataEntries(event.data(), maskSecrets, exposure));
+                dataEntries(event.data(), maskSecrets, exposure),
+                event.traceId());
     }
 
     private List<SecurityLogDataDto> dataEntries(

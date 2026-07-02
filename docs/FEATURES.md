@@ -117,16 +117,22 @@ defenses, value masking). The stream is capped by `bootui.activity.max-entries`,
 `bootui.activity.request-slow-threshold-ms`, and individual sources can be turned off through their existing
 `bootui.panels.*` toggles (a disabled source simply drops out of the stream).
 
-On Quarkus the panel merges the three signals captured on this platform: HTTP requests (from the same Vert.x-fed ring
-buffer as HTTP Exchanges), SQL trace, and exceptions, alongside JVM heap KPIs. SQL trace contributes only when a JDBC
-datasource is configured (the recorder is gated on Agroal); when none is present those entries drop out and the report
-carries a clear note. Signal-to-request correlation works by **trace id**: Spring's thread-per-request anchor is
-unportable on the Vert.x event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is
-present the adapter stamps the active server span's trace id at each capture point and the engine nests SQL and exception
-entries under the request sharing that trace id — the OpenTelemetry context propagates across the event-loop→worker hop,
-so the same trace id is available even for blocking JDBC on a worker thread. With OpenTelemetry absent, entries carry no
-trace id and the feed renders flat. The per-request **profiler** drawer (the Symfony-style drill-down) remains
-Spring-only.
+On Quarkus the panel merges all four signals: HTTP requests (from the same Vert.x-fed ring buffer as HTTP Exchanges),
+SQL trace, exceptions, and security events, alongside JVM heap KPIs. SQL trace contributes only when a JDBC datasource is
+configured (the recorder is gated on Agroal); when none is present those entries drop out and the report carries a clear
+note. Signal-to-request correlation works by **trace id**: Spring's thread-per-request anchor is unportable on the Vert.x
+event loop (a thread does not map to a single request), so when `quarkus-opentelemetry` is present the adapter stamps the
+active server span's trace id at each capture point — the HTTP filter, the SQL recorder, the exception store, and the CDI
+security-event observer — and the engine nests SQL, exception, and security entries under the request sharing that trace
+id; the OpenTelemetry context propagates across the event-loop→worker hop, so the same trace id is available even for
+blocking JDBC on a worker thread or a security event fired from a CDI observer. A request whose trace id uniquely matches
+a correlated security event is flagged **authenticated** exactly like Spring, naming the audit event's principal; Quarkus's
+own security layer authenticating the caller (surfaced directly on the captured HTTP exchange) takes precedence over a
+correlated audit event when both are known. With OpenTelemetry absent, entries carry no trace id and the feed renders
+flat. The per-request **profiler** drawer (the Symfony-style drill-down) remains Spring-only: it leans on thread-per-request
+serving-thread identity — which the Vert.x event-loop model has no equivalent for — to correlate SQL, exceptions, and
+security events even without distributed tracing configured, so it is not a simple trace-id port (see
+`docs/QUARKUS-SUPPORT.md` for the detailed reasoning).
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
