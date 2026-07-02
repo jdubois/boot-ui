@@ -129,10 +129,13 @@ blocking JDBC on a worker thread or a security event fired from a CDI observer. 
 a correlated security event is flagged **authenticated** exactly like Spring, naming the audit event's principal; Quarkus's
 own security layer authenticating the caller (surfaced directly on the captured HTTP exchange) takes precedence over a
 correlated audit event when both are known. With OpenTelemetry absent, entries carry no trace id and the feed renders
-flat. The per-request **profiler** drawer (the Symfony-style drill-down) remains Spring-only: it leans on thread-per-request
-serving-thread identity — which the Vert.x event-loop model has no equivalent for — to correlate SQL, exceptions, and
-security events even without distributed tracing configured, so it is not a simple trace-id port (see
-`docs/QUARKUS-SUPPORT.md` for the detailed reasoning).
+flat. The per-request **profiler** drawer (the Symfony-style drill-down, `GET /bootui/api/activity/{id}`) is available on
+Quarkus too, but in a reduced, trace-id-only form: when the request carries a trace id it correlates SQL, exceptions, and
+security events that share that exact trace id (`sqlCorrelationApproximate: false`, since trace-id matching is exact); it
+does **not** attempt Spring's time-window/thread-based tiers for requests without a trace id, since those lean on
+serving-thread identity that the Vert.x event-loop model has no equivalent for. Without `quarkus-opentelemetry` present —
+or for a request that has no trace id captured — the drawer honestly reports itself unavailable with a clear reason
+rather than fabricating a partial profile (see `docs/QUARKUS-SUPPORT.md` for the detailed reasoning).
 
 ![BootUI Live Activity panel](./images/bootui-activity.webp)
 
