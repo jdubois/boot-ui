@@ -19,7 +19,12 @@ import jakarta.inject.Inject;
  * <p>BootUI's own {@code /bootui} traffic is excluded so the panel never captures its internals, and the
  * request path is taken without its query string to avoid surfacing secrets. The store dedups by
  * cause-chain identity, so a failure also logged by Quarkus (and seen by {@code QuarkusExceptionLogHandler})
- * counts once, with this filter supplying the richer request context.</p>
+ * counts once. In practice {@code QuarkusErrorHandler} logs an unhandled failure synchronously — long before
+ * this filter's {@code addBodyEndHandler} callback can run — so {@code QuarkusExceptionLogHandler} is
+ * normally the feeder that wins the dedup race; it resolves the same request method/path itself (via the
+ * CDI-current {@code RoutingContext}), so this filter's own context is only actually used for the rarer
+ * failure that is never logged via {@code java.util.logging} (e.g. a custom handler that swallows logging).
+ * Either way the wire is identical, so this filter stays a cheap, harmless safety net.</p>
  *
  * <p>When an OpenTelemetry {@link TraceIdProvider} is present (capability-gated), the active server span's
  * trace id is resolved <em>at filter entry</em> — on the event loop, where the span is current — and recorded

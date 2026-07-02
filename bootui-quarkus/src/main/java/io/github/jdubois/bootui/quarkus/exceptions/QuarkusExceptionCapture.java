@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
+import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
@@ -27,12 +28,22 @@ public class QuarkusExceptionCapture {
 
     private final ExceptionStore store;
     private final TraceIdProvider traceIdProvider;
+    private final CurrentVertxRequest currentVertxRequest;
     private QuarkusExceptionLogHandler handler;
 
+    /**
+     * {@link CurrentVertxRequest} is injected directly (not via {@code Instance<>}): it is a request-scoped
+     * bean produced unconditionally by {@code quarkus-vertx-http} (a transitive dependency of this
+     * extension's {@code quarkus-rest} dependency, same as {@code Filters}), so the bean is always
+     * resolvable — CDI's client proxy simply throws {@code ContextNotActiveException} on an actual method
+     * call made outside an active request scope, which {@link QuarkusExceptionLogHandler} already guards.
+     */
     @Inject
-    public QuarkusExceptionCapture(ExceptionStore store, Instance<TraceIdProvider> traceIdProvider) {
+    public QuarkusExceptionCapture(
+            ExceptionStore store, Instance<TraceIdProvider> traceIdProvider, CurrentVertxRequest currentVertxRequest) {
         this.store = store;
         this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
+        this.currentVertxRequest = currentVertxRequest;
     }
 
     void onStart(@Observes StartupEvent event) {
@@ -48,7 +59,8 @@ public class QuarkusExceptionCapture {
                         "io.github.jdubois.bootui.quarkus",
                         "io.github.jdubois.bootui.engine",
                         "io.github.jdubois.bootui.core")),
-                traceIdProvider);
+                traceIdProvider,
+                currentVertxRequest);
         root.addHandler(handler);
     }
 
