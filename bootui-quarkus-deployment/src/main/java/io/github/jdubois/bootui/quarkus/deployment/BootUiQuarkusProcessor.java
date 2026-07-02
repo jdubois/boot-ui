@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.deployment;
 
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
+import io.github.jdubois.bootui.quarkus.BootUiProdShellGuardFilter;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter;
 import io.github.jdubois.bootui.quarkus.BootUiQuarkusStartupBanner;
 import io.github.jdubois.bootui.quarkus.BootUiTelemetryProducer;
@@ -93,13 +94,28 @@ import org.jboss.jandex.Type;
  * (fail-closed), matching the Spring adapter's dev/local-only activation. {@code @QuarkusTest} runs in
  * {@link LaunchMode#TEST}, so the conformance suite still exercises the wired console.</p>
  *
- * <p>The shared Vue bundle under {@code META-INF/resources/bootui/} is served by Quarkus' static-resource
- * handler regardless of launch mode; suppressing even the static shell in production is a follow-up to
- * this tracer bullet (the data-bearing {@code /bootui/api/**} endpoints are already prod-gated here). The
- * static handler only answers the directory index {@code /bootui/} (trailing slash); {@code /bootui}
- * without the trailing slash previously 404'd, so {@code QuarkusIndexResource} — a {@code @Path("/bootui")}
- * JAX-RS resource discovered from the same indexed jar and therefore gated identically to the rest of the
- * console — answers it directly instead of redirecting (see its Javadoc).</p>
+ * <p>One thing is <em>not</em> gated by that early return: the shared Vue bundle under
+ * {@code META-INF/resources/bootui/} is served by Quarkus' built-in static-resource handler regardless of
+ * launch mode — that handler is wired unconditionally by {@code quarkus-vertx-http} for any classpath
+ * resource under {@code META-INF/resources/**}, completely independently of this processor, and Quarkus
+ * offers no build-time mechanism to exclude a single path from that scan
+ * ({@code AdditionalStaticResourceBuildItem}/{@code StaticResourcesBuildItem} are additive-only). Left
+ * alone this would leave the empty SPA shell's {@code index.html}/JS/CSS reachable in production, just
+ * with no working API behind it. {@link #registerProdShellGuard} closes that gap: it registers
+ * {@code BootUiProdShellGuardFilter}, a global Vert.x route filter, via its own build step that is
+ * deliberately <strong>not</strong> gated by launch mode — the opposite polarity from every build step
+ * above, so the filter is present in {@link LaunchMode#NORMAL} too. The launch-mode decision instead lives
+ * inside the filter itself (see its Javadoc): in {@link LaunchMode#NORMAL} it answers a plain 404 for
+ * {@code /bootui} and any {@code /bootui/**} path (the static shell, {@code /bootui/api/**}, everything);
+ * in every other launch mode it is an immediate no-op pass-through, so dev/{@code @QuarkusTest} behavior is
+ * entirely unaffected. Net effect: {@code /bootui}/{@code /bootui/**} is a plain 404 in production, at
+ * parity with the Spring adapter (which never registers any BootUI route when inactive, so nothing is
+ * reachable there either).</p>
+ *
+ * <p>In dev/test, the static handler only answers the directory index {@code /bootui/} (trailing slash);
+ * {@code /bootui} without the trailing slash previously 404'd, so {@code QuarkusIndexResource} — a
+ * {@code @Path("/bootui")} JAX-RS resource discovered from the same indexed jar and therefore gated
+ * identically to the rest of the console — answers it directly instead of redirecting (see its Javadoc).</p>
  */
 class BootUiQuarkusProcessor {
 
@@ -231,6 +247,31 @@ class BootUiQuarkusProcessor {
                         BootUiQuarkusStartupBanner.class)
                 .setUnremovable()
                 .build());
+    }
+
+    /**
+     * Registers {@link BootUiProdShellGuardFilter}, the global Vert.x route filter that keeps
+     * {@code /bootui}/{@code /bootui/**} a plain 404 in production even though Quarkus' built-in
+     * static-resource handler serves the shared Vue bundle under {@code META-INF/resources/bootui/}
+     * unconditionally (see the class Javadoc for the full story). Deliberately a <strong>separate,
+     * always-on</strong> build step with no {@link LaunchModeBuildItem} parameter and no early return —
+     * the opposite polarity from {@link #registerConsole} above, which is skipped entirely in
+     * {@link LaunchMode#NORMAL}. If this bean were folded into {@code registerConsole} instead, it would be
+     * skipped in production right along with everything else, and the whole point is for it to be present
+     * there.
+     *
+     * <p>No {@link IndexDependencyBuildItem} is needed for this: unlike JAX-RS {@code @Path} resource
+     * discovery, an {@link AdditionalBeanBuildItem}'s classes are ad-hoc Jandex-indexed by Arc's own
+     * {@code BeanArchiveProcessor} regardless of whether the containing jar was separately indexed, so the
+     * filter and its {@code @Observes Filters} registration method are discovered in every launch mode from
+     * this build step alone.
+     */
+    @BuildStep
+    AdditionalBeanBuildItem registerProdShellGuard() {
+        return AdditionalBeanBuildItem.builder()
+                .addBeanClasses(BootUiProdShellGuardFilter.class)
+                .setUnremovable()
+                .build();
     }
 
     /**

@@ -1,19 +1,27 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
+import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
+import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.telemetry.TracesService;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
+import io.github.jdubois.bootui.engine.web.RequestProfileAssembler;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.smallrye.mutiny.Multi;
@@ -21,12 +29,14 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,10 +54,20 @@ import java.util.concurrent.atomic.AtomicInteger;
  * data-driven on the OpenTelemetry trace id when present: each captured signal is stamped with the active
  * span's trace id (see {@code QuarkusOtelTraceIdProvider}), and the engine {@link LiveActivityAssembler}
  * nests SQL/exception/security entries under the request sharing that trace id, also stamping a uniquely
- * correlated security event's principal onto its parent request as {@code securedPrincipal}. The per-request
- * <em>profile</em> drill-down (flipping {@code profileable}) remains Spring-only. Read-only, plus the SSE
- * change-notification stream {@code /stream} that ticks whenever a new HTTP exchange is captured so the
- * shared Vue panel's auto-refresh toggle works identically to Spring.
+ * correlated security event's principal onto its parent request as {@code securedPrincipal}.
+ *
+ * <p>The per-request <em>profile</em> drill-down ({@code GET /bootui/api/activity/request/{id}}) is a
+ * <strong>reduced, trace-id-only</strong> port of Spring's fuller Symfony-style profiler: Spring's tiered
+ * correlator falls back to HTTP method+path+time-window+thread heuristics when no trace id is available,
+ * which relies on its synchronous one-thread-per-request servlet model and has no reliable Quarkus
+ * equivalent (deliberately not ported here — see {@link RequestProfileAssembler}). A REQUEST entry from
+ * {@link #activity} is marked {@code profileable} by this resource, as a thin post-processing step over the
+ * shared assembler's output, iff its exchange carries a resolvable trace id — the exact (and only) signal
+ * {@link #request} can correlate on; every other entry, and every request without one, stays
+ * non-profileable. Spring's controller/correlator computes its own {@code profileable} semantics
+ * independently and is unaffected by this adapter-only step. Read-only (the profile drill-down only reads
+ * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever a
+ * new HTTP exchange is captured so the shared Vue panel's auto-refresh toggle works identically to Spring.
  */
 @Path("/bootui/api/activity")
 public class LiveActivityResource {
@@ -62,8 +82,10 @@ public class LiveActivityResource {
     private final ExceptionsService exceptionsService;
     private final SecurityEventBuffer securityBuffer;
     private final QuarkusPanelAvailability panelAvailability;
+    private final TracesService tracesService;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
+    private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
 
@@ -75,7 +97,8 @@ public class LiveActivityResource {
             ExceptionStore exceptionStore,
             ExceptionsService exceptionsService,
             SecurityEventBuffer securityBuffer,
-            QuarkusPanelAvailability panelAvailability) {
+            QuarkusPanelAvailability panelAvailability,
+            TracesService tracesService) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
@@ -83,12 +106,83 @@ public class LiveActivityResource {
         this.exceptionsService = exceptionsService;
         this.securityBuffer = securityBuffer;
         this.panelAvailability = panelAvailability;
+        this.tracesService = tracesService;
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public LiveActivityReport activity(@QueryParam("limit") Integer limit) {
-        HttpExchangesReport requests = exchanges.report(
+        HttpExchangesReport requests = requestsReport();
+        SqlSnapshot sql = sqlSnapshot();
+        boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+
+        LiveActivityReport report = assembler.report(
+                requests,
+                sql.entries(),
+                sql.available(),
+                sql.unavailableWarning(),
+                exceptionsService.report(exceptionStore).groups(),
+                securityEvents(securityAvailable),
+                securityAvailable,
+                null,
+                limit == null ? 0 : limit);
+
+        // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
+        // own `profileable` default (which stays `false` for every entry it builds, unaffected by this
+        // step and by extension unaffected on Spring too): a REQUEST entry is profileable here iff its
+        // exchange carries a resolvable trace id, since that is the exact (and only) signal #request can
+        // correlate on.
+        List<ActivityEntryDto> entries = new ArrayList<>(report.entries().size());
+        for (ActivityEntryDto entry : report.entries()) {
+            boolean profileable = "REQUEST".equals(entry.type())
+                    && entry.correlationId() != null
+                    && !entry.correlationId().isBlank();
+            entries.add(profileable ? withProfileable(entry) : entry);
+        }
+        return new LiveActivityReport(
+                report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());
+    }
+
+    /**
+     * The reduced, trace-id-only per-request profile drill-down — see the class Javadoc and
+     * {@link RequestProfileAssembler} for why Spring's fuller time-window/thread-heuristic tiers aren't
+     * ported. Gathers the same signal sources {@link #activity} does, then delegates all correlation and
+     * honest-degrade shaping to the framework-neutral assembler.
+     */
+    @GET
+    @Path("/request/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public RequestProfileDto request(@PathParam("id") String id) {
+        HttpExchangesReport requests = requestsReport();
+        HttpExchangeDto request = requests.exchanges().stream()
+                .filter(exchange -> id.equals(exchange.id()))
+                .findFirst()
+                .orElse(null);
+        String traceId = request == null ? null : request.traceId();
+        TraceDetailDto trace = traceId == null || traceId.isBlank()
+                ? null
+                : tracesService.detail(traceId).orElse(null);
+        boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+
+        return profileAssembler.profile(
+                id,
+                request,
+                requests.exchanges(),
+                sqlSnapshot().entries(),
+                allExceptionDetails(),
+                securityEvents(securityAvailable),
+                trace);
+    }
+
+    @GET
+    @Path("/stream")
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    public Multi<OutboundSseEvent> stream(@Context Sse sse) {
+        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, buffer::subscribe);
+    }
+
+    private HttpExchangesReport requestsReport() {
+        return exchanges.report(
                 buffer.snapshot(),
                 uri -> uri != null && (uri.contains("/bootui/") || uri.endsWith("/bootui")),
                 exposure.maskSecrets(),
@@ -98,57 +192,76 @@ public class LiveActivityResource {
                 null,
                 null,
                 null);
+    }
 
+    private SqlSnapshot sqlSnapshot() {
         SqlTraceRecorder rec = sqlRecorder.isResolvable() ? sqlRecorder.get() : null;
-        boolean sqlAvailable = rec != null && rec.isEnabled() && rec.hasWrappedDataSource();
-        List<SqlTraceEntryDto> sqlEntries = List.of();
-        String sqlUnavailableWarning = null;
-        if (sqlAvailable) {
-            boolean exposeParameters =
-                    rec.isCaptureParameters() && exposure.valueExposure() != ValueExposure.METADATA_ONLY;
-            sqlEntries = rec.report(exposeParameters).entries();
-        } else {
-            // Mirror SqlTraceResource's two-case reason: a present-but-disabled recorder is not the same as an
-            // absent datasource, so don't tell the user to configure a datasource they already have.
-            sqlUnavailableWarning = (rec != null && !rec.isEnabled())
+        boolean available = rec != null && rec.isEnabled() && rec.hasWrappedDataSource();
+        if (!available) {
+            // Mirror SqlTraceResource's two-case reason: a present-but-disabled recorder is not the same as
+            // an absent datasource, so don't tell the user to configure a datasource they already have.
+            String warning = (rec != null && !rec.isEnabled())
                     ? "SQL tracing is disabled (set bootui.sql-trace.enabled=true in a trusted local profile)."
                     : "SQL trace is unavailable until a JDBC datasource is configured.";
+            return new SqlSnapshot(List.of(), false, warning);
         }
-
-        boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
-        List<SecurityLogEventDto> securityEvents = List.of();
-        if (securityAvailable) {
-            int maxLogs = securityLogs.maxLogs(Integer.MAX_VALUE);
-            securityEvents = securityLogs
-                    .report(
-                            securityBuffer.snapshot(),
-                            maxLogs,
-                            exposure.maskSecrets(),
-                            exposure.valueExposure(),
-                            null,
-                            null,
-                            null,
-                            null,
-                            null)
-                    .events();
-        }
-
-        return assembler.report(
-                requests,
-                sqlEntries,
-                sqlAvailable,
-                sqlUnavailableWarning,
-                exceptionsService.report(exceptionStore).groups(),
-                securityEvents,
-                securityAvailable,
-                null,
-                limit == null ? 0 : limit);
+        boolean exposeParameters = rec.isCaptureParameters() && exposure.valueExposure() != ValueExposure.METADATA_ONLY;
+        return new SqlSnapshot(rec.report(exposeParameters).entries(), true, null);
     }
 
-    @GET
-    @Path("/stream")
-    @Produces(MediaType.SERVER_SENT_EVENTS)
-    public Multi<OutboundSseEvent> stream(@Context Sse sse) {
-        return SseStreams.updates(sse, openStreams, MAX_CONCURRENT_STREAMS, buffer::subscribe);
+    private List<SecurityLogEventDto> securityEvents(boolean securityAvailable) {
+        if (!securityAvailable) {
+            return List.of();
+        }
+        int maxLogs = securityLogs.maxLogs(Integer.MAX_VALUE);
+        return securityLogs
+                .report(
+                        securityBuffer.snapshot(),
+                        maxLogs,
+                        exposure.maskSecrets(),
+                        exposure.valueExposure(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null)
+                .events();
     }
+
+    /**
+     * Full detail (group + every occurrence) for each currently-grouped exception, so the profile drill-down
+     * can match on any occurrence's trace id — not just each group's most recent one.
+     */
+    private List<ExceptionDetailDto> allExceptionDetails() {
+        List<ExceptionDetailDto> details = new ArrayList<>();
+        for (ExceptionGroupDto group : exceptionsService.report(exceptionStore).groups()) {
+            ExceptionStore.GroupDetail detail = exceptionStore.find(group.id());
+            if (detail != null) {
+                details.add(exceptionsService.detail(detail));
+            }
+        }
+        return details;
+    }
+
+    private static ActivityEntryDto withProfileable(ActivityEntryDto entry) {
+        return new ActivityEntryDto(
+                entry.id(),
+                entry.type(),
+                entry.timestamp(),
+                entry.severity(),
+                entry.summary(),
+                entry.detail(),
+                entry.durationMs(),
+                entry.correlationId(),
+                entry.method(),
+                entry.path(),
+                entry.status(),
+                entry.thread(),
+                true,
+                entry.parentId(),
+                entry.securedPrincipal());
+    }
+
+    /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */
+    private record SqlSnapshot(List<SqlTraceEntryDto> entries, boolean available, String unavailableWarning) {}
 }

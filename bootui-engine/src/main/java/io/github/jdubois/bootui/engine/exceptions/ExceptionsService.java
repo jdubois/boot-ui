@@ -93,7 +93,8 @@ public final class ExceptionsService {
                 occurrence.requestMethod(),
                 occurrence.requestPath(),
                 occurrence.handler(),
-                occurrence.source());
+                occurrence.source(),
+                occurrence.traceId());
     }
 
     private String displayMessage(String message) {

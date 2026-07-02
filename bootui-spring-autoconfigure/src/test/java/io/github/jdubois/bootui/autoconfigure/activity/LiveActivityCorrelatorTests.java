@@ -177,8 +177,8 @@ class LiveActivityCorrelatorTests {
         ExceptionsController exceptions = exceptionsControllerWithOccurrences(
                 "GET",
                 "/a",
-                new ExceptionOccurrenceDto(START + 10, "exec-1", "GET", "/a", "h", "web"),
-                new ExceptionOccurrenceDto(START + 20, "exec-2", "GET", "/a", "h", "web"));
+                new ExceptionOccurrenceDto(START + 10, "exec-1", "GET", "/a", "h", "web", null),
+                new ExceptionOccurrenceDto(START + 20, "exec-2", "GET", "/a", "h", "web", null));
         LiveActivityCorrelator correlator = correlator(
                 requestsController(exchange("r1", BASE, "GET", "/a", 500, 100L)),
                 null,
@@ -206,8 +206,8 @@ class LiveActivityCorrelatorTests {
         ExceptionsController exceptions = exceptionsControllerWithOccurrences(
                 "GET",
                 "/a",
-                new ExceptionOccurrenceDto(START + 10, "exec-1", "GET", "/a", "h", "web"),
-                new ExceptionOccurrenceDto(START + 20, "exec-2", "GET", "/a", "h", "web"));
+                new ExceptionOccurrenceDto(START + 10, "exec-1", "GET", "/a", "h", "web", null),
+                new ExceptionOccurrenceDto(START + 20, "exec-2", "GET", "/a", "h", "web", null));
         LiveActivityCorrelator correlator = correlator(
                 requestsController(exchange("r1", BASE, "GET", "/a", 500, 100L)),
                 null,
@@ -504,7 +504,7 @@ class LiveActivityCorrelatorTests {
                     groups[i],
                     List.of(),
                     List.of(),
-                    List.of(new ExceptionOccurrenceDto(ts, "t", method, path, "h", "s")));
+                    List.of(new ExceptionOccurrenceDto(ts, "t", method, path, "h", "s", null)));
             when(controller.detail(id)).thenReturn(detail);
         }
         ExceptionsReport report = new ExceptionsReport(true, null, 50, count, List.of(groups));

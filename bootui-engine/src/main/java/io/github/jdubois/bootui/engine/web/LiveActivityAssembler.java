@@ -14,12 +14,10 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
@@ -36,14 +34,18 @@ import java.util.Set;
  * single request, so that strategy is unportable. Instead, when the adapter stamps a distributed-trace id on
  * each signal (the Quarkus adapter reads {@code Span.current()} when OpenTelemetry is present, whose context
  * propagates across the event-loop→worker hops), this assembler nests each SQL/exception/security entry
- * under the REQUEST entry sharing the same trace id by setting its {@code parentId}. A child is only nested
- * when <em>exactly one</em> request carries that trace id (a uniqueness guard against a reused inbound
- * {@code traceparent}). When no trace id is stamped — OpenTelemetry absent — every {@code correlationId} is
- * {@code null}, no {@code parentId} is set, and the feed renders flat (the honest status quo). A correlated
- * security event also stamps {@code securedPrincipal} on its parent REQUEST entry (falling back from the
- * request's own principal, when Quarkus's security layer directly authenticated it) — see {@link #report}.
- * {@code profileable} stays {@code false} regardless: the per-request profile drill-down is a Spring-only
- * endpoint, and nesting needs only {@code parentId}.</p>
+ * under the REQUEST entry sharing the same trace id by setting its {@code parentId}, using the shared
+ * {@link TraceCorrelationIndex} primitive. A child is only nested when <em>exactly one</em> request carries
+ * that trace id (a uniqueness guard against a reused inbound {@code traceparent}). When no trace id is
+ * stamped — OpenTelemetry absent — every {@code correlationId} is {@code null}, no {@code parentId} is set,
+ * and the feed renders flat (the honest status quo). A correlated security event also stamps
+ * {@code securedPrincipal} on its parent REQUEST entry (falling back from the request's own principal, when
+ * Quarkus's security layer directly authenticated it) — see {@link #report}. {@code profileable} is set by
+ * the Quarkus adapter itself as a thin post-processing step over this assembler's output (not by this class),
+ * once a REQUEST entry's exchange carries a resolvable trace id — that same trace id is what
+ * {@link RequestProfileAssembler} uses to serve the reduced, trace-id-only per-request profile drill-down at
+ * {@code GET /bootui/api/activity/request/{id}} on Quarkus (Spring's fuller, thread/time-window-heuristic
+ * profiler stays out of scope for that port).</p>
  */
 public final class LiveActivityAssembler {
 
@@ -104,14 +106,7 @@ public final class LiveActivityAssembler {
 
         // Map each non-blank request trace id to its REQUEST entry id, tracking trace ids shared by more
         // than one request so an ambiguous (reused) trace never nests a child under the wrong request.
-        Map<String, String> requestIdByTrace = new HashMap<>();
-        Set<String> ambiguousTraces = new HashSet<>();
-        for (HttpExchangeDto e : exchanges) {
-            String trace = blankToNull(e.traceId());
-            if (trace != null && requestIdByTrace.putIfAbsent(trace, e.id()) != null) {
-                ambiguousTraces.add(trace);
-            }
-        }
+        TraceCorrelationIndex traceIndex = TraceCorrelationIndex.of(exchanges);
 
         // Correlate security events to their owning request BEFORE building REQUEST entries (an immutable
         // record can't be patched after construction), so a uniquely-matched event's principal can be
@@ -121,7 +116,7 @@ public final class LiveActivityAssembler {
         // unauthenticated request.
         Map<String, String> securedPrincipalByRequestId = new HashMap<>();
         for (SecurityLogEventDto event : security) {
-            String requestId = parentFor(event.traceId(), requestIdByTrace, ambiguousTraces);
+            String requestId = traceIndex.parentRequestId(event.traceId());
             String principal = blankToNull(event.principal());
             if (requestId != null && principal != null) {
                 securedPrincipalByRequestId.putIfAbsent(requestId, principal);
@@ -167,17 +162,16 @@ public final class LiveActivityAssembler {
             if (slowestQuery == null || s.durationMillis() > slowestQuery) {
                 slowestQuery = s.durationMillis();
             }
-            entries.add(toSqlEntry(s, parentFor(s.traceId(), requestIdByTrace, ambiguousTraces)));
+            entries.add(toSqlEntry(s, traceIndex.parentRequestId(s.traceId())));
         }
 
         for (ExceptionGroupDto g : exceptions) {
-            entries.add(toExceptionEntry(g, parentFor(g.lastTraceId(), requestIdByTrace, ambiguousTraces)));
+            entries.add(toExceptionEntry(g, traceIndex.parentRequestId(g.lastTraceId())));
         }
 
         int securityIndex = 0;
         for (SecurityLogEventDto event : security) {
-            entries.add(toSecurityEntry(
-                    event, securityIndex++, parentFor(event.traceId(), requestIdByTrace, ambiguousTraces)));
+            entries.add(toSecurityEntry(event, securityIndex++, traceIndex.parentRequestId(event.traceId())));
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
@@ -302,19 +296,6 @@ public final class LiveActivityAssembler {
                 false,
                 parentId,
                 null);
-    }
-
-    /**
-     * The id of the REQUEST entry a child signal (SQL/exception) should nest under, or {@code null} when
-     * the child carries no trace id, no request shares it, or — the uniqueness guard — more than one
-     * request carries it (an ambiguous, likely reused, inbound {@code traceparent}).
-     */
-    private static String parentFor(String childTraceId, Map<String, String> requestIdByTrace, Set<String> ambiguous) {
-        String trace = blankToNull(childTraceId);
-        if (trace == null || ambiguous.contains(trace)) {
-            return null;
-        }
-        return requestIdByTrace.get(trace);
     }
 
     private static String blankToNull(String value) {
