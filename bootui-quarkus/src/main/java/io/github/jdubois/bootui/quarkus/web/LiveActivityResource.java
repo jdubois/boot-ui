@@ -3,14 +3,19 @@ package io.github.jdubois.bootui.quarkus.web;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
+import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.smallrye.mutiny.Multi;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -27,17 +32,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * JAX-RS resource for the Live Activity panel ({@code GET /bootui/api/activity}). The Quarkus analogue of
- * the Spring adapter's {@code LiveActivityController}: it merges the three signals captured on this platform
+ * the Spring adapter's {@code LiveActivityController}: it merges the four signals captured on this platform
  * — HTTP exchanges (via the shared {@link HttpExchangeBuffer}), SQL trace (via the shared
- * {@link SqlTraceRecorder}) and exceptions (via the shared {@link ExceptionStore}) — plus JVM heap into the
- * neutral {@link LiveActivityReport}. SQL trace contributes only when a datasource is configured (the
- * recorder is gated on Agroal); when it is absent the assembler surfaces a warning and SQL entries are
- * omitted. Signal-to-request correlation is data-driven on the OpenTelemetry trace id when present: each
- * captured signal is stamped with the active span's trace id (see {@code QuarkusOtelTraceIdProvider}), and
- * the engine {@link LiveActivityAssembler} nests SQL/exception entries under the request sharing that trace
- * id. The per-request <em>profile</em> drill-down (flipping {@code profileable}) remains Spring-only.
- * Read-only, plus the
- * SSE change-notification stream {@code /stream} that ticks whenever a new HTTP exchange is captured so the
+ * {@link SqlTraceRecorder}), exceptions (via the shared {@link ExceptionStore}), and security/audit events
+ * (via the shared {@link SecurityEventBuffer}) — plus JVM heap into the neutral {@link LiveActivityReport}.
+ * SQL trace contributes only when a datasource is configured (the recorder is gated on Agroal); security
+ * events contribute only when Quarkus's security capability is present and
+ * {@code quarkus.security.events.enabled=true} (the same gate {@code SecurityLogsResource} uses, reused here
+ * via {@link QuarkusPanelAvailability}); when either is absent the assembler surfaces a warning (SQL) or
+ * simply omits the source (security) and its entries are omitted. Signal-to-request correlation is
+ * data-driven on the OpenTelemetry trace id when present: each captured signal is stamped with the active
+ * span's trace id (see {@code QuarkusOtelTraceIdProvider}), and the engine {@link LiveActivityAssembler}
+ * nests SQL/exception/security entries under the request sharing that trace id, also stamping a uniquely
+ * correlated security event's principal onto its parent request as {@code securedPrincipal}. The per-request
+ * <em>profile</em> drill-down (flipping {@code profileable}) remains Spring-only. Read-only, plus the SSE
+ * change-notification stream {@code /stream} that ticks whenever a new HTTP exchange is captured so the
  * shared Vue panel's auto-refresh toggle works identically to Spring.
  */
 @Path("/bootui/api/activity")
@@ -51,8 +60,11 @@ public class LiveActivityResource {
     private final Instance<SqlTraceRecorder> sqlRecorder;
     private final ExceptionStore exceptionStore;
     private final ExceptionsService exceptionsService;
+    private final SecurityEventBuffer securityBuffer;
+    private final QuarkusPanelAvailability panelAvailability;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
+    private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
 
     @Inject
@@ -61,12 +73,16 @@ public class LiveActivityResource {
             QuarkusExposurePolicy exposure,
             Instance<SqlTraceRecorder> sqlRecorder,
             ExceptionStore exceptionStore,
-            ExceptionsService exceptionsService) {
+            ExceptionsService exceptionsService,
+            SecurityEventBuffer securityBuffer,
+            QuarkusPanelAvailability panelAvailability) {
         this.buffer = buffer;
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
         this.exceptionStore = exceptionStore;
         this.exceptionsService = exceptionsService;
+        this.securityBuffer = securityBuffer;
+        this.panelAvailability = panelAvailability;
     }
 
     @GET
@@ -99,12 +115,32 @@ public class LiveActivityResource {
                     : "SQL trace is unavailable until a JDBC datasource is configured.";
         }
 
+        boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+        List<SecurityLogEventDto> securityEvents = List.of();
+        if (securityAvailable) {
+            int maxLogs = securityLogs.maxLogs(Integer.MAX_VALUE);
+            securityEvents = securityLogs
+                    .report(
+                            securityBuffer.snapshot(),
+                            maxLogs,
+                            exposure.maskSecrets(),
+                            exposure.valueExposure(),
+                            null,
+                            null,
+                            null,
+                            null,
+                            null)
+                    .events();
+        }
+
         return assembler.report(
                 requests,
                 sqlEntries,
                 sqlAvailable,
                 sqlUnavailableWarning,
                 exceptionsService.report(exceptionStore).groups(),
+                securityEvents,
+                securityAvailable,
                 null,
                 limit == null ? 0 : limit);
     }

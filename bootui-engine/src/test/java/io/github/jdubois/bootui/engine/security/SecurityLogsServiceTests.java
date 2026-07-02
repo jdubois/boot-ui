@@ -15,7 +15,7 @@ class SecurityLogsServiceTests {
     private final SecurityLogsService service = new SecurityLogsService();
 
     private static CapturedSecurityEvent event(String principal, String type, String iso) {
-        return new CapturedSecurityEvent(Instant.parse(iso), principal, type, Map.of());
+        return new CapturedSecurityEvent(Instant.parse(iso), principal, type, Map.of(), null);
     }
 
     @Test
@@ -50,7 +50,8 @@ class SecurityLogsServiceTests {
                 Instant.parse("2026-06-03T08:00:00Z"),
                 "alice",
                 "LOGIN",
-                Map.of("password", "hunter2", "user", "alice"));
+                Map.of("password", "hunter2", "user", "alice"),
+                null);
 
         SecurityLogsReport report =
                 service.report(List.of(secret), 500, true, ValueExposure.MASKED, null, null, null, null, null);
@@ -60,6 +61,19 @@ class SecurityLogsServiceTests {
             assertThat(d.masked()).isTrue();
             assertThat(d.value()).isEqualTo("******");
         });
+    }
+
+    @Test
+    void passesTraceIdThroughToTheDto() {
+        CapturedSecurityEvent withTrace =
+                new CapturedSecurityEvent(Instant.parse("2026-06-03T08:00:00Z"), "alice", "LOGIN", Map.of(), "trace-1");
+        CapturedSecurityEvent withoutTrace =
+                new CapturedSecurityEvent(Instant.parse("2026-06-03T08:01:00Z"), "bob", "LOGIN", Map.of(), null);
+
+        SecurityLogsReport report = service.report(
+                List.of(withTrace, withoutTrace), 500, true, ValueExposure.MASKED, null, null, null, null, null);
+
+        assertThat(report.events()).extracting(SecurityLogEventDto::traceId).containsExactly(null, "trace-1");
     }
 
     @Test

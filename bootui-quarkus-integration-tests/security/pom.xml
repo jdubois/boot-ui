@@ -19,7 +19,10 @@
         into the shared SecurityEventBuffer, assembled by the neutral SecurityLogsService and surfaced on
         GET /bootui/api/security-logs, with the panel reported available in the manifest. Kept separate from
         bootui-quarkus-integration-tests (which has NO security extension) so the security-absent unavailable path
-        and the security-present capture path are each proven in isolation.</description>
+        and the security-present capture path are each proven in isolation. Also adds quarkus-opentelemetry (like
+        the sibling otel module) so a real server-span trace id is available at capture time, proving the Live
+        Activity feed's security correlation: a captured security event nests under the REQUEST entry sharing its
+        trace id and stamps that request's securedPrincipal.</description>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -54,6 +57,16 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-elytron-security-properties-file</artifactId>
+        </dependency>
+
+        <!-- Adds the OpenTelemetry SDK + tracer, exactly like the sibling otel module. Its presence flips the
+             OPENTELEMETRY_TRACER capability gate on, so QuarkusSecurityEventCapture can stamp the active server
+             span's trace id on each captured security event, letting the Live Activity feed nest it under the
+             owning REQUEST entry. Not a test of OTLP export — the test resources set
+             quarkus.otel.traces.exporter=none, so no network is touched. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-opentelemetry</artifactId>
         </dependency>
 
         <dependency>

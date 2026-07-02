@@ -6,23 +6,27 @@ import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
  * reports. The Spring adapter has its own richer, controller-fed service (with per-request signal
- * correlation and thread attribution); the Quarkus adapter feeds this assembler the three signal sources it
- * captures — HTTP requests, SQL trace, and exceptions — which are merged into one reverse-chronological feed
- * with JVM heap and per-type KPIs.
+ * correlation and thread attribution); the Quarkus adapter feeds this assembler the four signal sources it
+ * captures — HTTP requests, SQL trace, exceptions, and security/audit events — which are merged into one
+ * reverse-chronological feed with JVM heap and per-type KPIs.
  *
  * <p>Inputs are already masked and self-filtered by their owning engine services before they reach this
  * shape, so the assembler only normalizes, severities, merges, correlates and caps.</p>
@@ -31,13 +35,15 @@ import java.util.Set;
  * lets it attribute signals by serving thread, but on the Vert.x event loop a thread does not map to a
  * single request, so that strategy is unportable. Instead, when the adapter stamps a distributed-trace id on
  * each signal (the Quarkus adapter reads {@code Span.current()} when OpenTelemetry is present, whose context
- * propagates across the event-loop→worker hops), this assembler nests each SQL/exception entry under the
- * REQUEST entry sharing the same trace id by setting its {@code parentId}. A child is only nested when
- * <em>exactly one</em> request carries that trace id (a uniqueness guard against a reused inbound
+ * propagates across the event-loop→worker hops), this assembler nests each SQL/exception/security entry
+ * under the REQUEST entry sharing the same trace id by setting its {@code parentId}. A child is only nested
+ * when <em>exactly one</em> request carries that trace id (a uniqueness guard against a reused inbound
  * {@code traceparent}). When no trace id is stamped — OpenTelemetry absent — every {@code correlationId} is
- * {@code null}, no {@code parentId} is set, and the feed renders flat (the honest status quo). {@code
- * profileable} stays {@code false} regardless: the per-request profile drill-down is a Spring-only endpoint,
- * and nesting needs only {@code parentId}.</p>
+ * {@code null}, no {@code parentId} is set, and the feed renders flat (the honest status quo). A correlated
+ * security event also stamps {@code securedPrincipal} on its parent REQUEST entry (falling back from the
+ * request's own principal, when Quarkus's security layer directly authenticated it) — see {@link #report}.
+ * {@code profileable} stays {@code false} regardless: the per-request profile drill-down is a Spring-only
+ * endpoint, and nesting needs only {@code parentId}.</p>
  */
 public final class LiveActivityAssembler {
 
@@ -49,6 +55,7 @@ public final class LiveActivityAssembler {
     private static final String TYPE_REQUEST = "REQUEST";
     private static final String TYPE_SQL = "SQL";
     private static final String TYPE_EXCEPTION = "EXCEPTION";
+    private static final String TYPE_SECURITY = "SECURITY";
 
     private static final String SEVERITY_OK = "OK";
     private static final String SEVERITY_SLOW = "SLOW";
@@ -65,6 +72,10 @@ public final class LiveActivityAssembler {
      * @param sqlUnavailableWarning adapter-supplied explanation surfaced when {@code !sqlAvailable} (e.g. no
      *     datasource configured vs tracing intentionally disabled), or {@code null}/blank to surface none
      * @param exceptionGroups captured exception groups (newest-first), or {@code null}
+     * @param securityEvents already-masked security/audit events (newest-first), or {@code null}; ignored
+     *     unless {@code securityAvailable}
+     * @param securityAvailable whether the security-event source is present and feeding (Quarkus's security
+     *     capability is present and {@code quarkus.security.events.enabled=true})
      * @param healthStatus current health status, or {@code null}
      * @param limit maximum merged entries to return, or {@code 0}/negative for no cap
      */
@@ -74,12 +85,15 @@ public final class LiveActivityAssembler {
             boolean sqlAvailable,
             String sqlUnavailableWarning,
             List<ExceptionGroupDto> exceptionGroups,
+            List<SecurityLogEventDto> securityEvents,
+            boolean securityAvailable,
             String healthStatus,
             int limit) {
 
         List<HttpExchangeDto> exchanges = requests == null ? List.of() : requests.exchanges();
         List<SqlTraceEntryDto> sql = !sqlAvailable || sqlEntries == null ? List.of() : sqlEntries;
         List<ExceptionGroupDto> exceptions = exceptionGroups == null ? List.of() : exceptionGroups;
+        List<SecurityLogEventDto> security = !securityAvailable || securityEvents == null ? List.of() : securityEvents;
 
         List<ActivityEntryDto> entries = new ArrayList<>();
 
@@ -92,6 +106,27 @@ public final class LiveActivityAssembler {
         // than one request so an ambiguous (reused) trace never nests a child under the wrong request.
         Map<String, String> requestIdByTrace = new HashMap<>();
         Set<String> ambiguousTraces = new HashSet<>();
+        for (HttpExchangeDto e : exchanges) {
+            String trace = blankToNull(e.traceId());
+            if (trace != null && requestIdByTrace.putIfAbsent(trace, e.id()) != null) {
+                ambiguousTraces.add(trace);
+            }
+        }
+
+        // Correlate security events to their owning request BEFORE building REQUEST entries (an immutable
+        // record can't be patched after construction), so a uniquely-matched event's principal can be
+        // stamped onto the request as `securedPrincipal`. Newest-first iteration + putIfAbsent means the
+        // most recent correlated event's principal wins when more than one shares a request's trace id; a
+        // blank/anonymous principal is never recorded so it can't paint a misleading "secured" badge on an
+        // unauthenticated request.
+        Map<String, String> securedPrincipalByRequestId = new HashMap<>();
+        for (SecurityLogEventDto event : security) {
+            String requestId = parentFor(event.traceId(), requestIdByTrace, ambiguousTraces);
+            String principal = blankToNull(event.principal());
+            if (requestId != null && principal != null) {
+                securedPrincipalByRequestId.putIfAbsent(requestId, principal);
+            }
+        }
 
         for (HttpExchangeDto e : exchanges) {
             long ts = e.timestamp() == null ? 0L : e.timestamp().toEpochMilli();
@@ -105,10 +140,10 @@ public final class LiveActivityAssembler {
                     slowestPath = e.path();
                 }
             }
-            String trace = blankToNull(e.traceId());
-            if (trace != null && requestIdByTrace.putIfAbsent(trace, e.id()) != null) {
-                ambiguousTraces.add(trace);
-            }
+            // The request's own principal (Quarkus's security layer authenticated it directly, e.g. via
+            // rc.user()) takes precedence as the more direct signal; fall back to a correlated security
+            // event's principal only when the request itself carried none.
+            String securedPrincipal = e.principal() != null ? e.principal() : securedPrincipalByRequestId.get(e.id());
             entries.add(new ActivityEntryDto(
                     e.id(),
                     TYPE_REQUEST,
@@ -124,7 +159,7 @@ public final class LiveActivityAssembler {
                     null,
                     false,
                     null,
-                    e.principal()));
+                    securedPrincipal));
         }
 
         Long slowestQuery = null;
@@ -137,6 +172,12 @@ public final class LiveActivityAssembler {
 
         for (ExceptionGroupDto g : exceptions) {
             entries.add(toExceptionEntry(g, parentFor(g.lastTraceId(), requestIdByTrace, ambiguousTraces)));
+        }
+
+        int securityIndex = 0;
+        for (SecurityLogEventDto event : security) {
+            entries.add(toSecurityEntry(
+                    event, securityIndex++, parentFor(event.traceId(), requestIdByTrace, ambiguousTraces)));
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
@@ -154,6 +195,9 @@ public final class LiveActivityAssembler {
         sources.add("exceptions");
         if (sqlAvailable) {
             sources.add("sql");
+        }
+        if (securityAvailable) {
+            sources.add("security");
         }
 
         List<String> warnings = new ArrayList<>();
@@ -232,6 +276,35 @@ public final class LiveActivityAssembler {
     }
 
     /**
+     * Build a SECURITY entry for an already-masked audit/security event. Severity mirrors Spring's
+     * {@code LiveActivityService.toSecurityEntry} mapping: an event type naming a failure or a denial is a
+     * {@code WARN} (worth a glance), anything else (e.g. an authentication success) is {@code OK}.
+     */
+    private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, int index, String parentId) {
+        String type = event.type() == null ? "" : event.type();
+        String upperType = type.toUpperCase(Locale.ROOT);
+        String severity = upperType.contains("FAILURE") || upperType.contains("DENIED") ? SEVERITY_WARN : SEVERITY_OK;
+        String principal = blankToNull(event.principal());
+        String summary = (type + (principal == null ? "" : " · " + principal)).trim();
+        return new ActivityEntryDto(
+                "sec-" + index,
+                TYPE_SECURITY,
+                parseEpochMillis(event.timestamp()),
+                severity,
+                summary,
+                null,
+                null,
+                event.traceId(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                parentId,
+                null);
+    }
+
+    /**
      * The id of the REQUEST entry a child signal (SQL/exception) should nest under, or {@code null} when
      * the child carries no trace id, no request shares it, or — the uniqueness guard — more than one
      * request carries it (an ambiguous, likely reused, inbound {@code traceparent}).
@@ -246,6 +319,18 @@ public final class LiveActivityAssembler {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    /** Parse an ISO-8601 instant to epoch millis, returning {@code 0} for null/blank/unparseable input. */
+    private static long parseEpochMillis(String timestamp) {
+        if (timestamp == null || timestamp.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Instant.parse(timestamp).toEpochMilli();
+        } catch (DateTimeParseException ex) {
+            return 0L;
+        }
     }
 
     private String requestSeverity(int status, Long durationMs) {

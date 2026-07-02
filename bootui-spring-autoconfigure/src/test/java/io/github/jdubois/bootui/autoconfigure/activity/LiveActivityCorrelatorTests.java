@@ -454,7 +454,7 @@ class LiveActivityCorrelatorTests {
     }
 
     private static SecurityLogEventDto securityEvent(String type, String principal, long epochMillis) {
-        return new SecurityLogEventDto(Instant.ofEpochMilli(epochMillis).toString(), principal, type, List.of());
+        return new SecurityLogEventDto(Instant.ofEpochMilli(epochMillis).toString(), principal, type, List.of(), null);
     }
 
     private static SqlTraceController sqlController(SqlTraceEntryDto... entries) {
