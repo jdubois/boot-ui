@@ -298,10 +298,12 @@ class HibernateScannerTests {
 
             assertThat(queryResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
             assertThat(queryResult.sampleViolations())
-                    .anySatisfy(sample -> assertThat(sample).contains("Hibernate " + version));
+                    .anySatisfy(sample ->
+                            assertThat(sample).contains("Hibernate " + version, "generated SQL", "limitInMemory"));
             assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
             assertThat(configResult.sampleViolations())
-                    .anySatisfy(sample -> assertThat(sample).contains("Hibernate " + version));
+                    .anySatisfy(sample ->
+                            assertThat(sample).contains("Hibernate " + version, "generated SQL", "limitInMemory"));
         }
     }
 
