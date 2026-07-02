@@ -142,9 +142,16 @@ Small interfaces the shared engine calls; each framework implements them. Names 
 | `LocalhostGuardBinding`        | Feeds request metadata to the shared guard                           | servlet `Filter`                                            | Vert.x handler                               |
 
 The framework-neutral safety **decision** (loopback check, `Host`/allowed-hosts validation, `Origin`/`Sec-Fetch-Site`
-CSRF defense, panel access rules) is extracted into a shared `LocalhostGuard` in `bootui-engine`, reusing the existing
-`CidrRange` / `ContainerGatewayDetector` / `BootUiPanels` logic. Each framework only supplies request metadata and writes
-the deny response.
+CSRF defense) is extracted into a shared `LocalhostGuard` in `bootui-engine`, reusing the existing `CidrRange` /
+`ContainerGatewayDetector` logic. Each framework only supplies request metadata and writes the deny response.
+
+Per-panel **access** rules (`bootui.panels.<id>.enabled` / `.read-only`, plus the global `bootui.read-only`) are a
+separate, sibling mechanism — implemented on Spring as `PanelAccessFilter` and, at full behavioral parity (same config
+keys, same canonical JSON 403 body), on Quarkus as `QuarkusPanelAccessFilter`. Both bind to the same shared
+`BootUiPanels` registry to resolve a request path to a panel id and its `actionCapable()` flag, and both run as a
+second filter *after* the loopback/Host/CSRF guard (`QuarkusPanelAccessFilter` is registered at a lower Vert.x filter
+priority than `BootUiQuarkusSafetyFilter`, so a request failing both checks is rejected by the safety guard, not the
+panel-access filter).
 
 ## 5. The Quarkus panel set
 
@@ -248,6 +255,13 @@ adapters).
 - **Loopback safety preserved.** The shared `LocalhostGuard` enforces the same loopback / allowed-hosts / CSRF rules; the
   Quarkus adapter binds it as a high-priority Vert.x handler on `/bootui/*` and `/bootui/api/*`, failing closed for
   non-loopback callers — matching `LocalhostOnlyFilter`'s `Integer.MIN_VALUE` servlet ordering.
+- **Per-panel access gating at parity.** `QuarkusPanelAccessFilter` enforces `bootui.panels.<id>.enabled` /
+  `.read-only` and the global `bootui.read-only`, mirroring Spring's `PanelAccessFilter` exactly (same config keys,
+  same `BootUiPanels` path resolution, same canonical `{"error":"BootUI panel access denied","panel":"<id>",
+  "reason":"<reason>"}` JSON 403 body). It runs as a lower-priority Vert.x filter than `BootUiQuarkusSafetyFilter`, so
+  the loopback/Host/CSRF guard always evaluates first. `QuarkusPanelAvailability` and `QuarkusMcpPanelPolicy` (the MCP
+  tool gate) both read the same config, so a disabled or read-only panel is refused consistently across the REST API,
+  the `/bootui/api/panels` manifest, and the MCP bridge.
 
 ## 7. Code-sharing scorecard
 

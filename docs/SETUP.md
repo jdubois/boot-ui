@@ -277,9 +277,10 @@ bootui.trust-container-gateway=AUTO     # auto-trust the container gateway in de
 The [Running inside a Docker container](#running-inside-a-docker-container) guidance below applies to Quarkus too —
 use the same keys (only the Spring-specific activation note differs; on Quarkus, dev mode is already active).
 
-A few capabilities are **Spring-only today**: per-panel `bootui.panels.*` enable / read-only toggles, the
-`bootui.read-only` master switch, and runtime configuration overrides (the Configuration panel is read-only on
-Quarkus). Everything else behaves the same across both frameworks.
+A few capabilities are **Spring-only today**: runtime configuration overrides (the Configuration panel is read-only
+on Quarkus — there is no write path yet). Per-panel `bootui.panels.*` enable / read-only toggles and the
+`bootui.read-only` master switch are enforced identically on both frameworks. Everything else behaves the same across
+both frameworks.
 
 ### Which panels are available on Quarkus
 

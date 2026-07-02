@@ -148,23 +148,11 @@ public class BootUiQuarkusSafetyFilter {
      * still sees the full path. Without stripping, {@link #isBootUiRequest} would not recognize the
      * prefixed path and the guard would be skipped (fail-open). The root-path is read live and
      * <em>fails closed</em>: a missing/blank value normalizes to {@code ""} (no prefix), which still guards
-     * the default {@code /bootui} surface.
+     * the default {@code /bootui} surface. Delegates to {@link QuarkusRootPath}, shared with
+     * {@link QuarkusPanelAccessFilter} so the two filters can never drift in root-path handling.
      */
     String bootUiRelativePath(String normalizedPath) {
-        if (normalizedPath == null) {
-            return null;
-        }
-        String prefix = normalizeRootPath(rootPath());
-        if (prefix.isEmpty()) {
-            return normalizedPath;
-        }
-        if (normalizedPath.equals(prefix)) {
-            return "/";
-        }
-        if (normalizedPath.startsWith(prefix + "/")) {
-            return normalizedPath.substring(prefix.length());
-        }
-        return normalizedPath;
+        return QuarkusRootPath.stripPrefix(normalizedPath, QuarkusRootPath.normalize(rootPath()));
     }
 
     private String rootPath() {
@@ -173,17 +161,7 @@ public class BootUiQuarkusSafetyFilter {
 
     /** Normalizes a {@code quarkus.http.root-path} value to a strip-prefix ({@code ""} for the default). */
     static String normalizeRootPath(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return "";
-        }
-        String trimmed = raw.trim();
-        if (!trimmed.startsWith("/")) {
-            trimmed = "/" + trimmed;
-        }
-        while (trimmed.length() > 1 && trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed.equals("/") ? "" : trimmed;
+        return QuarkusRootPath.normalize(raw);
     }
 
     /**
