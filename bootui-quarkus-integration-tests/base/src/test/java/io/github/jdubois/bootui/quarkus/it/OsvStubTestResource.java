@@ -47,7 +47,10 @@ public class OsvStubTestResource implements QuarkusTestResourceLifecycleManager 
                         "{\"id\":\"" + ADVISORY_ID + "\",\"summary\":\"Integration-test advisory\","
                                 + "\"details\":\"A synthetic critical vulnerability used by the BootUI Quarkus IT.\","
                                 + "\"aliases\":[\"CVE-2099-0001\"],"
-                                + "\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\"9.8\"}],"
+                                // OSV.dev's severity[].score is always a CVSS vector string, never a bare number;
+                                // this vector's base score (9.8/CRITICAL) is verified against the FIRST.org CVSS
+                                // v3.1 specification.
+                                + "\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\"}],"
                                 + "\"references\":[{\"url\":\"https://example.test/advisory\"}]}"));
         server.start();
         return Map.of(

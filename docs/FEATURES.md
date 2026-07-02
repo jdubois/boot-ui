@@ -399,13 +399,37 @@ though no Spring-specific probe ran on Quarkus.
 
 The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
 vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
-ordered by severity first, with dependencies and advisories alphabetized within the same severity.
+ordered by severity first (dismissed findings sink to the bottom regardless of severity), with dependencies and
+advisories alphabetized within the same severity.
+
+Severity is derived from [OSV.dev](https://osv.dev/)'s `severity[]` entries, whose `score` field is a CVSS vector string
+for `CVSS_V3`/`CVSS_V4` types (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`), never a bare number. A CVSS
+v3.0/v3.1 vector is parsed into a real numeric Base Score using the formula from the
+[FIRST.org CVSS v3.1 specification](https://www.first.org/cvss/v3-1/specification-document); CVSS v4.0 has no
+closed-form Base Score equation (its MacroVector lookup table is a much larger undertaking) and legacy CVSS v2 is
+essentially unseen in real Maven-ecosystem OSV advisories, so both fall back to the advisory's
+`database_specific.severity` label (`CRITICAL`/`HIGH`/`MODERATE`/`LOW`, normalized to BootUI's `MEDIUM` label) when no
+v3 score is present. An advisory with neither a parseable CVSS v3 score nor a `database_specific` label renders as
+`UNKNOWN` rather than being silently dropped. Advisories carrying a `withdrawn` timestamp are excluded from results
+entirely, since OSV does not filter withdrawn records out of its API responses itself. A single advisory detail fetch
+that fails (network hiccup, rate limiting) no longer aborts the whole scan: it is counted and the scan degrades to
+`PARTIAL`, keeping every advisory that *did* fetch successfully instead of discarding the whole result.
+
+Like every other advisor, a vulnerability can be **dismissed** when it does not apply to your project (already
+patched downstream, accepted risk, or a fix not yet available upstream) — see the shared dismiss/restore explanation
+at the top of this section. The one difference from a flat rule-based advisor is the dismissal key's shape: because a
+vulnerability is scoped to one dependency, it is keyed by `<vulnerability id>::<package name>` (for example
+`GHSA-xxxx-xxxx-xxxx::org.example:sample`) rather than a bare rule id, so dismissing a finding for one dependency never
+accidentally hides the same advisory id reported against a different dependency, and a dismissal survives a
+patch-version bump of the still-vulnerable dependency. Dismissed vulnerabilities stay visible (dimmed, with a
+_Restore_ button) rather than disappearing, and are excluded from the per-dependency and panel-level vulnerable counts.
 
 On Quarkus the panel is identical, listing the local inventory first and contacting OSV.dev only on the user-initiated
-scan, over the same report contract. The one platform difference is dependency discovery: the Spring adapter scans the
-classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus runtime classloader, so the
-Quarkus inventory is captured at build time from the application's resolved runtime dependency model and read back at
-runtime (mirroring the Architecture panel's build-time base-package discovery). The OSV lookup itself is identical, and
+scan, over the same report contract, the same CVSS/withdrawn/partial-failure handling, and the same dismiss/restore
+workflow. The one platform difference is dependency discovery: the Spring adapter scans the classpath for
+`META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus runtime classloader, so the Quarkus inventory
+is captured at build time from the application's resolved runtime dependency model and read back at runtime (mirroring
+the Architecture panel's build-time base-package discovery). The OSV lookup itself is identical, and
 `bootui.vulnerabilities.osv-enabled=false` disables on-demand scanning on both adapters.
 
 ![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.webp)
