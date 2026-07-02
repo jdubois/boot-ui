@@ -25,6 +25,15 @@ import org.junit.jupiter.api.Test;
  * {@code CurrentVertxRequest}, which Quarkus populates before resource-method invocation and which survives
  * the event-loop→worker-thread hop. See {@code BootUiQuarkusLiveActivityCorrelationTest} for the SQL
  * analogue of this same trace-id nesting proof.</p>
+ *
+ * <p>It also covers the sibling {@code handler} field (the JAX-RS resource class + method that was serving
+ * the request), resolved via {@code QuarkusResourceHandlers} from RESTEasy Reactive's
+ * {@code CurrentRequestManager}/{@code ResteasyReactiveResourceInfo} — populated in lockstep with the same
+ * CDI-current state {@code method}/{@code path} rely on, so it survives the same thread hop. Unlike
+ * {@code method}/{@code path}, {@code handler} is not part of the Live Activity feed's {@code
+ * ActivityEntryDto} wire (that shape has no such field on any platform), so this is asserted against the
+ * Exceptions panel's own {@code GET /bootui/api/exceptions} report instead, on the matching group's {@code
+ * lastHandler}.</p>
  */
 @QuarkusTest
 class BootUiQuarkusLiveActivityExceptionCorrelationTest {
@@ -89,5 +98,25 @@ class BootUiQuarkusLiveActivityExceptionCorrelationTest {
         assertThat(exception.path("path").asText(null))
                 .as("regression: the exception must carry its owning request's path, not null")
                 .isEqualTo("/it/boom");
+
+        Response exceptionsReport = probe().get("/bootui/api/exceptions");
+        assertThat(exceptionsReport.status())
+                .as("GET /bootui/api/exceptions status")
+                .isEqualTo(200);
+        JsonNode group = null;
+        for (JsonNode candidate : exceptionsReport.json().path("groups")) {
+            if ("java.lang.IllegalStateException"
+                    .equals(candidate.path("exceptionClassName").asText())) {
+                group = candidate;
+            }
+        }
+        assertThat(group)
+                .as("the failure thrown by /it/boom must surface as a group in the Exceptions panel report")
+                .isNotNull();
+        assertThat(group.path("lastHandler").asText(null))
+                .as("regression: the exception must carry the JAX-RS resource class + method that was "
+                        + "handling the request, not null — QuarkusResourceHandlers must resolve it from "
+                        + "RESTEasy Reactive's current-request state, mirroring method/path")
+                .isEqualTo("ExceptionProbeResource#boom");
     }
 }

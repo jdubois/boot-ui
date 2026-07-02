@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.quarkus.exceptions.QuarkusResourceHandlers;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.vertx.http.runtime.filters.Filters;
 import io.vertx.ext.web.RoutingContext;
@@ -31,6 +32,16 @@ import jakarta.inject.Inject;
  * with the failure so the Live Activity timeline can nest this exception under its owning request. The
  * provider is optional: when OpenTelemetry is absent the {@code Instance} is unresolvable and the trace id
  * stays {@code null}.</p>
+ *
+ * <p>The handler (JAX-RS resource class + method) is resolved via {@link QuarkusResourceHandlers#currentHandler()}
+ * inside the {@code addBodyEndHandler} callback — the same RESTEasy Reactive current-request accessor
+ * {@code QuarkusExceptionLogHandler} uses. This is a best-effort read: unlike method/path, which this filter
+ * takes directly off its own {@link RoutingContext} and so are always available here, the resource-info
+ * accessor depends on the CDI request scope still being active at this later capture point. It resolves
+ * correctly whenever that scope is still current (the common case); if a future request-lifecycle change
+ * ever tears it down before {@code addBodyEndHandler} fires, this simply degrades to {@code null}, same as
+ * every other guarded failure mode on this path. Either way this filter is already a rarely-winning
+ * fallback, so a best-effort handler here is a bonus, not a requirement.</p>
  */
 @ApplicationScoped
 public class QuarkusExceptionCaptureFilter {
@@ -64,7 +75,14 @@ public class QuarkusExceptionCaptureFilter {
         rc.addBodyEndHandler(v -> {
             Throwable failure = rc.failure();
             if (failure != null) {
-                store.record(failure, Thread.currentThread().getName(), method, path, null, "web", traceId);
+                store.record(
+                        failure,
+                        Thread.currentThread().getName(),
+                        method,
+                        path,
+                        QuarkusResourceHandlers.currentHandler(),
+                        "web",
+                        traceId);
             }
         });
         rc.next();
