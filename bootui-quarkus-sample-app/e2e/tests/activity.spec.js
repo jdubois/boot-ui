@@ -4,11 +4,17 @@ import {expect, test} from './fixtures.js'
 /**
  * Live Activity (Quarkus).
  *
- * Quarkus has no per-request profile drawer (`profileable` is always `false` — the `/activity/request/{id}`
- * drill-down endpoint is Spring-only; see `LiveActivityAssembler`), so the "exact"/"approximate" correlation
- * badges, the drawer itself, Escape-to-close and "Copy profile" from the Spring spec do not port here. What
- * IS real and load-bearing on Quarkus: the merged feed, OpenTelemetry-trace-id-based nesting/correlation,
- * KPI deep-links, and — the reason this spec exists — a regression guard for the bug fixed in #492.
+ * Quarkus now has a per-request profile drawer too (`GET /bootui/api/activity/request/{id}` — see
+ * `RequestProfileAssembler`), but it is a deliberately *reduced*, trace-id-only profile: unlike Spring's
+ * tiered profiler (trace id, then method+path+time-window+thread heuristics), Quarkus's reactive
+ * event-loop/worker model has no per-request serving-thread identity to fall back on, so a request only
+ * ever profiles when it carries a distributed trace id, SQL/security correlation is always exact (never
+ * "approximate", and never thread-matched), and the drawer surfaces explicit reduced-profile notes instead
+ * of Spring's exact/approximate badges. The dedicated profile-drawer tests below assert exactly that
+ * reduced (not absent, not full-parity) behavior.
+ *
+ * Beyond the drawer, this spec's other focus is the merged feed, OpenTelemetry-trace-id-based
+ * nesting/correlation, KPI deep-links, and a regression guard for the bug fixed in #492.
  *
  * That bug: a Quarkus-captured exception's `method`/`path` were deterministically `null`. Root cause:
  * `ExceptionStore` dedups by throwable identity across the whole cause chain, keeping only the first
@@ -111,6 +117,91 @@ test.describe('Live Activity view (Quarkus)', () => {
 
     await expect(secureRow.locator('i.bi-lock-fill')).toBeVisible()
     await expect(secureRow.locator('.activity-principal-tag')).toContainText('admin')
+  })
+
+  test('opens a per-request profile drawer with a reduced, trace-id-only profile', async ({openView, page}) => {
+    // product-search always runs SQL, so the request reliably has SQL to correlate in the drawer.
+    const search = await page.request.get('/api/sample/product-search')
+    expect(search.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+
+    const searchRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/product-search'}).first()
+    await expect(searchRow).toBeVisible({timeout: 15_000})
+
+    await searchRow.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer).toContainText('Request profile')
+    await expect(drawer).toContainText('/api/sample/product-search')
+
+    // Quarkus's reduced profile has no time-window/thread heuristic to fall back on, so a
+    // trace-id-correlated SQL execution is always "exact", never the "approximate" fallback Spring's
+    // fuller profiler can show.
+    await expect(drawer.getByText('exact', {exact: true})).toBeVisible()
+    await expect(drawer.getByText('approximate', {exact: true})).toHaveCount(0)
+
+    // The reduced-profile explanation is real, load-bearing UI copy (RequestProfileAssembler's notes),
+    // not an internal implementation detail — a developer reads this to know why Quarkus's profile is
+    // narrower than Spring's.
+    await expect(drawer).toContainText('reduced, trace-id-only profile')
+
+    await drawer.getByRole('button', {name: 'Close'}).click()
+    await expect(drawer).toHaveCount(0)
+  })
+
+  test('correlates a security event to the profiled request by trace id, never claiming a thread-exact match', async ({
+    openView,
+    page
+  }) => {
+    // /api/secure/products deliberately also runs a live SQL SELECT (see SecureResource), so this
+    // request's drawer exercises SQL correlation and security correlation together.
+    const secure = await page.request.get('/api/secure/products', {
+      headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
+    })
+    expect(secure.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+
+    const secureRow = page.locator('.activity-table tbody tr', {hasText: '/api/secure/products'}).first()
+    await expect(secureRow).toBeVisible({timeout: 15_000})
+
+    await secureRow.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+
+    const security = drawer.locator('section', {has: page.getByRole('heading', {name: 'Security events'})})
+    await expect(security).toBeVisible({timeout: 15_000})
+    await expect(security).toContainText('AuthenticationSuccessEvent')
+
+    // Reduced correlation: Quarkus's reactive event-loop/worker model has no per-request serving-thread
+    // identity, so RequestProfileAssembler can only ever claim a "principal" match here (the event's
+    // principal equals the request's), never the stronger "exact" (thread-matched) badge Spring can show
+    // for the same scenario. Scoped to the security section specifically, since the SQL section on this
+    // same request legitimately does show "exact" (see the previous test).
+    await expect(security.getByText('principal', {exact: true})).toBeVisible()
+    await expect(security.getByText('exact', {exact: true})).toHaveCount(0)
+
+    await drawer.getByRole('button', {name: 'Close'}).click()
+  })
+
+  test('closes the profile drawer with the Escape key and offers a copy action', async ({openView, page}) => {
+    await page.request.get('/api/sample/product-search')
+
+    await openView('activity', 'Live Activity')
+    const searchRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/product-search'}).first()
+    await expect(searchRow).toBeVisible({timeout: 15_000})
+
+    await searchRow.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer.getByRole('button', {name: /Copy profile/})).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
   })
 
   test('pauses and resumes the live feed', async ({openView, page}) => {
