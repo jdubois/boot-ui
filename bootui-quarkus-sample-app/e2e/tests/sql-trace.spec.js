@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 /**
  * SQL Trace + Live Activity capture on Quarkus.
@@ -45,5 +45,34 @@ test.describe('SQL Trace + Live Activity capture (Quarkus)', () => {
     const feed = page.locator('table.activity-table')
     await expect(feed).toContainText('SQL')
     await expect(feed).toContainText('EXCEPTION')
+  })
+
+  test('pauses and resumes recording through the live BootUiSqlTraceProducer wrap', async ({openView, page}) => {
+    await openView('sql-trace', 'SQL Trace')
+
+    const toggleButton = page.getByRole('button', {name: /Pause|Resume/})
+    await expect(toggleButton).toHaveText('Pause')
+
+    await toggleButton.click()
+    await expect(page.locator('.alert-success')).toContainText('Recording paused; existing executions are kept.')
+    await expect(toggleButton).toHaveText('Resume')
+
+    // Restore recording so later specs in this sequential run keep capturing SQL.
+    await toggleButton.click()
+    await expect(page.locator('.alert-success')).toContainText('Recording resumed.')
+    await expect(toggleButton).toHaveText('Pause')
+  })
+
+  test('clears the retained SQL trace buffer', async ({openView, page}) => {
+    await page.request.get('/api/sample/product-search?term=console').catch(() => {})
+    await openView('sql-trace', 'SQL Trace')
+
+    const clearButton = page.getByRole('button', {name: 'Clear'})
+    await expect(clearButton).toBeEnabled()
+    await clearButton.click()
+    await acceptConfirm(page)
+
+    await expect(page.locator('.alert-success')).toContainText('SQL trace cleared.')
+    await expect(clearButton).toBeDisabled()
   })
 })
