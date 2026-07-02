@@ -20,6 +20,7 @@ final class ArchitectureRuleRegistry {
             new NoLegacyDateTimeRule(),
             new NoDeprecatedApiRule(),
             new NoFieldInjectionRule(),
+            new FieldsShouldNotUseStandardInjectionAnnotationsRule(),
             new ControllersShouldNotDependOnRepositoriesRule(),
             new RepositoriesShouldNotDependOnControllersRule(),
             new RepositoriesShouldNotDependOnServicesRule(),
