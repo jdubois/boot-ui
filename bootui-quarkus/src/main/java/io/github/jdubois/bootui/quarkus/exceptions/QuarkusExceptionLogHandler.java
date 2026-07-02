@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.quarkus.exceptions;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
+import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
+import io.vertx.ext.web.RoutingContext;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 
@@ -20,22 +22,37 @@ import java.util.logging.LogRecord;
  * <p>When an OpenTelemetry {@link TraceIdProvider} is present it stamps a best-effort trace id on each
  * captured throwable so a logged failure can nest under its request in the Live Activity timeline — when
  * the logging thread still carries the request's OpenTelemetry context. It is nullable and fully guarded:
- * with no provider, no context, or a failure, the trace id is simply {@code null}. For web failures the
- * {@code QuarkusExceptionCaptureFilter} resolves the trace id more reliably (on the event loop), and the
- * store's dedup collapses the two into one occurrence.</p>
+ * with no provider, no context, or a failure, the trace id is simply {@code null}.</p>
+ *
+ * <p>It also resolves the request method/path for the same reason {@code BootUiExceptionHandlerResolver}
+ * captures them directly on Spring: Quarkus's default error handling ({@code QuarkusErrorHandler}) logs an
+ * unhandled request failure <em>synchronously</em>, before the response — and so before
+ * {@code QuarkusExceptionCaptureFilter}'s {@code addBodyEndHandler} callback — ever runs. Since
+ * {@link ExceptionStore#record} dedups by throwable identity and keeps only the first feeder's context,
+ * that ordering means the filter's richer web context is silently discarded and every Quarkus exception
+ * would otherwise carry a {@code null} method/path. Reading the CDI-provided {@link CurrentVertxRequest}
+ * here — request-scoped, and populated by Quarkus before the resource method that can fail — closes that
+ * gap by resolving the context at the point that actually wins the race. It is nullable and fully guarded:
+ * with no provider, no active request scope (e.g. a background/scheduled failure), or a failure, the
+ * method/path are simply {@code null}, same as before.</p>
  */
 public final class QuarkusExceptionLogHandler extends Handler {
 
     private final ExceptionStore store;
     private final InternalPackageMatcher internalPackages;
     private final TraceIdProvider traceIdProvider;
+    private final CurrentVertxRequest currentVertxRequest;
     private final ThreadLocal<Boolean> capturing = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     public QuarkusExceptionLogHandler(
-            ExceptionStore store, InternalPackageMatcher internalPackages, TraceIdProvider traceIdProvider) {
+            ExceptionStore store,
+            InternalPackageMatcher internalPackages,
+            TraceIdProvider traceIdProvider,
+            CurrentVertxRequest currentVertxRequest) {
         this.store = store;
         this.internalPackages = internalPackages;
         this.traceIdProvider = traceIdProvider;
+        this.currentVertxRequest = currentVertxRequest;
     }
 
     @Override
@@ -49,7 +66,10 @@ public final class QuarkusExceptionLogHandler extends Handler {
         }
         capturing.set(Boolean.TRUE);
         try {
-            store.record(thrown, Thread.currentThread().getName(), null, null, null, "log", currentTraceId());
+            RoutingContext rc = currentRoutingContext();
+            String method = rc == null ? null : rc.request().method().name();
+            String path = rc == null ? null : rc.normalizedPath();
+            store.record(thrown, Thread.currentThread().getName(), method, path, null, "log", currentTraceId());
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with the application's logging.
         } finally {
@@ -63,6 +83,21 @@ public final class QuarkusExceptionLogHandler extends Handler {
         }
         try {
             return traceIdProvider.currentTraceId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * The active request's routing context, or {@code null} when none is current (no request scope active
+     * — e.g. a scheduled task or startup failure — or the request-scoped bean has already been torn down).
+     */
+    private RoutingContext currentRoutingContext() {
+        if (currentVertxRequest == null) {
+            return null;
+        }
+        try {
+            return currentVertxRequest.getCurrent();
         } catch (RuntimeException ex) {
             return null;
         }
