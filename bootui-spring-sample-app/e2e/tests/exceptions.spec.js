@@ -18,7 +18,7 @@ test.describe('Exceptions view', () => {
     await expect(row).toContainText('apiToken=******')
     await expect(row).not.toContainText('sample-secret-token')
 
-    await row.getByRole('button', {name: 'Open'}).click()
+    await row.getByRole('button', {name: 'Details'}).click()
 
     const drawer = page.locator('.exception-drawer')
     await expect(drawer).toBeVisible()
@@ -52,5 +52,42 @@ test.describe('Exceptions view', () => {
     await acceptConfirm(page)
 
     await expect(page.locator('tbody tr', {hasText: DEMO_MESSAGE})).toHaveCount(0)
+  })
+
+  test('acknowledges, resolves, and detects a regression on the same exception group', async ({openView, page}) => {
+    await openView('exceptions', 'Exceptions')
+
+    // Start from an empty buffer so the group below is unambiguous.
+    const clearButton = page.getByRole('button', {name: /Clear/})
+    if (await clearButton.isEnabled()) {
+      await clearButton.click()
+      await acceptConfirm(page)
+      await expect(page.locator('.alert-success')).toBeVisible()
+    }
+
+    // /api/sample/boom always throws from the same catch block, so repeated calls share one
+    // fingerprint/group (see ExceptionStore's fingerprinting) — the group is created OPEN.
+    await page.request.get('/api/sample/boom')
+    await page.getByTitle('Refresh', {exact: true}).click()
+
+    const row = page.locator('tbody tr', {hasText: DEMO_MESSAGE}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await expect(row.getByRole('button', {name: 'Open', exact: true})).toHaveClass(/active/)
+
+    await row.getByRole('button', {name: 'Acknowledged', exact: true}).click()
+    await expect(row).toContainText('Acknowledged')
+    await expect(row.getByRole('button', {name: 'Acknowledged', exact: true})).toHaveClass(/active/)
+
+    await row.getByRole('button', {name: 'Resolved', exact: true}).click()
+    await expect(row).toContainText('Resolved')
+    await expect(row.getByRole('button', {name: 'Resolved', exact: true})).toHaveClass(/active/)
+
+    // The exact same failure firing again after being marked resolved is a Sentry-style regression:
+    // ExceptionStore auto-reopens the group and marks it, instead of silently staying Resolved.
+    await page.request.get('/api/sample/boom')
+    await page.getByTitle('Refresh', {exact: true}).click()
+
+    await expect(row.getByRole('button', {name: 'Open', exact: true})).toHaveClass(/active/)
+    await expect(row).toContainText('Reopened ×1')
   })
 })

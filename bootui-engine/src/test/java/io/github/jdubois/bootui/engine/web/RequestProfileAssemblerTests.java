@@ -195,7 +195,9 @@ class RequestProfileAssemblerTests {
                 "/orders",
                 "Handler#x",
                 "web",
-                traceId);
+                traceId,
+                "OPEN",
+                0);
         ExceptionOccurrenceDto occurrence =
                 new ExceptionOccurrenceDto(timestamp, "worker-1", "GET", "/orders", "Handler#x", "web", traceId);
         return new ExceptionDetailDto(group, List.of(), List.of(), List.of(occurrence));

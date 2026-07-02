@@ -499,7 +499,9 @@ class LiveActivityCorrelatorTests {
                     path,
                     "h",
                     "s",
-                    null);
+                    null,
+                    "OPEN",
+                    0);
             ExceptionDetailDto detail = new ExceptionDetailDto(
                     groups[i],
                     List.of(),
@@ -532,7 +534,9 @@ class LiveActivityCorrelatorTests {
                 path,
                 "h",
                 "web",
-                null);
+                null,
+                "OPEN",
+                0);
         ExceptionDetailDto detail = new ExceptionDetailDto(group, List.of(), List.of(), List.of(occurrences));
         when(controller.detail("g0")).thenReturn(detail);
         ExceptionsReport report = new ExceptionsReport(true, null, 50, 1, List.of(group));

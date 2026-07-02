@@ -1,14 +1,18 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
+import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
+import io.github.jdubois.bootui.core.dto.ExceptionStatusUpdateRequest;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.smallrye.mutiny.Multi;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -17,6 +21,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -64,6 +69,29 @@ public class ExceptionsResource {
     public Response clear() {
         store.clear();
         return Response.noContent().build();
+    }
+
+    /**
+     * Changes the triage status of one exception group ({@code OPEN}/{@code ACKNOWLEDGED}/
+     * {@code RESOLVED}). See {@link ExceptionsService#updateStatus} for validation and regression
+     * semantics; mirrors the Spring controller's status codes and JSON error body exactly.
+     */
+    @POST
+    @Path("/{id}/status")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response updateStatus(@PathParam("id") String id, ExceptionStatusUpdateRequest request) {
+        try {
+            ExceptionGroupDto updated = service.updateStatus(store, id, request == null ? null : request.status());
+            if (updated == null) {
+                throw new NotFoundException("exception " + id + " not found");
+            }
+            return Response.ok(updated).build();
+        } catch (IllegalArgumentException ex) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()))
+                    .build();
+        }
     }
 
     @GET

@@ -24,6 +24,8 @@ function group(overrides = {}) {
     lastRequestPath: '/api/orders',
     lastHandler: 'OrderController#place',
     lastSource: 'web',
+    status: 'OPEN',
+    regressionCount: 0,
     ...overrides
   }
 }
@@ -135,6 +137,68 @@ describe('Exceptions', () => {
 
     expect(wrapper.text()).not.toContain('IllegalStateException')
     expect(wrapper.text()).toContain('NullPointerException')
+  })
+
+  it('filters groups by status', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          report({
+            groups: [
+              group({id: 'a1', exceptionClassName: 'java.lang.IllegalStateException', status: 'OPEN'}),
+              group({id: 'a2', exceptionClassName: 'java.lang.NullPointerException', status: 'RESOLVED'})
+            ]
+          })
+        )
+      )
+    )
+
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('IllegalStateException')
+    expect(wrapper.text()).toContain('NullPointerException')
+
+    const selects = wrapper.findAll('select')
+    await selects[1].setValue('RESOLVED')
+
+    expect(wrapper.text()).not.toContain('IllegalStateException')
+    expect(wrapper.text()).toContain('NullPointerException')
+  })
+
+  it('renders a status badge and lets the user change status', async () => {
+    const updated = group({status: 'RESOLVED'})
+    const fetchMock = vi.fn((url) => {
+      if (url === 'api/exceptions/abc123/status') return Promise.resolve(jsonResponse(updated))
+      return Promise.resolve(jsonResponse(report()))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+
+    const firstRow = wrapper.findAll('tbody tr')[0]
+    expect(firstRow.text()).toContain('Open')
+
+    const resolveButton = firstRow.findAll('button').find((b) => b.text() === 'Resolved')
+    await resolveButton.trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'api/exceptions/abc123/status',
+      expect.objectContaining({method: 'POST', body: JSON.stringify({status: 'RESOLVED'})})
+    )
+    expect(firstRow.text()).toContain('Resolved')
+  })
+
+  it('shows a reopened badge when regressionCount is greater than zero', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report({groups: [group({regressionCount: 2})]}))))
+
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Reopened ×2')
   })
 
   it('loads exception detail with stack trace and cause chain on open', async () => {

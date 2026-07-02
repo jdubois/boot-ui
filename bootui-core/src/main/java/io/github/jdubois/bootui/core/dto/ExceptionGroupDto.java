@@ -12,6 +12,11 @@ package io.github.jdubois.bootui.core.dto;
  * none was captured. It lets the Live Activity timeline nest this exception under the HTTP request that
  * shares the same trace id (used by the Quarkus adapter; {@code null} on Spring, which correlates by
  * serving thread instead).</p>
+ *
+ * <p>{@code status} is one of {@code OPEN} (default), {@code ACKNOWLEDGED}, or {@code RESOLVED} — the
+ * triage workflow for this group. {@code regressionCount} counts how many times a {@code RESOLVED}
+ * group has automatically reopened to {@code OPEN} after a new occurrence arrived (a Sentry-style
+ * regression signal); it is {@code 0} if the group has never regressed.</p>
  */
 public record ExceptionGroupDto(
         String id,
@@ -27,4 +32,6 @@ public record ExceptionGroupDto(
         String lastRequestPath,
         String lastHandler,
         String lastSource,
-        String lastTraceId) {}
+        String lastTraceId,
+        String status,
+        long regressionCount) {}
