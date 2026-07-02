@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 abstract class AbstractSpringRule implements SpringRule {
 
@@ -328,7 +329,9 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
                 SpringCategory.CONFIGURATION,
                 "LOW",
                 "Detects debug=true or trace=true, which switch on verbose auto-configuration logging"
-                        + " and can leak internal details or slow down the application.",
+                        + " and can leak internal details or slow down the application. Raised to MEDIUM when a"
+                        + " production-like profile is active, since the performance and data-leak cost of"
+                        + " verbose logging is highest there.",
                 "Remove the debug/trace flags and configure logging levels per package instead.",
                 "https://docs.spring.io/spring-boot/reference/features/logging.html"));
     }
@@ -349,7 +352,8 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
                         + " emits verbose framework logging that can leak internals and slow the application.");
             }
         }
-        return violation(findings);
+        String severity = context.isProductionProfileActive() ? SpringRuleSupport.MEDIUM : null;
+        return violation(severity, findings);
     }
 }
 
@@ -803,11 +807,12 @@ final class GracefulShutdownDisabledRule extends AbstractSpringRule {
                 "Keep graceful shutdown enabled",
                 SpringCategory.WEB,
                 "MEDIUM",
-                "Detects server.shutdown=immediate, which overrides the Spring Boot 4 default of graceful"
-                        + " shutdown, so in-flight requests can be dropped when the application stops.",
-                "Remove server.shutdown=immediate (Spring Boot 4 defaults to graceful) and tune"
-                        + " spring.lifecycle.timeout-per-shutdown-phase so active requests can complete during"
-                        + " rollouts.",
+                "Detects server.shutdown=immediate, or spring.lifecycle.timeout-per-shutdown-phase set to zero,"
+                        + " either of which overrides the Spring Boot 4 default of graceful shutdown so in-flight"
+                        + " requests can be dropped when the application stops.",
+                "Remove server.shutdown=immediate (Spring Boot 4 defaults to graceful) and keep"
+                        + " spring.lifecycle.timeout-per-shutdown-phase at a positive value (30s by default) so"
+                        + " active requests can complete during rollouts.",
                 "https://docs.spring.io/spring-boot/reference/web/graceful-shutdown.html"));
     }
 
@@ -817,6 +822,12 @@ final class GracefulShutdownDisabledRule extends AbstractSpringRule {
         if (shutdown != null && "immediate".equalsIgnoreCase(shutdown)) {
             return violation("server.shutdown=immediate overrides Spring Boot 4 graceful shutdown, so in-flight"
                     + " requests may be dropped on stop.");
+        }
+        Long timeoutMillis = context.firstDurationMillisProperty("spring.lifecycle.timeout-per-shutdown-phase");
+        if (timeoutMillis != null && timeoutMillis == 0) {
+            return violation("spring.lifecycle.timeout-per-shutdown-phase is set to zero, so graceful shutdown has"
+                    + " no grace period and in-flight requests are dropped immediately, the same as"
+                    + " server.shutdown=immediate.");
         }
         return pass();
     }
@@ -1180,5 +1191,81 @@ final class OpenSessionInViewEnabledRule extends AbstractSpringRule {
                     "spring.jpa.open-in-view=true keeps a persistence context open for the entire web request.");
         }
         return pass();
+    }
+}
+
+final class InMemoryDatasourceInProductionRule extends AbstractSpringRule {
+
+    /**
+     * JDBC URL substrings that identify an in-memory/embedded database. Each engine's in-memory
+     * subsubprotocol is distinct from its on-disk/file form (for example {@code jdbc:h2:file:...} or a
+     * plain path is durable, only {@code jdbc:h2:mem:...} is not), so matching these specific markers
+     * avoids flagging a perfectly normal file- or server-backed connection.
+     */
+    private static final List<String> IN_MEMORY_URL_MARKERS =
+            List.of("jdbc:h2:mem:", "jdbc:hsqldb:mem:", "jdbc:derby:memory:");
+
+    InMemoryDatasourceInProductionRule() {
+        super(new SpringRuleDefinition(
+                "SPRING-DATA-001",
+                "Avoid an in-memory database in production",
+                SpringCategory.PERSISTENCE,
+                "MEDIUM",
+                "spring.datasource.url targets an in-memory/embedded database (H2, HSQLDB, or Derby) while a"
+                        + " production-like profile is active, so data is lost on every restart and can never be"
+                        + " shared across replicas.",
+                "Point spring.datasource.url at a real managed database (PostgreSQL, MySQL, ...) for"
+                        + " production-like profiles; keep the in-memory database for tests and local development.",
+                "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.embedded"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        if (!context.isProductionProfileActive()) {
+            return skipped("No production-like profile is active, so an in-memory datasource is expected in"
+                    + " tests and local development.");
+        }
+        String url = context.firstProperty("spring.datasource.url");
+        if (url == null) {
+            return pass();
+        }
+        String normalized = url.toLowerCase(Locale.ROOT);
+        for (String marker : IN_MEMORY_URL_MARKERS) {
+            if (normalized.contains(marker)) {
+                return violation("spring.datasource.url=" + url + " targets an in-memory database while a"
+                        + " production-like profile is active.");
+            }
+        }
+        return pass();
+    }
+}
+
+final class MutableSingletonFieldRule extends AbstractSpringRule {
+
+    MutableSingletonFieldRule() {
+        super(
+                new SpringRuleDefinition(
+                        "SPRING-WIRING-009",
+                        "Avoid public mutable fields on singleton beans",
+                        SpringCategory.BEAN_WIRING,
+                        "MEDIUM",
+                        "A singleton-scoped bean (the Spring default) declares a public, non-final instance field that"
+                                + " is not an injection point. Singleton beans are a single instance shared across every"
+                                + " concurrent request and thread, so a public mutable field is unsynchronised shared"
+                                + " state that any caller can read or overwrite outside the bean's own control.",
+                        "Make the field private (and final if it is only ever assigned once), encapsulate mutation"
+                                + " behind a synchronized or atomic accessor, or move genuinely per-request state to a"
+                                + " prototype- or request-scoped bean.",
+                        "https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html#beans-factory-scopes-singleton"));
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext context) {
+        List<String> fields = context.mutableSingletonFields();
+        if (fields.isEmpty()) {
+            return pass();
+        }
+        return violation("Found " + fields.size() + " public mutable field(s) on singleton bean(s): "
+                + String.join(", ", fields) + ".");
     }
 }

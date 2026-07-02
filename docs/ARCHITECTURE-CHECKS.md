@@ -5,32 +5,44 @@ application's own classes. This page lists every rule that ships with BootUI tod
 what to do about it.
 
 Each rule is a small class registered in
-[`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRuleRegistry.java)
+[`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRuleRegistry.java)
 and implemented in
-[`ArchitectureRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureRules.java).
+[`ArchitectureRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRules.java).
 The list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry
-entry.
+entry. The rules, the scanner, and the base-package-discovery seam all live in the framework-neutral `bootui-engine`
+module, so the exact same ruleset runs unmodified on both the Spring and Quarkus adapters — see
+[`docs/QUARKUS-SUPPORT.md`](QUARKUS-SUPPORT.md) for how base-package discovery differs per adapter.
 
 ## What BootUI does
 
-The scanner detects the host application's base package(s) from the `@SpringBootApplication` configuration via
-`AutoConfigurationPackages`, imports the compiled `.class` files from those packages with ArchUnit's
-`ClassFileImporter`, and evaluates every registered rule against the imported classes. Importing is bounded to the
-application's own base package(s) — never the entire classpath — and runs only on demand when the scan action is
-invoked, caching the last report in the controller. When several base packages are detected, all of them are imported
-and analyzed together. ArchUnit still resolves the external types those classes reference (super-classes, interfaces)
-from the classpath so hierarchy-aware checks work; BootUI keeps that resolution enabled but quietly skips any referenced
-class whose resource location uses a URL scheme the JVM cannot open — such as the Quarkus runtime classloader's
-`quarkus:` scheme — so a scan never floods the console with per-class resolution warnings.
+The scanner detects the host application's base package(s) — via the Spring adapter's `@SpringBootApplication`
+configuration (`AutoConfigurationPackages`) or, on Quarkus, via a build-time `BasePackageProvider` seam that reduces the
+Jandex application index to a package root antichain (see [`docs/QUARKUS-SUPPORT.md`](QUARKUS-SUPPORT.md)) — imports the
+compiled `.class` files from those packages with ArchUnit's `ClassFileImporter`, and evaluates every registered rule
+against the imported classes. Importing is bounded to the application's own base package(s) — never the entire classpath
+— and runs only on demand when the scan action is invoked, caching the last report in the controller. When several base
+packages are detected, all of them are imported and analyzed together. ArchUnit still resolves the external types those
+classes reference (super-classes, interfaces) from the classpath so hierarchy-aware checks work; BootUI keeps that
+resolution enabled but quietly skips any referenced class whose resource location uses a URL scheme the JVM cannot open —
+such as the Quarkus runtime classloader's `quarkus:` scheme — so a scan never floods the console with per-class resolution
+warnings.
 
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
-without an extra application dependency. The panel is available only when:
+without an extra application dependency; the Quarkus adapter bundles ArchUnit itself. The panel is available only when:
 
 - ArchUnit is on the classpath, and
 - a base package is resolvable from the running application.
 
 If no classes can be imported (for example in some fat-jar or DevTools restart-classloader situations), the panel
 degrades to a stable, empty report with an explanatory reason rather than failing.
+
+The exact same rules, including the `SPRING_STEREOTYPES` category below, run unmodified against Quarkus/CDI
+applications: rules keyed on Spring-only annotations (`@Autowired`, `@Component`, `@Service`, …) simply match zero
+classes and degrade to a no-op pass — never a false positive — while a handful of rules are deliberately dual-framework
+because they also key on the shared `jakarta.*` annotations (`jakarta.transaction.Transactional`,
+`jakarta.annotation.PostConstruct`/`PreDestroy`) that both Spring and CDI containers recognize. See each rule's entry
+below for which category it falls into, and `ArchitectureCdiNeutralityTests` for the automated check that pins this
+property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture set.
 
 ## What BootUI does not do
 
@@ -212,16 +224,34 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Recommendation**: make utility classes `final` and give them a single private constructor so they cannot be
   instantiated or subclassed.
 
+### ARCH-CODE-016 — Classes should not use standard-annotation field injection
+
+- **Severity**: MEDIUM
+- **Inspects**: `jakarta.inject.Inject`, `javax.inject.Inject`, `jakarta.annotation.Resource`,
+  `javax.annotation.Resource`, or `com.google.inject.Inject` annotations on fields — the standard JSR-330 / Jakarta /
+  Guice injection annotations a CDI container such as Quarkus' Arc (or plain Guice) uses.
+- **Fires when**: a dependency is injected directly into a field via one of these standard annotations instead of
+  through a constructor.
+- **Why it matters**: field injection hides required dependencies, prevents `final` fields, and makes classes harder to
+  instantiate in tests — the same rationale as ARCH-SPRING-001, just for the framework-neutral annotation set. Kept as a
+  separate rule (rather than folded into ARCH-SPRING-001) so it fires correctly on a Quarkus/CDI application that has no
+  Spring annotations anywhere on its classpath.
+- **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test; CDI containers
+  such as Quarkus' Arc inject constructor parameters just as readily as fields.
+
 ## Spring stereotypes
 
 ### ARCH-SPRING-001 — Classes should not use field injection
 
 - **Severity**: MEDIUM
-- **Inspects**: `@Autowired`, `@Inject`, `@Value`, or `@Resource` annotations on fields.
+- **Inspects**: `@Autowired` or `@Value` (Spring's own field-injection annotations) on fields.
 - **Fires when**: a dependency is injected directly into a field instead of through a constructor.
 - **Why it matters**: field injection hides required dependencies, prevents `final` fields, and makes classes harder to
   instantiate in tests.
 - **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test.
+- **Quarkus/CDI note**: deliberately scoped to Spring's own annotations only, so it never fires on plain
+  `jakarta.inject.Inject` / `@Resource` field injection — the idiomatic style on a CDI/Quarkus application. See
+  ARCH-CODE-016 for the framework-neutral equivalent that covers those standard annotations instead.
 
 ### ARCH-SPRING-002 — Controllers should not depend on repositories
 
@@ -259,13 +289,18 @@ include up to a handful of sample detail lines from ArchUnit.
 ### ARCH-SPRING-004 — Beans should not self-invoke their own proxied methods
 
 - **Severity**: HIGH
-- **Inspects**: direct self-invocation (`this.method()`) of methods proxied through `@Transactional`, `@Async`, or
-  `@Cacheable` on the method, or `@Async` / `@Cacheable` on the declaring class.
+- **Inspects**: direct self-invocation (`this.method()`) of methods proxied through `@Transactional` (Spring's own or the
+  portable `jakarta.transaction.Transactional`), `@Async`, or `@Cacheable` on the method, or `@Async` / `@Cacheable` on
+  the declaring class.
 - **Fires when**: a bean calls one of its own proxied methods directly, bypassing the Spring proxy.
 - **Why it matters**: the transaction, async execution, or caching behaviour is silently lost because the call never
   passes through the proxy — a real correctness bug, not just a style issue.
 - **Recommendation**: refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,
   only if necessary, inject a `@Lazy` self-reference and call through it.
+- **Quarkus/CDI note**: this is a deliberate dual-framework true positive, not a false-positive risk to guard against —
+  self-invocation bypasses a CDI client proxy exactly the same way it bypasses a Spring proxy (Jakarta CDI specification,
+  "Client proxy invocation"), so a CDI bean that self-invokes its own `jakarta.transaction.Transactional` method has the
+  identical bug and should be flagged. See `ArchitectureCdiNeutralityTests` for the pinned true-positive case.
 
 ### ARCH-SPRING-005 — Spring stereotypes should not reside in the default package
 
@@ -297,16 +332,25 @@ include up to a handful of sample detail lines from ArchUnit.
   behave differently across proxy modes and may be silently ignored with AspectJ weaving.
 - **Recommendation**: move transaction annotations to concrete implementation classes or methods.
 
-### ARCH-SPRING-010 — Proxy-driven methods should be public and non-static
+### ARCH-SPRING-010 — Proxy-driven methods should be publicly overridable
 
 - **Severity**: MEDIUM
-- **Inspects**: non-public or static methods annotated with `@Transactional`, `@Async`, or `@Cacheable`.
-- **Fires when**: a proxy-driven Spring annotation is applied to a method that is private, protected, package-private, or
-  static.
-- **Why it matters**: interface-based proxies and the default transaction advisor only apply to public instance methods,
-  so the proxy behaviour can be silently skipped.
-- **Recommendation**: make the annotated method public and non-static so it can be invoked through a Spring proxy, or
-  move the annotation to a method that can be invoked through one.
+- **Inspects**: methods annotated with `@Transactional` (Spring's own or the portable
+  `jakarta.transaction.Transactional`), `@Async`, or `@Cacheable`.
+- **Fires when**: `@Async`, `@Cacheable`, or Spring's own `@Transactional` is applied to a method that is private,
+  protected, package-private, static, or final; or the portable `jakarta.transaction.Transactional` is applied to a
+  method that is private, static, or final.
+- **Why it matters**: interface-based JDK proxies and the default CGLIB subclass proxy only intercept public, overridable
+  instance methods — CGLIB additionally warns and silently calls the original, un-intercepted method when a `final`
+  method carries the annotation — so the proxy behaviour can be silently skipped.
+- **Recommendation**: make the annotated method public, non-static, and non-final so it can be invoked through a Spring
+  proxy, or move the annotation to a method that can be invoked through one.
+- **Quarkus/CDI note**: the portable `jakarta.transaction.Transactional` annotation is held to a different, more
+  permissive bar than Spring's own annotations. Per the Jakarta CDI specification's "Unproxyable bean types" section, a
+  CDI client proxy can intercept public, protected, **and** package-private methods alike — only `private`, `static`, or
+  `final` methods are excluded. Applying Spring's stricter "public only" bar to the shared annotation would false-positive
+  on a protected or package-private `jakarta.transaction.Transactional` method in a Quarkus/CDI application, where the
+  container's own client-proxy mechanism intercepts it correctly.
 
 ### ARCH-SPRING-011 — Async methods should return void or Future
 
@@ -326,9 +370,16 @@ include up to a handful of sample detail lines from ArchUnit.
 - **Fires when**: a scheduled method declares parameters, or returns a non-`void`, non-reactive value type whose result
   Spring will ignore.
 - **Why it matters**: Spring invokes scheduled methods without arguments; synchronous return values are discarded, which
-  often indicates a misunderstood job contract.
+  often indicates a misunderstood job contract. Spring's `ScheduledAnnotationReactiveSupport` recognizes a fixed,
+  evolving set of deferred reactive return types via `ReactiveAdapterRegistry`: any `org.reactivestreams.Publisher`
+  (Reactor's `Mono`/`Flux` included), the JDK's own `java.util.concurrent.Flow.Publisher`, Kotlin's
+  `Flow`/`Deferred`, RxJava **3** types (`io.reactivex.rxjava3.*`), and SmallRye Mutiny's `Uni`/`Multi` when on the
+  classpath — but never RxJava 2 (`io.reactivex.*`, without the `rxjava3` segment) or `CompletionStage`/
+  `CompletableFuture`, both of which Spring registers as non-deferred and so discards exactly like any other synchronous
+  return value.
 - **Recommendation**: declare scheduled methods without parameters and return `void` unless using a supported deferred
-  reactive `Publisher` type.
+  reactive type (a Reactor/Reactive Streams `Publisher`, `java.util.concurrent.Flow.Publisher`, RxJava 3, or SmallRye
+  Mutiny `Uni`/`Multi`).
 
 ### ARCH-SPRING-013 — Async should not be used in configuration classes
 
@@ -388,13 +439,18 @@ include up to a handful of sample detail lines from ArchUnit.
 ### ARCH-SPRING-018 — Lifecycle callbacks should not be proxy-driven
 
 - **Severity**: HIGH
-- **Inspects**: `@PostConstruct` or `@PreDestroy` methods that are also annotated with `@Transactional`, `@Async`, or
-  `@Cacheable`.
+- **Inspects**: `@PostConstruct` or `@PreDestroy` methods that are also annotated with `@Transactional` (Spring's own or
+  the portable `jakarta.transaction.Transactional`), `@Async`, or `@Cacheable`.
 - **Fires when**: a lifecycle callback is annotated with a proxy-driven annotation.
 - **Why it matters**: Spring invokes lifecycle callbacks before the bean is wrapped in its proxy, and after it is unwrapped
   at destruction, so the proxy behaviour never applies.
 - **Recommendation**: move the transactional, asynchronous, or cached work to a separate proxied bean method and invoke it
   after initialization rather than annotating the lifecycle callback itself.
+- **Quarkus/CDI note**: also a deliberate dual-framework true positive. Per the `jakarta.transaction.Transactional`
+  Javadoc (Jakarta Transactions specification): "The Transactional interceptor interposes on business method invocations
+  only and not on lifecycle events. Lifecycle methods are invoked in an unspecified transaction context." So a
+  `@PostConstruct`/`@PreDestroy` method combined with the portable `@Transactional` silently runs without a transaction on
+  Quarkus/CDI exactly as it does on Spring. See `ArchitectureCdiNeutralityTests` for the pinned true-positive case.
 
 ### ARCH-SPRING-019 — Async and transactional semantics on one method should be reviewed
 

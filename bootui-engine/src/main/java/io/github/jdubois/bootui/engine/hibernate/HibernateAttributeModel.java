@@ -157,6 +157,10 @@ public record HibernateAttributeModel(
         return annotation(VERSION) != null;
     }
 
+    boolean isTransient() {
+        return annotation(TRANSIENT) != null;
+    }
+
     boolean hasJoinColumn() {
         return annotation(JOIN_COLUMN) != null || annotation(JOIN_COLUMNS) != null;
     }

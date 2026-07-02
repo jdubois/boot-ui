@@ -5,6 +5,7 @@ import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {hasScanResult, scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
+import {useDismissedRules} from '../utils/useDismissedRules.js'
 import PanelHeader from './components/PanelHeader.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import AdvisorSummary from './components/AdvisorSummary.vue'
@@ -17,6 +18,8 @@ const actionMessage = ref(null)
 const loading = ref(false)
 const search = ref('')
 const vulnerableOnly = ref(false)
+
+const {dismissLoading, dismiss, restore} = useDismissedRules(loadDependencies)
 
 const severityClasses = {
   CRITICAL: 'text-bg-danger',
@@ -61,6 +64,10 @@ function compareDependencies(left, right) {
 }
 
 function compareVulnerabilities(left, right) {
+  // Dismissed vulnerabilities sink to the bottom, mirroring the server's VULNERABILITY_ORDER
+  // (DependencyReports) so re-sorting client-side never undoes the dismissed-last ordering.
+  const dismissed = (left.dismissed ? 1 : 0) - (right.dismissed ? 1 : 0)
+  if (dismissed !== 0) return dismissed
   const severity = severityRank(left.severity) - severityRank(right.severity)
   if (severity !== 0) return severity
   return compareText(left.id, right.id)
@@ -68,6 +75,17 @@ function compareVulnerabilities(left, right) {
 
 function sortedVulnerabilities(vulnerabilities) {
   return [...(vulnerabilities || [])].sort(compareVulnerabilities)
+}
+
+// The composite key persisted in the shared DismissedRulesStore, matching the engine's
+// DependencyReports.dismissalKey(vulnerabilityId, packageName) format exactly.
+function dismissalKey(vulnerabilityId, packageName) {
+  return `${vulnerabilityId}::${packageName}`
+}
+
+function toggleDismiss(dependency, vulnerability) {
+  const key = dismissalKey(vulnerability.id, dependency.packageName)
+  return vulnerability.dismissed ? restore(key) : dismiss(key)
 }
 
 const filteredDependencies = computed(() => {
@@ -252,11 +270,12 @@ onMounted(loadDependencies)
                   </span>
                 </td>
                 <td>
-                  <span v-if="dependency.vulnerabilityCount === 0" class="text-muted">None found</span>
+                  <span v-if="dependency.vulnerabilities.length === 0" class="text-muted">None found</span>
                   <div v-else class="vulnerability-list">
                     <div
                       v-for="vulnerability in sortedVulnerabilities(dependency.vulnerabilities)"
                       :key="vulnerability.id"
+                      :class="{'opacity-50': vulnerability.dismissed}"
                       class="mb-2"
                     >
                       <div class="d-flex flex-wrap align-items-center gap-2">
@@ -275,6 +294,17 @@ onMounted(loadDependencies)
                         <span v-if="vulnerability.fixedVersions.length" class="small text-muted">
                           fixed in {{ vulnerability.fixedVersions.join(', ') }}
                         </span>
+                        <span v-if="vulnerability.dismissed" class="badge text-bg-light border">Dismissed</span>
+                        <button
+                          :disabled="dismissLoading"
+                          :title="vulnerability.dismissed ? 'Restore this vulnerability' : 'Dismiss this vulnerability'"
+                          class="btn btn-sm btn-outline-secondary ms-auto"
+                          type="button"
+                          @click="toggleDismiss(dependency, vulnerability)"
+                        >
+                          <i :class="vulnerability.dismissed ? 'bi-eye' : 'bi-eye-slash'" class="bi me-1"></i>
+                          {{ vulnerability.dismissed ? 'Restore' : 'Dismiss' }}
+                        </button>
                       </div>
                       <div class="small">
                         {{ vulnerability.summary || vulnerability.details || 'No advisory summary available.' }}

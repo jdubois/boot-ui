@@ -78,6 +78,13 @@ includes up to a handful of sample details plus a remediation link.
 - **Recommendation**: Provide a custom login page via formLogin().loginPage(...) for production so the unstyled default page (which advertises the Spring Security stack) is not served.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/form.html>
 
+### SEC-AUTH-007 - HTTP Basic authentication should run only over HTTPS
+
+- **Severity**: HIGH
+- **Detects**: Detects an HTTP Basic authentication chain (BasicAuthenticationFilter) while a production profile is active and no server-side TLS, HTTPS redirect, or forwarded-header strategy is configured. Basic sends the username/password Base64-encoded, not encrypted, on every request.
+- **Recommendation**: Enforce HTTPS via server.ssl.* (or a forwarded-headers strategy when TLS terminates upstream) for any chain using httpBasic(), or switch to a mechanism that does not repeat credentials on every request.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/basic.html>
+
 ## Authorization
 
 ### SEC-AUTHZ-001 - Every filter chain should enforce authorization
@@ -225,6 +232,20 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Detects a browser-facing (authenticated or session) chain that installs no HeaderWriterFilter, which means headers().disable() removed every security header (HSTS, X-Frame-Options, X-Content-Type-Options, ...).
 - **Recommendation**: Remove headers().disable(); keep the default HeaderWriterFilter so security headers are emitted, and only tune individual writers you do not need.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html>
+
+### SEC-HEAD-008 - HSTS should use a strong max-age and includeSubDomains
+
+- **Severity**: LOW
+- **Detects**: Detects an HstsHeaderWriter configured with a max-age under one year or without includeSubDomains, which weakens the protocol-downgrade and cookie-hijacking protection HSTS is meant to provide.
+- **Recommendation**: Keep the default HstsHeaderWriter settings (max-age=31536000, includeSubDomains=true), or configure headers().httpStrictTransportSecurity() explicitly with those values.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-hsts>
+
+### SEC-HEAD-009 - Content-Security-Policy should not allow unsafe-inline/unsafe-eval or wildcard sources
+
+- **Severity**: MEDIUM
+- **Detects**: Detects a ContentSecurityPolicyHeaderWriter policy that includes 'unsafe-inline' or 'unsafe-eval', or a wildcard (*) default-src/script-src, which largely defeats the XSS mitigation a CSP is meant to provide.
+- **Recommendation**: Remove 'unsafe-inline'/'unsafe-eval' and wildcard sources; use nonces or hashes for the scripts/styles the application actually serves.
+- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-csp>
 
 ## CORS
 
@@ -389,3 +410,10 @@ includes up to a handful of sample details plus a remediation link.
 - **Detects**: Notes that, while a production profile is active, the application configures no server-side TLS, HTTPS redirect (requiresChannel/ChannelProcessingFilter), or forwarded-header strategy indicating TLS is terminated upstream.
 - **Recommendation**: Enforce HTTPS via server.ssl.* (or requiresChannel().requiresSecure()), or set server.forward-headers-strategy=framework when TLS is terminated by a proxy so secure cookies and redirects behave correctly.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.embedded-container.configure-ssl>
+
+### SEC-CONFIG-007 - Configuration should not hold literal secret values
+
+- **Severity**: CRITICAL
+- **Detects**: Detects configuration property names that look like they hold a credential (password, secret, token, api-key, client-secret, private-key) whose value is a literal, unresolved string rather than an externalized reference. System properties, the OS environment, the random-value source, and mounted config-tree secrets are not scanned because they are already externalized. Property values are never read into the finding; only the offending property name is reported.
+- **Recommendation**: Move the literal value out of the configuration file into an environment variable, a secrets manager, or a mounted config-tree secret, and reference it with ${ENV_VAR_NAME} instead of a hardcoded literal.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/external-config.html>

@@ -49,11 +49,14 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Inspects**: Spring Data JPA `@Query` methods with a `Pageable` parameter and resolvable JPQL `JOIN FETCH` paths.
 - **Fires when**: Hibernate is older than 7.4 (or the runtime version cannot be detected), Spring Data repository
   metadata is available, and a paged repository query fetch-joins a mapped collection on the repository domain entity.
-  The check is skipped for Hibernate 7.4 or newer.
-- **Why it matters**: collection fetch joins duplicate root rows, so pagination may be applied in memory or require a
-  more explicit two-step query plan.
+- **Why it matters (Hibernate < 7.4)**: collection fetch joins duplicate root rows, and versions before 7.4 applied the
+  `Pageable` limit in memory after loading the full, duplicated result set instead of at the SQL level.
 - **Recommendation**: page root identifiers first, then fetch the required collection graph in a second query inside the
   same transaction.
+- **Hibernate 7.4+**: the ["Limits and fetch joins"](https://github.com/hibernate/hibernate-orm/blob/7.4/migration-guide.adoc#limits-and-fetch-joins)
+  migration-guide entry documents that the limit for a paged query with a collection `JOIN FETCH` is now applied in the
+  generated SQL itself; the `org.hibernate.limitInMemory` query hint restores the pre-7.4 in-memory behavior. The check
+  is skipped (not silently dropped) on 7.4+ runtimes, and the skip reason explains why.
 
 ### HIB-FETCH-004 - Entities should avoid multiple bag collections
 
@@ -132,10 +135,21 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Severity**: MEDIUM
 - **Inspects**: identifier attributes annotated with `@GeneratedValue`.
 - **Fires when**: `strategy` is omitted (or set to `AUTO`).
-- **Why it matters**: `AUTO` typically resolves to `IDENTITY` on databases like MySQL and PostgreSQL, silently disabling
-  JDBC batch inserts.
+- **Why it matters**: `AUTO` never resolves to the database's native `IDENTITY`/auto-increment column. Hibernate's
+  `GeneratorBinder` always maps the JPA `AUTO` strategy to its own `SequenceStyleGenerator`, which uses a real database
+  `SEQUENCE` where the dialect supports one (PostgreSQL, Oracle, H2, SQL Server, ...) and falls back to a slower,
+  row-locking table-based emulation otherwise (e.g. MySQL, which has no native sequence object) - verified directly
+  against the current Hibernate ORM source (`correspondingGeneratorName(GenerationType)` in `GeneratorBinder`, whose
+  `default` case - covering `AUTO` - always returns `SequenceStyleGenerator`, never `IDENTITY`) and the ORM user guide's
+  "Interpreting AUTO" section. Leaving the strategy on `AUTO` means silently accepting whichever of those two Hibernate
+  picks for the current database, instead of a strategy the team has actually reviewed.
 - **Recommendation**: pick the strategy that fits the target database (for example `SEQUENCE` with `allocationSize` on
-  Postgres/Oracle, `IDENTITY` only when truly required) and set it explicitly.
+  Postgres/Oracle, `IDENTITY` only when truly required) and set it explicitly instead of relying on `AUTO`'s
+  dialect-dependent sequence-or-table fallback.
+- **Quarkus/Panache**: skipped for the `id` field inherited as-is from Panache's own `PanacheEntity` (ORM or Reactive),
+  which declares `@Id @GeneratedValue public Long id;` with no explicit strategy and cannot be annotated by the
+  application. A custom identifier the application declares itself (including on a `PanacheEntityBase` subclass) is
+  still checked normally.
 
 ### HIB-ID-005 - UUID identifiers should use @UuidGenerator
 
@@ -320,6 +334,9 @@ includes up to a handful of sample mapped members plus a remediation link.
   enhancer, so it silently fetches the association eagerly.
 - **Recommendation**: enable `hibernate.bytecode.enhancer.enableLazyInitialization` (and configure the enhancement
   plugin), or switch to `@MapsId` so the existing foreign key drives loading.
+- **Quarkus**: bytecode enhancement is always considered enabled. Quarkus enhances every Hibernate ORM entity's
+  bytecode unconditionally at build time (there is no `quarkus.hibernate-orm.enhancement.*` opt-out), so this check
+  never fires there.
 
 ### HIB-MAP-018 - Non-owning @OneToOne triggers N+1 queries
 
@@ -330,6 +347,7 @@ includes up to a handful of sample mapped members plus a remediation link.
   it loads the association eagerly with an extra query per parent row — the classic N+1 pattern.
 - **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key
   (`@MapsId`) and a unidirectional mapping.
+- **Quarkus**: bytecode enhancement is always considered enabled (see HIB-MAP-017), so this check never fires there.
 
 ### HIB-MAP-019 - Missing foreign key indexes
 
@@ -401,21 +419,32 @@ includes up to a handful of sample mapped members plus a remediation link.
 
 - **Severity**: LOW
 - **Inspects**: entity attributes reachable as public fields.
-- **Fires when**: a persistent field is `public`.
+- **Fires when**: a persistent field is `public`. A field annotated `@Transient` is never flagged - it is not
+  written to the database, so it carries none of the accessor-bypass risk this check targets (for example a public
+  `@Transient` flag field used by a hand-written `isNew()`/`Persistable` implementation).
 - **Why it matters**: public fields let callers bypass Hibernate's instrumentation for lazy loading and dirty tracking.
 - **Recommendation**: keep persistent fields private (or package-private) and expose mutators when needed; this
   preserves proxy substitution and bytecode-enhancer guarantees.
+- **Quarkus/Panache**: skipped app-wide when a Panache extension (`quarkus-hibernate-orm-panache` or
+  `quarkus-hibernate-reactive-panache`) is on the runtime classpath. Panache's active-record entities are meant to be
+  used with public fields; once a Panache extension is present, its build-time bytecode transformation rewrites *every*
+  public field access on *any* Hibernate-managed class (not just `PanacheEntityBase` subclasses) into the matching
+  getter/setter call, so the accessor-bypass concern this check targets does not apply.
 
 ### HIB-ENTITY-006 - Avoid primitive @Id or @Version types
 
 - **Severity**: HIGH
 - **Inspects**: the Java type of attributes annotated with `@Id`, `@EmbeddedId`, or `@Version`.
 - **Fires when**: an identifier or version attribute uses a primitive type.
-- **Why it matters**: primitives have default values (for example `0` for `long`). Spring Data's default `isNew()` strategy
-  checks whether the ID or version is `null`, so a default value of `0` can make a new entity look existing and trigger an
-  unnecessary `SELECT` before every `INSERT`.
-- **Recommendation**: use wrapper classes (`Long`, `Integer`) so the default value is `null`, enabling Spring Data to
-  cleanly detect new entities and skip the pre-insert `SELECT`.
+- **Why it matters**: primitives have default values (for example `0` for `long`), so Hibernate/JPA can no longer treat
+  `null` as the signal for "not yet persisted." Frameworks and code paths that rely on that signal - Spring Data's
+  default `isNew()` strategy, Hibernate's own transient/detached detection for cascading and merging - can then
+  misidentify a genuinely new entity as already existing, triggering an unnecessary pre-`INSERT` `SELECT` or a wrong
+  merge decision.
+- **Recommendation**: use wrapper classes (`Long`, `Integer`) so the default value is `null`, enabling both Hibernate and
+  Spring Data to cleanly detect new entities and skip the pre-insert `SELECT`.
+- **Quarkus/Panache**: applies identically. This check inspects only the mapped Java type, so it fires the same way on
+  a Panache active-record entity's `id`/`version` fields as on a plain getter/setter entity.
 
 ### HIB-ENTITY-007 - Assigned IDs should implement Persistable
 
@@ -427,6 +456,9 @@ includes up to a handful of sample mapped members plus a remediation link.
   and issues a `SELECT` before `INSERT`.
 - **Recommendation**: implement `Persistable<ID>` and manage the `isNew()` flag manually, for example via a `@Transient`
   flag set after loading or defaulting to true, so Spring Data avoids the unnecessary `SELECT` before every insert.
+- **Quarkus**: skipped entirely (whole-rule) when `spring-data-commons` is not on the classpath. The concern is specific
+  to Spring Data's repository `save()` merge-vs-persist decision; Panache's own `persist()`/`persistAndFlush()` always
+  issues an `INSERT` and never probes existence first, so there is nothing to recommend on a Quarkus/Panache app.
 
 ### HIB-ENTITY-008 - Mutable entities should declare @Version for optimistic locking
 
@@ -673,12 +705,16 @@ includes up to a handful of sample mapped members plus a remediation link.
 - **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property and paginated collection
   `JOIN FETCH` repository queries.
 - **Fires when**: Hibernate is older than 7.4 (or the runtime version cannot be detected) and the property is absent,
-  false, or unparseable. The check is skipped for Hibernate 7.4 or newer. If matching paginated collection fetch queries
-  exist, the finding is HIGH; otherwise it is INFO hardening guidance for future queries.
-- **Why it matters**: without this guard, affected runtimes can allow a paginated collection fetch join to fetch the whole
-  result set into memory instead of failing fast.
+  false, or unparseable. If matching paginated collection fetch queries exist, the finding is HIGH; otherwise it is INFO
+  hardening guidance for future queries.
+- **Why it matters (Hibernate < 7.4)**: without this guard, affected runtimes can allow a paginated collection fetch join
+  to fetch the whole result set into memory instead of failing fast.
 - **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to throw
   an exception instead of risking a full-table fetch and memory exhaustion.
+- **Hibernate 7.4+**: as described under HIB-FETCH-003, the limit for a paged collection fetch join is now applied in
+  the generated SQL by default, so the in-memory blowup this safety net guards against no longer happens without opting
+  back in via `org.hibernate.limitInMemory`. The check is skipped (not silently dropped) on 7.4+ runtimes, and the skip
+  reason explains why.
 
 ### HIB-CONFIG-017 - Disable SQL formatting in production
 

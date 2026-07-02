@@ -81,9 +81,11 @@
 
         <!--
           Test-scope only: the architecture rule-detection tests need real framework-annotated bytecode
-          (e.g. @Service, @Transactional, @RestController, BeanPostProcessor) to verify the curated rules
-          fire correctly. These never reach the production classpath, and the engine boundary tripwire
-          excludes test classes (DoNotIncludeTests), so the engine stays framework-neutral in production.
+          (e.g. @Service, @Transactional, @RestController, BeanPostProcessor, and plain jakarta.inject /
+          jakarta.transaction annotations for the CDI/Quarkus-neutrality fixtures) to verify the curated
+          rules fire correctly. These never reach the production classpath, and the engine boundary
+          tripwire excludes test classes (DoNotIncludeTests), so the engine stays framework-neutral in
+          production.
         -->
         <dependency>
             <groupId>org.springframework</groupId>
@@ -128,6 +130,16 @@
         <dependency>
             <groupId>jakarta.ws.rs</groupId>
             <artifactId>jakarta.ws.rs-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.transaction</groupId>
+            <artifactId>jakarta.transaction-api</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

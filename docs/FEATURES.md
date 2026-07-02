@@ -198,7 +198,8 @@ configuration, imports the compiled classes from that package, and evaluates a f
 architecture hygiene rules: package cycles between slices, general coding practices (no standard streams, generic
 exceptions, `java.util.logging`, JodaTime, `printStackTrace`, `System.exit`, JDK-internal APIs, legacy date/time, or
 deprecated APIs, poorly named exceptions/interfaces, mutable/visible loggers, production dependencies on test
-frameworks, public mutable static fields, or non-final utility classes), and Spring stereotype/proxy heuristics (no field
+frameworks, public mutable static fields, non-final utility classes, or standard-annotation (`jakarta.inject.Inject` /
+`@Resource`) field injection), and Spring stereotype/proxy heuristics (no `@Autowired`/`@Value` field
 injection, controllers should not depend on repositories, repositories should not depend on controllers or services,
 services should not depend on controllers, services and repositories should stay servlet-agnostic, no self-invocation or
 unproxyable proxy annotations, async/scheduled method signatures should be supported, async should stay out of
@@ -220,7 +221,13 @@ violating rules, sorted by severity and violation count. See
 
 On Quarkus the panel is identical, running the same shared ArchUnit ruleset and on-demand scan over the same report
 contract — the framework-agnostic hygiene rules apply unchanged, while the Spring-stereotype rules simply find no
-matching classes on a Quarkus application. The one platform difference is base-package discovery: Quarkus has no
+matching classes on a Quarkus application. A handful of these rules are deliberately dual-framework instead of
+Spring-only, because they also key on the portable `jakarta.*` annotations a CDI container recognizes: self-invocation
+and proxy-visibility checks also fire on `jakarta.transaction.Transactional`, held to the CDI-accurate, more permissive
+visibility bar (a CDI client proxy can intercept protected and package-private methods, unlike Spring's stricter
+public-only proxies) so they degrade gracefully rather than false-positive — see
+[ARCHITECTURE-CHECKS.md](ARCHITECTURE-CHECKS.md) for the per-rule detail. The one platform
+difference is base-package discovery: Quarkus has no
 `@SpringBootApplication` to read and no reliable runtime package scan under its classloader, so the application's base
 packages are discovered at **build time** from the Jandex application index and supplied to the scanner. Discovery is
 single-module today (sibling modules in a multi-module build are not auto-discovered; the `bootui.internal.base-packages`
@@ -259,7 +266,8 @@ each one inspects.
 The Spring panel runs an explicit, read-only scan of the host application's running Spring application context and
 `Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
 `DataSource`s) and feature flags, then evaluates a curated ruleset across bean wiring, configuration hygiene, profiles and
-environment, performance and concurrency (including virtual threads), web/HTTP settings, and Actuator/management exposure.
+environment, performance and concurrency (including virtual threads), web/HTTP settings, data and persistence, and
+Actuator/management exposure.
 Because it runs inside the
 already-started application, it focuses on "started but suboptimal" states rather than fatal startup conditions. It
 complements the Architecture panel, which statically analyzes compiled bytecode with ArchUnit, by inspecting the live,
@@ -298,17 +306,26 @@ mappings. See [HIBERNATE-CHECKS.md](HIBERNATE-CHECKS.md) for the full rule catal
 
 On Quarkus the panel is identical, running the same shared rule engine over the same report contract when
 `quarkus-hibernate-orm` is present: entities are discovered from the live JPA `EntityManagerFactory` metamodel (across
-all persistence units, de-duplicated by identity), and the mapping/identifier/fetch rules apply unchanged. Two platform
-differences are worth noting. First, persistence configuration is read through a key-mapping layer that translates the
-Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
+all persistence units, de-duplicated by identity), and most mapping/identifier/fetch rules apply unchanged. A few
+platform differences are worth noting. First, persistence configuration is read through a key-mapping layer that
+translates the Spring property names the rules expect onto their Quarkus equivalents — `ddl-auto`/`hbm2ddl.auto` →
 `quarkus.hibernate-orm.schema-management.strategy` (or the deprecated `quarkus.hibernate-orm.database.generation`,
 including the `drop-and-create` ↔ `create-drop` value alias),
 `show-sql` → `quarkus.hibernate-orm.log.sql`, `format_sql` → `quarkus.hibernate-orm.log.format-sql`, and `batch_size` →
 `quarkus.hibernate-orm.jdbc.statement-batch-size`. Unmapped configuration rules find no value and stay silent, and
 their INFO advisories may still cite the Spring-flavored property name. Second, the Open-Session-in-View check is
 correctly **inert** on Quarkus: Quarkus has no OSIV concept, so the effective state is always disabled and the rule never
-fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour). Spring Data repository hints are
-specific to the Spring adapter and are not reported on Quarkus.
+fires (on Spring a missing `spring.jpa.open-in-view` defaults to the web-on behaviour). Third, bytecode enhancement is
+always considered enabled on Quarkus — it enhances every entity unconditionally at build time with no config-based
+opt-out — so the two lazy-`@OneToOne` findings that depend on enhancement being disabled never fire there. Fourth, and
+specific to **Panache** active-record entities: once a Panache extension (`quarkus-hibernate-orm-panache` or
+`quarkus-hibernate-reactive-panache`) is on the classpath, its build-time bytecode rewrite makes public-field access on
+any Hibernate-managed class behave like a getter/setter call app-wide, so the public-persistent-field finding does not
+fire; and the `@GeneratedValue`-without-strategy finding ignores the `id` field Panache's own base entity declares
+(an application-declared identifier is still checked normally). Spring Data repository hints (missing-strategy-aware
+`isNew()` detection for assigned identifiers) are specific to Spring Data JPA's `save()` semantics: without Spring Data
+Commons on the classpath — the normal case for a Panache app, whose `persist()` has no such ambiguity — that whole
+check is skipped rather than reported.
 
 ![BootUI Hibernate panel](./images/bootui-hibernate.webp)
 
@@ -382,13 +399,37 @@ though no Spring-specific probe ran on Quarkus.
 
 The Vulnerabilities panel shows dependency inventory and local OSV vulnerability scan results. It helps identify known
 vulnerable dependencies from the running project's dependency set during the local development loop. Scan findings are
-ordered by severity first, with dependencies and advisories alphabetized within the same severity.
+ordered by severity first (dismissed findings sink to the bottom regardless of severity), with dependencies and
+advisories alphabetized within the same severity.
+
+Severity is derived from [OSV.dev](https://osv.dev/)'s `severity[]` entries, whose `score` field is a CVSS vector string
+for `CVSS_V3`/`CVSS_V4` types (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`), never a bare number. A CVSS
+v3.0/v3.1 vector is parsed into a real numeric Base Score using the formula from the
+[FIRST.org CVSS v3.1 specification](https://www.first.org/cvss/v3-1/specification-document); CVSS v4.0 has no
+closed-form Base Score equation (its MacroVector lookup table is a much larger undertaking) and legacy CVSS v2 is
+essentially unseen in real Maven-ecosystem OSV advisories, so both fall back to the advisory's
+`database_specific.severity` label (`CRITICAL`/`HIGH`/`MODERATE`/`LOW`, normalized to BootUI's `MEDIUM` label) when no
+v3 score is present. An advisory with neither a parseable CVSS v3 score nor a `database_specific` label renders as
+`UNKNOWN` rather than being silently dropped. Advisories carrying a `withdrawn` timestamp are excluded from results
+entirely, since OSV does not filter withdrawn records out of its API responses itself. A single advisory detail fetch
+that fails (network hiccup, rate limiting) no longer aborts the whole scan: it is counted and the scan degrades to
+`PARTIAL`, keeping every advisory that *did* fetch successfully instead of discarding the whole result.
+
+Like every other advisor, a vulnerability can be **dismissed** when it does not apply to your project (already
+patched downstream, accepted risk, or a fix not yet available upstream) — see the shared dismiss/restore explanation
+at the top of this section. The one difference from a flat rule-based advisor is the dismissal key's shape: because a
+vulnerability is scoped to one dependency, it is keyed by `<vulnerability id>::<package name>` (for example
+`GHSA-xxxx-xxxx-xxxx::org.example:sample`) rather than a bare rule id, so dismissing a finding for one dependency never
+accidentally hides the same advisory id reported against a different dependency, and a dismissal survives a
+patch-version bump of the still-vulnerable dependency. Dismissed vulnerabilities stay visible (dimmed, with a
+_Restore_ button) rather than disappearing, and are excluded from the per-dependency and panel-level vulnerable counts.
 
 On Quarkus the panel is identical, listing the local inventory first and contacting OSV.dev only on the user-initiated
-scan, over the same report contract. The one platform difference is dependency discovery: the Spring adapter scans the
-classpath for `META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus runtime classloader, so the
-Quarkus inventory is captured at build time from the application's resolved runtime dependency model and read back at
-runtime (mirroring the Architecture panel's build-time base-package discovery). The OSV lookup itself is identical, and
+scan, over the same report contract, the same CVSS/withdrawn/partial-failure handling, and the same dismiss/restore
+workflow. The one platform difference is dependency discovery: the Spring adapter scans the classpath for
+`META-INF/maven/*/pom.properties`, which is unreliable under the Quarkus runtime classloader, so the Quarkus inventory
+is captured at build time from the application's resolved runtime dependency model and read back at runtime (mirroring
+the Architecture panel's build-time base-package discovery). The OSV lookup itself is identical, and
 `bootui.vulnerabilities.osv-enabled=false` disables on-demand scanning on both adapters.
 
 ![BootUI Vulnerabilities panel](./images/bootui-vulnerabilities.webp)

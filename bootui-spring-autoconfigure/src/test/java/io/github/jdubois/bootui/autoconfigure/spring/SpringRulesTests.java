@@ -37,6 +37,27 @@ class SpringRulesTests {
         assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
     }
 
+    @Test
+    void gracefulShutdownFlagsZeroedGracePeriod() {
+        GracefulShutdownDisabledRule rule = new GracefulShutdownDisabledRule();
+
+        // Zero grace period defeats graceful shutdown just like server.shutdown=immediate.
+        assertThat(rule.evaluate(context(env().withProperty("spring.lifecycle.timeout-per-shutdown-phase", "0"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env().withProperty("spring.lifecycle.timeout-per-shutdown-phase", "0s"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        // A positive grace period (the 30s default or an explicit override) is fine.
+        assertThat(rule.evaluate(context(env().withProperty("spring.lifecycle.timeout-per-shutdown-phase", "20s"))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
+    }
+
     // ── SPRING-WIRING-003: union of Jackson 2 + Jackson 3 mapper beans ────────────
 
     @Test
@@ -123,6 +144,20 @@ class SpringRulesTests {
 
         assertThat(rule.evaluate(context(env())
                                 .defaultPackageBeans(List.of("rootBean"))
+                                .build())
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
+    }
+
+    // ── SPRING-WIRING-009: public mutable fields on singleton beans ──────────────
+
+    @Test
+    void mutableSingletonFieldsFlagged() {
+        MutableSingletonFieldRule rule = new MutableSingletonFieldRule();
+
+        assertThat(rule.evaluate(context(env())
+                                .mutableSingletonFields(List.of("com.example.Counter#hits"))
                                 .build())
                         .status())
                 .isEqualTo("VIOLATION");
@@ -296,6 +331,24 @@ class SpringRulesTests {
                         .status())
                 .isEqualTo("PASS");
         assertThat(rule.evaluate(context(env()).build()).status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void verboseLoggingIsMediumInProduction() {
+        DebugOrTraceLoggingRule rule = new DebugOrTraceLoggingRule();
+
+        MockEnvironment prod = env();
+        prod.setActiveProfiles("prod");
+        prod.setProperty("debug", "true");
+        SpringRuleResultDto result = rule.evaluate(context(prod).build());
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+
+        // Outside a production-like profile the declared LOW severity is unchanged.
+        assertThat(rule.evaluate(context(env().withProperty("debug", "true")).build())
+                        .severity())
+                .isEqualTo("LOW");
     }
 
     // ── SPRING-WEB-005 ───────────────────────────────────────────────────────────
@@ -565,5 +618,57 @@ class SpringRulesTests {
                 .build());
         assertThat(result.status()).isEqualTo("VIOLATION");
         assertThat(result.severity()).isEqualTo("HIGH");
+    }
+
+    // ── SPRING-DATA-001: in-memory datasource in production ──────────────────────
+
+    @Test
+    void inMemoryDatasourceSkippedOutsideProduction() {
+        InMemoryDatasourceInProductionRule rule = new InMemoryDatasourceInProductionRule();
+
+        assertThat(rule.evaluate(context(env().withProperty("spring.datasource.url", "jdbc:h2:mem:testdb"))
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void inMemoryDatasourceFlaggedInProductionForEachEngine() {
+        InMemoryDatasourceInProductionRule rule = new InMemoryDatasourceInProductionRule();
+
+        MockEnvironment h2 = env();
+        h2.setActiveProfiles("prod");
+        h2.setProperty("spring.datasource.url", "jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1");
+        assertThat(rule.evaluate(context(h2).build()).status()).isEqualTo("VIOLATION");
+
+        MockEnvironment hsqldb = env();
+        hsqldb.setActiveProfiles("production");
+        hsqldb.setProperty("spring.datasource.url", "jdbc:hsqldb:mem:testdb");
+        assertThat(rule.evaluate(context(hsqldb).build()).status()).isEqualTo("VIOLATION");
+
+        MockEnvironment derby = env();
+        derby.setActiveProfiles("prod");
+        derby.setProperty("spring.datasource.url", "jdbc:derby:memory:testdb;create=true");
+        assertThat(rule.evaluate(context(derby).build()).status()).isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void inMemoryDatasourcePassesInProductionForARealDatabase() {
+        InMemoryDatasourceInProductionRule rule = new InMemoryDatasourceInProductionRule();
+
+        MockEnvironment prod = env();
+        prod.setActiveProfiles("prod");
+        prod.setProperty("spring.datasource.url", "jdbc:postgresql://db.internal:5432/app");
+        assertThat(rule.evaluate(context(prod).build()).status()).isEqualTo("PASS");
+
+        // File-backed H2 (not jdbc:h2:mem:) is a legitimate durable embedded deployment.
+        MockEnvironment fileH2 = env();
+        fileH2.setActiveProfiles("prod");
+        fileH2.setProperty("spring.datasource.url", "jdbc:h2:file:/var/data/app");
+        assertThat(rule.evaluate(context(fileH2).build()).status()).isEqualTo("PASS");
+
+        MockEnvironment noUrl = env();
+        noUrl.setActiveProfiles("prod");
+        assertThat(rule.evaluate(context(noUrl).build()).status()).isEqualTo("PASS");
     }
 }
