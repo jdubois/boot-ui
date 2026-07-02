@@ -25,7 +25,7 @@ class LiveActivityControllerTests {
 
     @Test
     void shutdownClosesChangeStreamAndTerminatesSchedulerThread() throws Exception {
-        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, true, 100, 100, 2000, 200, 5);
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, true, false, 100, 100, 2000, 200, 5);
         LiveActivityController controller = controllerWith(provider(recorder), empty(ExceptionStore.class));
 
         controller.stream(); // open an SSE emitter so a signal schedules a flush

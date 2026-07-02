@@ -52,7 +52,8 @@ function traceReport(overrides = {}) {
         connectionId: 'conn-1',
         thread: 'http-nio-1',
         slow: false,
-        parameters: ["'42'"]
+        parameters: ["'42'"],
+        callSite: 'com.example.TodoRepository.findById(TodoRepository.java:42)'
       },
       {
         id: 1,
@@ -78,7 +79,8 @@ function traceReport(overrides = {}) {
         executions: 6,
         totalDurationMillis: 60,
         maxDurationMillis: 25,
-        potentialNPlusOne: true
+        potentialNPlusOne: true,
+        callSites: ['com.example.TodoRepository.findById(TodoRepository.java:42)']
       }
     ],
     warnings: ['Bound parameter values are captured in clear text.'],
@@ -132,9 +134,10 @@ describe('SqlTrace', () => {
     expect(text).toContain('possible N+1')
     expect(text).toContain('captured since startup')
     expect(text).toContain('captured in clear text')
+    expect(text).toContain('com.example.TodoRepository.findById(TodoRepository.java:42)')
   })
 
-  it('reveals parameters and thread when a row is expanded', async () => {
+  it('reveals parameters, thread, and call site when a row is expanded', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(traceReport())))
 
     wrapper = mount(SqlTrace, {props: {panel: {id: 'sql-trace'}}})
@@ -145,6 +148,7 @@ describe('SqlTrace', () => {
     const text = wrapper.text()
     expect(text).toContain("'42'")
     expect(text).toContain('http-nio-1')
+    expect(text).toContain('com.example.TodoRepository.findById(TodoRepository.java:42)')
   })
 
   it('filters executions by SQL text', async () => {

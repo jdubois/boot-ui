@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,6 +20,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 /**
  * In-memory, bounded buffer of recently executed JDBC statements.
@@ -72,7 +75,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             String connectionId,
             String thread,
             String traceId,
-            List<String> parameters) {
+            List<String> parameters,
+            String callSite) {
 
         public CapturedStatement {
             parameters = parameters == null ? List.of() : List.copyOf(parameters);
@@ -81,6 +85,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
 
     private final boolean enabled;
     private final boolean captureParameters;
+    private final boolean captureCallSite;
     private final int maxEntries;
     private final long slowQueryThresholdMillis;
     private final int maxSqlLength;
@@ -102,6 +107,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             boolean enabled,
             boolean recording,
             boolean captureParameters,
+            boolean captureCallSite,
             int maxEntries,
             long slowQueryThresholdMillis,
             int maxSqlLength,
@@ -110,6 +116,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         this.enabled = enabled;
         this.recording = new AtomicBoolean(recording);
         this.captureParameters = captureParameters;
+        this.captureCallSite = captureCallSite;
         this.maxEntries = Math.max(1, maxEntries);
         this.slowQueryThresholdMillis = Math.max(0, slowQueryThresholdMillis);
         this.maxSqlLength = Math.max(16, maxSqlLength);
@@ -134,6 +141,10 @@ public final class SqlTraceRecorder implements IdleReclaimable {
 
     public boolean isCaptureParameters() {
         return captureParameters;
+    }
+
+    public boolean isCaptureCallSite() {
+        return captureCallSite;
     }
 
     /**
@@ -205,7 +216,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 connectionId,
                 thread,
                 resolveTraceId(),
-                captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of());
+                captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
+                captureCallSite ? currentCallSite() : null);
         synchronized (lock) {
             buffer.addLast(entry);
             while (buffer.size() > maxEntries) {
@@ -329,13 +341,16 @@ public final class SqlTraceRecorder implements IdleReclaimable {
 
     /**
      * Groups buffered executions by exact statement text, ordered by execution count descending,
-     * and flags repeated {@code SELECT}s that look like an N+1 access pattern.
+     * and flags repeated {@code SELECT}s that look like an N+1 access pattern. Each group's call
+     * sites are aggregated newest-first (bounded to {@link SqlTraceGrouping#MAX_CALL_SITES_PER_GROUP})
+     * by walking the snapshot most-recent-first before aggregating.
      */
     public List<SqlTraceGroupDto> topStatements() {
         List<CapturedStatement> snapshot;
         synchronized (lock) {
             snapshot = new ArrayList<>(buffer);
         }
+        java.util.Collections.reverse(snapshot);
         Map<String, Aggregate> byStatement = new LinkedHashMap<>();
         for (CapturedStatement entry : snapshot) {
             String sql = entry.sql() == null ? "" : entry.sql();
@@ -343,6 +358,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             aggregate.executions++;
             aggregate.totalDuration += entry.durationMillis();
             aggregate.maxDuration = Math.max(aggregate.maxDuration, entry.durationMillis());
+            aggregate.addCallSite(entry.callSite());
         }
         return byStatement.values().stream()
                 .sorted(Comparator.comparingLong((Aggregate a) -> a.executions)
@@ -355,7 +371,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                         a.executions,
                         a.totalDuration,
                         a.maxDuration,
-                        a.category == Category.SELECT && a.executions >= nPlusOneThreshold))
+                        a.category == Category.SELECT && a.executions >= nPlusOneThreshold,
+                        a.callSites()))
                 .toList();
     }
 
@@ -419,7 +436,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 entry.thread(),
                 isSlow(entry.durationMillis()),
                 exposeParameters ? entry.parameters() : List.of(),
-                entry.traceId());
+                entry.traceId(),
+                entry.callSite());
     }
 
     private static String truncate(String value, int max) {
@@ -462,16 +480,73 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         }
     }
 
+    /** Bound on how many stack frames are inspected before giving up on finding an application frame. */
+    private static final int MAX_CALL_SITE_FRAMES = 128;
+
+    private static final StackWalker STACK_WALKER = StackWalker.getInstance();
+
+    /**
+     * Best-effort location of the first application stack frame above the JDBC call — i.e. the first
+     * frame that isn't the JDK, a JDBC driver/connection pool, Hibernate, or BootUI's own
+     * instrumentation (see {@link StackFramePrefixes}) — formatted the same way as
+     * {@link io.github.jdubois.bootui.engine.exceptions.ExceptionStore}'s exception location:
+     * {@code ClassName.methodName(File.java:42)}. Walks at most {@link #MAX_CALL_SITE_FRAMES} frames of
+     * the current thread's stack, short-circuiting at the first match rather than materializing the
+     * whole stack, since this runs on every captured statement rather than only on exceptions. Fully
+     * guarded so a stack-walking failure can never disrupt SQL execution; returns {@code null} when no
+     * application frame is found within the bound, or on any failure.
+     */
+    private static String currentCallSite() {
+        try {
+            return STACK_WALKER.walk(SqlTraceRecorder::selectCallSite);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Pure frame-selection logic factored out of {@link #currentCallSite()} so it can be unit-tested with
+     * a synthetic frame stream, without depending on the ambient call stack of whatever happens to invoke
+     * it (which, inside this codebase's own test suite, never contains a genuine application frame — every
+     * frame belongs to BootUI itself, the JDK, JUnit, or the build tool). Package-private for tests.
+     */
+    static String selectCallSite(Stream<StackWalker.StackFrame> frames) {
+        return frames.limit(MAX_CALL_SITE_FRAMES)
+                .filter(frame -> !StackFramePrefixes.isFrameworkClass(frame.getClassName()))
+                .findFirst()
+                .map(SqlTraceRecorder::formatFrame)
+                .orElse(null);
+    }
+
+    private static String formatFrame(StackWalker.StackFrame frame) {
+        String file = frame.getFileName();
+        String position = file == null
+                ? "Unknown Source"
+                : (frame.getLineNumber() >= 0 ? file + ":" + frame.getLineNumber() : file);
+        return frame.getClassName() + "." + frame.getMethodName() + "(" + position + ")";
+    }
+
     private static final class Aggregate {
         private final String sql;
         private final Category category;
         private long executions;
         private long totalDuration;
         private long maxDuration;
+        private final Set<String> callSites = new LinkedHashSet<>();
 
         private Aggregate(String sql, Category category) {
             this.sql = sql;
             this.category = category;
+        }
+
+        private void addCallSite(String callSite) {
+            if (callSite != null && callSites.size() < SqlTraceGrouping.MAX_CALL_SITES_PER_GROUP) {
+                callSites.add(callSite);
+            }
+        }
+
+        private List<String> callSites() {
+            return List.copyOf(callSites);
         }
     }
 }

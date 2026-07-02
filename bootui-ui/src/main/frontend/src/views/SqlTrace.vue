@@ -316,6 +316,9 @@ function clearTrace() {
                     >
                       possible N+1
                     </span>
+                    <div v-if="group.callSites && group.callSites.length" class="call-sites small text-muted">
+                      <div v-for="site in group.callSites" :key="site" class="font-monospace">at {{ site }}</div>
+                    </div>
                   </td>
                   <td class="text-end">{{ formatNumber(group.executions) }}</td>
                   <td class="text-end">{{ formatNumber(group.totalDurationMillis) }} ms</td>
@@ -426,6 +429,10 @@ function clearTrace() {
                         <dt class="col-sm-2">Thread</dt>
                         <dd class="col-sm-10">
                           <code>{{ entry.thread || '—' }}</code>
+                        </dd>
+                        <dt class="col-sm-2">Call site</dt>
+                        <dd class="col-sm-10">
+                          <code>{{ entry.callSite || '—' }}</code>
                         </dd>
                         <template v-if="!entry.success">
                           <dt class="col-sm-2 text-danger">Error</dt>

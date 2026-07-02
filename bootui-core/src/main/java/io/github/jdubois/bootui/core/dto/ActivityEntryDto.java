@@ -28,6 +28,9 @@ package io.github.jdubois.bootui.core.dto;
  *     from the request's own security context, or via a correlated audit/security event naming one —
  *     the principal it ran as; {@code null} when the request was not secured (no correlated event, or
  *     none with a known principal) or for non-request entries
+ * @param sqlNPlusOneSuspected for a {@code REQUEST} entry, whether its correlated SQL executions contain
+ *     a group that looks like an N+1 access pattern (same threshold/logic the per-request profile
+ *     drawer uses); always {@code false} for non-request entries
  */
 public record ActivityEntryDto(
         String id,
@@ -44,4 +47,5 @@ public record ActivityEntryDto(
         String thread,
         boolean profileable,
         String parentId,
-        String securedPrincipal) {}
+        String securedPrincipal,
+        boolean sqlNPlusOneSuspected) {}

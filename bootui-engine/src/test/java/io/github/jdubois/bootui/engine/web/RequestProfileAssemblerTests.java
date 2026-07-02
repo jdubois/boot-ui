@@ -100,11 +100,35 @@ class RequestProfileAssemblerTests {
     void groupsRepeatedSelectsAsPotentialNPlusOne() {
         HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 500L);
         List<SqlTraceEntryDto> sql = List.of(
-                sql(1, "select * from item where order_id = ?", "trace-a", 5L, 1_001L),
-                sql(2, "select * from item where order_id = ?", "trace-a", 5L, 1_002L),
-                sql(3, "select * from item where order_id = ?", "trace-a", 5L, 1_003L),
-                sql(4, "select * from item where order_id = ?", "trace-a", 5L, 1_004L),
-                sql(5, "select * from item where order_id = ?", "trace-a", 5L, 1_005L));
+                sql(
+                        1,
+                        "select * from item where order_id = ?",
+                        "trace-a",
+                        5L,
+                        1_001L,
+                        "com.example.OrderService.loadItems(OrderService.java:42)"),
+                sql(
+                        2,
+                        "select * from item where order_id = ?",
+                        "trace-a",
+                        5L,
+                        1_002L,
+                        "com.example.OrderService.loadItems(OrderService.java:42)"),
+                sql(
+                        3,
+                        "select * from item where order_id = ?",
+                        "trace-a",
+                        5L,
+                        1_003L,
+                        "com.example.OrderRepository.findByOrderId(OrderRepository.java:17)"),
+                sql(4, "select * from item where order_id = ?", "trace-a", 5L, 1_004L, null),
+                sql(
+                        5,
+                        "select * from item where order_id = ?",
+                        "trace-a",
+                        5L,
+                        1_005L,
+                        "com.example.OrderService.loadItems(OrderService.java:42)"));
 
         RequestProfileDto profile =
                 assembler.profile("req-1", request, List.of(request), sql, List.of(), List.of(), null);
@@ -112,6 +136,10 @@ class RequestProfileAssemblerTests {
         assertThat(profile.sqlGroups()).hasSize(1);
         assertThat(profile.sqlGroups().get(0).executions()).isEqualTo(5L);
         assertThat(profile.sqlGroups().get(0).potentialNPlusOne()).isTrue();
+        assertThat(profile.sqlGroups().get(0).callSites())
+                .containsExactly(
+                        "com.example.OrderService.loadItems(OrderService.java:42)",
+                        "com.example.OrderRepository.findByOrderId(OrderRepository.java:17)");
 
         assertThat(profile.timing().sqlCount()).isEqualTo(5);
         assertThat(profile.timing().sqlMs()).isEqualTo(25L);
@@ -157,6 +185,11 @@ class RequestProfileAssemblerTests {
     }
 
     private static SqlTraceEntryDto sql(long id, String sql, String traceId, long durationMillis, long timestamp) {
+        return sql(id, sql, traceId, durationMillis, timestamp, null);
+    }
+
+    private static SqlTraceEntryDto sql(
+            long id, String sql, String traceId, long durationMillis, long timestamp, String callSite) {
         return new SqlTraceEntryDto(
                 id,
                 timestamp,
@@ -172,7 +205,8 @@ class RequestProfileAssemblerTests {
                 "worker-1",
                 false,
                 List.of(),
-                traceId);
+                traceId,
+                callSite);
     }
 
     private static SecurityLogEventDto security(String principal, String type, String traceId, long epochMillis) {

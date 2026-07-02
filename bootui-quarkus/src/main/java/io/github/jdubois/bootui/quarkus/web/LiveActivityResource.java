@@ -259,7 +259,8 @@ public class LiveActivityResource {
                 entry.thread(),
                 true,
                 entry.parentId(),
-                entry.securedPrincipal());
+                entry.securedPrincipal(),
+                entry.sqlNPlusOneSuspected());
     }
 
     /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */

@@ -113,9 +113,23 @@ class LiveActivityCorrelatorTests {
         BootUiProperties properties = new BootUiProperties();
         properties.getActivity().setNPlusOneThreshold(3);
         SqlTraceController sql = sqlController(
-                sqlEntry(1, START + 1, "SELECT * FROM child WHERE id = ?", "SELECT", 1),
-                sqlEntry(2, START + 2, "SELECT * FROM child WHERE id = ?", "SELECT", 1),
-                sqlEntry(3, START + 3, "SELECT * FROM child WHERE id = ?", "SELECT", 1));
+                sqlEntry(
+                        1,
+                        START + 1,
+                        "SELECT * FROM child WHERE id = ?",
+                        "SELECT",
+                        1,
+                        null,
+                        "com.example.ChildRepository.findByParentId(ChildRepository.java:12)"),
+                sqlEntry(
+                        2,
+                        START + 2,
+                        "SELECT * FROM child WHERE id = ?",
+                        "SELECT",
+                        1,
+                        null,
+                        "com.example.ChildRepository.findByParentId(ChildRepository.java:12)"),
+                sqlEntry(3, START + 3, "SELECT * FROM child WHERE id = ?", "SELECT", 1, null, null));
         LiveActivityCorrelator correlator = correlator(
                 requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)), sql, null, null, properties);
 
@@ -124,6 +138,8 @@ class LiveActivityCorrelatorTests {
         assertThat(profile.sqlGroups()).hasSize(1);
         assertThat(profile.sqlGroups().get(0).executions()).isEqualTo(3);
         assertThat(profile.sqlGroups().get(0).potentialNPlusOne()).isTrue();
+        assertThat(profile.sqlGroups().get(0).callSites())
+                .containsExactly("com.example.ChildRepository.findByParentId(ChildRepository.java:12)");
     }
 
     @Test
@@ -608,11 +624,23 @@ class LiveActivityCorrelatorTests {
                 thread,
                 false,
                 List.of(),
+                null,
                 null);
     }
 
     private static SqlTraceEntryDto sqlEntry(
             long id, long timestamp, String sql, String category, long durationMillis, String traceId) {
+        return sqlEntry(id, timestamp, sql, category, durationMillis, traceId, null);
+    }
+
+    private static SqlTraceEntryDto sqlEntry(
+            long id,
+            long timestamp,
+            String sql,
+            String category,
+            long durationMillis,
+            String traceId,
+            String callSite) {
         return new SqlTraceEntryDto(
                 id,
                 timestamp,
@@ -628,6 +656,7 @@ class LiveActivityCorrelatorTests {
                 "http-thread",
                 false,
                 List.of(),
-                traceId);
+                traceId,
+                callSite);
     }
 }

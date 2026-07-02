@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 class SqlTracingProxiesTests {
 
     private SqlTraceRecorder recorder() {
-        return new SqlTraceRecorder(true, true, true, 100, 100, 2000, 200, 5);
+        return new SqlTraceRecorder(true, true, true, false, 100, 100, 2000, 200, 5);
     }
 
     @Test

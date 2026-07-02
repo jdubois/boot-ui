@@ -12,13 +12,12 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Framework-neutral assembly of a <strong>reduced, trace-id-only</strong> Symfony-style per-request profile,
@@ -44,9 +43,6 @@ import java.util.Map;
  * to this one.</p>
  */
 public final class RequestProfileAssembler {
-
-    /** SQL executions of the same normalized statement at or above this count are flagged as likely N+1. */
-    private static final int N_PLUS_ONE_THRESHOLD = 5;
 
     /**
      * Builds the profile for {@code request}, or an honest {@link RequestProfileDto#unavailable(String)}
@@ -202,38 +198,13 @@ public final class RequestProfileAssembler {
     }
 
     /**
-     * Group correlated SQL statements by normalized text for N+1 detection, mirroring Spring's
-     * {@code LiveActivityCorrelator.groupSql} with a fixed threshold (Quarkus has no equivalent
-     * {@code bootui.activity.n-plus-one-threshold} configuration property yet).
+     * Group correlated SQL statements by normalized text for N+1 detection, delegating to the same
+     * {@link SqlTraceGrouping} helper the list-level Live Activity badge and the global SQL Trace panel
+     * use, so all three agree on exactly what counts as a potential N+1 (Quarkus has no equivalent
+     * {@code bootui.activity.n-plus-one-threshold} configuration property yet, hence the fixed default).
      */
-    private List<SqlTraceGroupDto> groupSql(List<SqlTraceEntryDto> sql) {
-        if (sql.isEmpty()) {
-            return List.of();
-        }
-        Map<String, long[]> stats = new LinkedHashMap<>(); // [executions, totalDuration, maxDuration]
-        Map<String, String> categories = new LinkedHashMap<>();
-        for (SqlTraceEntryDto entry : sql) {
-            String key = normalizeSql(entry.sql());
-            long[] slot = stats.computeIfAbsent(key, k -> new long[3]);
-            slot[0] += 1;
-            slot[1] += entry.durationMillis();
-            slot[2] = Math.max(slot[2], entry.durationMillis());
-            categories.putIfAbsent(key, entry.category());
-        }
-        List<SqlTraceGroupDto> groups = new ArrayList<>();
-        for (Map.Entry<String, long[]> e : stats.entrySet()) {
-            long executions = e.getValue()[0];
-            String category = categories.getOrDefault(e.getKey(), "OTHER");
-            boolean nPlusOne = "SELECT".equalsIgnoreCase(category) && executions >= N_PLUS_ONE_THRESHOLD;
-            groups.add(
-                    new SqlTraceGroupDto(e.getKey(), category, executions, e.getValue()[1], e.getValue()[2], nPlusOne));
-        }
-        groups.sort(Comparator.comparingLong(SqlTraceGroupDto::executions).reversed());
-        return groups;
-    }
-
-    private static String normalizeSql(String sql) {
-        return sql == null ? "" : sql.replaceAll("\\s+", " ").trim();
+    private static List<SqlTraceGroupDto> groupSql(List<SqlTraceEntryDto> sql) {
+        return SqlTraceGrouping.group(sql, SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD);
     }
 
     private static String blankToNull(String value) {
